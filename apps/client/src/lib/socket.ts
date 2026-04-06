@@ -20,11 +20,9 @@ export class TowerSocket {
   private getWsUrl(): string {
     const loc = window.location
     const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-    // In dev (port 5173), Vite proxies /api to localhost:8787, but WS proxy
-    // needs the full backend URL. Check for dev port.
-    if (loc.port === '5173') {
-      return `ws://localhost:8787/api/ws/${this.towerId}`
-    }
+    // Always connect through the current host — Vite proxies /api/ws/* to the
+    // worker in dev (ws: true in vite.config.ts), and in production the same
+    // host serves both the app and the worker.
     return `${protocol}//${loc.host}/api/ws/${this.towerId}`
   }
 
