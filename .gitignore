@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .wrangler/
+.turbo/
 *.local
 .env
 .DS_Store
