@@ -2,6 +2,7 @@
   "name": "tower-together-worker",
   "version": "0.1.0",
   "scripts": {
+    "build": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"
