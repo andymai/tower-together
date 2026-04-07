@@ -223,9 +223,12 @@ export class TowerRoom extends DurableObject<Env> {
 					});
 					return;
 				}
+				// Anything except floor itself may replace floor tiles.
+				const canReplaceFloor = tileType !== "floor";
+				const floorToRemove: string[] = [];
 				for (let dx = 0; dx < w; dx++) {
 					const key = `${x + dx},${y}`;
-					if (this.state.cells[key] || this.state.cellToAnchor[key]) {
+					if (this.state.cellToAnchor[key]) {
 						this.sendTo(ws, {
 							type: "command_result",
 							accepted: false,
@@ -233,8 +236,40 @@ export class TowerRoom extends DurableObject<Env> {
 						});
 						return;
 					}
+					const existing = this.state.cells[key];
+					if (existing) {
+						if (canReplaceFloor && existing === "floor") {
+							floorToRemove.push(key);
+						} else {
+							this.sendTo(ws, {
+								type: "command_result",
+								accepted: false,
+								reason: "Cell already occupied",
+							});
+							return;
+						}
+					}
 				}
 
+				// Non-lobby tiles must be fully supported by a tile in the row below.
+				if (tileType !== "lobby") {
+					for (let dx = 0; dx < w; dx++) {
+						const belowKey = `${x + dx},${y + 1}`;
+						if (
+							y + 1 >= this.state.height ||
+							!this.state.cells[belowKey]
+						) {
+							this.sendTo(ws, {
+								type: "command_result",
+								accepted: false,
+								reason: "No support below",
+							});
+							return;
+						}
+					}
+				}
+
+				for (const key of floorToRemove) delete this.state.cells[key];
 				this.state.cells[`${x},${y}`] = tileType;
 				for (let dx = 1; dx < w; dx++) {
 					this.state.cells[`${x + dx},${y}`] = tileType;
@@ -242,11 +277,12 @@ export class TowerRoom extends DurableObject<Env> {
 				}
 				this.state.cash -= cost;
 
-				const patch = Array.from({ length: w }, (_, dx) => ({
-					x: x + dx,
-					y,
-					tileType,
-				}));
+				const patch: Array<{ x: number; y: number; tileType: string }> =
+					Array.from({ length: w }, (_, dx) => ({ x: x + dx, y, tileType }));
+
+				// Auto-fill any horizontal gaps on this row with free floor tiles.
+				this.fillRowGaps(y, patch);
+
 				this.broadcast({ type: "state_patch", cells: patch });
 				this.sendTo(ws, {
 					type: "command_result",
@@ -283,12 +319,37 @@ export class TowerRoom extends DurableObject<Env> {
 
 				const [ax, ay] = anchorKey.split(",").map(Number);
 				const w = TILE_WIDTHS[tileType] ?? 1;
+
+				// Determine whether the vacated cells should become floor or empty.
+				// Turn to floor if: anything sits above any cell of this tile, OR
+				// there are tiles on both sides of it on the same row.
+				let hasAbove = false;
+				for (let dx = 0; dx < w && !hasAbove; dx++) {
+					if (this.state.cells[`${ax + dx},${ay - 1}`]) hasAbove = true;
+				}
+				let hasLeft = false;
+				for (let lx = ax - 1; lx >= 0 && !hasLeft; lx--) {
+					if (this.state.cells[`${lx},${ay}`]) hasLeft = true;
+				}
+				let hasRight = false;
+				for (let rx = ax + w; rx < this.state.width && !hasRight; rx++) {
+					if (this.state.cells[`${rx},${ay}`]) hasRight = true;
+				}
+				const turnToFloor = hasAbove || (hasLeft && hasRight);
+
+				// Remove the tile.
+				delete this.state.cells[anchorKey];
+				for (let dx = 1; dx < w; dx++) {
+					delete this.state.cells[`${ax + dx},${ay}`];
+					delete this.state.cellToAnchor[`${ax + dx},${ay}`];
+				}
+
+				// Replace with floor cells or empty depending on context.
 				const patch: Array<{ x: number; y: number; tileType: string }> = [];
 				for (let dx = 0; dx < w; dx++) {
-					const key = `${ax + dx},${ay}`;
-					delete this.state.cells[key];
-					if (dx > 0) delete this.state.cellToAnchor[key];
-					patch.push({ x: ax + dx, y: ay, tileType: "empty" });
+					const resultType = turnToFloor ? "floor" : "empty";
+					if (turnToFloor) this.state.cells[`${ax + dx},${ay}`] = "floor";
+					patch.push({ x: ax + dx, y: ay, tileType: resultType });
 				}
 
 				this.broadcast({ type: "state_patch", cells: patch });
@@ -355,6 +416,38 @@ export class TowerRoom extends DurableObject<Env> {
 	}
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+	/** After a placement on row `y`, fill any supported horizontal gaps with free floor. */
+	private fillRowGaps(
+		y: number,
+		patch: Array<{ x: number; y: number; tileType: string }>,
+	): void {
+		if (!this.state) return;
+		// Gaps only make sense if there's a row below to provide support.
+		if (y + 1 >= this.state.height) return;
+
+		// Find the span of occupied cells on this row.
+		let leftmost = -1;
+		let rightmost = -1;
+		for (let x = 0; x < this.state.width; x++) {
+			if (this.state.cells[`${x},${y}`]) {
+				if (leftmost === -1) leftmost = x;
+				rightmost = x;
+			}
+		}
+		if (leftmost === -1) return;
+
+		// Fill every empty, supported gap cell between the leftmost and rightmost tiles.
+		for (let x = leftmost; x <= rightmost; x++) {
+			const key = `${x},${y}`;
+			if (this.state.cells[key]) continue; // already occupied
+			const belowKey = `${x},${y + 1}`;
+			if (!this.state.cells[belowKey]) continue; // no support
+			// Place a free floor tile.
+			this.state.cells[key] = "floor";
+			patch.push({ x, y, tileType: "floor" });
+		}
+	}
 
 	private broadcast(msg: ServerMessage, exclude?: WebSocket): void {
 		for (const ws of this.sockets) {

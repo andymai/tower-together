@@ -158,9 +158,22 @@ export class GameScene extends Phaser.Scene {
 		tileWidth: number,
 		tentative: Set<string>,
 	): boolean {
+		const needsSupport = this.selectedTool !== "lobby";
+		const canReplaceFloor = this.selectedTool !== "floor";
 		for (let dx = 0; dx < tileWidth; dx++) {
 			const key = `${x + dx},${y}`;
-			if (this.grid.has(key) || tentative.has(key)) return false;
+			if (tentative.has(key)) return false;
+			if (this.grid.has(key)) {
+				if (canReplaceFloor && this.grid.get(key) === "floor") {
+					// floor will be replaced — allowed
+				} else {
+					return false;
+				}
+			}
+			if (needsSupport) {
+				if (y + 1 >= GRID_HEIGHT || !this.grid.has(`${x + dx},${y + 1}`))
+					return false;
+			}
 		}
 		return true;
 	}
