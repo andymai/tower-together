@@ -38,6 +38,31 @@ This spec does not attempt to reproduce:
 
 Some player-facing event semantics are still incomplete. Those are listed at the end.
 
+## Permissible Divergences
+
+The goal is a simulation that plays the same way as the original — same rules, same economy, same occupancy dynamics, same event triggers — driven by an alternate UI. It is **not** a goal to reproduce the original's exact internal state tick-for-tick. The following divergences are explicitly acceptable:
+
+**RNG.** The original uses a seeded C runtime PRNG. The reimplementation may use any PRNG with equivalent statistical properties. Individual probabilistic outcomes (which hotel room a guest picks, which venue a condo tenant visits, whether a news event fires on a given tick) will differ, but the long-run distribution of outcomes should match.
+
+**Entity processing order within a tick.** The original processes 1/16 of the entity table per tick in a fixed stride. The reimplementation may process entities in any order that covers all entities once per 16-tick window, as long as checkpoint-driven work fires at the correct tick.
+
+**Notification and popup timing.** The original fires morning/afternoon/evening notification popups at specific tick values. The reimplementation should emit equivalent notifications at equivalent simulation moments but need not match the exact Windows message-dispatch sequence.
+
+**Display-only state.** Fields that feed only UI rendering (object dirty flags, palette state, animation counters) do not need to be maintained if the reimplementation has its own rendering model.
+
+**UI interaction model.** The original uses a Windows message loop with modal dialogs. The reimplementation exposes a command queue and event stream. Command ordering and prompt response timing may differ from the original's message loop as long as the same simulation state transitions result.
+
+**Save file format.** The reimplementation need not read or write `.twr` files compatible with the original. It defines its own serialization format covering the full simulation state required by this spec.
+
+**The following are NOT permissible divergences** — these must match the original:
+
+- All deterministic daily checkpoint logic: timing, ordering, etc.
+- All income and expense amounts: payout table values, expense table values, operating cost formulas.
+- All thresholds and scoring: operational score formulas, `pairing_status` transitions, star-rating activity thresholds.
+- All capacity and routing rules: carrier cost formulas, slot limits, walkability checks, transfer-group logic.
+- All event trigger conditions: fire every 84 days, bomb every 60 days, evaluation on `calendar_phase_flag == 1`.
+- All occupancy lifecycle rules: `stay_phase` transitions, checkout timing, condo refund conditions.
+
 ## Design Principles
 
 Implement the headless simulation with these rules:
@@ -64,6 +89,8 @@ Each placed object is identified by a `(floor_index, subtype_index)` pair. `subt
 
 Every placed object has an `object_type_code` stored in its record, identifying what physical type it is. Entity dispatch and cashflow logic use a matching `family_code`. For most object types these values are the same. When they differ, the spec notes it explicitly.
 
+**Important collision**: object type code `7` is the placed elevator shaft; entity family code `7` is the office worker. Object type code `9` is the placed escalator; entity family code `9` is the condo entity. The type code and family code namespaces are independent — context always makes clear which is meant.
+
 ### Entity State Code Convention
 
 Runtime entity state codes follow a consistent pattern across all families:
@@ -73,12 +100,39 @@ Runtime entity state codes follow a consistent pattern across all families:
 - `0x4x` — in-transit variant of the corresponding `0x0x` state (entity traveling via carrier or stairwell)
 - `0x6x` — at-destination variant (entity has arrived and is performing an activity at a remote floor or venue)
 - `0x27` — parked/night state, used by most families
+- `0x24` — alternate parked state used by hotel room entities when no room is assigned (not to be confused with the `0x2x` active-state band)
 
 States `0x40` and above may be handled by a separate "dispatch" path distinct from the pre-`0x40` "gate" path.
 
 ### `stay_phase` Field
 
-The byte at object record offset `+0x0b` is called `stay_phase` throughout this spec. It encodes an object's occupancy lifecycle: it acts as an occupancy tier marker and a trip counter while the object is active. Its value ranges and meaning differ by family; see the per-family sections. The field name is a recovered semantic label, not the original binary identifier.
+The byte at object record offset `+0x0b` is called `stay_phase` throughout this spec. It encodes an object's occupancy lifecycle: it acts as an occupancy tier marker and a trip counter while the object is active. The field name is a recovered semantic label, not the original binary identifier.
+
+Within the occupied/sold band (`0x00..0x0F`) it acts as a **trip counter**: each outbound commercial trip decrements it; failures and bounces increment it. The morning/evening split (`pre_day_4()`, i.e. `daypart_index < 4`) selects the starting band: morning starts at `0`, evening starts at `8`. Evening tenants require more trips per round before the sibling-sync shortcut fires.
+
+**Cross-family value ranges:**
+
+| Range | Hotels (3/4/5) | Condos (9) | Office entity (family 7) |
+|---|---|---|---|
+| `0x00..0x07` | Occupied (morning check-in) | Sold (morning) | Active |
+| `0x08..0x0F` | Occupied (evening check-in) | Sold (evening) | Active |
+| `0x10` | Sibling sync signal | Sibling sync signal | Deactivation mark |
+| `0x18..0x1F` | Vacant / available | Unsold (morning) | Deactivation mark |
+| `0x20..0x27` | — | Unsold (evening) | — |
+| `0x28..0x2F` | Checked out (morning) | Expiry zone | — |
+| `0x30..0x37` | Checked out (evening) | — | — |
+| `>= 0x38` | Extended vacancy | Extended vacancy | — |
+
+**Per-family trip-counter reset values** (set when `stay_phase == 0x10` on dispatch entry):
+
+| Family | Tile span | Reset value | Trips per round |
+|---|---|---|---|
+| 3 (single room) | 1 | 1 | 1 |
+| 4 (hotel) | 2 | 2 | 2 |
+| 5 (hotel suite) | 3 | 2 | 2 |
+| 9 (condo) | 3 | 3 | ~2 (net, due to sub-tile stagger) |
+
+For hotels, when the counter reaches `& 7 == 0`, checkout fires and `stay_phase` advances to the checked-out range. For condos, income fires once on arrival (sale) — the ongoing trips maintain the operational score that prevents refund. See the per-family sections for detail.
 
 ### Ledger Roles
 
@@ -91,11 +145,15 @@ The simulation maintains three ledgers alongside the cash balance:
 
 ### `calendar_phase_flag`
 
-A binary flag recomputed each day: `(day_counter % 12) % 3 >= 2 ? 1 : 0`. Set on days 2, 5, 8, and 11 of each 12-day cycle (4 out of 12 days). Selects between two alternating behavioral periods used by commercial-venue capacity selection, hotel scheduling, and condo morning-stagger logic. Its player-visible meaning (e.g., weekday vs. weekend) is not yet recovered.
+A binary flag recomputed each day: `(day_counter % 12) % 3 >= 2 ? 1 : 0`. Set on days 2, 5, 8, and 11 of each 12-day cycle (4 out of 12 days). Selects between two alternating behavioral periods used by commercial-venue capacity selection, hotel scheduling, and condo morning-stagger logic.
+
+### `base_offset`
+
+Each runtime entity associated with a multi-tile object carries a `base_offset` value (entity record byte) that is its sub-tile index within the parent object's tile span — `0` for the leftmost tile, `1` for the next, and so on. For a 3-tile condo the values are `0`, `1`, `2`; for a 6-tile office `0`–`5`. `base_offset` is used to stagger per-entity behavior across a multi-tile span — only certain tiles perform specific actions per cycle.
 
 ### `facility_progress_override`
 
-A flag set once every 8 in-game days when the star rating is below 5. While active, commercial venue capacity selection switches to the slot-5 capacity tier instead of the normal slot-3 or slot-4 tier. Its player-visible meaning is not yet recovered.
+A flag set once every 8 in-game days when the star rating is below 5. While active, commercial venue capacity selection switches to the slot-5 capacity tier instead of the normal slot-3 or slot-4 tier.
 
 ### Internal Cross-Reference Notation
 
@@ -138,9 +196,9 @@ Each scheduler tick performs:
 3. If `day_tick == 0x08fc`, increment `day_counter`.
 4. If `day_tick == 0x0a28`, wrap `day_tick` to `0`.
 5. Execute checkpoint-driven subsystem work.
-6. **Entity refresh stride** (if not paused — `game_state_flags & 0x09 == 0`): walks entity table in a 16-way stripe keyed by `day_tick & 0xf`, runs each family's gate/refresh handler.
+6. **Entity refresh stride** (if not paused — `game_state_flags & 0x09 == 0`): processes 1/16 of the entity table per tick, distributing entity updates evenly across the day; runs each family's gate/refresh handler.
 7. **Carrier tick** — for each of 24 carriers (`0..0x17`), if active: for each of up to 8 car units (if the car's active flag is set):
-   a. Advance car state (position, floor check, schedule flags from `served_floor_flags[daypart + calendar_phase_flag*7 - 0x22]`). See "Carrier Car State Machine."
+   a. Advance car state (position, floor check, active-service flag for current daypart and calendar phase). See "Carrier Car State Machine."
    b. Check arrival at floor and dispatch passengers. See "Arrival Dispatch."
    c. `process_unit_travel_queue(carrier, car)` — fill queue from waiting requests. See "Queue Drain."
 
@@ -154,14 +212,14 @@ The following checkpoints fire during each day cycle (day_tick range 0x000–0xa
 - `0x020`: housekeeping daily reset
 - `0x050`: conditional progress notification (if progress-override bit set)
 - `0x078`: conditional progress notification (if progress-override bit set)
-- `0x0a0`: daily popup notification
+- `0x0a0`: morning notification popup
 - `0x0f0`: facility ledger rebuild; fire/bomb event triggers
 - `0x3e8`: entertainment half-runtime activation (pass 1)
 - `0x04b0`: hotel sale count reset; entertainment ready-phase promotion
 - `0x0578`: entertainment half-runtime activation (pass 2)
 - `0x05dc`: entertainment facility phase advance (pass 1)
 - `0x0640`: hotel-pairing and operational update; request-queue flush; stay-phase advance; entertainment midday cycle; security housekeeping; progress override clear
-- `0x06a4`: daily notification popup
+- `0x06a4`: afternoon notification popup
 - `0x0708`: security housekeeping state update
 - `0x076c`: entertainment facility phase advance (pass 2)
 - `0x07d0`: linked facility record advance; security housekeeping; periodic event trigger (every 12 days)
@@ -201,6 +259,10 @@ Clear `g_facility_progress_override` to 0, then:
 
 Sweep all type-0x15 (housekeeping) objects and reset `state` from 6 → 0.
 
+### Checkpoint `0x0a0`: Morning Notification Popup
+
+Fire a morning progress notification popup (no gate; no simulation state effects).
+
 ### Checkpoint `0x0f0`: Facility Ledger Rebuild
 
 1. **Rebuild linked facility records**: Clear family-0xc and family-0xa primary ledger buckets. Sweep the 0x200-entry commercial-venue record table:
@@ -222,22 +284,22 @@ Sweep all type-0x15 (housekeeping) objects and reset `state` from 6 → 0.
 
 ### Checkpoint `0x3e8`: Entertainment Half-Runtime Activation (Pass 1)
 
-Call `activate_entertainment_link_half_runtime_phase(0x10000)`.
+For all **paired-link** entertainment records (`family_selector >= 0`): if `link_phase_state == 0`, set all forward-half entity slots to state `0x20` and advance `link_phase_state` to 1.
 
 ### Checkpoint `0x04b0`: Hotel Sale Count Reset; Entertainment Ready-Phase Promotion
 
 1. Reset `g_family345_sale_count = 0`.
-2. Call `promote_entertainment_links_to_ready_phase(0, 1)`.
-3. Call `activate_entertainment_link_half_runtime_phase(1, 0)`.
+2. **Promote paired-link records to ready-phase**: for each paired-link with `link_phase_state >= 2`, advance `link_phase_state` to 3.
+3. **Activate single-link reverse-half entities**: for each single-link record (`family_selector < 0`) with `link_phase_state == 0`, set all reverse-half entity slots to state `0x20` and advance `link_phase_state` to 1.
 4. Perform hotel-pairing housekeeping (role not fully decoded).
 
 ### Checkpoint `0x0578`: Entertainment Half-Runtime Activation (Pass 2)
 
-Call `activate_entertainment_link_half_runtime_phase(0x10001)`.
+For all **paired-link** entertainment records: if `link_phase_state == 1`, set all reverse-half entity slots to state `0x20`.
 
 ### Checkpoint `0x05dc`: Entertainment Facility Phase Advance (Pass 1)
 
-Call `advance_entertainment_facility_phase(0x10000)`.
+For all **paired-link** records: process forward-half entities in state `0x03` (at-venue): if family is `0x1d` or `pre_day_4() == false` → entity state `0x05`; else → entity state `0x01`. Decrement `active_runtime_count` for each. Set `link_phase_state` to 1 (if count reaches 0) or 2 (if entities remain).
 
 ### Checkpoint `0x0640`: Midday Sweep
 
@@ -257,20 +319,20 @@ Execute in order:
    - Hotel (3/4/5): 0x18→0x20, 0x28→0x30, 0x38→0x40 (step up one tier). Mark dirty.
    - Elevator (7): 0x10→0x18, 0x00→0x08. Mark dirty.
    - Escalator (9): 0x18→0x20; if `state & 0xf8 == 0`: `state = (state & 7) | 0x08`.
-   - Type 0xd: just mark dirty.
+   - Sky lobby / transfer lobby (type 0xd): just mark dirty.
    - Families 0x1f, 0x20, 0x21, 0x24–0x28: set `object[+0xc] = 1`, `object[+0xd] = 0`. Mark dirty.
 
 7. **Entertainment midday cycle**:
-   - Call `promote_entertainment_links_to_ready_phase(1, 1)`.
-   - Call `advance_entertainment_facility_phase(1, 0)`.
+   - **Promote paired-link reverse-half to ready-phase**: for each paired-link with `link_phase_state >= 2`, advance `link_phase_state` to 3.
+   - **Advance reverse phase** for all links: for single-link records, process reverse-half entities in state `0x03` → `0x05` or `0x01`, accrue income via `accrue_facility_income_by_family(0x1d)`, reset `link_phase_state = 0`. For paired-link records, do the same, accrue income via `accrue_facility_income_by_family(0x12)`, reset `link_phase_state = 0`.
 
 8. **Security housekeeping update**: call `update_security_housekeeping_state()`.
 
 9. **Clear progress override**: clear the `facility_progress_override` gate bit and mark global state dirty.
 
-### Checkpoint `0x06a4`: Daily Notification Popup
+### Checkpoint `0x06a4`: Afternoon Notification Popup
 
-Fire a daily notification popup.
+Fire an afternoon progress notification popup (no gate; no simulation state effects).
 
 ### Checkpoint `0x0708`: Security Housekeeping State Update
 
@@ -278,7 +340,7 @@ Call `update_security_housekeeping_state()`.
 
 ### Checkpoint `0x076c`: Entertainment Facility Phase Advance (Pass 2)
 
-Call `advance_entertainment_facility_phase(0x10001)`.
+For all **paired-link** records: advance reverse-half phase (same logic as midday reverse-phase advance, for any paired-link whose midday pass did not complete).
 
 ### Checkpoint `0x07d0`: Late Facility Cycle
 
@@ -305,13 +367,13 @@ Execute in order:
 2. **Reset entity runtime state** (sweeps `g_runtime_entity_table`): for each entity record, normalize runtime state fields by family code (entity byte at `record[+4]`):
    - **3, 4, 5** (hotel): if `get_current_entity_state_word() == 0` → state `0x24` (parked); else if `stay_phase <= 0x17` → state `0x10` (checkout ready); else → state `0x20` (active). Clear bytes `[+7]` and `[+8]`.
    - **6, 10, 12** (commercial venues): state `0x20`. No route fields cleared.
-   - **7** (elevator): state `0x20`. Clear bytes `[+7]`, `[+8]`, word `[+0xc]`.
-   - **9** (escalator): if `stay_phase < 0x18` → state `0x10`; else → state `0x20`. Clear bytes `[+7]`, `[+8]`.
+   - **7** (office entity): state `0x20`. Clear bytes `[+7]`, `[+8]`, word `[+0xc]`.
+   - **9** (condo entity): if `stay_phase < 0x18` → state `0x10`; else → state `0x20`. Clear bytes `[+7]`, `[+8]`.
    - **14, 33** (0xe, 0x21 — security/hotel guest): state `0x01`.
    - **15** (0xf — VIP): state `0x00`, byte `[+7] = 0xff`.
    - **18, 29, 36** (0x12, 0x1d, 0x24 — entertainment/eval): state `0x27`. Clear bytes `[+7]`, `[+8]`, `[+9]`, words `[+0xa]`, `[+0xc]`, `[+0xe]`.
 
-3. **Active-request dispatch**: sweep `g_active_request_table`; for each entry, dispatch through the family-specific handler. See "Tier 1 Residual Gaps — Checkpoint Subsystem Bodies" for the whitelist of families that are flushed here.
+3. **Active-request dispatch**: sweep `g_active_request_table`; for each entry, dispatch through the family-specific handler. See "Checkpoint Subsystem Bodies — Residual Items" in Missing Details for the whitelist of families that are flushed here.
 
 4. **Object-state floor pass**: sweep all placed objects, apply minimum state floors:
    - Hotel (3/4/5): if `state < 0x18` → set `state = 0x10`. Mark dirty.
@@ -327,8 +389,8 @@ Execute in order:
 3. If `day_counter % 3 == 0`: call `apply_periodic_operating_expenses()` — sweeps all floors, carriers, and special links:
    - Types 0x18, 0x19, 0x1a (parking): `add_parking_operating_expense(floor, subtype)`.
    - All other valid placed-object types: `add_infrastructure_expense_by_type(type_code)`.
-   - For each active carrier: mode 0 → type 0x2a, mode 1 → type 0x01, mode 2 → type 0x2b. Calls `add_scaled_infrastructure_expense_by_type(type, unit_count)`.
-   - For each active special link (0x40 entries): flag bit 0 == 0 → type 0x1b, flag bit 0 == 1 → type 0x16. Calls `add_scaled_infrastructure_expense_by_type(type, (unit_count >> 1) + 1)`.
+   - For each active carrier: local elevator (mode 0) → ¥200/unit, express elevator (mode 1) → ¥100/unit, escalator (mode 2) → ¥100/unit; scaled by car-unit count.
+   - For each active special link: stairwell links → ¥50/unit; lobby-connector links → separate rate; each scaled by `(unit_count >> 1) + 1`.
 
 4. Call `rebuild_all_entity_tile_spans()` (same as step 1 of 0x09c4).
 
@@ -336,7 +398,7 @@ Execute in order:
 
 ### Checkpoint `0x09f6`: End-of-Day Notification
 
-Fire end-of-day popup: if `day_counter % 5 == 4` → notification type `0x1389`; otherwise → type `0x1388` (5000 decimal).
+Fire an end-of-day popup. Every 5th day (`day_counter % 5 == 4`) a special variant fires; otherwise the standard end-of-day notification.
 
 ## Simulation State
 
@@ -496,47 +558,47 @@ Priority order depends on `prefer_local_mode`:
 
 Exact formulas recovered from decompile:
 
-**64 special-link segments** (table at `0xc5e4`, stride 10 bytes):
+**64 special-link segments** (stride 10 bytes each):
 - Local: if `segment_flags & 1 == 0` (standard link): cost = `abs(height_delta) * 8`. If `flags & 1 == 1`: cost = `abs(height_delta) * 8 + 0x280`.
 - Express: requires `flags & 1 == 1` (express flag set); cost = `abs(height_delta) * 8 + 0x280`.
 - Segment fields: `[0]` active byte, `[1]` flags byte (bit 0 = express; bits 7:1 = half-span), `[2..3]` start_floor (int), `[4..5]` height_metric (int).
 - Entry floor check: going up → source_floor must equal `segment[+2]`; going down → source_floor must equal `segment[+2] + (flags >> 1)`.
 
-**8 special-link records** (`SpecialLinkRouteRecord_ARRAY_1288_c864`, stride 0x1e4):
+**8 special-link records** (`special_link_record_table`, stride 0x1e4):
 - Cost = 0 if: link is active AND source_floor is within link span AND (target_floor is within span OR target is reachable via transfer-group cache).
 
-**24 carrier records** (`PTR_ARRAY_1288_c05a[0..0x17]`):
+**24 carrier records** (`carrier_record_table[0..0x17]`):
 - Direct coverage: carrier serves both source and target floor → cost = `abs(height_delta) * 8 + 0x280` (elevator) or `1000 + abs(height_delta) * 8` when floor slot status == 0x28.
 - Transfer coverage: carrier serves source, and target is reachable via transfer-group cache → cost = `abs(height_delta) * 8 + 3000` or `6000 + abs(height_delta) * 8` when status == 0x28.
 - Cost for escalators (carrier_mode == 2): always `abs(height_delta) * 8`.
 
 The 0x28 floor-slot status means the carrier car is at capacity or actively departing from that direction; adds 720 penalty (direct) or 3000 penalty (transfer) relative to the normal base cost.
 
-**Carrier record field layout** (each `PTR_ARRAY_1288_c05a[i]` pointer points to a `CarrierRouteRecordHeader`):
+**Carrier record field layout** (each `carrier_record_table[i]` pointer points to a `CarrierRouteRecordHeader`):
 
 Header fields:
 - `carrier_mode` (byte): 0 = local elevator, 1 = express elevator, 2 = escalator
 - `top_served_floor` (signed byte): highest floor served
 - `bottom_served_floor` (signed byte): lowest floor served
 - `floor_queue_span_count` (word): number of served floor slots
-- `served_floor_flags[schedule_index]` (byte array): per-daypart-schedule active-service flag, indexed by `daypart + calendar_phase_flag*7 - 0x22`
+- `served_floor_flags[schedule_index]` (byte array): per-schedule active-service flag; 14 entries covering 7 dayparts × 2 calendar-phase states. Index = `calendar_phase_flag * 7 + daypart` (0–13). Value 0 = out of service for that slot.
 - `primary_route_status_by_floor[floor]` (byte array): upward-direction request/occupancy flag per floor
 - `secondary_route_status_by_floor[floor]` (byte array): downward-direction request/occupancy flag per floor
 
-Per-car data (up to 8 cars, stride 0x15a bytes). Car records are stored at `carrier[0xb].primary_route_status_by_floor[car * 0x15a + offset]`. Active car check: `primary_route_status_by_floor[car * 0x15a - 0x4f] != 0`.
+Per-car data (up to 8 cars). Active car flag is stored in the carrier record; a zero value means the car slot is unused.
 
-Car field offsets:
-- `[-0x5e]`: current floor (signed byte)
-- `[-0x5d]`: door-open wait counter (decremented each tick; 0 = doors closed)
-- `[-0x5c]`: speed countdown (set to 5 on boarding start; decremented to 0 over travel; 0 = car idle)
-- `[-0x5b]`: assigned passenger count
-- `[-0x5a]`: direction flag (up/down, passed to arrival notification)
-- `[-0x59]`: target floor (signed byte)
-- `[-0x58]`: previous floor (copied from current floor when speed countdown expires)
-- `[-0x57]`: departure flag (1 = car in boarding/departure sequence)
-- `[-0x56]` (word): departure timestamp (`g_day_tick` snapshot at boarding start)
-- `[-0x50]`: schedule flag (loaded from `served_floor_flags[daypart + calendar_phase_flag*7 - 0x22]` when car is at top or bottom served floor)
-- `[0x0c + floor]` (via `secondary_route_status_by_floor`): waiting passenger count at each served floor slot
+Car fields (logical names):
+- `current_floor` (signed byte): floor the car is currently on
+- `door_wait_counter` (byte): ticks remaining with doors open; 0 = doors closed
+- `speed_counter` (byte): ticks remaining in departure sequence; set to 5 at boarding start, decremented to 0; 0 = car idle
+- `assigned_count` (byte): number of passengers currently assigned to this car
+- `direction_flag` (byte): current travel direction (up/down), passed to arrival notification
+- `target_floor` (signed byte): floor the car is heading toward
+- `prev_floor` (signed byte): last floor visited; copied from `current_floor` when `speed_counter` hits 0
+- `departure_flag` (byte): 1 = car in boarding/departure sequence
+- `departure_timestamp` (word): `g_day_tick` snapshot taken at boarding start
+- `schedule_flag` (byte): loaded from `served_floor_flags[calendar_phase_flag*7 + daypart]` when car arrives at its top or bottom served floor; controls dwell and departure eligibility
+- `waiting_count[floor]` (byte array): waiting passenger count at each served floor slot
 
 **Floor-to-slot index mapping**:
 
@@ -570,14 +632,18 @@ Long-distance penalty (applied when `abs(segment_height_metric - entity_height_m
 
 **Express route** (`is_floor_span_walkable_for_express_route`): reads same flag array, bit 1 (value 2). Reject span >= 7. Fails immediately if any floor has `flag & 2 == 0` (zero gap tolerance for express).
 
+**Rebuild trigger**: `g_floor_walkability_flags` is rebuilt by sweeping all 64 special-link segment entries. Each entry sets bit 0 (local) or bit 1 (express) on every floor in its span. The sweep zeros all 0x3c floor entries first, then OR-sets bits per segment. The rebuild fires on every carrier object placement or demolition — it is event-driven, not daily.
+
 ### Transfer-Group Cache
 
-Maintained at `TransferGroupCacheEntry_ARRAY_1288_e410`, up to 16 entries × 6 bytes:
+Maintained in `transfer_group_cache`, up to 16 entries × 6 bytes:
 - bytes `[0..3]`: `carrier_mask` — bitmask of which carriers serve this transfer floor
 - byte `[4]`: `tagged_floor` — the floor index of this transfer point
 - byte `[5]`: (padding/reserved)
 
-The cache is rebuilt by `rebuild_transfer_group_cache` on each new day (called from `rebuild_route_reachability_tables`). It scans all placed objects for type-0x18 objects (transit concourse), checks which carriers serve the concourse floor (with mode-based tolerance: elevator/local = ±6, express = ±4), and groups consecutive same-floor concourse objects with overlapping carrier masks into a single entry. The 8 special-link records then get each transfer entry OR'd into their `carrier_mask` if the entry floor falls within the link span.
+The cache is rebuilt by `rebuild_transfer_group_cache`. It scans all placed objects for type-0x18 objects (transit concourse), checks which carriers serve the concourse floor (with mode-based tolerance: elevator/local = ±6, express = ±4), and groups consecutive same-floor concourse objects with overlapping carrier masks into a single entry. The 8 special-link records then get each transfer entry OR'd into their `carrier_mask` if the entry floor falls within the link span.
+
+**Rebuild triggers**: `rebuild_transfer_group_cache` is called from `rebuild_route_reachability_tables` (daily, at checkpoint `0x000`) **and** directly on structural changes: elevator served-floor toggle, elevator demolition, escalator demolition, and elevator shaft top/bottom floor extension. A newly placed or demolished elevator affects routing immediately, not only at the next day boundary.
 
 ### Queue Drain
 
@@ -629,20 +695,20 @@ Per tick, `advance_carrier_car_state(carrier_index, car_index)` advances one car
 **Branch 3 — both zero (car idle)**, split on whether car is at its target floor:
 
 *At target floor AND (passengers waiting at this floor OR assigned_count < capacity)*:
-1. If at top or bottom served floor: reload schedule flag from `served_floor_flags[daypart + calendar_phase_flag*7 - 0x22]` into car's `[-0x50]` slot.
+1. If at top or bottom served floor: reload `schedule_flag` from `served_floor_flags[calendar_phase_flag*7 + daypart]`.
 2. Call `clear_floor_requests_on_arrival(carrier, car, floor)` — clear floor request assignments and update pending counts.
-3. Set speed_counter = 5 (initiate departure sequence).
-4. If departure_flag == 0: save `g_day_tick` → departure_timestamp `[-0x56]`.
-5. Set departure_flag `[-0x57]` = 1.
+3. Set `speed_counter = 5` (initiate departure sequence).
+4. If `departure_flag == 0`: save `g_day_tick` → `departure_timestamp`.
+5. Set `departure_flag = 1`.
 
 *Not at target floor (or no passengers to board)*:
 1. Call `cancel_stale_floor_assignment(carrier, car, floor)` — clear this car's assignment at current floor if it's stale.
-2. Look up slot_index = `floor_to_carrier_slot_index(carrier, floor)`; if >= 0, check direction flag bits at `carrier[1].served_floor_flags[slot_index * 0x144 + (-0x42/-0x40)]` to detect pending requests.
+2. Look up slot_index via `floor_to_carrier_slot_index(carrier, floor)`; if >= 0, check per-floor direction flags to detect pending requests.
 3. Call `advance_car_position_one_step(carrier, car)` — move car one step.
 4. If pending request flags found: call `assign_car_to_floor_request(carrier, floor, direction)` for each active direction.
 
 `dispatch_carrier_car_arrivals(carrier_index, car_index)` is called immediately after and handles passenger exit:
-- If speed_counter == 5 AND `secondary_route_status_by_floor[floor + car * 0x15a + 0xc] != 0` (waiting passengers at current floor):
+- If `speed_counter == 5` AND `waiting_count[floor] != 0` (waiting passengers at current floor):
   - Show notification popup (ID 0x1771).
   - Call `dispatch_destination_queue_entries(carrier, car, floor)` — dispatch all passengers whose destination is current floor.
   - If passengers exited AND floor is within the visible screen range: trigger arrival animation/sound (no simulation state effect).
@@ -667,28 +733,26 @@ Per tick, `advance_carrier_car_state(carrier_index, car_index)` advances one car
 **Departure decision** (`should_car_depart(carrier, car)`):
 Returns 1 (depart now) if any of:
 - `assigned_count == floor_queue_span_count` (car at capacity)
-- `served_floor_flags[daypart + calendar_phase_flag*7 - 0x14] == 0` (out of service per schedule)
+- `service_schedule_flags[calendar_phase_flag*7 + daypart] == 0` (out of service per schedule; parallel 14-entry array in the carrier record, distinct from `served_floor_flags`)
 - `abs(g_day_tick - departure_timestamp) > schedule_flag * 30` (dwell time exceeded)
 
 Returns 0 to keep waiting at current floor.
 
-**Out-of-range reset** (`FUN_1098_0192(carrier_index, car_index, param_3)`):
+**Out-of-range reset** (`reset_out_of_range_car(carrier_index, car_index)`):
 
-Called by `recompute_car_target_and_direction` when `select_next_target_floor` returns a value outside `[bottom_served_floor, top_served_floor]`, with `param_3 = 0xffff`. Writes:
-- `car[-0x5e]` (current_floor) → home floor (from `reachability_masks_by_floor[car_index]`)
-- `car[-0x5d]` (door_wait_counter) → 0
-- `car[-0x5c]` (speed_counter) → 0
-- `car[-0x5b]` (assigned_count) → 0
-- `car[-0x5a]` (direction_flag) → 1 (up)
-- `car[-0x59]` (target_floor) → home floor
-- `car[-0x58]` (prev_floor) → home floor
-- `car[-0x57]` (departure_flag) → 0
-- `car[-0x56..0x55]` (departure_timestamp) → 0
-- `car[-0x54..0x53]` (pending_assignment_count int) → 0
-- `car[-0x52]` (special_flag) → 0
-- `car[-0x51]` (nearest_work_floor) → home floor
-- `car[-0x50]` (schedule_flag) → `served_floor_flags[current_daypart]`
-- `car[-0x4f]` (active flag) → `(car_index + 1 == param_3)`. With `param_3 = 0xffff` this evaluates false (0) for any valid car index 0..7, **deactivating the car**.
+Called by `recompute_car_target_and_direction` when `select_next_target_floor` returns a value outside `[bottom_served_floor, top_served_floor]`. Writes:
+- `current_floor` → home floor (from `reachability_masks_by_floor[car_index]`)
+- `door_wait_counter` → 0
+- `speed_counter` → 0
+- `assigned_count` → 0
+- `direction_flag` → 1 (up)
+- `target_floor` → home floor
+- `prev_floor` → home floor
+- `departure_flag` → 0
+- `departure_timestamp` → 0
+- `pending_assignment_count` → 0
+- `schedule_flag` → `served_floor_flags[current_daypart]`
+- `active_flag` → 0 (**deactivates the car**)
 - All destination-queue slots → `0xff` (sentinel)
 - All floor-request slots → 0
 
@@ -698,18 +762,11 @@ Classifies path codes 5..104 into 7 buckets via `classify_path_bucket_index`:
 - `bucket_index = (code - 5) / 15`; valid only when `(code - 5) % 15 <= 9`
 - Bucket 0: codes 5–14; bucket 1: 20–29; bucket 2: 35–44; etc. (10 valid codes per 15-code group, 7 buckets total)
 - `rebuild_path_seed_bucket_table` purges invalid entries and calls `append_path_bucket_entry` for each live entry.
-- `append_path_bucket_entry(code, entry_index)`: maps code through `classify_path_bucket_index`, appends entry_index to the bucket row at `[0xe5dc + bucket_index * 0x16]` (count in `row[0]`, entries in `row[1..]` at 2-byte stride).
+- `append_path_bucket_entry(code, entry_index)`: maps code through `classify_path_bucket_index`, appends entry_index to the bucket row for that bucket (count in `row[0]`, entries in `row[1..]` at 2-byte stride).
 
-**Source table layout** (`0xe470`, 10 entries × 4 bytes = 40 bytes total):
-- Byte `+0`: `bucket_code` (signed int8; −1 = empty/invalid slot)
-- Byte `+1`: unknown flag byte
-- Bytes `+2..+3`: unknown 16-bit field
+**Source table**: up to 10 entries; each entry records a `(floor_index, subtype_index)` pair identifying the lobby/sky-lobby object that contributed it. An entry is invalidated (removed on next rebuild) when `subtype_index == −1`, meaning the placed object was demolished. After each rebuild, if more than 2 valid entries remain, the upper-tower activation flag is set to 1.
 
-Each entry has an associated per-entry dependency byte in a parallel array at `entry_base - 0x1b8f + i`; value −1 means the dependency object has been removed. `rebuild_path_seed_bucket_table` invalidates (sets code to −1) any entry whose dependency byte is −1, decrementing the count at `0xbc72`. Valid entries are re-initialized then passed to `append_path_bucket_entry`. After the sweep, if the count at `0xbc40 > 2`, the upper-tower activation flag at `0xc1a1` is set to 1.
-
-**Bucket slot layout** (stride 0x16 = 22 bytes, 7 slots starting at the pointer at `0xe5dc`):
-- Word `[0]`: count of stored entries (up to 10)
-- Words `[1..10]`: stored `entry_index` values at 2-byte stride
+**Bucket table**: 7 rows (one per bucket), each holding a count and up to 10 `entry_index` values.
 
 ## Runtime Family Behavior
 
@@ -728,7 +785,7 @@ This family is a transient claimant, not a passive room.
 | `+7` | `spawn_floor` | set to `current_floor` on first pass; negative = uninitialized |
 | `+8` | `route_direction_load` | decremented from route queue; must be `< 0x40` to proceed |
 | `+0xa` | `pending_count` | countdown (set to 3 on claim, decremented to 0 before reset) |
-| `+0xc` | word | `(10 - floor) * 0x400` on successful room assignment |
+| `+0xc` | word | encoded target floor: `(10 - floor) * 0x400`; decode with `floor = 10 - (word >> 10)` |
 
 #### State Machine
 
@@ -756,7 +813,7 @@ This family is a transient claimant, not a passive room.
 #### Claim-Completion Writes (`assign_hotel_room`)
 
 On successful claim:
-1. Guest entity ref (4 bytes) stored in the 6-byte room-slot record at `DS:-0x27ee`.
+1. Guest entity ref (4 bytes) stored in the room's ServiceRequestEntry sidecar slot.
 2. `entity[+0xc] = (10 - floor) * 0x400` (target-floor encoding).
 3. `room_record[+0xb]` (stay_phase) = `(rand() % 13) + 2` — random stay duration 2–14 nights.
 4. `room_record[+0x13]` = 1 — occupancy flag set (room is now taken).
@@ -864,7 +921,7 @@ Remaining routing (all entries):
 
 **State 0x26** — Pre-night preparation:
 
-*Refresh:* tick > 0x8fc: state → 0x24 (if no room assignment, i.e., `entity.BP+10 == 0`) else state → 0x20.
+*Refresh:* tick > 0x8fc: state → 0x24 (if no room assignment, i.e., `entity[+0xa] == 0`) else state → 0x20.
 
 #### stay_phase Values for Hotel Rooms
 
@@ -994,14 +1051,16 @@ Gate handlers use `daypart_index` (range 0–6) to schedule dispatch. `calendar_
 |--------|---------------|----------------|
 | `0x00`, `0x40` | `resolve_entity_route_between_floors(1, floor_10 → assigned_floor)` | result 0–2 → state `0x40`; result 3 (same floor) → state `0x21`; result −1 → state `0x26` |
 | `0x01`, `0x41` | `route_entity_to_commercial_venue(2, floor, subtype, entity)` | fail (-1) → state `0x26` + `release_service_request_entry` |
-| `0x02`, `0x42` | Continue commercial-venue transit; compute floor zone then `resolve_entity_route_between_floors` | result 0–2 → state `0x42`; result 3 → ? |
+| `0x02`, `0x42` | Continue commercial-venue transit; floor-zone index = `entity.word_0xc >> 10`; call `resolve_entity_route_between_floors` to that floor | result 0–2 → state `0x42`; result 3 → call `try_claim_office_slot(entity[+6], entity_ref)`: slot claimed → state `0x23`; slot busy → state `0x42`; no slot → failure handler (state `0x41`) |
 | `0x05`, `0x45` | `resolve_entity_route_between_floors` from assigned floor to lobby (floor 10) | result 0–2 → state `0x45`; result −1 → state `0x26` |
 | `0x20`, `0x60` | If state==`0x20`: `assign_hotel_room(entity, subtype, floor)` then route to assigned floor; state==`0x60`: continue routing | result 0–2 → state `0x40`; result 3 → state `0x21` |
 | `0x21`, `0x61` | `resolve_entity_route_between_floors` to floor 10 (state `0x21`) or saved floor (state `0x61`) | result 0–2 → state `0x61`; result 3 → `advance_stay_phase_or_wrap` |
 | `0x22`, `0x62` | If state==`0x22`: `release_commercial_venue_slot`; then route to saved home floor | result 0–2 → state `0x62`; result 3 → `advance_stay_phase_or_wrap`; result −1 → failure |
-| `0x23`, `0x63` | Enforce minimum 16-tick venue dwell; if elapsed → `resolve_entity_route_between_floors` to saved target | result 0–2 → state `0x63`; result 3 → ? |
+| `0x23`, `0x63` | Enforce 16-tick venue dwell (via `facility[floor][subtype][+0xb]` phase_state_byte decremented in 16-tick entity-table stride); when elapsed → `resolve_entity_route_between_floors` to saved target | result 0–2 → state `0x63`; result 3 → call `advance_stay_phase_or_wrap`; if `base_offset == 1` → state `0x00`; else → state `0x05` |
 
 States `0x25/0x26/0x27` are gate-only (not in dispatch). State `0x20` calls `assign_hotel_room` confirming that entity family 7 workers use the `ServiceRequestEntry` table (same mechanism as hotel guests) to track their assigned service facility.
+
+**`advance_stay_phase_or_wrap`** (called on result 3 from states `0x21`/`0x22`/`0x23`): increments the entity's `stay_phase` trip counter and wraps back to the starting value when the per-family bound is reached. After the call, the next state is selected by `base_offset`: `base_offset == 1` (second tile) → state `0x00` (idle); other tile indices → state `0x05` (return-trip routing).
 
 #### Nearby Support — Which Families Count
 
@@ -1033,47 +1092,18 @@ Confirmed behavior:
 - alternates between restaurant and fast-food demand according to phase and sub-tile index parity
 - nearby-support matching accepts hotel-room families `3/4/5`, parking, and commercial support families
 
-#### `object.stay_phase` (offset +0x0b) — Occupancy Lifecycle Counter
+#### `object.stay_phase` — Condo Lifecycle
 
-This byte encodes the **entire tenancy lifecycle** from move-in through active occupancy to checkout/vacancy. It is used across all commercial families (3/4/5, 7, 9, 10) with family-specific value ranges. The Ghidra-named helper functions reveal its nature: `decrement_slot_stay_duration_and_reset` ("stay duration"), `advance_object_state_record_phase` ("phase"), `collect_hotel_checkout_income` (sets to 0x28/0x30 on checkout).
+See "Data Model Concepts → `stay_phase` Field" for the cross-family value-range table and trip-counter mechanics. Condo-specific notes:
 
-**Cross-family value ranges:**
+**Trip-counter helper functions** for family 9:
+- DEC on trip start: `decrement_entity_slot_counter_b`
+- INC on failure/bounce: `advance_slot_state_from_in_transit_or_increment`
+- Sync gate: `try_set_parent_state_in_transit_if_all_slots_transit`
 
-| Range | Hotels (3/4/5) | Condos (9) | Offices (7) |
-|---|---|---|---|
-| `0x00..0x07` | Occupied (pre-day-4) | Sold (pre-day-4) | Active |
-| `0x08..0x0F` | Occupied (post-day-4) | Sold (post-day-4) | Active (late) |
-| `0x10` | Sibling sync signal | Sibling sync signal | Deactivation mark |
-| `0x18..0x1F` | Vacant / available | Unsold (pre-day-4) | Deactivation mark |
-| `0x20..0x27` | — | Unsold (post-day-4) | — |
-| `0x28..0x2F` | Checked out (pre-day-4) | Expiry zone | — |
-| `0x30..0x37` | Checked out (post-day-4) | — | — |
-| `>= 0x38` | Extended vacancy | Extended vacancy | — |
+**Condo lifecycle:**
 
-Within the occupied/sold band (`0x00..0x0F`), the byte acts as a **trip counter**: each outbound commercial trip decrements it, failures/bounces increment it. There are two parallel helper sets — `_a` for families 3/4/5 and `_b` for family 9:
-
-| Operation | Families 3/4/5 | Family 9 |
-|---|---|---|
-| DEC on trip start | `decrement_entity_slot_counter_a` (`6c77`) | `decrement_entity_slot_counter_b` (`6ee8`) |
-| INC on failure/bounce | `advance_slot_from_in_transit_or_increment_counter` (`6a56`) | `advance_slot_state_from_in_transit_or_increment` (`6ce4`) |
-| Sync gate | `set_entity_slot_state_in_transit_if_ready` (`6b5c`) | `try_set_parent_state_in_transit_if_all_slots_transit` (`6dea`) |
-
-**Per-family trip-counter reset values** (set when `stay_phase == 0x10` on dispatch entry):
-
-| Family | Tile span | Reset value | Trips per round |
-|---|---|---|---|
-| 3 (single room) | 1 | 1 | 1 |
-| 4 (hotel) | 2 | 2 | 2 |
-| 5 (3-tile in 3/4/5) | 3 | 2 | 2 |
-| 9 (condo) | 3 | 3 | ~2 (net, due to sub-tile stagger) |
-
-For **hotels**, when the counter reaches `& 7 == 0`, `collect_hotel_checkout_income` fires and kicks `stay_phase` up to `0x28`/`0x30`. For **condos**, income fires once on arrival (sale), not per-round — the ongoing trips maintain the operational score that prevents refund.
-
-The pre/post-day-4 split (`pre_day_4()`) selects the starting band: pre-day-4 starts at `0`, post at `8`. Post-day-4 tenants require more trips per round before syncing.
-
-**Condo-specific lifecycle:**
-
-After sale: `activate_commercial_tenant_cashflow` resets to `0` (pre-day-4) or `8` (post-day-4). The sold regime is `< 0x18`.
+After sale: `activate_commercial_tenant_cashflow` resets `stay_phase` to `0` (morning, `pre_day_4()` true) or `8` (evening, `pre_day_4()` false). The sold regime is `stay_phase < 0x18`.
 
 #### Condo Sale — Exact Trigger
 
@@ -1086,7 +1116,7 @@ Return `3` (same-floor arrived) fires the activation and then immediately tears 
 Effects of `activate_commercial_tenant_cashflow`:
 1. `add_cashflow_from_family_resource(9, variant_index)` → `g_cash_balance += payout_table[9][variant_index]`
 2. Play UI effect `#3` (sale notification sound/visual)
-3. Reset `object.stay_phase` to `0` (early game) or `8` (late game)
+3. Reset `object.stay_phase` to `0` (morning, `pre_day_4()` true) or `8` (evening, `pre_day_4()` false)
 4. Set `object.dirty_flag = 1`
 5. `add_to_primary_family_ledger_bucket(9, +3)`
 6. Refresh all 3 tiles of the condo span
@@ -1102,7 +1132,7 @@ The `variant_index` (at `object+0x16`) indexes into YEN `#1001` at `family_9 * 0
 - `object.stay_phase < 0x18` (condo is currently in the active/sold regime)
 
 If both conditions hold, it calls `deactivate_commercial_tenant_cashflow`:
-1. Set `object.stay_phase` to `0x18` (early game) or `0x20` (late game)
+1. Set `object.stay_phase` to `0x18` (morning, `pre_day_4()` true) or `0x20` (evening, `pre_day_4()` false)
 2. Set `object.dirty_flag = 1` (+0x13)
 3. Set `object.pairing_active_flag = 0` (+0x14)
 4. Set `object.activation_tick_count = 0` (+0x17)
@@ -1145,7 +1175,7 @@ Now confirmed:
 `try_set_parent_state_in_transit_if_all_slots_transit` (called from state `0x04`):
 - If `object.stay_phase & 7 == 1`: immediately set `object.stay_phase = 0x10` (shortcut — last round)
 - Otherwise: checks all 3 sibling entity slots; only when all siblings are in state `0x10` does it write `0x10` to `object.stay_phase`
-- The net effect per morning cycle: tiles 0 and 2 (even) decrement via `6ee8`, tile 1 (odd) increments via `6ce4` → net -1 per cycle. After ~2 cycles from 3, stay_phase reaches 1, triggering the sync shortcut.
+- The net effect per morning cycle: tiles 0 and 2 (even) decrement, tile 1 (odd) increments → net −1 per cycle. After ~2 cycles from 3, stay_phase reaches 1, triggering the sync shortcut.
 
 #### Full State Machine
 
@@ -1153,46 +1183,51 @@ Now confirmed:
 REFRESH GATE (family 9, states < 0x40):
   State 0x10: daypart < 5 → dispatch; daypart >= 5 AND day_tick > 0xa06 → 1/12 RNG → dispatch
   State 0x00: daypart == 0 AND day_tick > 0xf0 → 1/12 RNG → dispatch; daypart == 6 → no-op; else → dispatch
-  State 0x01: morning AND subtype_index % 4 == 0 → special path (see below); else same as 0x00
+  State 0x01: g_calendar_phase_flag == 1 AND subtype_index % 4 == 0 → special path (see below); else same as 0x00
   State 0x04: base_offset == 2 → daypart >= 5 → dispatch; else daypart >= 5, day_tick > 0x960 OR 1/12 RNG → dispatch
 
 DISPATCH (has_tenant path):
 State 0x10 (re-arm / sibling sync):
   if object.stay_phase == 0x10: rewrite to 3, mark dirty
-  if morning_flag == 1:
-    subtype_index % 2 != 0 → advance_slot (INC stay_phase) → state 0x04  [stagger bounce]
+  if g_calendar_phase_flag == 1:
+    subtype_index % 2 != 0 → advance_slot_state_from_in_transit_or_increment (INC stay_phase) → state 0x04  [stagger bounce]
     subtype_index % 2 == 0 → state 0x01
   else:
     base_offset == 1 → state 0x01
     else → state 0x00
 
+State 0x01 SPECIAL PATH (gate: g_calendar_phase_flag == 1 AND subtype_index % 4 == 0):
+  if daypart < 4: no action (entity stays in state 0x01, gate will re-check next tick)
+  if daypart == 4: rand() % 6 == 0 → fall through to normal 0x00 dispatch; else no action
+  if daypart > 4: entity.state = 0x04 (force teardown — day is ending, condo trip cycle skipped)
+
 State 0x01/0x41 (outbound commercial support trip):
   if state == 0x01: decrement_entity_slot_counter_b (DEC stay_phase)
-  choose selector: 0 (not morning), 1 (morning + subtype_index%4==0), 2 (morning + other)
-  call route_entity_to_commercial_venue (1238:0000)
-    -1 → teardown (6ce4 INC) → state 0x04
+  choose selector: 0 (g_calendar_phase_flag == 0), 1 (phase_flag == 1 + subtype_index%4==0), 2 (phase_flag == 1 + other)
+  call route_entity_to_commercial_venue
+    -1 → advance_slot_state_from_in_transit_or_increment (INC stay_phase) → state 0x04
     other → state 0x41
 
 State 0x20/0x60 (arrival check — SALE POINT):
-  call route_to_floor (1218:0000), passing is_sold=(stay_phase < 0x18)
+  call route_entity_to_commercial_venue, passing is_sold=(stay_phase < 0x18)
   switch on result:
-    no-route: stay_phase >= 0x18 → state 0x20, clear counters; stay_phase < 0x18 → teardown (6ce4) → state 0x04
+    no-route: stay_phase >= 0x18 → state 0x20, clear counters; stay_phase < 0x18 → advance_slot_state_from_in_transit_or_increment → state 0x04
     queued/en-route: stay_phase >= 0x18 → activate_commercial_tenant_cashflow → state 0x60 [SALE]; stay_phase < 0x18 → state 0x60
-    arrived: stay_phase >= 0x18 → activate + teardown → state 0x04 [SALE]; stay_phase < 0x18 → teardown → state 0x04
+    arrived: stay_phase >= 0x18 → activate + advance_slot → state 0x04 [SALE]; stay_phase < 0x18 → advance_slot → state 0x04
 
 State 0x21/0x61 (return route):
-  call 1218:0000
+  call resolve_entity_route_between_floors (home floor)
     1/2/3 → state 0x61
-    0/4 → teardown (6ce4) → state 0x04
+    0/4 → advance_slot_state_from_in_transit_or_increment → state 0x04
 
 State 0x22/0x62 (release venue slot, route home):
-  call 1238:0244 (release + route back)
-    -1/3 → teardown (6ce4) → state 0x04
+  call release_commercial_venue_slot then route_entity_to_commercial_venue (home)
+    -1/3 → advance_slot_state_from_in_transit_or_increment → state 0x04
     other → continue
 
 State 0x04 (reset):
   entity state → 0x10
-  call try_set_parent_state_in_transit_if_all_slots_transit (6dea)
+  call try_set_parent_state_in_transit_if_all_slots_transit
     → sets stay_phase = 0x10 when all siblings in state 0x10 or stay_phase & 7 == 1
 ```
 
@@ -1207,7 +1242,7 @@ States `0x20..0x22` are the **unsold** equivalents of `0x60..0x62`. The activati
 - Refund fires on the next `g_day_counter % 3 == 0` tick after `pairing_status` falls to `0` and `stay_phase < 0x18`
 - `pairing_status` is driven by `recompute_object_operational_status`: average tile-level runtime metrics across the 3 condo tiles, apply variant/support bonuses, compare against thresholds → `pairing_status` = 2/1/0
 - Nonzero `pairing_status` blocks refund; zero allows it. The score reflects quality of commercial support in the condo's floor area.
-- `activation_tick_count` (+0x17, capped at 120) is incremented per-tick while sold — its exact role in A/B/C condo rating display is not yet recovered, but it drives the "three strikes" vacancy expiry mechanism
+- `activation_tick_count` (+0x17, capped at 120) is incremented each tick by `activate_family_cashflow_if_operational` while sold, and cleared on deactivation. It has **no role in the A/B/C rating display** — A/B/C is determined entirely by `pairing_status` (+0x15). `activation_tick_count` is used only as a "three strikes" counter by `handle_extended_vacancy_expiry` when `stay_phase > 0x27`
 - `stay_phase` oscillates: sale resets to 0/8 → dispatch resets from 0x10 to 3 → net -1 per morning cycle (even tiles DEC, odd tile INC) → reaches 1 → sync shortcut → back to 0x10
 
 #### Operational Scoring — Resolved
@@ -1246,8 +1281,6 @@ The pipeline runs in two steps, called from `dispatch_entity_behavior` and from 
 The tile average is then `word_0xe / byte_0x9` = **average elapsed ticks between entity visits**. This is an inter-visit interval: lower = more frequently visited = better operational score. The 300-tick clamp prevents a single long gap from dominating the running average.
 
 **Thresholds** are per-star-rating, loaded from the startup tuning resource:
-
-Thresholds are per-star-rating, loaded from the startup tuning resource:
 
 | Star rating | threshold_1 | threshold_2 |
 |---|---|---|
@@ -1313,9 +1346,9 @@ Each record is at least 0x12 bytes. All offsets relative to record start:
 | `[0]` | byte | `owner_floor_index` | floor where venue object is placed |
 | `[1]` | byte | `owner_subtype_index` | subtype of venue on that floor; `0xff` = invalid |
 | `[2]` | byte | `availability_state` | `-1`=invalid, `0`=open, `1`=partial (≥1 occupant), `2`=near-full (≥10 occupants), `3`=closed (seeded at daily cutoff) |
-| `[3]` | byte | `capacity_slot_3` | seed capacity for slot-3 days; initialized to `10`, reset to `0` after first use |
-| `[4]` | byte | `capacity_slot_4` | seed capacity for slot-4 days; initialized to `10`, reset to `0` after first use |
-| `[5]` | byte | `capacity_slot_5` | seed capacity for slot-5 days; initialized to `10`, reset to `0` after first use |
+| `[3]` | byte | `capacity_phase_a` | seed capacity for calendar-phase-A days (`g_calendar_phase_flag == 0`); initialized to `10`, reset to `0` after first use |
+| `[4]` | byte | `capacity_phase_b` | seed capacity for calendar-phase-B days (`g_calendar_phase_flag != 0`); initialized to `10`, reset to `0` after first use |
+| `[5]` | byte | `capacity_override` | seed capacity when `facility_progress_override` is active (every-8-days boost); initialized to `10`, reset to `0` after first use |
 | `[6]` | byte | `active_capacity_limit` | remaining service capacity for today (counts down) |
 | `[7]` | byte | `today_visit_count` | visits served today (counts up) |
 | `[8]` | byte | `yesterday_visit_count` | copy of `field_0x7` from previous cycle |
@@ -1324,6 +1357,8 @@ Each record is at least 0x12 bytes. All offsets relative to record start:
 | `[0xb]` | byte | (reserved) | |
 | `[0xc..0xf]` | int | `negative_capacity_marker` | `-(active_capacity_limit + 1)`; used as gate in capacity checks |
 | `[0x10..0x11]` | int | `visitor_count` | accumulated cross-type visitor count; input to `derive_commercial_venue_state_code` |
+
+**Demolition teardown**: when the hosting placed object (type 6, 10, or 12) is demolished via `delete_placed_object_and_release_sidecars`, byte `[1]` (`owner_subtype_index`) is set to `0xff`. Checkpoint `0x0f0` then treats the record as stale on its next sweep and decrements the active venue count.
 
 #### Slot Acquisition (`acquire_commercial_venue_slot`)
 
@@ -1350,26 +1385,26 @@ Each record is at least 0x12 bytes. All offsets relative to record start:
 
 #### Progress Slot Selection (`select_facility_progress_slot`)
 
-Returns the active column (3, 4, or 5) used for capacity lookups:
+Returns which capacity seed field to use for today:
 
-- `5` if `g_facility_progress_override != 0` (set once every 8 days at tick 0x000 when star < 5)
-- `3` if `g_calendar_phase_flag == 0` (first half of the year / weekday cycle)
-- `4` if `g_calendar_phase_flag != 0` (second half / weekend cycle)
+- `capacity_override` if `g_facility_progress_override != 0` (set once every 8 days at tick 0x000 when star < 5)
+- `capacity_phase_a` if `g_calendar_phase_flag == 0`
+- `capacity_phase_b` if `g_calendar_phase_flag != 0`
 
 #### Type-Specific Capacity Ceilings (`get_type_specific_capacity_limit`)
 
-Each type has three per-progress-slot tuning globals:
-- Restaurant: `g_restaurant_capacity_limit_slot_3`, `_slot_4`, `_slot_5`
-- Retail shop: `g_retail_shop_capacity_limit_slot_3`, `_slot_4`, `_slot_5`
-- Fast food: `g_fast_food_capacity_limit_slot_3`, `_slot_4`, `_slot_5`
+Each type has three tuning globals, one per phase:
+- Restaurant: `g_restaurant_capacity_limit_phase_a`, `_phase_b`, `_override`
+- Retail shop: `g_retail_shop_capacity_limit_phase_a`, `_phase_b`, `_override`
+- Fast food: `g_fast_food_capacity_limit_phase_a`, `_phase_b`, `_override`
 
-Returns the value for the current progress slot.
+Returns the ceiling for the active phase.
 
 #### Venue Record Initialization (`allocate_facility_record`)
 
 On placement, each new venue record is initialized:
-- `field_0x3 = field_0x4 = field_0x5 = 10` (all three slot seeds start at 10).
-- The current active slot (from `select_facility_progress_slot()`) is immediately reset to 0 — it will be rebuilt on the next recompute cycle.
+- `capacity_phase_a = capacity_phase_b = capacity_override = 10` (all three phase seeds start at 10).
+- The current active phase seed (from `select_facility_progress_slot()`) is immediately reset to 0 — it will be rebuilt on the next recompute cycle.
 - For enabled-link venues: `active_capacity_limit = 10`, `today_visit_count = 0`, `yesterday_visit_count = 10`.
 - For disabled-link venues: `active_capacity_limit = 0`, `today_visit_count = 10`, `yesterday_visit_count = 0`.
 - `field_0xb` is set from a per-type cycling counter (modulo 5 for restaurant/fast-food, modulo 11 for retail).
@@ -1379,8 +1414,8 @@ On placement, each new venue record is initialized:
 Called at 0x0f0 (non-type-6) or 0x0640 (type-6):
 
 1. If `availability_state != -1`: set `availability_state = 0` (open for business).
-2. Call `select_facility_progress_slot()` → slot 3, 4, or 5.
-3. Read seed capacity from the matching slot byte: slot 3 → `field_0x3`; slot 4 → `max(field_0x3, field_0x4)`; slot 5 → `field_0x5`.
+2. Call `select_facility_progress_slot()` → one of `capacity_phase_a`, `capacity_phase_b`, or `capacity_override`.
+3. Read seed capacity: phase-a → `capacity_phase_a`; phase-b → `max(capacity_phase_a, capacity_phase_b)`; override → `capacity_override`.
 4. Cap by `get_type_specific_capacity_limit(type)` (tuning globals). Floor at 10 (minimum capacity).
 5. Write `active_capacity_limit = capped_value`; `negative_capacity_marker = -(active_capacity_limit + 1)`.
 6. Copy `today_visit_count` → `yesterday_visit_count` (`field_0x8 = field_0x7`).
@@ -1464,18 +1499,18 @@ Object type assignment on allocation (`allocate_entertainment_link_record`):
    - Clear `pending_transition_flag`, `active_runtime_count`, `attendance_counter`.
    - Add `forward_phase + reverse_phase` to primary family ledger (family `0x12` or `0x1d`).
 
-2. **Checkpoint `0x3e8`** (`activate_entertainment_link_half_runtime_phase(0, 1)`): Activates forward-half entities of all paired-link (`family_selector >= 0`) records: sets their state to `0x20`; promotes `link_phase_state` 0→1.
+2. **Checkpoint `0x3e8`**: Activates forward-half entity slots of all paired-link (`family_selector >= 0`) records: sets their state to `0x20`; promotes `link_phase_state` 0→1.
 
-3. **Checkpoint `0x04b0`** (`promote_entertainment_links_to_ready_phase(0, 1)` then `activate_entertainment_link_half_runtime_phase(1, 0)`): Promotes paired-link phase 2+ → 3; activates reverse-half entities of single-link records.
+3. **Checkpoint `0x04b0`**: Promotes paired-link `link_phase_state` 2→3 (ready-phase); then activates reverse-half entity slots of all single-link records: state → `0x20`, `link_phase_state` 0→1.
 
-4. **Checkpoint `0x0578`** (`activate_entertainment_link_half_runtime_phase(1, 1)`): Activates reverse-half entities of paired-link records.
+4. **Checkpoint `0x0578`**: Activates reverse-half entity slots of paired-link records with `link_phase_state == 1`.
 
-5. **Checkpoint `0x05dc`** (`advance_entertainment_facility_phase(0, 1)`): Advances forward phase for paired-link records. For each entity in state `0x03`: if family is `0x1d` or not `pre_day_4()`: state → `0x05`; else: state → `0x01`. Decrements `active_runtime_count`. Then sets `link_phase_state`: 1 (if count == 0) or 2 (if count > 0).
+5. **Checkpoint `0x05dc`**: Advances forward phase for paired-link records. For each entity in state `0x03`: if family is `0x1d` or not `pre_day_4()`: state → `0x05`; else: state → `0x01`. Decrements `active_runtime_count`. Sets `link_phase_state`: 1 (if count == 0) or 2 (if count > 0).
 
 6. **Checkpoint `0x0640` (midday)**:
-   - `promote_entertainment_links_to_ready_phase(1, 1)`: promotes reverse phase for paired-link.
-   - `advance_entertainment_facility_phase(1, 0)`: reverse phase for single-link. Accrues income (`accrue_facility_income_by_family(0x1d)`); resets `link_phase_state = 0`.
-   - `advance_entertainment_facility_phase(1, 1)`: reverse phase for paired-link. Accrues income (`accrue_facility_income_by_family(0x12)`); resets `link_phase_state = 0`.
+   - Promotes paired-link `link_phase_state` 2→3 for reverse-half.
+   - Advances reverse phase for single-link records: entities in state `0x03` → `0x05`/`0x01`; accrues income (`accrue_facility_income_by_family(0x1d)`); resets `link_phase_state = 0`.
+   - Advances reverse phase for paired-link records: same logic; accrues income (`accrue_facility_income_by_family(0x12)`); resets `link_phase_state = 0`.
 
 #### Income Computation
 
@@ -1536,7 +1571,7 @@ Called from `accrue_facility_income_by_family(0x12)` at checkpoint `0x0640` (rev
 **State `0x22/0x62`** — At commercial venue, return (`handle_entertainment_service_release_return`):
 
 1. If state==`0x22`: `release_commercial_venue_slot`; if min stay not met: stay at `0x22`.
-2. Route to floor 10 (`record_blocked_pair = 10`).
+2. Route to floor 10 (lobby; blocked-pair recording enabled).
    - `0/1/2`: state → `0x62`
    - `3` or `0xffff`: state → `0x27`
 
@@ -1577,7 +1612,7 @@ Gate behavior:
 1. Call `select_random_venue_bucket_for_hotel_guest()` → stores record index in `entity[+6]`.
 2. If `entity[+6] < 0` (no valid venue found): state → `0x27` (park).
 3. Get destination floor: `get_current_commercial_venue_destination_floor(entity_ref)` → reads `CommercialVenueRecord[entity[+6]].owner_floor_index`.
-4. Resolve route: `resolve_entity_route_between_floors(1, 1, entity_ref, hotel_floor + 2, dest_floor, 0)`.
+4. Resolve route to venue: `emit_failure_feedback=1`, `emit_distance_feedback=1`, source = `hotel_floor + 2`, target = `dest_floor`, `record_blocked_pair=0`.
    - `0/1/2` (queued or en route): state → `0x41`
    - `3` (arrived): call `acquire_commercial_venue_slot(entity_ref, entity[+6])`:
      - Returns `2` (overcapacity): state → `0x41` (re-queue)
@@ -1597,7 +1632,7 @@ Gate behavior:
 1. If state is exactly `0x22` (first entry — was not routing back): call `release_commercial_venue_slot(entity_ref, ..., entity[+6])`.
    - Returns `0` (minimum stay not yet met): return without changing state (stay at `0x22`).
    - Returns non-zero (ready to leave): proceed to step 2.
-2. Resolve return route: `resolve_entity_route_between_floors(1, 1, entity_ref, entity[+7], hotel_floor, ...)`.
+2. Resolve return route: `emit_failure_feedback=1`, `emit_distance_feedback=1`, source = `entity[+7]` (venue floor), target = `hotel_floor`.
    - `0/1/2`: state → `0x62`
    - `3` (arrived): state → `0x01` (start next cycle)
    - `0xffff`: state → `0x27` (park)
@@ -1662,13 +1697,32 @@ Known structure:
 - 8 runtime slots each
 - total of 40 evaluation entities
 
+**Per-star-rating activity-score thresholds** (from startup tuning resource):
+
+| Star transition | `g_activity_score` threshold |
+|---|---|
+| 1 → 2 | ≥ **300** |
+| 2 → 3 | ≥ **1000** |
+| 3 → 4 | ≥ **5000** |
+| 4 → 5 | ≥ **10000** |
+| 5 → Tower | ≥ **15000** |
+
+`g_activity_score` is a **composite activity counter** maintained through a per-family bucket table. It is not a cash amount. Each family contributes a different increment per activation event:
+- Single room (family 3) occupied: +1
+- Twin room or suite (family 4/5) occupied: +2
+- Condo sold: +3
+- Office activated: +6 (all 6 worker slots)
+- Entertainment link active: +income_rate value (not a person count)
+
+`star_count` is an integer, 1–5 for star ratings, 6 for Tower. Upgrades are blocked when `star_count == 6`.
+
 Flow:
 
-1. If the tower has reached the required threshold and `g_calendar_phase_flag == 1`, evaluation becomes eligible.
+1. If `g_activity_score` meets the threshold for the next star level and `g_calendar_phase_flag == 1`, evaluation becomes eligible.
 2. Evaluation entities spawn or activate at ground floor `10`.
 3. They route to floors `109..119`.
 4. On arrival, each marks its placed-object state as evaluated.
-5. When all 40 entities have arrived, award a star-rating upgrade.
+5. All 40 entities must arrive in the same evaluation run (no cross-day accumulation). When all 40 have arrived, award a star-rating upgrade.
 6. Then route them back to ground and park them.
 
 Gate behavior:
@@ -1704,7 +1758,7 @@ Known users:
 - Covered-emitter (0x0b) placements (transit demand)
 - **Hotel room placements** (rooms register entries so guests can be assigned via `assign_hotel_room`)
 
-Resident at DS offset `-0x27f0`. Parallel 0x200-entry table where each entry is **6 bytes**:
+A 0x200-entry table where each entry is **6 bytes**:
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -1712,23 +1766,20 @@ Resident at DS offset `-0x27f0`. Parallel 0x200-entry table where each entry is 
 | 1 | 1 | `subtype_index` |
 | 2 | 4 | `entity_backref` — runtime entity index assigned to service this request (zeroed on allocation; cleared on release) |
 
-Active entry count tracked at `0xbc70`. Allocated by `allocate_service_request_entry`; freed by setting `floor_index = 0xff`.
+Active entry count tracked in `g_service_request_entry_count`. Allocated by `allocate_service_request_entry`; freed by setting `floor_index = 0xff`.
 
 The entity handling a request stores its floor-target encoding in `entity[+0xc] = (10 - floor_index) * 0x400`. The inverse decode is `floor = 10 - (entity.word_0xc >> 10)`. `entity.byte_0xd & 0xfc != 0` indicates the entity has an active assignment. `release_service_request_entry(entity_index)` searches for the entry by `entity_backref`, clears it, and resets the placed object's `+0xb` to 0.
 
 #### DemandHistoryLog
 
-| Address | Field |
-|---------|-------|
-| `0xc1cc` | entry count (2 bytes) |
-| `0xc1ce` | log array: up to 0x200 2-byte entries, each holding a ServiceRequestEntry index |
+A flat array of up to 0x200 two-byte `ServiceRequestEntry` indices, with a leading entry-count field. Not a ring buffer.
 
-The log is a flat array (not a ring buffer). Operations:
+Operations:
 - `clear_demand_history_log`: sets count to 0, zeros all 0x200 slots.
-- `append_demand_history_entry(id)`: writes `id` to `0xc1ce + count*2`, increments count.
-- `rebuild_demand_history_table`: sweeps all 0x200 ServiceRequestEntry slots; skips free slots (floor==-1) and slots where `subtype_index == -1`; removes stale entries (marks slot free); for valid entries, appends to log only if the placed object's **coverage flag** (`placed_object[+0xb] != 1`).
-- `recompute_demand_history_summary_totals`: fills 10 dwords at `0xc0e6`–`0xc10a` with multiples of `count` (positions 0 and 3: `count*2`; others: `count`); sums all into grand total at `0xc10e`. Used as weighted cumulative distribution for venue type selection.
-- `pick_random_demand_log_entry`: randomly picks a log entry — returns `log[abs(rng()) % count]`, or 0xffff if empty. Consumer: `assign_hotel_room` calls this to find an available hotel room slot.
+- `append_demand_history_entry(id)`: appends `id` to the log, increments count.
+- `rebuild_demand_history_table`: sweeps all 0x200 ServiceRequestEntry slots; skips free slots (`floor == -1`) and slots where `subtype_index == -1`; removes stale entries (marks slot free); for valid entries, appends to log only if the placed object's **coverage flag** (`placed_object[+0xb] != 1`).
+- `recompute_demand_history_summary_totals`: fills a 10-dword weighted-distribution table with multiples of `count` (positions 0 and 3: `count*2`; others: `count`); sums all into a grand total. Used as a cumulative distribution for venue-type selection.
+- `pick_random_demand_log_entry`: returns `log[abs(rng()) % count]`, or 0xffff if empty. Consumer: `assign_hotel_room` calls this to find an available hotel room slot.
 
 #### Coverage Propagation (`rebuild_vertical_anchor_coverage_and_demand_history`)
 
@@ -1741,29 +1792,23 @@ Called to rebuild coverage state and then the demand log. Scans floors **9 down 
      - Floor 9: set current anchor's `+0xb = 2` (top of multi-floor chain).
      - Other floors: set current anchor's `+0xb = 1` (interior of chain).
    - Mark anchor dirty (`+0x13 = 1`).
-   - Call `propagate_vertical_anchor_coverage_across_floor(floor, i, coverage_flag)`.
-   - If anchor `+0xb` is still 0 after propagation (standalone, no downward connection), reset `coverage_flag = 0` for the next floor.
-3. If no anchor is found on a floor, call `propagate_vertical_anchor_coverage_across_floor(floor, object_count, 0)` — this sweeps all objects on the floor.
+   - Run the coverage propagation sub-sweep from anchor position.
+   - If this anchor has no downward connection (standalone), coverage does not carry to the floor below.
+3. If no anchor is found on a floor, run the sub-sweep with no anchor — all lobby tiles on this floor are marked uncovered (in demand).
 4. After all floors, call `rebuild_demand_history_table()`.
 
-`coverage_flag` begins at 0; is set to 1 when processing floor 9 (top floor with anchor); stays 1 as long as the anchor chain continues downward.
+#### Coverage Propagation Sub-Sweep
 
-#### `propagate_vertical_anchor_coverage_across_floor(floor, anchor_idx, param_3)`
+Called with either an anchor position (anchor present) or a sentinel (no anchor). Walks **left** then **right** across the floor. For each adjacent lobby tile (type 0x0b):
 
-Walks **left** from `anchor_idx - 1` to 0, then **right** from `anchor_idx + 1` to end. For each adjacent object:
+- **Anchor present**: mark covered (`+0xb = 1`) — elevator/escalator shaft is nearby, lobby demand suppressed. Mark dirty.
+- **No anchor**: mark uncovered (`+0xb = 0`) — no transport access, lobby demand active. Mark dirty.
 
-- If the object's type code is `'\v'` (0x0b, demand emitter):
-  - `param_3 == 0`: set `+0xb = 1` (mark as covered — excluded from demand history).
-  - `param_3 != 0`: clear `+0xb = 0` (mark as uncovered — included in demand history).
-  - Mark dirty (`+0x13 = 1`).
-- If the object is empty (type `'\0'`) but the gap between its left and right x-coordinates exceeds **3 tiles**, reset `param_3 = 0` (stop coverage carry).
-- Any non-empty, non-emitter, non-empty-tile object also resets coverage carry.
+Propagation stops when a gap of more than 3 empty tiles or any non-lobby, non-empty tile is encountered.
 
-Coverage propagates continuously in both directions until a barrier or gap > 3 is encountered.
+**Result**: lobby tiles adjacent to an elevator or escalator shaft (within 3-tile gaps) have `+0xb = 1` (covered, suppressed). Lobby tiles with no transport access have `+0xb = 0` (uncovered, in demand). `rebuild_demand_history_table` collects all uncovered active emitters into the demand log.
 
-**Summary**: emitters adjacent to a vertical anchor chain (within 3-tile gaps) have `+0xb = 1` (covered = no demand). Emitters with no nearby anchor have `+0xb = 0` (uncovered = in demand). `rebuild_demand_history_table` collects all uncovered active emitters into the demand log.
-
-The exact player-facing object identities (which facility types map to 0x0b vs 0x2c) are still unresolved.
+**Player-facing identities confirmed**: type `0x0b` (lobby tile) is placed as part of the lobby object — it registers a `ServiceRequestEntry` and generates transit demand when not covered by a vertical anchor. Type `0x2c` (elevator/escalator shaft segment) is the vertical anchor — its presence suppresses adjacent lobby-tile demand by setting their `+0xb` coverage flag.
 
 ## Facility Readiness And Support Search
 
@@ -1829,7 +1874,9 @@ At periodic expense time:
 
 Income is computed as `YEN_1001[family_code * 0x10 + variant_index * 4]`, byte-swapped from big-endian, and added to `g_cash_balance` via `add_cashflow_from_family_resource`. The full table (units: ¥10,000):
 
-| Family | Name | Tier 0 (High) | Tier 1 (Default) | Tier 2 (Low) | Tier 3 (Lowest) |
+Tier labels (0 = highest price, 3 = lowest price). Higher tiers earn more per event but apply a +30 penalty to the operational score, making tenants more likely to leave. Tier 3 forces the operational score to 0 (always satisfied, never refunded/deactivated).
+
+| Family | Name | Tier 0 (Highest) | Tier 1 (Default) | Tier 2 (Lower) | Tier 3 (Lowest) |
 |--------|------|---:|---:|---:|---:|
 | 3 | Single Room | 30 | 20 | 15 | 5 |
 | 4 | Twin Room | 45 | 30 | 20 | 8 |
@@ -1851,7 +1898,7 @@ Objects are initialized at placement:
 | Family | Trigger | Function | Timing |
 |--------|---------|----------|--------|
 | 3/4/5 (Hotels) | Checkout | `deactivate_family_345_unit_with_income` | When `stay_phase & 7 == 0` after completing trip round |
-| 7 (Office) | Two paths: 3rd-day sweep + entity transitions | `activate_office_cashflow` | (1) Every 3rd day at checkpoint `0x09e5` via `activate_family_cashflow_if_operational`; (2) at entity state-machine transitions in the state-`0x20` handler when `placed_object.stay_phase < 0x10` |
+| 7 (Office) | Two paths: 3rd-day sweep + per-arrival | `activate_office_cashflow` | (1) Every 3rd day at checkpoint `0x09e5` via `activate_family_cashflow_if_operational`; (2) at each entity arrival at the venue — fires on every work-session start (states 0x02→0x23 and 0x23→...), not only on initial activation |
 | 9 (Condo) | One-time sale | `activate_commercial_tenant_cashflow` | When entity arrives while `stay_phase >= 0x18` (unsold) |
 | 10 (Retail) | Periodic activation | `activate_retail_shop_cashflow` | Each tick while venue active |
 | General | Periodic accrual | `accrue_facility_income_by_family` | Every 60th and 84th tick, rate-limited |
@@ -1869,12 +1916,12 @@ The trade-off: higher rent earns more per event but risks tenant departure (refu
 #### Expense Table (YEN #1002)
 
 Operating expenses are charged periodically by `apply_periodic_operating_expenses`, which sweeps all floors, carriers, and special-link records:
-- Most placed objects: `add_infrastructure_expense_by_type` → `YEN_1002[type_code * 4]`
-- Parking (types 0x18/0x19/0x1a): `add_parking_operating_expense` → star-rating-tiered rate × usage
-- Carriers: `add_scaled_infrastructure_expense_by_type` with type codes 0x2a/0x01/0x2b × unit count
-- Special links: type codes 0x1b/0x16 by link mode
+- Most placed objects: infrastructure expense per type from the expense table, scaled by 1
+- Parking (types 0x18/0x19/0x1a): star-rating-tiered rate × usage
+- Carriers: local elevator ¥200/unit, express elevator ¥100/unit, escalator ¥100/unit (× car-unit count)
+- Special links: stairwell ¥50/unit, lobby-connector separate rate (× scaled unit count)
 
-Known expense values from YEN #1002: type 1=100, 14=200, 15=100, 20=500, 27=50, 31=1000, 42=200, 43=100, 44=100.
+Known expense values (¥10,000 per period): security office=200, housekeeping=100, restaurant=500, fast food=50, retail=1000, local elevator=200, express elevator=100, escalator=100.
 
 Do not treat ledger effects as informational only. Several open/close transitions change object bytes that feed later simulation behavior.
 
@@ -1896,6 +1943,110 @@ Persist and restore:
 - calendar and day tick state
 
 On load, rebuild any derived bucket tables required by the original restore path.
+
+## Event Mechanics
+
+### Bomb / Terrorist Event
+
+Triggered at checkpoint `0x0f0` when `day_counter % 0x3c == 0x3b` (every 60 days), if no bomb or fire is already active, at least one floor exists, and `g_day_tick < 0x4b1`.
+
+**State fields** (named for use throughout this section):
+
+| Field | Meaning |
+|-------|---------|
+| `bomb_active` | bit flag: bomb has been placed and not yet resolved |
+| `bomb_found` | bit flag: security guard found the bomb (disarmed) |
+| `bomb_detonated` | bit flag: bomb exploded |
+| `bomb_floor` | floor index of the planted bomb |
+| `bomb_tile` | x tile position of the bomb |
+| `detonation_deadline` | `day_tick` value at which the bomb detonates if not found |
+| `ransom_2star`, `ransom_3star`, `ransom_4star` | ransom amounts by star rating |
+| `search_interval` | ticks between guard hit-checks |
+| `patrol_step_interval` | ticks between guard tile movements |
+| `security_subtype` | runtime subtype of the placed security office (< 0 = none) |
+
+**Setup:**
+1. Pick a random floor in `[lowest_floor + 10 .. top_occupied_floor]` → `bomb_floor`.
+2. Floor must have width > 4 tiles. Pick a random x tile in `[floor_left .. floor_right - 4]` → `bomb_tile`.
+3. Compute ransom from star rating using `ransom_2star`/`ransom_3star`/`ransom_4star`.
+4. Emit modal ransom prompt.
+
+**If player pays ransom:** deduct ransom from cash; bomb defused, no timer set.
+
+**If player refuses:**
+- Emit notification (security present or not), parameterized by `floor - 9`.
+- Set `bomb_active`.
+- Set `detonation_deadline = 0x4b0`.
+- Call `initialize_simulation_runtime_tables(1)`.
+
+**Security guard patrol:** The security guard entity sweeps tiles deterministically — not probabilistically. Per step:
+1. If either entity countdown (`entity[+0xa]` or `entity[+0xc]`) > 0: decrement and wait.
+2. While current tile x > `floor_left[spawn_floor]`: decrement tile x, call `check_tile_for_bomb(spawn_floor, tile_x)`. If bomb found: pause 100 ticks, trigger found-handler. If not: set step countdown to `patrol_step_interval`.
+3. At floor boundary: advance to adjacent floor and continue sweep.
+
+Bomb discovery is deterministic: the guard will find the bomb if and only if it reaches `bomb_tile` on `bomb_floor` before `detonation_deadline`.
+
+**Security hit-check (`check_tile_for_bomb(floor, tile)`):** If `floor == bomb_floor` AND `tile == bomb_tile`: call `resolve_bomb_search(1)`. Otherwise return 0.
+
+**Search/resolution (`resolve_bomb_search(found)`):**
+- Called when deadline expires (`g_day_tick == detonation_deadline`): `resolve_bomb_search(0)` (detonation).
+- Called by security hit-check: `resolve_bomb_search(1)` (found/disarmed).
+- On success (`found != 0`): set `bomb_found`. Extend timer: `detonation_deadline = g_day_tick + search_interval`.
+- On detonation (`found == 0`): set `bomb_detonated`; emit detonation popup; call `demolish_bomb_blast_area`; reset simulation mode.
+
+**Blast (`demolish_bomb_blast_area`):**
+- Destroys all placed objects in a **6-floor tall × 40-tile wide** rectangle: floors `bomb_floor − 2` through `bomb_floor + 3`, tiles `bomb_tile − 20` through `bomb_tile + 19`.
+- Uses `delete_placed_object_and_release_sidecars` — same full teardown path as player demolition.
+- No cash penalty from the detonation itself (beyond destruction of income-generating objects).
+
+### Fire Event
+
+Triggered at checkpoint `0x0f0` when `day_counter % 0x54 == 0x53` (every 84 days), if no active event, `pre_day_4() != 0`, `star_count > 2`, and `fire_suppressor_subtype < 0`.
+
+`fire_suppressor_subtype` is set to a type-0x28 object's runtime subtype when one is placed. It starts at −1 (absent). A placed type-0x28 object **prevents fire events entirely**.
+
+**State fields:**
+
+| Field | Meaning |
+|-------|---------|
+| `fire_active` | bit flag: fire is currently spreading |
+| `fire_floor` | floor where fire started |
+| `fire_start_x` | starting x tile (`floor_right − 32`) |
+| `fire_start_tick` | `g_day_tick` when fire was initiated |
+| `firefighting_timer` | ticks of suppression delay (security present); 0 = no suppression |
+| `fire_spread_rate` | ticks between each one-tile spread step |
+| `floor_spread_delay` | ticks per floor of activation delay for adjacent-floor spread |
+| `rescue_cost` | cash cost to accept helicopter rescue |
+| `firefighting_timer_init` | initial value of `firefighting_timer` when security is present |
+| `left_front[floor]` | left-spreading burn boundary per floor (−1 = not yet active or done) |
+| `right_front[floor]` | right-spreading burn boundary per floor |
+
+**Setup:**
+1. Pick a random floor in `[lowest_floor + 10 .. top_occupied_floor]` → `fire_floor`.
+2. Floor must have width ≥ 32 tiles. `fire_start_x = floor_right − 32`.
+3. Emit notification (security present or not), parameterized by `floor − 9`.
+4. Initialize `left_front` and `right_front` arrays (120 slots each) to −1; write `fire_start_x` into slot `fire_floor` of each.
+5. Set `fire_active`; save `g_day_tick` → `fire_start_tick`; clear spread counter.
+6. If security present: `firefighting_timer = firefighting_timer_init`; else `firefighting_timer = 0`.
+
+**Damage spread**, called each tick when `fire_active`:
+
+- If `firefighting_timer > 0`: decrement it and return — no damage this tick.
+- Otherwise sweep all 120 floors. For each floor with objects, two parallel fronts spread bidirectionally from `fire_start_x`:
+  - **Left front**: initialized to −1. Activation when `(floor − fire_floor) × floor_spread_delay + fire_start_tick == g_day_tick`. On activation: front set to `fire_start_x`. Each tick: call `delete_object_covering_floor_tile(floor, left_front, 0)`; every `fire_spread_rate` ticks: decrement front by 1 (sweep leftward). When front < `floor_left`: mark −1 (this floor's left burn complete).
+  - **Right front**: same logic, starts at `fire_start_x + 12`, increments rightward each `fire_spread_rate` ticks. Stops when front + 12 > `floor_right`.
+
+Both fronts use `delete_object_covering_floor_tile` — same teardown path as player demolition and bomb blast.
+
+**Interval response**, called when `g_day_tick == fire_start_tick + search_interval`:
+- Emit helicopter/rescue prompt at cost `rescue_cost`.
+- If player accepts: fast-forward fire to near-extinguished; deduct `rescue_cost` from cash.
+- If player refuses: emit popup; call continuation handler.
+
+**Extinguish**, called when `g_day_tick == 2000` OR all boundary slots are cleared:
+- Clear `fire_active`; emit extinguished popup.
+- Re-initialize `left_front` and `right_front` arrays.
+- If `g_day_tick < 0x5dc`: advance `g_day_tick` to `0x5dc` (skip to midday).
 
 ## Player Intervention Model
 
@@ -2045,7 +2196,6 @@ Recovered mechanics support:
 Not yet recovered:
 
 - exact prompt scheduling code for fire flows (helicopter/rescue)
-- exact damage and timing side effects for fire
 - whether prompts pause the scheduler or merely gate specific commands
 
 ## Player Command: Pause Or Resume
@@ -2110,71 +2260,103 @@ Use this order unless later reverse engineering disproves it:
 
 ## Missing Details
 
-The following details are still missing for a full exact headless spec. Items are grouped by how early they block implementation.
+The following details are still missing. Items are grouped by whether they affect deterministic simulation correctness (Tiers 1–2) or only player-interaction completeness and cosmetics (Tiers 3–4). See "Permissible Divergences" — RNG outcomes and entity processing order within a tick do not need to match and are not listed here.
 
-### Tier 1: Blocks Core Simulation Loop
+### Tier 1: Implementation Notes
 
-These gaps prevent even a minimal simulation from running.
+All core simulation logic is recovered. The following notes document behavior that is easy to misunderstand or implement incorrectly.
 
-#### Route Resolution Internals
+#### Stair and Escalator Throughput
 
-All core route-resolution algorithms and carrier state machines are now fully recovered; see "Route Resolution" and "Carrier Car State Machine" sections.
+No per-tick capacity counter or directionality gate exists in the recovered code. Stair/escalator routes are modeled entirely through route scoring (cost = `abs(height_delta) * 8` for local segments with the express-flag clear). They are always available from a capacity standpoint; the only gate is the walkability span check.
 
-#### Carrier — Residual Gaps
+#### End-of-Day Active-Request Purge (`dispatch_active_requests_by_family`, checkpoint `0x09c4` step 3)
 
-- **Stair and escalator throughput**: no per-tick capacity counter or directionality gate exists in the recovered code. Stair/escalator routes are modeled entirely through route scoring (cost = `abs(height_delta) * 8` for local segments with the express-flag clear). They are treated as always available from a capacity standpoint; the only gate is the walkability span check (`is_floor_span_walkable_for_local_route` / `_express_route`).
-- Car reset behavior when `recompute_car_target_and_direction` produces a target outside the carrier's served range: **fully recovered**. See "Out-of-range reset (`FUN_1098_0192`)" in the Carrier Car State Machine section.
+A 7-family whitelist filter — all 7 entries call `remove_active_request_entry(entity_id)` — purging active-request entries at end of day for: restaurant (6), fast-food (0x0a), retail (0x0c), entertainment-cinema (0x12), entertainment-event (0x1d), hotel-guest (0x21), evaluation-display (0x24). Families not in this list retain their active-request entries overnight.
 
-#### Checkpoint Subsystem Bodies — Residual Items
+#### Route Failure Delay
 
-All checkpoint bodies from `0x000` through `0x09f6` are fully specified. The following narrow items inside those bodies remain incompletely decoded:
+`resolve_entity_route_between_floors` fires the blocked-pair record and route-failure delay exclusively through the `emit_failure_feedback` parameter (call-site controlled). When `emit_failure_feedback != 0`, both `record_blocked_pair` (if also nonzero) and `add_delay_to_current_entity` are called unconditionally. When `emit_failure_feedback == 0`, the delay is skipped entirely. No family-specific or state-specific gate exists inside the function.
 
-- **`dispatch_active_requests_by_family`** (checkpoint `0x09c4` step 3): a 7-entry jump table where all 7 entries call the same handler — `remove_active_request_entry(entity_id)` — making this a whitelist filter that purges active-request entries at end of day for families: restaurant (6), fast-food (0x0a), retail (0x0c), entertainment-cinema (0x12), entertainment-event (0x1d), hotel-guest (0x21), evaluation-display (0x24). Families not in this list retain their active-request entries overnight.
-- **Every-12-days event at checkpoint `0x07d0`**: the notification trigger has no simulation state effect beyond setting a single gate byte to prevent re-fire.
-- **Path-seed table internal layout**: fully recovered. See "Path-Seed Bucket Table" for the 10-entry source table field layout (`0xe470`) and bucket slot format.
+#### Entity Initial Spawn Conditions
 
-### Tier 2: Blocks Primary Income Loops
+Entities **persist** — they are not created or destroyed during normal play. `reset_entity_runtime_state @ 1228:0000` (called at checkpoints `0x09c4` and `0x09e5`) resets each entity's state fields in-place according to its family code and current `stay_phase`. It does not allocate new entities. Per-family initial states set by the reset sweep:
 
-These gaps prevent the main revenue-generating families from functioning even if routing worked.
+| Family code(s) | Initial state logic |
+|---|---|
+| 3, 4, 5 (hotel rooms) | `stay_phase == 0` → `0x24`; `stay_phase <= 0x17` → `0x10`; else → `0x20` |
+| 6, 10, 0xc (commercial) | `0x20` |
+| 7 (office) | `0x20`; also clear `entity[+7]`, `entity[+8]`, `entity[+0xc]` |
+| 9 (condo) | `stay_phase < 0x18` → `0x10`; else → `0x20` |
+| 0xe, 0x21 (hotel guest, visitor) | `0x01` |
+| 0xf (vacancy claimant) | `0x00`; set `entity[+7] = 0xff` |
+| 0x12, 0x1d, 0x24 (entertainment/eval) | `0x27` |
 
-#### Hotels (Families `3/4/5`) — Residual Gaps
+Entities are initially allocated at object placement time via `recompute_object_runtime_links_by_type`, which dispatches to family-specific initializers (`initialize_runtime_entities_for_type_7`, `_type_9`, etc.) based on the placed object's type code. The reset sweep restores the entity to its correct idle state each day cycle rather than recreating it.
 
-- Family `0x0f` vacancy claimant claim-completion path: **fully recovered**. See "Family `0x0f`: Rentable-Unit Occupancy Claimant" → "Claim-Completion Writes" for exact field writes to room and entity records.
+#### Hotel And Commercial Venue Notes
 
-**Note:** Hotel room assignment requires `star_count > 2` (a ≥ 3-star tower). The eligibility check also permits family-7 (office worker) entities to use the same assignment path under specific conditions.
+**Hotel room assignment** requires `star_count > 2` (a ≥ 3-star tower). The eligibility check also permits family-7 (office worker) entities to use the same assignment path.
 
-**Retail state thresholds** (tuning values from startup data):
-- Restaurant: capacity_slot_3=**35**, _slot_4=**50**, _slot_5=**25**; service_duration_ticks=**60**; state_threshold levels: **25**, **35**, **50**
-- Fast food: capacity_slot_3=**35**, _slot_4=**50**, _slot_5=**25**; service_duration_ticks=**60**; state_threshold levels: **25**, **35**, **50**
-- Retail shop: capacity_slot_3=**25**, _slot_4=**30**, _slot_5=**18**; service_duration_ticks=**60**; state thresholds: **25**, **20** (exact field roles TBD)
+**Commercial venue capacity tuning values** (from startup data):
+- Restaurant: capacity_phase_a=**35**, capacity_phase_b=**50**, capacity_override=**25**; service_duration_ticks=**60**; state_threshold levels: **25**, **35**, **50**
+- Fast food: capacity_phase_a=**35**, capacity_phase_b=**50**, capacity_override=**25**; service_duration_ticks=**60**; state_threshold levels: **25**, **35**, **50**
+- Retail shop: capacity_phase_a=**25**, capacity_phase_b=**30**, capacity_override=**18**; service_duration_ticks=**60**; state thresholds: **25**, **20**
 
-### Tier 3: Blocks Secondary Systems
+### Tier 2: Gaps That Affect Deterministic Correctness
 
-These gaps affect important but non-core subsystems.
+These are recovered incompletely. A simulation with these gaps will produce wrong outcomes in the affected subsystems, not just wrong presentation.
 
-#### Demand-History and Service-Request Pipeline — Residual Gaps
+#### Route Delay Values — Two Values Not Recovered
 
-- Exact player-facing object type identities that map to type codes `0x0b` (demand emitter) and `0x2c` (vertical anchor)
-- The demand-history summary totals (`recompute_demand_history_summary_totals`) produce a weighted cumulative distribution across 10 dwords. The exact consumer (likely the venue-type selection path) is not yet traced.
-- The `entity_backref` field in ServiceRequestEntry: which family of runtime entity handles covered-emitter service requests, and what action constitutes servicing the emitter
+The startup tuning resource supplies two delay values that are loaded but not yet extracted:
 
-#### Office Family `7` — Residual Gaps
+- **Waiting-state delay**: added when a carrier's floor-slot status is `0x28` (at capacity / departing). Controls how long an entity waits before retrying a carrier route.
+- **Re-queue-failure delay**: added when `assign_request_to_runtime_route` fails to find a valid transfer floor. Controls retry cadence after a failed board attempt.
 
-- Exact text labels for each pricing tier (variant_index 0–3)
-- Income fires from two paths: the 3rd-day sweep (checkpoint `0x09e5`) and entity state transitions within the state-`0x20` handler (condition: `placed_object.stay_phase < 0x10`). Retail similarly fires from entity dispatch. The exact timing interplay between these two paths is not fully decoded.
-- State `0x02`/`0x42` dispatch: computes a floor-zone index and calls a secondary handler — exact role in the office worker's transit sub-step is not decoded.
-- State `0x23`/`0x63` dispatch: enforces a minimum 16-tick dwell at the venue before the entity departs.
+Both feed directly into entity timing and therefore into when occupancy events and income triggers fire. A safe default is to use the same value as the route-failure delay (300 ticks) until the exact values are recovered.
 
-### Tier 4: Blocks Player Interaction
+#### Retail `derived_state_code` — Contradictory Information
+
+The daily closure path (`seed_facility_runtime_link_state`) says `derived_state_code` for type 10 (retail) is **always 0**, but the startup tuning data includes two threshold values (25 and 20) for retail alongside the restaurant/fast-food thresholds that clearly drive `derive_commercial_venue_state_code`. The correct behavior is unresolved: either retail always returns 0 and the thresholds are vestigial, or the "always 0" note is wrong and the thresholds apply. The `derived_state_code` field may only be used for display; if so, this gap does not affect simulation correctness.
+
+#### Star-Rating Evaluation — Failure Recovery Path
+
+The evaluation flow (spawn 40 entities at floor 10, route to floors 109–119, all must arrive in daypart 0) is fully described for the success case. The failure path is not:
+
+- If the run ends without all 40 arriving (daypart 0 ends, entities park at state `0x27`), does the upgrade fire the next eligible day, or is the partially-completed run discarded?
+- The probabilistic dispatch between ticks `0x0051` and `0x00f0` uses what probability distribution?
+
+A conservative implementation can treat any day with all 40 arriving as a successful evaluation and not award partial progress.
+
+#### Checkpoint `0x04b0` Hotel-Pairing Housekeeping
+
+Step 4 of checkpoint `0x04b0` ("perform hotel-pairing housekeeping") is not decoded. If this writes to hotel room `stay_phase` or pairing fields, it affects occupancy and checkout timing for hotel rooms already in the active band. The surrounding steps (sale count reset, entertainment ready-phase) are purely bookkeeping, but this step's simulation effects are unknown.
+
+#### `update_security_housekeeping_state()` — Behavior Not Described
+
+Called at checkpoints `0x0640`, `0x0708`, and `0x07d0`. The spec notes only that it exists. If it writes object state (security guard position, housekeeping cart state), it affects the bomb patrol path, which is otherwise deterministic. If it is purely display-side, it has no simulation effect.
+
+#### Per-Tick VIP/Special Visitor Check
+
+Every tick when `day_tick > 0x0f0` and `daypart_index < 4`, a "VIP/special visitor check" fires with 1/100 probability. The spec does not describe what this triggers. Candidates: star-rating evaluation eligibility recheck, or a separate hidden-treasure / VIP notification. If this gate controls when evaluation entities are first dispatched, getting it wrong shifts when star upgrades become available.
+
+### Tier 3: Player Interaction Gaps
 
 These gaps prevent full player command support but do not block autonomous simulation.
 
 #### Build / Demolish Rebuild Dependencies
 
-- Exact minimal rebuild set per object class after placement
-- Exact minimal rebuild set per object class after demolition
+**Partially recovered.** For carrier objects (elevator, escalator) both placement and demolition trigger: walkability flag rebuild (event-driven, not daily), transfer-group cache rebuild, and route reachability table rebuild. For commercial venue objects (type 6, 10, 12), demolition marks the `CommercialVenueRecord` slot invalid at byte `[1]` = `0xff`.
+
+**Initial `stay_phase` at placement** (`recompute_object_runtime_links_by_type`):
+- Hotels (type 3/4/5): `pre_day_4()` true → `0x18`; false → `0x20` (both in the "empty" band)
+- Offices (type 7): `pre_day_4()` true → `0x10`; false → `0x18` (both in the "empty" band)
+- Condos (type 9): `pre_day_4()` true → `0x18`; false → `0x20` (both in the "unsold" band)
+
+Remaining unknowns:
 - Required rebuild ordering (must route reachability precede demand-history?)
-- Which rebuilds are local (affected floor only) vs global
+- Which rebuilds are local (affected floor only) vs global for non-carrier objects
 
 A conservative implementation can rerun all global rebuilds after every command, then optimize later.
 
@@ -2194,29 +2376,23 @@ The pricing system is mechanically resolved (variant_index 0–3, scoring adjust
 - Whether the rent-change dialog is per-object or per-family
 - Exact validation rules (e.g., can you change condo price while sold? spec says no, but the exact guard is not recovered)
 
-### Tier 5: Event System Residual Gaps
+### Tier 4: Cosmetic And Display-Only Gaps
 
-Fire, bomb/terrorist, VIP, security/housekeeping, hidden treasure, and prompt blocking are mechanically recovered (see earlier sections). Remaining gaps:
+These do not affect simulation correctness or player-command semantics.
 
-- **Bomb damage**: the detonation handler is called but its exact effects on placed objects (which tiles are destroyed, what happens to in-flight entities, cash impact) are not recovered
-- **Fire damage**: the fire-spread handler is called during propagation but its exact effects on placed objects are not recovered
-- **Security search resolution**: the bomb-search sequence starts but the exact algorithm (how security objects locate the bomb, success probability, timing) is not recovered
-
-### Tier 6: Data Model and Tooling Completeness
-
-These do not block any specific feature but limit confidence in edge cases.
-
-- Full field-by-field layouts for every sidecar record type beyond what is already recovered
-- Full behavior of carrier boarding and direction-selection sub-steps inside the carrier car state machine
-- Player-facing tier labels for `variant_index` 0–3
-- Exact command sequencing relative to the original Windows message loop
+- Player-facing tier labels for `variant_index` 0–3 (what text the UI shows for each rent level)
+- Player-visible meaning of `calendar_phase_flag` — the 4-of-12-day alternating cycle; likely weekday vs. weekend but not confirmed
+- Player-visible meaning of `facility_progress_override` — the every-8-days capacity boost; likely a "business boom" period but not confirmed
+- Player-facing identity of type 0x28 (the fire-suppressor object) — likely a sprinkler system
+- Ledger/report presentation: how UI report pages derive numbers from the underlying ledgers
 - Movie-theater management commands (changing the movie)
 - Room name / label / inspector-driven setting edits
-- Ledger/report presentation: how UI report pages derive numbers from the underlying ledgers
 - Save file (`.twr`) binary format for loading original game saves
+- Exact command sequencing relative to the original Windows message loop
 
 ### Confidence Notes
 
-- **Fully specified and implementable now**: time model, full scheduler with all checkpoint bodies (0x000–0x09f6), money model (cash/ledgers/expense sweep), condo family 9 (complete state machine + scoring + sale/refund + A/B/C rating), hotel rooms families 3/4/5 (complete state machine + stay_phase lifecycle + multi-tile checkout), hotel guests family 0x21 (complete state machine with all states 0x01/0x22/0x27/0x41/0x62 + venue selection + slot acquisition/release + minimum stay wait + return routing), commercial venues 6/0xc/10 (CommercialVenueRecord full layout + slot protocol + capacity recompute + progress slot logic + venue allocation initialization), star-rating evaluation entities (families `0x24`-`0x28`), parking (family `0x18`), route resolution (full selection algorithm + scoring + walkability + transfer-group cache + queue drain + arrival dispatch), payout and expense tables, object placement/demolish framework, operational scoring pipeline, demand counter pipeline, entertainment link phase machine + entity state machine + all income rates, demand history log + service request pipeline, fire/bomb/VIP/security/treasure event triggers and flow, prompt blocking semantics.
-- **Partially specified**: office family 7 (scoring/cashflow/activation fully recovered; entity state machine gate conditions fully recovered with `g_daypart_index` scheduling; dispatch outcomes largely recovered; exact role of states `0x02`/`0x23` transit sub-steps not decoded), carrier state machines (queue drain + full per-tick car state machine + motion profile + target selection + dwell logic + out-of-range reset all recovered; stair/escalator confirmed to have no per-tick capacity counter — purely route-score-gated).
-- **Unrecovered**: elevator editor controls.
+- **Fully specified and implementable now**: time model, money model (cash/ledgers/expense sweep), condo family 9 (complete state machine + scoring + sale/refund + A/B/C rating, including state 0x01 calendar-phase stagger special path), hotel rooms families 3/4/5 (complete state machine + stay_phase lifecycle + multi-tile checkout), hotel guests family 0x21 (complete state machine with all states 0x01/0x22/0x27/0x41/0x62 + venue selection + slot acquisition/release + minimum stay wait + return routing), commercial venues 6/0xc/10 (CommercialVenueRecord full layout + slot protocol + capacity recompute + progress slot logic + venue allocation initialization), parking (family `0x18`), route resolution (full selection algorithm + scoring + walkability + transfer-group cache + queue drain + arrival dispatch + out-of-range car reset), payout and expense tables, object placement/demolish framework, operational scoring pipeline, demand counter pipeline, entertainment link phase machine + entity state machine + all income rates, demand history log + service request pipeline, fire event (full bidirectional spread + object deletion + interval prompt + extinguish), bomb/terrorist event (full setup + blast + security hit-check + resolution), VIP/security/treasure event triggers and flow, prompt blocking semantics, family 0x0f vacancy claimant (full state machine + claim-completion writes), path-seed bucket table (full source table + bucket layout).
+- **Mostly specified, with Tier 2 gaps**: full scheduler checkpoint bodies fully recovered; star-rating evaluation entity thresholds and single-run rule confirmed; carrier initialization confirmed. Remaining Tier 2 gaps: two route delay tuning values, retail `derived_state_code` ambiguity, evaluation failure-recovery path, checkpoint `0x04b0` hotel-pairing step, `update_security_housekeeping_state` behavior, per-tick VIP check trigger.
+- **Partially specified (player interaction)**: elevator editor controls (adding/removing cars, changing waiting floors, weekday/weekend schedule); build/demolish rebuild ordering for non-carrier objects; rent-change dialog semantics.
+- **Cosmetic only (Tier 4)**: player-facing tier labels, calendar phase and progress-override player meanings, type 0x28 identity, ledger report presentation.
