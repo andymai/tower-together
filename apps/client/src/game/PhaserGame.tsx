@@ -21,7 +21,7 @@ export function PhaserGame({ onCellClick, selectedTool, sceneRef }: Props) {
 		const config: Phaser.Types.Core.GameConfig = {
 			type: Phaser.AUTO,
 			parent: containerRef.current,
-			backgroundColor: "#1a3050",
+			backgroundColor: "#1a1a1a",
 			scale: {
 				mode: Phaser.Scale.RESIZE,
 				autoCenter: Phaser.Scale.CENTER_BOTH,

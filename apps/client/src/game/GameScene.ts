@@ -19,7 +19,7 @@ const TILE_COLORS: Record<string, number> = {
 	hotel_suite: 0x2d4f9c,
 };
 
-const COLOR_SKY = 0x1a3050; // dark blue sky (above ground)
+const COLOR_SKY = 0x5ba8d4; // blue sky (above ground)
 const COLOR_UNDERGROUND = 0x3d2010; // dark brown soil (underground)
 const COLOR_GRID_LINE = 0x333333;
 const COLOR_HOVER = 0xffff00;
