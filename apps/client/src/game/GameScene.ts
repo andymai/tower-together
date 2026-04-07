@@ -435,6 +435,20 @@ export class GameScene extends Phaser.Scene {
 
 		this.game.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+		// Arrow-key panning
+		const PAN_SPEED = 8; // pixels per keydown event (at zoom=1)
+		const panKeys: Record<string, [number, number]> = {
+			LEFT: [-PAN_SPEED, 0],
+			RIGHT: [PAN_SPEED, 0],
+			UP: [0, -PAN_SPEED],
+			DOWN: [0, PAN_SPEED],
+		};
+		for (const [key, [dx, dy]] of Object.entries(panKeys)) {
+			this.input.keyboard?.on(`keydown-${key}`, () => {
+				cam.setScroll(cam.scrollX + dx / cam.zoom, cam.scrollY + dy / cam.zoom);
+			});
+		}
+
 		// Redraw hover when shift is pressed/released without moving the mouse
 		this.input.keyboard?.on("keydown-SHIFT", () => {
 			this.isShiftHeld = true;
