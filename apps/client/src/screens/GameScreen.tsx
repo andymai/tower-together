@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { GameScene } from "../game/GameScene";
+import { PhaserGame } from "../game/PhaserGame";
 
 interface Toast {
 	id: number;
@@ -6,8 +8,7 @@ interface Toast {
 }
 
 let toastCounter = 0;
-import type { GameScene } from "../game/GameScene";
-import { PhaserGame } from "../game/PhaserGame";
+
 import * as socket from "../lib/socket";
 import type { ConnectionStatus, SelectedTool, ServerMessage } from "../types";
 import { TILE_COSTS } from "../types";
@@ -73,6 +74,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	}, []);
 
 	const sceneRef = useRef<GameScene | null>(null);
+	const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		return socket.onMessage((msg: ServerMessage) => {
@@ -273,7 +275,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 			</div>
 
 			{/* Game canvas */}
-			<div style={styles.canvasWrapper}>
+			<div ref={canvasWrapperRef} style={styles.canvasWrapper}>
 				<PhaserGame
 					onCellClick={handleCellClick}
 					selectedTool={selectedTool}
@@ -350,7 +352,10 @@ const styles: Record<string, React.CSSProperties> = {
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		cursor: "pointer",
+		background: "transparent",
+		border: "none",
 		borderBottom: "1px dashed #555",
+		padding: 0,
 	},
 	renameForm: {
 		display: "flex",

@@ -26,11 +26,14 @@ const COLOR_HOVER = 0xffff00;
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 
+const LABEL_PANEL_WIDTH = 24;
+
 export class GameScene extends Phaser.Scene {
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private gridGraphics!: Phaser.GameObjects.Graphics;
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
-	private floorLabelContainer!: Phaser.GameObjects.Container;
+	private floorLabelBg!: Phaser.GameObjects.Rectangle;
+	private floorLabels: Phaser.GameObjects.Text[] = [];
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -232,7 +235,6 @@ export class GameScene extends Phaser.Scene {
 
 	create(): void {
 		const totalWidth = GRID_WIDTH * CELL_SIZE;
-		const totalHeight = GRID_HEIGHT * CELL_SIZE;
 
 		// Zoom so the grid fills the viewport horizontally, then center near ground floor
 		const initialZoom = this.scale.width / totalWidth;
@@ -243,36 +245,81 @@ export class GameScene extends Phaser.Scene {
 		this.cellGraphics = this.add.graphics();
 		this.hoverGraphics = this.add.graphics();
 
-		// Floor number labels (left of grid, one per row)
-		const labels: Phaser.GameObjects.Text[] = [];
-		for (let y = 0; y < GRID_HEIGHT; y++) {
-			const floor = (GRID_HEIGHT - 1) - y;
-			const uiLabel = floor - UNDERGROUND_FLOORS;
-			const color = y < UNDERGROUND_Y ? "#5588aa" : "#886644";
-			const text = this.add.text(
-				-4,
-				y * CELL_SIZE + CELL_SIZE / 2,
-				String(uiLabel),
-				{ fontSize: "9px", color, resolution: 2 },
-			).setOrigin(1, 0.5);
-			labels.push(text);
-		}
-		this.floorLabelContainer = this.add.container(0, 0, labels);
-
-		this.arrowKeys = this.input.keyboard!.createCursorKeys();
+		this.arrowKeys = this.input.keyboard?.createCursorKeys() as Phaser.Types.Input.Keyboard.CursorKeys;
 
 		this.drawGrid();
 		this.drawAllCells();
 		this.setupInput();
+		this.setupFloorLabels();
 	}
 
 	update(): void {
 		const cam = this.cameras.main;
 		const PAN_SPEED = 6 / cam.zoom;
-		if (this.arrowKeys.left.isDown)  cam.scrollX -= PAN_SPEED;
+		if (this.arrowKeys.left.isDown) cam.scrollX -= PAN_SPEED;
 		if (this.arrowKeys.right.isDown) cam.scrollX += PAN_SPEED;
-		if (this.arrowKeys.up.isDown)    cam.scrollY -= PAN_SPEED;
-		if (this.arrowKeys.down.isDown)  cam.scrollY += PAN_SPEED;
+		if (this.arrowKeys.up.isDown) cam.scrollY -= PAN_SPEED;
+		if (this.arrowKeys.down.isDown) cam.scrollY += PAN_SPEED;
+
+		this.updateFloorLabels();
+	}
+
+	private setupFloorLabels(): void {
+		// Very tall rectangle so it always covers the full viewport height regardless of camera position
+		this.floorLabelBg = this.add.rectangle(
+			0,
+			0,
+			LABEL_PANEL_WIDTH,
+			1_000_000,
+			0x000000,
+			0.55,
+		);
+		this.floorLabelBg.setOrigin(0, 0.5);
+		this.floorLabelBg.setScrollFactor(0, 0);
+		this.floorLabelBg.setDepth(10);
+
+		for (let i = 0; i < GRID_HEIGHT; i++) {
+			const uiLabel = GRID_HEIGHT - 1 - i - UNDERGROUND_FLOORS;
+			const isUnderground = i >= UNDERGROUND_Y;
+			const text = this.add.text(
+				0,
+				i * CELL_SIZE + CELL_SIZE / 2,
+				String(uiLabel),
+				{
+					fontSize: "11px",
+					fontFamily: "Arial, sans-serif",
+					fontStyle: "bold",
+					color: isUnderground ? "#886644" : "#5588aa",
+					align: "center",
+					resolution: window.devicePixelRatio * 4,
+				},
+			);
+			text.setScrollFactor(0, 1);
+			text.setDepth(11);
+			text.setOrigin(0.5, 0.5);
+			this.floorLabels.push(text);
+		}
+	}
+
+	private updateFloorLabels(): void {
+		const cam = this.cameras.main;
+		const zoom = cam.zoom;
+		// Camera pivots zoom around the screen center, so with scrollFactor(0):
+		//   screenX = halfW + zoom * (worldX - halfW)
+		// Inverse: worldX = halfW + (screenX - halfW) / zoom
+		const halfW = this.scale.width / 2;
+
+		// bg.width is in world units; rendered screen width = LABEL_PANEL_WIDTH * zoom (expands when zoomed in)
+		this.floorLabelBg.x = halfW * (1 - 1 / zoom);
+		this.floorLabelBg.width = LABEL_PANEL_WIDTH;
+
+		// label center in screen space = LABEL_PANEL_WIDTH * zoom / 2
+		const labelX = halfW * (1 - 1 / zoom) + LABEL_PANEL_WIDTH / 2;
+		for (let i = 0; i < GRID_HEIGHT; i++) {
+			const label = this.floorLabels[i];
+			if (!label) continue;
+			label.setX(labelX);
+		}
 	}
 
 	private drawGrid(): void {
@@ -324,7 +371,12 @@ export class GameScene extends Phaser.Scene {
 			const w = TILE_WIDTHS[tileType] ?? 1;
 
 			g.fillStyle(color, 1);
-			g.fillRect(x * CELL_SIZE + 1, y * CELL_SIZE + 1, w * CELL_SIZE - 1, CELL_SIZE - 1);
+			g.fillRect(
+				x * CELL_SIZE + 1,
+				y * CELL_SIZE + 1,
+				w * CELL_SIZE - 1,
+				CELL_SIZE - 1,
+			);
 		}
 	}
 
