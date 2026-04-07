@@ -41,6 +41,9 @@ export class GameScene extends Phaser.Scene {
 	private camStartX = 0;
 	private camStartY = 0;
 
+	// Arrow-key pan
+	private arrowKeys!: Phaser.Types.Input.Keyboard.CursorKeys;
+
 	// Drag-to-paint state
 	private isDragging = false;
 	private draggedCells = new Set<string>();
@@ -231,9 +234,20 @@ export class GameScene extends Phaser.Scene {
 		this.cellGraphics = this.add.graphics();
 		this.hoverGraphics = this.add.graphics();
 
+		this.arrowKeys = this.input.keyboard!.createCursorKeys();
+
 		this.drawGrid();
 		this.drawAllCells();
 		this.setupInput();
+	}
+
+	update(): void {
+		const cam = this.cameras.main;
+		const PAN_SPEED = 6 / cam.zoom;
+		if (this.arrowKeys.left.isDown)  cam.scrollX -= PAN_SPEED;
+		if (this.arrowKeys.right.isDown) cam.scrollX += PAN_SPEED;
+		if (this.arrowKeys.up.isDown)    cam.scrollY -= PAN_SPEED;
+		if (this.arrowKeys.down.isDown)  cam.scrollY += PAN_SPEED;
 	}
 
 	private drawGrid(): void {
@@ -434,20 +448,6 @@ export class GameScene extends Phaser.Scene {
 		);
 
 		this.game.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
-		// Arrow-key panning
-		const PAN_SPEED = 8; // pixels per keydown event (at zoom=1)
-		const panKeys: Record<string, [number, number]> = {
-			LEFT: [-PAN_SPEED, 0],
-			RIGHT: [PAN_SPEED, 0],
-			UP: [0, -PAN_SPEED],
-			DOWN: [0, PAN_SPEED],
-		};
-		for (const [key, [dx, dy]] of Object.entries(panKeys)) {
-			this.input.keyboard?.on(`keydown-${key}`, () => {
-				cam.setScroll(cam.scrollX + dx / cam.zoom, cam.scrollY + dy / cam.zoom);
-			});
-		}
 
 		// Redraw hover when shift is pressed/released without moving the mouse
 		this.input.keyboard?.on("keydown-SHIFT", () => {
