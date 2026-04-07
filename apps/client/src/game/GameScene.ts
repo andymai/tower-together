@@ -234,13 +234,10 @@ export class GameScene extends Phaser.Scene {
 		const totalWidth = GRID_WIDTH * CELL_SIZE;
 		const totalHeight = GRID_HEIGHT * CELL_SIZE;
 
-		this.cameras.main.setBounds(
-			-CELL_SIZE * 4,
-			-CELL_SIZE * 4,
-			totalWidth + CELL_SIZE * 8,
-			totalHeight + CELL_SIZE * 8,
-		);
-		this.cameras.main.centerOn(totalWidth / 2, totalHeight / 2);
+		// Zoom so the grid fills the viewport horizontally, then center near ground floor
+		const initialZoom = this.scale.width / totalWidth;
+		this.cameras.main.setZoom(initialZoom);
+		this.cameras.main.centerOn(totalWidth / 2, (UNDERGROUND_Y - 8) * CELL_SIZE);
 
 		this.gridGraphics = this.add.graphics();
 		this.cellGraphics = this.add.graphics();
@@ -349,6 +346,13 @@ export class GameScene extends Phaser.Scene {
 
 		const { x, y } = this.hoveredCell;
 		if (y < 0 || y >= GRID_HEIGHT) return;
+
+		// Lobby is only placeable on ground floor and every 15 floors above
+		if (this.selectedTool === "lobby") {
+			const groundY = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS;
+			const floorsAboveGround = groundY - y;
+			if (floorsAboveGround < 0 || floorsAboveGround % 15 !== 0) return;
+		}
 
 		const width =
 			this.selectedTool !== "empty" ? (TILE_WIDTHS[this.selectedTool] ?? 1) : 1;
@@ -469,17 +473,24 @@ export class GameScene extends Phaser.Scene {
 		this.input.on(
 			"wheel",
 			(
-				_p: Phaser.Input.Pointer,
+				p: Phaser.Input.Pointer,
 				_o: unknown[],
-				_dx: number,
+				deltaX: number,
 				deltaY: number,
 			) => {
-				const newZoom = Phaser.Math.Clamp(
-					cam.zoom * (deltaY > 0 ? 0.9 : 1.1),
-					0.25,
-					4,
-				);
-				cam.setZoom(newZoom);
+				if ((p.event as WheelEvent).ctrlKey) {
+					// Pinch-to-zoom
+					const newZoom = Phaser.Math.Clamp(
+						cam.zoom * (deltaY > 0 ? 0.9 : 1.1),
+						0.25,
+						4,
+					);
+					cam.setZoom(newZoom);
+				} else {
+					// Two-finger scroll → pan
+					cam.scrollX += deltaX / cam.zoom;
+					cam.scrollY += deltaY / cam.zoom;
+				}
 			},
 		);
 
