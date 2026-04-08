@@ -16,6 +16,26 @@ export type CellData = {
 	isOverlay?: boolean;
 };
 
+export type EntityStateData = {
+	id: string;
+	floorAnchor: number;
+	subtypeIndex: number;
+	baseOffset: number;
+	familyCode: number;
+	stateCode: number;
+	stressLevel: "low" | "medium" | "high";
+};
+
+export type CarrierCarStateData = {
+	carrierId: number;
+	column: number;
+	carrierMode: 0 | 1 | 2;
+	currentFloor: number;
+	targetFloor: number;
+	speedCounter: number;
+	doorWaitCounter: number;
+};
+
 export type ServerMessage =
 	| {
 			type: "init_state";
@@ -26,8 +46,12 @@ export type ServerMessage =
 			width: number;
 			height: number;
 			cells: CellData[];
+			entities: EntityStateData[];
+			carriers: CarrierCarStateData[];
 	  }
 	| { type: "state_patch"; cells: CellData[] }
+	| { type: "entity_update"; entities: EntityStateData[] }
+	| { type: "carrier_update"; carriers: CarrierCarStateData[] }
 	| {
 			type: "command_result";
 			accepted: boolean;

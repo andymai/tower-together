@@ -3,6 +3,8 @@ import type { CellPatch, CommandResult, SimCommand } from "./commands";
 import { handle_place_tile, handle_remove_tile } from "./commands";
 import {
 	advance_entity_refresh_stride,
+	create_entity_state_records,
+	populate_carrier_requests,
 	rebuild_runtime_entities,
 } from "./entities";
 import { createLedgerState, type LedgerState } from "./ledger";
@@ -21,8 +23,19 @@ import {
 import { advanceOneTick, type TimeState } from "./time";
 import { GRID_HEIGHT, MAX_SPECIAL_LINKS, type WorldState } from "./world";
 
+export type { EntityStateRecord } from "./entities";
 export type { SimSnapshot } from "./snapshot";
 export type { CellPatch, CommandResult };
+
+export interface CarrierCarStateRecord {
+	carrierId: number;
+	column: number;
+	carrierMode: 0 | 1 | 2;
+	currentFloor: number;
+	targetFloor: number;
+	speedCounter: number;
+	doorWaitCounter: number;
+}
 
 // ─── Step result ──────────────────────────────────────────────────────────────
 
@@ -108,6 +121,7 @@ export class TowerSim {
 		};
 		run_checkpoints(state, prevTick, currTick);
 		advance_entity_refresh_stride(this.world, this.ledger, this.time);
+		populate_carrier_requests(this.world);
 		tick_all_carriers(this.world);
 
 		return {
@@ -216,5 +230,23 @@ export class TowerSim {
 			result.push({ x, y, tileType, isAnchor: true, isOverlay: true });
 		}
 		return result;
+	}
+
+	entitiesToArray() {
+		return create_entity_state_records(this.world);
+	}
+
+	carriersToArray(): CarrierCarStateRecord[] {
+		return this.world.carriers.flatMap((carrier) =>
+			carrier.cars.map((car) => ({
+				carrierId: carrier.carrierId,
+				column: carrier.column,
+				carrierMode: carrier.carrierMode,
+				currentFloor: car.currentFloor,
+				targetFloor: car.targetFloor,
+				speedCounter: car.speedCounter,
+				doorWaitCounter: car.doorWaitCounter,
+			})),
+		);
 	}
 }

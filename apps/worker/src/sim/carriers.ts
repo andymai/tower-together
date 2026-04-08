@@ -1,4 +1,3 @@
-import { DELAY_STOP_EVEN, DELAY_STOP_ODD } from "./resources";
 import {
 	type CarrierCar,
 	type CarrierRecord,
@@ -11,6 +10,7 @@ import {
 
 const LOCAL_TICKS_PER_FLOOR = 8;
 const EXPRESS_TICKS_PER_FLOOR = 4;
+const DEPARTURE_SEQUENCE_TICKS = 5;
 
 /**
  * Ticks required to travel one floor.
@@ -20,6 +20,51 @@ const EXPRESS_TICKS_PER_FLOOR = 4;
 function speed_ticks(mode: 0 | 1 | 2): number {
 	if (mode === 2) return EXPRESS_TICKS_PER_FLOOR;
 	return LOCAL_TICKS_PER_FLOOR;
+}
+
+function compute_car_motion_mode(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+): 0 | 1 | 2 | 3 {
+	const distToTarget = Math.abs(car.currentFloor - car.targetFloor);
+	const distFromPrev = Math.abs(car.currentFloor - car.prevFloor);
+	const firstLeg = distFromPrev === 0 && distToTarget > 0;
+
+	if (carrier.carrierMode === 2) {
+		if (firstLeg) return distToTarget < 4 ? 1 : 2;
+		if (distToTarget < 2 || distFromPrev < 2) return 0;
+		if (distToTarget < 4 || distFromPrev < 4) return 1;
+		return 2;
+	}
+
+	if (firstLeg) return distToTarget > 4 ? 3 : 2;
+	if (distToTarget < 2 || distFromPrev < 2) return 0;
+	if (distToTarget > 4 && distFromPrev > 4) return 3;
+	return 2;
+}
+
+function advance_car_position_one_step(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+): void {
+	const motionMode = compute_car_motion_mode(carrier, car);
+	if (motionMode === 0) {
+		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
+		return;
+	}
+	if (motionMode === 1) {
+		car.doorWaitCounter = 2;
+		return;
+	}
+
+	const stepSize = motionMode === 3 ? 3 : 1;
+	const direction = car.targetFloor > car.currentFloor ? 1 : -1;
+	const nextFloor = car.currentFloor + direction * stepSize;
+	if (direction > 0) {
+		car.currentFloor = Math.min(nextFloor, car.targetFloor);
+	} else {
+		car.currentFloor = Math.max(nextFloor, car.targetFloor);
+	}
 }
 
 // ─── Floor-to-slot index mapping (§3.6) ──────────────────────────────────────
@@ -158,8 +203,8 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 
 	// Branch 1: doors open — dwell, then close
 	if (car.doorWaitCounter > 0) {
-		car.doorWaitCounter--;
-		// Phase 4: process_unit_travel_queue(carrier, car)
+		if (compute_car_motion_mode(carrier, car) === 0) car.doorWaitCounter--;
+		else car.doorWaitCounter = 0;
 		return;
 	}
 
@@ -167,17 +212,15 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 	if (car.speedCounter > 0) {
 		car.speedCounter--;
 		if (car.speedCounter === 0) {
-			// Move one floor in the direction of travel
-			if (car.currentFloor < car.targetFloor) car.currentFloor++;
-			else if (car.currentFloor > car.targetFloor) car.currentFloor--;
-			// Phase 4: dispatch_destination_queue_entries(carrier, car, car.currentFloor)
+			car.prevFloor = car.currentFloor;
+			advance_car_position_one_step(carrier, car);
 			if (car.currentFloor === car.targetFloor) {
-				// Arrived at target — open doors
-				const slot = floor_to_slot(carrier, car.currentFloor);
-				car.doorWaitCounter = slot % 2 === 0 ? DELAY_STOP_EVEN : DELAY_STOP_ODD;
-				car.prevFloor = car.currentFloor;
-			} else {
-				// Still travelling — reload speed counter for next floor
+				if (car.doorWaitCounter === 0) {
+					car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
+				}
+				car.departureFlag = 0;
+			}
+			if (car.doorWaitCounter === 0 && car.currentFloor !== car.targetFloor) {
 				car.speedCounter = speed_ticks(carrier.carrierMode);
 			}
 		}
@@ -189,7 +232,11 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 	if (next === car.currentFloor) return; // Nothing to do
 	car.targetFloor = next;
 	car.directionFlag = next > car.currentFloor ? 0 : 1;
-	car.speedCounter = speed_ticks(carrier.carrierMode);
+	car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
+	if (car.departureFlag === 0) {
+		car.departureTimestamp = 0;
+	}
+	car.departureFlag = 1;
 }
 
 /** Tick all cars in all carriers. Called every sim tick from TowerSim.step(). */
@@ -215,7 +262,7 @@ export function rebuild_carrier_list(world: WorldState): void {
 	for (const [key, type] of Object.entries(world.overlays)) {
 		// Only elevators become carrier records; escalators are special-link segments.
 		if (type !== "elevator") continue;
-		const mode: 0 | 1 | 2 = 0; // mode 0 = Express Elevator (standard player elevator)
+		const mode: 0 | 1 | 2 = 1; // current UI tool places the standard elevator
 
 		const [xStr, yStr] = key.split(",");
 		const x = Number(xStr);

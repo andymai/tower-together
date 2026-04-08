@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import {
+	type CarrierCarStateData,
+	type EntityStateData,
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	TILE_WIDTHS,
@@ -37,6 +39,30 @@ const COLOR_SKY = 0x5ba8d4; // blue sky (above ground)
 const COLOR_UNDERGROUND = 0x3d2010; // dark brown soil (underground)
 const COLOR_GRID_LINE = 0x333333;
 const COLOR_HOVER = 0xffff00;
+const ENTITY_STRESS_COLORS: Record<EntityStateData["stressLevel"], number> = {
+	low: 0x111111,
+	medium: 0xff5fa2,
+	high: 0xd81919,
+};
+const CAR_COLOR = 0xf6d463;
+
+const FAMILY_WIDTHS: Record<number, number> = {
+	3: TILE_WIDTHS.hotelSingle,
+	4: TILE_WIDTHS.hotelTwin,
+	5: TILE_WIDTHS.hotelSuite,
+	7: TILE_WIDTHS.office,
+	9: TILE_WIDTHS.condo,
+};
+
+const FAMILY_POPULATION: Record<number, number> = {
+	3: 1,
+	4: 2,
+	5: 3,
+	7: 6,
+	9: 3,
+};
+
+const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 
@@ -44,6 +70,8 @@ const LABEL_PANEL_WIDTH = 24;
 
 export class GameScene extends Phaser.Scene {
 	private cellGraphics!: Phaser.GameObjects.Graphics;
+	private entityGraphics!: Phaser.GameObjects.Graphics;
+	private carGraphics!: Phaser.GameObjects.Graphics;
 	private gridGraphics!: Phaser.GameObjects.Graphics;
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
 	private floorLabelBg!: Phaser.GameObjects.Rectangle;
@@ -55,6 +83,8 @@ export class GameScene extends Phaser.Scene {
 	private anchorSet: Set<string> = new Set();
 	// Overlay tiles (e.g. stairs) keyed by "x,y"
 	private overlayGrid: Map<string, string> = new Map();
+	private entities: EntityStateData[] = [];
+	private carriers: CarrierCarStateData[] = [];
 
 	private hoveredCell: { x: number; y: number } | null = null;
 	private selectedTool: string = "floor";
@@ -223,6 +253,8 @@ export class GameScene extends Phaser.Scene {
 			isAnchor: boolean;
 			isOverlay?: boolean;
 		}>,
+		entities: EntityStateData[] = [],
+		carriers: CarrierCarStateData[] = [],
 	): void {
 		this.grid.clear();
 		this.anchorSet.clear();
@@ -236,6 +268,8 @@ export class GameScene extends Phaser.Scene {
 				if (cell.isAnchor) this.anchorSet.add(key);
 			}
 		}
+		this.entities = entities;
+		this.carriers = carriers;
 		this.drawAllCells();
 	}
 
@@ -271,6 +305,16 @@ export class GameScene extends Phaser.Scene {
 		this.drawAllCells();
 	}
 
+	applyEntities(entities: EntityStateData[]): void {
+		this.entities = entities;
+		this.drawAllCells();
+	}
+
+	applyCarriers(carriers: CarrierCarStateData[]): void {
+		this.carriers = carriers;
+		this.drawAllCells();
+	}
+
 	create(): void {
 		const totalWidth = GRID_WIDTH * TILE_WIDTH;
 
@@ -284,6 +328,8 @@ export class GameScene extends Phaser.Scene {
 
 		this.gridGraphics = this.add.graphics();
 		this.cellGraphics = this.add.graphics();
+		this.entityGraphics = this.add.graphics();
+		this.carGraphics = this.add.graphics();
 		this.hoverGraphics = this.add.graphics();
 
 		this.arrowKeys =
@@ -389,6 +435,8 @@ export class GameScene extends Phaser.Scene {
 	private drawAllCells(): void {
 		const g = this.cellGraphics;
 		g.clear();
+		this.entityGraphics.clear();
+		this.carGraphics.clear();
 
 		// Sky background (above ground)
 		g.fillStyle(COLOR_SKY, 1);
@@ -500,6 +548,145 @@ export class GameScene extends Phaser.Scene {
 				(previousRow - runStart + 1) * TILE_HEIGHT - 2,
 			);
 		}
+
+		this.drawEntities();
+		this.drawCars();
+	}
+
+	private drawEntities(): void {
+		const g = this.entityGraphics;
+		g.clear();
+		const queueIndices = new Map<string, number>();
+		const elevatorColumnsByFloor = this.collectElevatorColumnsByFloor();
+
+		for (const entity of this.entities) {
+			const color = ENTITY_STRESS_COLORS[entity.stressLevel] ?? 0x111111;
+			const spanWidth = FAMILY_WIDTHS[entity.familyCode] ?? 1;
+			const population = FAMILY_POPULATION[entity.familyCode] ?? 1;
+			const slotFraction = (entity.baseOffset + 0.5) / population;
+			const defaultGridX = entity.subtypeIndex + slotFraction * spanWidth;
+			const gridY = GRID_HEIGHT - 1 - entity.floorAnchor + 0.5;
+			let gridX = defaultGridX;
+
+			if (this.isWaitingForElevator(entity)) {
+				const queueKey = `${entity.floorAnchor}:${this.pickElevatorColumn(entity, elevatorColumnsByFloor)}`;
+				const queueIndex = queueIndices.get(queueKey) ?? 0;
+				queueIndices.set(queueKey, queueIndex + 1);
+				gridX = this.computeElevatorQueueX(
+					entity,
+					elevatorColumnsByFloor,
+					queueIndex,
+					defaultGridX,
+				);
+			}
+			const width = Math.max(2, TILE_WIDTH - 1);
+			const height = Math.max(4, Math.floor(TILE_HEIGHT * 0.35));
+			const px = gridX * TILE_WIDTH - width / 2;
+			const py = gridY * TILE_HEIGHT - height / 2;
+
+			g.fillStyle(color, 1);
+			g.fillRect(px, py, width, height);
+		}
+	}
+
+	private drawCars(): void {
+		const g = this.carGraphics;
+		g.clear();
+
+		for (const car of this.carriers) {
+			const shaftWidthCells = TILE_WIDTHS.elevator ?? 4;
+			const width = Math.max(6, shaftWidthCells * TILE_WIDTH - 4);
+			const height = Math.max(8, Math.floor(TILE_HEIGHT * 0.55));
+			const x =
+				car.column * TILE_WIDTH + (shaftWidthCells * TILE_WIDTH - width) / 2;
+			const y =
+				this.carWorldY(car.currentFloor, car.targetFloor, car.speedCounter) -
+				height / 2;
+
+			g.fillStyle(CAR_COLOR, 1);
+			g.fillRect(x, y, width, height);
+			g.lineStyle(1, 0x6b5a1b, 1);
+			g.strokeRect(x, y, width, height);
+		}
+	}
+
+	private carWorldY(
+		currentFloor: number,
+		targetFloor: number,
+		speedCounter: number,
+	): number {
+		const currentY = (GRID_HEIGHT - 1 - currentFloor + 0.5) * TILE_HEIGHT;
+		if (speedCounter <= 0 || currentFloor === targetFloor) return currentY;
+
+		const direction = targetFloor > currentFloor ? -1 : 1;
+		const ticksPerFloor = 8;
+		const progress = (ticksPerFloor - speedCounter) / ticksPerFloor;
+		return currentY + direction * progress * TILE_HEIGHT;
+	}
+
+	private isWaitingForElevator(entity: EntityStateData): boolean {
+		return (
+			ELEVATOR_QUEUE_STATES.has(entity.stateCode) ||
+			(entity.stateCode >= 0x40 && entity.stateCode < 0x60)
+		);
+	}
+
+	private collectElevatorColumnsByFloor(): Map<number, number[]> {
+		const result = new Map<number, number[]>();
+		for (const [key, type] of this.overlayGrid) {
+			if (type !== "elevator") continue;
+			const [x, y] = key.split(",").map(Number);
+			const floor = GRID_HEIGHT - 1 - y;
+			const columns = result.get(floor);
+			if (columns) {
+				if (!columns.includes(x)) columns.push(x);
+			} else {
+				result.set(floor, [x]);
+			}
+		}
+
+		for (const columns of result.values()) columns.sort((a, b) => a - b);
+		return result;
+	}
+
+	private pickElevatorColumn(
+		entity: EntityStateData,
+		elevatorColumnsByFloor: Map<number, number[]>,
+	): number {
+		const columns = elevatorColumnsByFloor.get(entity.floorAnchor);
+		if (!columns || columns.length === 0) return entity.subtypeIndex;
+
+		let best = columns[0] ?? entity.subtypeIndex;
+		let bestDistance = Math.abs(best - entity.subtypeIndex);
+		for (const column of columns) {
+			const distance = Math.abs(column - entity.subtypeIndex);
+			if (distance < bestDistance) {
+				best = column;
+				bestDistance = distance;
+			}
+		}
+		return best;
+	}
+
+	private computeElevatorQueueX(
+		entity: EntityStateData,
+		elevatorColumnsByFloor: Map<number, number[]>,
+		queueIndex: number,
+		fallbackX: number,
+	): number {
+		const elevatorColumn = this.pickElevatorColumn(
+			entity,
+			elevatorColumnsByFloor,
+		);
+		if (
+			elevatorColumn === entity.subtypeIndex &&
+			!elevatorColumnsByFloor.has(entity.floorAnchor)
+		) {
+			return fallbackX;
+		}
+
+		const shaftCenter = elevatorColumn + (TILE_WIDTHS.elevator ?? 4) / 2;
+		return shaftCenter + 0.35 + queueIndex * 0.9;
 	}
 
 	/** Draw stairs bridging the floor at (gx,gy) and the floor above (gy-1). */

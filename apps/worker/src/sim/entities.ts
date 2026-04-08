@@ -1,3 +1,4 @@
+import { floor_to_slot } from "./carriers";
 import { add_cashflow_from_family_resource, type LedgerState } from "./ledger";
 import { OP_SCORE_THRESHOLDS, YEN_1001 } from "./resources";
 import { select_best_route_candidate } from "./routing";
@@ -10,6 +11,16 @@ import {
 	yToFloor,
 } from "./world";
 
+export interface EntityStateRecord {
+	id: string;
+	floorAnchor: number;
+	subtypeIndex: number;
+	baseOffset: number;
+	familyCode: number;
+	stateCode: number;
+	stressLevel: "low" | "medium" | "high";
+}
+
 const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	3: 1,
 	4: 2,
@@ -20,6 +31,7 @@ const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 
 const HOTEL_FAMILIES = new Set([3, 4, 5]);
 const COMMERCIAL_FAMILIES = new Set([6, 10, 12]);
+const ELEVATOR_DEMAND_STATES = new Set([0x01, 0x04, 0x05, 0x22]);
 
 function makeEntity(
 	floorAnchor: number,
@@ -237,6 +249,14 @@ function reserveVenue(record: CommercialVenueRecord): void {
 	record.visitCount = record.todayVisitCount;
 }
 
+function raiseStress(entity: EntityRecord, amount = 20): void {
+	entity.accumulatedDelay = Math.min(255, entity.accumulatedDelay + amount);
+}
+
+function lowerStress(entity: EntityRecord, amount = 12): void {
+	entity.accumulatedDelay = Math.max(0, entity.accumulatedDelay - amount);
+}
+
 function activateHotelStay(
 	world: WorldState,
 	entity: EntityRecord,
@@ -244,13 +264,16 @@ function activateHotelStay(
 ): void {
 	const object = findObjectForEntity(world, entity);
 	if (!object) return;
-	if (select_best_route_candidate(world, 10, entity.floorAnchor) === null)
+	if (select_best_route_candidate(world, 10, entity.floorAnchor) === null) {
+		raiseStress(entity, 30);
 		return;
+	}
 	entity.stateCode = 0x01;
 	entity.originFloor = 10;
 	entity.selectedFloor = entity.floorAnchor;
 	object.stayPhase = time.daypartIndex < 4 ? 0 : 8;
 	object.needsRefreshFlag = 1;
+	lowerStress(entity, 8);
 }
 
 function checkoutHotelStay(
@@ -321,6 +344,9 @@ function processHotelEntity(
 					object.activationTickCount + 1,
 				);
 				entity.stateCode = 0x22;
+				lowerStress(entity, 16);
+			} else {
+				raiseStress(entity, 8);
 			}
 			return;
 		}
@@ -377,6 +403,9 @@ function processOfficeEntity(
 			reserveVenue(venue);
 			recordDemandSample(entity, time);
 			entity.stateCode = 0x22;
+			lowerStress(entity, 12);
+		} else {
+			raiseStress(entity, 8);
 		}
 	}
 
@@ -407,6 +436,9 @@ function processCondoEntity(
 			for (const sibling of findSiblingEntities(world, entity))
 				sibling.stateCode = 0x01;
 			object.needsRefreshFlag = 1;
+			lowerStress(entity, 10);
+		} else {
+			raiseStress(entity, 24);
 		}
 		return;
 	}
@@ -422,6 +454,9 @@ function processCondoEntity(
 			reserveVenue(venue);
 			recordDemandSample(entity, time);
 			entity.stateCode = 0x22;
+			lowerStress(entity, 10);
+		} else {
+			raiseStress(entity, 7);
 		}
 	} else if (entity.stateCode === 0x22) {
 		entity.stateCode = 0x01;
@@ -518,6 +553,74 @@ export function advance_entity_refresh_stride(
 	}
 
 	recomputeRoutesViableFlag(world, time);
+}
+
+function carrierAlreadyServingFloor(
+	world: WorldState,
+	carrierId: number,
+	floor: number,
+): boolean {
+	const carrier = world.carriers.find(
+		(candidate) => candidate.carrierId === carrierId,
+	);
+	if (!carrier) return false;
+	return carrier.cars.some(
+		(car) => car.currentFloor === floor || car.targetFloor === floor,
+	);
+}
+
+function shouldSeedElevatorDemand(entity: EntityRecord): boolean {
+	if (!ELEVATOR_DEMAND_STATES.has(entity.stateCode)) return false;
+	if (
+		entity.familyCode !== 3 &&
+		entity.familyCode !== 4 &&
+		entity.familyCode !== 5 &&
+		entity.familyCode !== 7 &&
+		entity.familyCode !== 9
+	) {
+		return false;
+	}
+	return true;
+}
+
+export function populate_carrier_requests(world: WorldState): void {
+	for (const carrier of world.carriers) {
+		for (const car of carrier.cars) {
+			car.waitingCount.fill(0);
+		}
+	}
+
+	const requests = new Map<string, number>();
+	for (const entity of world.entities) {
+		if (!shouldSeedElevatorDemand(entity)) continue;
+		const route = select_best_route_candidate(world, 10, entity.floorAnchor);
+		if (!route) continue;
+		if (
+			carrierAlreadyServingFloor(world, route.carrierId, entity.floorAnchor)
+		) {
+			continue;
+		}
+		const key = `${route.carrierId}:${entity.floorAnchor}`;
+		requests.set(key, (requests.get(key) ?? 0) + 1);
+	}
+
+	for (const [key, count] of requests) {
+		const [carrierIdText, floorText] = key.split(":");
+		const carrierId = Number(carrierIdText);
+		const floor = Number(floorText);
+		const carrier = world.carriers.find(
+			(candidate) => candidate.carrierId === carrierId,
+		);
+		if (!carrier) continue;
+		const slot = floor_to_slot(carrier, floor);
+		if (slot < 0) continue;
+		for (const car of carrier.cars) {
+			if (slot < car.waitingCount.length) {
+				car.waitingCount[slot] = count;
+				break;
+			}
+		}
+	}
 }
 
 export function resetCommercialVenueCycle(world: WorldState): void {
@@ -640,4 +743,38 @@ export function refund_unhappy_condos(
 			}
 		}
 	}
+}
+
+function entityStressLevel(
+	entity: EntityRecord,
+	object: PlacedObjectRecord | undefined,
+): "low" | "medium" | "high" {
+	if (object?.pairingStatus === 0 || entity.accumulatedDelay >= 120) {
+		return "high";
+	}
+	if (object?.pairingStatus === 1 || entity.accumulatedDelay >= 40) {
+		return "medium";
+	}
+	return "low";
+}
+
+export function create_entity_state_records(
+	world: WorldState,
+): EntityStateRecord[] {
+	return world.entities
+		.map((entity) => {
+			const object = findObjectForEntity(world, entity);
+			if (!object) return null;
+
+			return {
+				id: entityKey(entity),
+				floorAnchor: entity.floorAnchor,
+				subtypeIndex: entity.subtypeIndex,
+				baseOffset: entity.baseOffset,
+				familyCode: entity.familyCode,
+				stateCode: entity.stateCode,
+				stressLevel: entityStressLevel(entity, object),
+			} satisfies EntityStateRecord;
+		})
+		.filter((entity): entity is EntityStateRecord => entity !== null);
 }

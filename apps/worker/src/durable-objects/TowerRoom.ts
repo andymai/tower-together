@@ -129,6 +129,8 @@ export class TowerRoom extends DurableObject<Env> {
 				width: this.sim.width,
 				height: this.sim.height,
 				cells: this.sim.cellsToArray(),
+				entities: this.sim.entitiesToArray(),
+				carriers: this.sim.carriersToArray(),
 			});
 			this.broadcast({
 				type: "presence_update",
@@ -161,6 +163,14 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const patch = result.patch ?? [];
 		this.broadcast({ type: "state_patch", cells: patch });
+		this.broadcast({
+			type: "entity_update",
+			entities: this.sim.entitiesToArray(),
+		});
+		this.broadcast({
+			type: "carrier_update",
+			carriers: this.sim.carriersToArray(),
+		});
 		this.sessions.send(ws, {
 			type: "command_result",
 			accepted: true,
@@ -204,6 +214,14 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const result = this.sim.step();
 		this.broadcast({ type: "time_update", simTime: result.simTime });
+		this.broadcast({
+			type: "entity_update",
+			entities: this.sim.entitiesToArray(),
+		});
+		this.broadcast({
+			type: "carrier_update",
+			carriers: this.sim.carriersToArray(),
+		});
 		if (result.economyChanged) {
 			this.broadcast({ type: "economy_update", cash: this.sim.cash });
 		}

@@ -20,6 +20,8 @@ import {
 } from "./commands";
 import {
 	advance_entity_refresh_stride,
+	create_entity_state_records,
+	populate_carrier_requests,
 	rebuild_runtime_entities,
 	resetCommercialVenueCycle,
 	update_security_housekeeping_state,
@@ -1217,7 +1219,7 @@ describe("rebuild_carrier_list", () => {
 		expect(world.carriers[0].column).toBe(0);
 		expect(world.carriers[0].bottomServedFloor).toBe(10);
 		expect(world.carriers[0].topServedFloor).toBe(15);
-		expect(world.carriers[0].carrierMode).toBe(0);
+		expect(world.carriers[0].carrierMode).toBe(1);
 	});
 
 	it("creates separate carriers for separate columns", () => {
@@ -1537,5 +1539,50 @@ describe("Phase 4 runtime entities", () => {
 			});
 		}
 		expect(ledger.cashBalance).toBeGreaterThan(hotelBefore);
+	});
+
+	it("projects entity wire state with stress bands", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handle_place_tile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
+		rebuild_runtime_entities(world);
+		const firstEntity = world.entities[0];
+		const secondEntity = world.entities[1];
+		const hotel = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!firstEntity || !secondEntity || !hotel)
+			throw new Error("expected hotel runtime state");
+		firstEntity.accumulatedDelay = 10;
+		secondEntity.accumulatedDelay = 140;
+		hotel.pairingStatus = 1;
+
+		const state = create_entity_state_records(world);
+		expect(state).toHaveLength(2);
+		expect(state[0]?.stressLevel).toBe("medium");
+		expect(state[1]?.stressLevel).toBe("high");
+		expect(state[0]?.subtypeIndex).toBe(0);
+		expect(state[0]?.floorAnchor).toBe(GRID_HEIGHT - 1 - (GROUND_Y - 1));
+	});
+
+	it("seeds carrier waiters from active entities so elevator cars move", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		rebuild_runtime_entities(world);
+
+		const entity = world.entities[0];
+		if (!entity) throw new Error("expected hotel entity");
+		entity.stateCode = 0x05;
+
+		populate_carrier_requests(world);
+		const carrier = world.carriers[0];
+		if (!carrier) throw new Error("expected carrier");
+		const requestSlot = floor_to_slot(carrier, entity.floorAnchor);
+		expect(requestSlot).toBeGreaterThanOrEqual(0);
+		expect(carrier.cars[0]?.waitingCount[requestSlot]).toBe(1);
 	});
 });

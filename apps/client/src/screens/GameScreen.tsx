@@ -131,10 +131,20 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					setSimTime(msg.simTime);
 					setCash(msg.cash);
 					setTowerName(msg.name || msg.towerId);
-					sceneRef.current?.applyInitState(msg.cells);
+					sceneRef.current?.applyInitState(
+						msg.cells,
+						msg.entities,
+						msg.carriers,
+					);
 					break;
 				case "state_patch":
 					sceneRef.current?.applyPatch(msg.cells);
+					break;
+				case "entity_update":
+					sceneRef.current?.applyEntities(msg.entities);
+					break;
+				case "carrier_update":
+					sceneRef.current?.applyCarriers(msg.carriers);
 					break;
 				case "command_result":
 					if (msg.accepted && msg.patch) {
