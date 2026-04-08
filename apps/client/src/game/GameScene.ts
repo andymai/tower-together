@@ -12,6 +12,40 @@ import {
 const TILE_WIDTH = 4;
 const TILE_HEIGHT = TILE_WIDTH * 4;
 
+const TILE_LABELS: Partial<Record<string, string>> = {
+	lobby: "L",
+	hotelSingle: "R",
+	hotelTwin: "T",
+	hotelSuite: "S",
+	restaurant: "R",
+	fastFood: "F",
+	retail: "$",
+	office: "O",
+	condo: "C",
+	cinema: "M",
+	security: "X",
+	housekeeping: "H",
+	metro: "U",
+	fireSuppressor: "F",
+};
+
+const TILE_LABEL_COLORS: Partial<Record<string, string>> = {
+	lobby: "#3e2d1d",
+	hotelSingle: "#ffffff",
+	hotelTwin: "#ffffff",
+	hotelSuite: "#ffffff",
+	restaurant: "#4a2707",
+	fastFood: "#4a2707",
+	retail: "#233000",
+	office: "#23313d",
+	condo: "#4a4108",
+	cinema: "#ffffff",
+	security: "#ffffff",
+	housekeeping: "#1f3945",
+	metro: "#124040",
+	fireSuppressor: "#ffffff",
+};
+
 // Tile fill colors
 const TILE_COLORS: Record<string, number> = {
 	floor: 0x555555,
@@ -76,6 +110,7 @@ export class GameScene extends Phaser.Scene {
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
 	private floorLabelBg!: Phaser.GameObjects.Rectangle;
 	private floorLabels: Phaser.GameObjects.Text[] = [];
+	private tileLabels: Phaser.GameObjects.Text[] = [];
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -437,6 +472,7 @@ export class GameScene extends Phaser.Scene {
 		g.clear();
 		this.entityGraphics.clear();
 		this.carGraphics.clear();
+		this.clearTileLabels();
 
 		// Sky background (above ground)
 		g.fillStyle(COLOR_SKY, 1);
@@ -549,8 +585,42 @@ export class GameScene extends Phaser.Scene {
 			);
 		}
 
+		this.drawTileLabels();
 		this.drawEntities();
 		this.drawCars();
+	}
+
+	private clearTileLabels(): void {
+		for (const label of this.tileLabels) label.destroy();
+		this.tileLabels = [];
+	}
+
+	private drawTileLabels(): void {
+		for (const key of this.anchorSet) {
+			const tileType = this.grid.get(key);
+			if (!tileType) continue;
+
+			const labelText = TILE_LABELS[tileType];
+			if (!labelText) continue;
+
+			const [x, y] = key.split(",").map(Number);
+			const width = TILE_WIDTHS[tileType] ?? 1;
+			const label = this.add.text(
+				(x + width / 2) * TILE_WIDTH,
+				(y + 0.5) * TILE_HEIGHT,
+				labelText,
+				{
+					fontSize: "11px",
+					fontFamily: "Arial, sans-serif",
+					fontStyle: "bold",
+					color: TILE_LABEL_COLORS[tileType] ?? "#ffffff",
+					resolution: window.devicePixelRatio * 2,
+				},
+			);
+			label.setOrigin(0.5, 0.5);
+			label.setDepth(5);
+			this.tileLabels.push(label);
+		}
 	}
 
 	private drawEntities(): void {
