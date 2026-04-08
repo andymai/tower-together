@@ -86,19 +86,26 @@ export function rebuild_walkability_flags(world: WorldState): void {
 // ─── Rebuild transfer-group cache (§3.2) ─────────────────────────────────────
 
 /**
- * Each floor's entry is a bitmask of carrier IDs whose range includes that floor.
- * Parking objects (family 0x18 = code 24) are accounted for here too; they don't
- * change the bitmask but mark that floor as an explicit transfer point in Phase 4.
+ * Each floor's entry is a bitmask of carrier IDs reachable from an explicit
+ * transfer concourse on that floor. In this clean-room build, family-24
+ * ("parking") objects act as the recovered type-0x18 transfer concourse.
  * Max 32 carriers supported by 32-bit bitmask.
  */
 export function rebuild_transfer_group_cache(world: WorldState): void {
 	world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
 
-	for (const carrier of world.carriers) {
-		if (carrier.carrierId >= 32) continue; // overflow guard
-		const bit = 1 << carrier.carrierId;
-		for (let f = carrier.bottomServedFloor; f <= carrier.topServedFloor; f++) {
-			if (f >= 0 && f < GRID_HEIGHT) world.transferGroupCache[f] |= bit;
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (object.objectTypeCode !== 24) continue;
+		const [, y] = key.split(",").map(Number);
+		const floor = yToFloor(y);
+		let carrierMask = 0;
+		for (const carrier of world.carriers) {
+			if (carrier.carrierId >= 32) continue;
+			if (!carrier_reaches_transfer_floor(carrier, floor)) continue;
+			carrierMask |= 1 << carrier.carrierId;
+		}
+		if (carrierMask !== 0) {
+			world.transferGroupCache[floor] |= carrierMask;
 		}
 	}
 }
@@ -230,36 +237,44 @@ export function select_best_route_candidate(
 		);
 	}
 
-	// Check transfer routes via transferGroupCache
-	const aMask = world.transferGroupCache[fromFloor] ?? 0;
-	const bMask = world.transferGroupCache[toFloor] ?? 0;
+	// Check transfer routes via explicit transfer-concourse floors.
 	for (let t = 0; t < GRID_HEIGHT; t++) {
 		if (t === fromFloor || t === toFloor) continue;
 		const tMask = world.transferGroupCache[t] ?? 0;
-		const leg1 = aMask & tMask; // carriers covering fromFloor → t
-		const leg2 = tMask & bMask; // carriers covering t → toFloor
-		// Valid transfer: leg1 and leg2 non-zero and distinct (different carriers)
-		if (leg1 && leg2 && (leg1 & leg2) === 0) {
-			const carrierId = ctz(leg1);
-			const carrier = world.carriers.find(
-				(candidate) => candidate.carrierId === carrierId,
-			);
-			if (!carrier) continue;
+		if (tMask === 0) continue;
+		for (const carrier of world.carriers) {
 			if (
 				preferLocalMode ? carrier.carrierMode === 2 : carrier.carrierMode !== 2
 			) {
 				continue;
 			}
+			if (!carrier_covers_floor(carrier, fromFloor)) continue;
+			if ((tMask & (1 << carrier.carrierId)) === 0) continue;
+
+			const hasSecondLeg = world.carriers.some((candidate) => {
+				if (candidate.carrierId === carrier.carrierId) return false;
+				if (
+					preferLocalMode
+						? candidate.carrierMode === 2
+						: candidate.carrierMode !== 2
+				) {
+					return false;
+				}
+				if ((tMask & (1 << candidate.carrierId)) === 0) return false;
+				return carrier_covers_floor(candidate, toFloor);
+			});
+			if (!hasSecondLeg) continue;
+
 			const floorStatus = get_floor_slot_status(
 				carrier,
 				fromFloor,
 				toFloor > fromFloor ? 0 : 1,
 			);
 			tryCandidate(
-				carrierId,
+				carrier.carrierId,
 				floorStatus === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000,
 			);
-			break; // first transfer found is sufficient for cost comparison
+			break;
 		}
 	}
 
@@ -268,10 +283,18 @@ export function select_best_route_candidate(
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-/** Count trailing zeros — index of lowest set bit. */
-function ctz(n: number): number {
-	if (n === 0) return 32;
-	return Math.log2(n & -n) | 0;
+function carrier_reaches_transfer_floor(
+	carrier: WorldState["carriers"][number],
+	floor: number,
+): boolean {
+	if (floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor) {
+		return true;
+	}
+	const distance =
+		floor < carrier.bottomServedFloor
+			? carrier.bottomServedFloor - floor
+			: floor - carrier.topServedFloor;
+	return distance <= (carrier.carrierMode === 2 ? 4 : 6);
 }
 
 function get_floor_slot_status(
@@ -286,4 +309,11 @@ function get_floor_slot_status(
 			: carrier.secondaryRouteStatusByFloor;
 	if (slot < 0 || slot >= table.length) return 0;
 	return table[slot] ?? 0;
+}
+
+function carrier_covers_floor(
+	carrier: WorldState["carriers"][number],
+	floor: number,
+): boolean {
+	return floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
 }

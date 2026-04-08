@@ -39,6 +39,7 @@ import { TILE_COSTS, YEN_1001, YEN_1002 } from "./resources";
 import {
 	is_floor_span_walkable_for_express_route,
 	is_floor_span_walkable_for_local_route,
+	rebuild_transfer_group_cache,
 	select_best_route_candidate,
 } from "./routing";
 import { run_checkpoints, type SimState } from "./scheduler";
@@ -1360,6 +1361,51 @@ describe("select_best_route_candidate", () => {
 		const direct = select_best_route_candidate(world, 10, 25);
 		expect(direct?.cost).toBe(0x280 + 15 * 8); // carrier-direct fallback
 	});
+
+	it("does not expose transfer reachability without an explicit concourse floor", () => {
+		const world = makeWorld();
+		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
+		world.carriers.push(make_carrier(1, 4, 1, 25, 35));
+		rebuild_transfer_group_cache(world);
+
+		const route = select_best_route_candidate(world, 12, 30);
+		expect(route).toBeNull();
+	});
+
+	it("rebuilds transfer cache only on explicit concourse floors", () => {
+		const world = makeWorld();
+		world.placedObjects[`0,${GROUND_Y}`] = {
+			leftTileIndex: 0,
+			rightTileIndex: 3,
+			objectTypeCode: 24,
+			stayPhase: 0,
+			auxValueOrTimer: 0,
+			linkedRecordIndex: -1,
+			needsRefreshFlag: 1,
+			pairingActiveFlag: 1,
+			pairingStatus: -1,
+			variantIndex: 4,
+			activationTickCount: 0,
+		};
+		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
+		world.carriers.push(make_carrier(1, 4, 1, 0, 4));
+		rebuild_transfer_group_cache(world);
+
+		expect(world.transferGroupCache[10]).toBe((1 << 0) | (1 << 1));
+		expect(world.transferGroupCache[9]).toBe(0);
+		expect(world.transferGroupCache[12]).toBe(0);
+	});
+
+	it("allows transfer routing through a shared concourse mask", () => {
+		const world = makeWorld();
+		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
+		world.carriers.push(make_carrier(1, 4, 1, 0, 4));
+		world.transferGroupCache[10] = (1 << 0) | (1 << 1);
+
+		const route = select_best_route_candidate(world, 12, 2);
+		expect(route?.carrierId).toBe(0);
+		expect(route?.cost).toBe(3000 + 10 * 8);
+	});
 });
 
 describe("car state machine", () => {
@@ -1394,6 +1440,7 @@ describe("car state machine", () => {
 			destinationFloor: 10,
 			boarded: false,
 			directionFlag: 1,
+			assignedCarIndex: -1,
 		});
 		car.waitingCount[5] = 1;
 		// Tick enough for the car to service the request at least once.
@@ -1430,6 +1477,7 @@ describe("car state machine", () => {
 			destinationFloor: 10,
 			boarded: false,
 			directionFlag: 1,
+			assignedCarIndex: -1,
 		});
 		car.waitingCount[5] = 1; // floor 15
 		// Run until car arrives and opens doors
@@ -1479,11 +1527,50 @@ describe("car state machine", () => {
 			destinationFloor: 15,
 			boarded: true,
 			directionFlag: 0,
+			assignedCarIndex: 0,
 		});
 		carrier.serviceScheduleFlags[0] = 0;
 
 		tick_all_carriers(world, createTimeState());
 		expect(car.speedCounter).toBe(5);
+	});
+
+	it("assigns floor requests across multiple cars in the same shaft", () => {
+		const world = makeWorld();
+		world.carriers.push(make_carrier(0, 0, 2, 10, 30, 2));
+		const carrier = world.carriers[0];
+		const lowerCar = carrier.cars[0];
+		const upperCar = carrier.cars[1];
+		if (!lowerCar || !upperCar) throw new Error("expected two cars");
+
+		carrier.pendingRoutes.push({
+			entityId: "low",
+			sourceFloor: 11,
+			destinationFloor: 20,
+			boarded: false,
+			directionFlag: 0,
+			assignedCarIndex: -1,
+		});
+		carrier.pendingRoutes.push({
+			entityId: "high",
+			sourceFloor: 29,
+			destinationFloor: 12,
+			boarded: false,
+			directionFlag: 1,
+			assignedCarIndex: -1,
+		});
+
+		tick_all_carriers(world, createTimeState());
+		expect(lowerCar.pendingAssignmentCount).toBeGreaterThan(0);
+		expect(upperCar.pendingAssignmentCount).toBeGreaterThan(0);
+		expect(
+			carrier.pendingRoutes.find((route) => route.entityId === "low")
+				?.assignedCarIndex,
+		).toBe(0);
+		expect(
+			carrier.pendingRoutes.find((route) => route.entityId === "high")
+				?.assignedCarIndex,
+		).toBe(1);
 	});
 });
 

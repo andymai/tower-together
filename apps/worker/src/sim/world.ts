@@ -24,14 +24,17 @@ export function isValidLobbyY(y: number): boolean {
 // ─── Carrier types ────────────────────────────────────────────────────────────
 
 export interface CarrierCar {
+	active: boolean;
 	currentFloor: number;
 	doorWaitCounter: number;
 	speedCounter: number;
 	assignedCount: number;
+	pendingAssignmentCount: number;
 	/** 0 = upward (floor increases), 1 = downward. */
 	directionFlag: number;
 	targetFloor: number;
 	prevFloor: number;
+	homeFloor: number;
 	departureFlag: number;
 	departureTimestamp: number;
 	scheduleFlag: number;
@@ -46,6 +49,7 @@ export interface CarrierPendingRoute {
 	destinationFloor: number;
 	boarded: boolean;
 	directionFlag: number;
+	assignedCarIndex: number;
 }
 
 export interface CarrierRecord {

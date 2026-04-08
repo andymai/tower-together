@@ -665,10 +665,14 @@ export class GameScene extends Phaser.Scene {
 
 		for (const car of this.carriers) {
 			const shaftWidthCells = TILE_WIDTHS.elevator ?? 4;
-			const width = Math.max(6, shaftWidthCells * TILE_WIDTH - 4);
+			const slotCount = Math.max(1, car.carCount);
+			const shaftPixelWidth = shaftWidthCells * TILE_WIDTH;
+			const gutter = 1;
+			const usableWidth = shaftPixelWidth - gutter * (slotCount + 1);
+			const width = Math.max(3, Math.floor(usableWidth / slotCount));
 			const height = Math.max(8, Math.floor(TILE_HEIGHT * 0.55));
 			const x =
-				car.column * TILE_WIDTH + (shaftWidthCells * TILE_WIDTH - width) / 2;
+				car.column * TILE_WIDTH + gutter + car.carIndex * (width + gutter);
 			const y =
 				this.carWorldY(car.currentFloor, car.targetFloor, car.speedCounter) -
 				height / 2;

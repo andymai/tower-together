@@ -84,6 +84,8 @@ export type EntityStateData = {
 
 export type CarrierCarStateData = {
 	carrierId: number;
+	carIndex: number;
+	carCount: number;
 	column: number;
 	carrierMode: 0 | 1 | 2;
 	currentFloor: number;

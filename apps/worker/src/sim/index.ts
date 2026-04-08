@@ -30,6 +30,8 @@ export type { CellPatch, CommandResult };
 
 export interface CarrierCarStateRecord {
 	carrierId: number;
+	carIndex: number;
+	carCount: number;
 	column: number;
 	carrierMode: 0 | 1 | 2;
 	currentFloor: number;
@@ -86,6 +88,16 @@ export class TowerSim {
 
 		// Migrate old saves without Phase 3 carrier/routing fields
 		init_carrier_state(normalized.world);
+		for (const carrier of normalized.world.carriers) {
+			for (const route of carrier.pendingRoutes ?? []) {
+				route.assignedCarIndex ??= -1;
+			}
+			for (const car of carrier.cars ?? []) {
+				car.active ??= true;
+				car.pendingAssignmentCount ??= 0;
+				car.homeFloor ??= car.currentFloor ?? carrier.bottomServedFloor;
+			}
+		}
 		normalized.world.specialLinks ??= Array.from(
 			{ length: MAX_SPECIAL_LINKS },
 			() => ({
@@ -240,8 +252,10 @@ export class TowerSim {
 
 	carriersToArray(): CarrierCarStateRecord[] {
 		return this.world.carriers.flatMap((carrier) =>
-			carrier.cars.map((car) => ({
+			carrier.cars.map((car, carIndex) => ({
 				carrierId: carrier.carrierId,
+				carIndex,
+				carCount: carrier.cars.length,
 				column: carrier.column,
 				carrierMode: carrier.carrierMode,
 				currentFloor: car.currentFloor,
