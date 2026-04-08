@@ -28,14 +28,7 @@ app.get("/api/ws/:towerId", async (c) => {
 app.get("/api/resolve/:slug", async (c) => {
 	const slug = c.req.param("slug");
 
-	// Try as a direct tower ID first
-	const roomStub = c.env.TOWER_ROOM.get(c.env.TOWER_ROOM.idFromName(slug));
-	const infoRes = await roomStub.fetch("http://do/info");
-	if (infoRes.ok) {
-		return c.json({ towerId: slug });
-	}
-
-	// Try as an alias
+	// Treat as an alias — query TowerRegistry only.
 	const registry = c.env.TOWER_REGISTRY.get(
 		c.env.TOWER_REGISTRY.idFromName("global"),
 	);

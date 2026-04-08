@@ -452,10 +452,39 @@ export class GameScene extends Phaser.Scene {
 			}
 		}
 
-		// Draw overlay tiles (stairs) on top of base tiles.
-		for (const [key] of this.overlayGrid) {
+		// Draw overlay tiles on top of base tiles.
+		// Collect elevator/escalator cells grouped by column for merged shaft rendering.
+		const shaftColumns = new Map<number, { type: string; ys: number[] }>();
+		for (const [key, type] of this.overlayGrid) {
 			const [x, y] = key.split(",").map(Number);
-			this.drawStairs(g, x, y);
+			if (type === "stairs") {
+				this.drawStairs(g, x, y);
+			} else {
+				let col = shaftColumns.get(x);
+				if (!col) {
+					col = { type, ys: [] };
+					shaftColumns.set(x, col);
+				}
+				col.ys.push(y);
+			}
+		}
+
+		// Draw each contiguous vertical run as a single outlined shaft (no fill).
+		for (const [x, { ys }] of shaftColumns) {
+			ys.sort((a, b) => a - b);
+			let runStart = ys[0];
+			for (let i = 1; i <= ys.length; i++) {
+				if (i < ys.length && ys[i] === ys[i - 1] + 1) continue;
+				const runEnd = ys[i - 1];
+				g.lineStyle(2, 0x222222, 1.0);
+				g.strokeRect(
+					x * CELL_SIZE + 1,
+					runStart * CELL_SIZE + 1,
+					CELL_SIZE - 2,
+					(runEnd - runStart + 1) * CELL_SIZE - 2,
+				);
+				if (i < ys.length) runStart = ys[i];
+			}
 		}
 	}
 

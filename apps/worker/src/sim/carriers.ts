@@ -209,7 +209,7 @@ export function tick_all_carriers(world: WorldState): void {
 export function rebuild_carrier_list(world: WorldState): void {
 	const columns = new Map<number, { floors: Set<number>; mode: 0 | 1 | 2 }>();
 
-	for (const [key, type] of Object.entries(world.cells)) {
+	for (const [key, type] of Object.entries(world.overlays)) {
 		let mode: 0 | 1 | 2 | null = null;
 		if (type === "elevator") mode = 0;
 		else if (type === "escalator") mode = 2;

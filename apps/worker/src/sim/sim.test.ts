@@ -10,7 +10,7 @@
  * Plus the Phase 1 time model (prerequisite for scheduler tests).
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { floor_to_slot, make_carrier, tick_all_carriers } from "./carriers";
 import {
 	fill_row_gaps,
@@ -46,7 +46,6 @@ import {
 	GROUND_Y,
 	isValidLobbyY,
 	UNDERGROUND_FLOORS,
-	UNDERGROUND_Y,
 	type WorldState,
 } from "./world";
 
@@ -86,7 +85,7 @@ function makeState(opts?: { cash?: number }): SimState {
 /**
  * Place a supported row of floor tiles at `y` so tiles at `y-1` have support.
  */
-function placeSupportRow(y: number, world: WorldState, ledger: LedgerState) {
+function placeSupportRow(y: number, world: WorldState, _ledger: LedgerState) {
 	for (let x = 0; x < 10; x++) {
 		world.cells[`${x},${y}`] = "floor";
 	}
@@ -243,10 +242,10 @@ describe("PlacedObjectRecord", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 6; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
 		handle_place_tile(0, y, "hotel_suite", world, ledger);
-		expect(world.placed_objects["0," + y]).toBeDefined();
+		expect(world.placed_objects[`0,${y}`]).toBeDefined();
 		// extension cells don't get their own record
-		expect(world.placed_objects["1," + y]).toBeUndefined();
-		expect(world.placed_objects["2," + y]).toBeUndefined();
+		expect(world.placed_objects[`1,${y}`]).toBeUndefined();
+		expect(world.placed_objects[`2,${y}`]).toBeUndefined();
 	});
 
 	it("infrastructure tiles do not create PlacedObjectRecord", () => {
@@ -388,7 +387,7 @@ describe("checkpoint dispatcher", () => {
 		const state = makeState();
 		// Set day_counter to a multiple of 3 so rollover runs
 		state.time = { ...state.time, day_counter: 3 };
-		const cashBefore = state.ledger.cash_balance;
+		const _cashBefore = state.ledger.cash_balance;
 		// Place a restaurant to generate an expense
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
 		for (let x = 0; x < 2; x++) state.world.cells[`${x},${GROUND_Y}`] = "floor";
@@ -538,7 +537,7 @@ describe("ledger: rebuild_facility_ledger", () => {
 		world.cells[`0,${GROUND_Y}`] = "floor";
 		world.cells[`1,${GROUND_Y}`] = "floor";
 		// Manually add two hotel_single objects
-		world.placed_objects["0," + y] = {
+		world.placed_objects[`0,${y}`] = {
 			left_tile_index: 0,
 			right_tile_index: 0,
 			object_type_code: 3,
@@ -552,8 +551,8 @@ describe("ledger: rebuild_facility_ledger", () => {
 			activation_tick_count: 0,
 			variant_index: 0,
 		};
-		world.placed_objects["1," + y] = {
-			...world.placed_objects["0," + y],
+		world.placed_objects[`1,${y}`] = {
+			...world.placed_objects[`0,${y}`],
 			left_tile_index: 1,
 			right_tile_index: 1,
 			subtype_tile_offset: 1,
@@ -600,7 +599,7 @@ describe("ledger: do_expense_sweep", () => {
 		const ledger = makeLedger(100); // barely any cash
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		world.placed_objects["0," + y] = {
+		world.placed_objects[`0,${y}`] = {
 			left_tile_index: 0,
 			right_tile_index: 1,
 			object_type_code: 6, // restaurant
@@ -734,7 +733,7 @@ describe("handle_place_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(1_000_000);
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		const cost = TILE_COSTS["hotel_single"];
+		const cost = TILE_COSTS.hotel_single;
 		const r = handle_place_tile(0, GROUND_Y - 1, "hotel_single", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(ledger.cash_balance).toBe(1_000_000 - cost);
@@ -1005,7 +1004,7 @@ describe("YEN tables", () => {
 describe("fill_row_gaps", () => {
 	it("fills unsupported gap between two tiles with a floor tile", () => {
 		const world = makeWorld();
-		const ledger = makeLedger();
+		const _ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		// Support row
 		for (let x = 0; x < 4; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
@@ -1027,7 +1026,7 @@ describe("fill_row_gaps", () => {
 
 	it("does not fill gap if there is no support below", () => {
 		const world = makeWorld();
-		const ledger = makeLedger();
+		const _ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		// Only x=0 has support; x=1 does not
 		world.cells[`0,${GROUND_Y}`] = "floor";
@@ -1058,7 +1057,8 @@ function placeElevatorShaft(
 	const hi = Math.max(fromFloor, toFloor);
 	for (let f = lo; f <= hi; f++) {
 		const y = GRID_HEIGHT - 1 - f;
-		world.cells[`${x},${y}`] = "elevator";
+		world.cells[`${x},${y}`] = "floor"; // base tile (elevator is an overlay)
+		world.overlays[`${x},${y}`] = "elevator";
 	}
 	run_global_rebuilds(world, ledger);
 }
@@ -1106,8 +1106,10 @@ describe("rebuild_carrier_list", () => {
 	it("escalator cell creates a mode-2 carrier", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		world.cells[`2,${GRID_HEIGHT - 1 - 10}`] = "escalator";
-		world.cells[`2,${GRID_HEIGHT - 1 - 11}`] = "escalator";
+		world.cells[`2,${GRID_HEIGHT - 1 - 10}`] = "floor";
+		world.cells[`2,${GRID_HEIGHT - 1 - 11}`] = "floor";
+		world.overlays[`2,${GRID_HEIGHT - 1 - 10}`] = "escalator";
+		world.overlays[`2,${GRID_HEIGHT - 1 - 11}`] = "escalator";
 		run_global_rebuilds(world, ledger);
 		expect(world.carriers[0].carrier_mode).toBe(2);
 	});
@@ -1118,7 +1120,8 @@ describe("rebuild_carrier_list", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 15);
 		world.carriers[0].cars[0].current_floor = 12;
 		// Extend shaft upward
-		world.cells[`0,${GRID_HEIGHT - 1 - 16}`] = "elevator";
+		world.cells[`0,${GRID_HEIGHT - 1 - 16}`] = "floor";
+		world.overlays[`0,${GRID_HEIGHT - 1 - 16}`] = "elevator";
 		run_global_rebuilds(world, ledger);
 		expect(world.carriers[0].cars[0].current_floor).toBe(12);
 		expect(world.carriers[0].top_served_floor).toBe(16);
@@ -1129,7 +1132,7 @@ describe("rebuild_carrier_list", () => {
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 12);
 		for (let f = 10; f <= 12; f++) {
-			delete world.cells[`0,${GRID_HEIGHT - 1 - f}`];
+			delete world.overlays[`0,${GRID_HEIGHT - 1 - f}`];
 		}
 		run_global_rebuilds(world, ledger);
 		expect(world.carriers).toHaveLength(0);

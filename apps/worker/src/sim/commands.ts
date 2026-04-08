@@ -144,6 +144,31 @@ export function handle_place_tile(
 		return { accepted: false, reason: "Out of bounds" };
 	}
 
+	// ── Elevator / Escalator: 1-wide overlay on a floor/lobby tile ──────────────
+	if (tileType === "elevator" || tileType === "escalator") {
+		const key = `${x},${y}`;
+		if (world.overlays[key] || world.overlayToAnchor[key]) {
+			return { accepted: false, reason: "Cell already has an overlay" };
+		}
+		const patch: CellPatch[] = [];
+		// Auto-place a floor tile if the cell is empty but has support below
+		if (!world.cells[key] && !world.cellToAnchor[key]) {
+			const belowKey = `${x},${y + 1}`;
+			if (y + 1 >= world.height || !world.cells[belowKey]) {
+				return {
+					accepted: false,
+					reason: "Elevator requires a base tile or support below",
+				};
+			}
+			world.cells[key] = "floor";
+			patch.push({ x, y, tileType: "floor", isAnchor: true });
+		}
+		world.overlays[key] = tileType;
+		patch.push({ x, y, tileType, isAnchor: true, isOverlay: true });
+		run_global_rebuilds(world, ledger);
+		return { accepted: true, patch };
+	}
+
 	// ── Stairs: overlay on existing base tiles ────────────────────────────────
 	if (tileType === "stairs") {
 		if (x + 1 >= GRID_WIDTH) {
@@ -264,6 +289,10 @@ export function handle_remove_tile(
 			delete world.overlayToAnchor[`${ax + dx},${y}`];
 		}
 		const [oax, oay] = overlayAnchorKey.split(",").map(Number);
+		// Carrier overlays require a routing rebuild on removal
+		if (overlayType === "elevator" || overlayType === "escalator") {
+			run_global_rebuilds(world, ledger);
+		}
 		return {
 			accepted: true,
 			patch: [
