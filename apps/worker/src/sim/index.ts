@@ -82,6 +82,9 @@ export class TowerSim {
 	}
 
 	static from_snapshot(snap: SimSnapshot): TowerSim {
+		// Migrate snake_case → camelCase field names from pre-rename saves.
+		migrate_snake_to_camel(snap);
+
 		// Migrate old saves that have a flat WorldState without placedObjects
 		if (snap.world.height < GRID_HEIGHT) snap.world.height = GRID_HEIGHT;
 		snap.world.placedObjects ??= {};
