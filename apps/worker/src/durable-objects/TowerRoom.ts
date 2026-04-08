@@ -48,6 +48,11 @@ export class TowerRoom extends DurableObject<Env> {
 				overlayToAnchor: (old.overlayToAnchor as Record<string, string>) ?? {},
 				placed_objects: {},
 				sidecars: [],
+				// Phase 3 fields — populated by TowerSim.from_snapshot migration
+				carriers: [],
+				special_links: [],
+				floor_walkability_flags: [],
+				transfer_group_cache: [],
 			};
 			// cash lived at the flat root in the oldest save format; migrate to ledger
 			if (!snap.ledger) {

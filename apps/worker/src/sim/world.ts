@@ -1,6 +1,16 @@
 // Grid and floor model constants
 export const GRID_WIDTH = 64;
-export const GRID_HEIGHT = 120; // floor indices 0–119
+export const GRID_HEIGHT = 120; // floor indices 0–119; floor 10 = ground ("0"), floor 119 = top
+
+/** Convert grid Y coordinate to floor index (0=bottom underground, 119=top). */
+export function yToFloor(y: number): number {
+	return GRID_HEIGHT - 1 - y;
+}
+
+/** Convert floor index to grid Y coordinate. */
+export function floorToY(floor: number): number {
+	return GRID_HEIGHT - 1 - floor;
+}
 export const UNDERGROUND_FLOORS = 10; // floors 0–9 underground; floor 10 = ground ("0")
 export const UNDERGROUND_Y = GRID_HEIGHT - UNDERGROUND_FLOORS; // Y=110: first underground row
 export const GROUND_Y = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS; // Y=109: ground lobby row
@@ -9,6 +19,53 @@ export const GROUND_Y = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS; // Y=109: ground l
 export function isValidLobbyY(y: number): boolean {
 	const floorsAboveGround = GROUND_Y - y;
 	return floorsAboveGround >= 0 && floorsAboveGround % 15 === 0;
+}
+
+// ─── Carrier types ────────────────────────────────────────────────────────────
+
+export interface CarrierCar {
+	current_floor: number;
+	door_wait_counter: number;
+	speed_counter: number;
+	assigned_count: number;
+	/** 0 = upward (floor increases), 1 = downward. */
+	direction_flag: number;
+	target_floor: number;
+	prev_floor: number;
+	departure_flag: number;
+	departure_timestamp: number;
+	schedule_flag: number;
+	/** Waiting entity count indexed by floor slot. */
+	waiting_count: number[];
+}
+
+export interface CarrierRecord {
+	carrier_id: number;
+	/** X column of the shaft. */
+	column: number;
+	/** 0 = local elevator, 1 = express elevator, 2 = escalator. */
+	carrier_mode: 0 | 1 | 2;
+	top_served_floor: number;
+	bottom_served_floor: number;
+	/** 14 entries: 7 dayparts × 2 calendar phases. 1 = floor served, 0 = skipped. */
+	served_floor_flags: number[];
+	primary_route_status_by_floor: number[];
+	secondary_route_status_by_floor: number[];
+	cars: CarrierCar[];
+}
+
+// ─── Routing types ────────────────────────────────────────────────────────────
+
+export const MAX_SPECIAL_LINKS = 64;
+
+export interface SpecialLinkSegment {
+	active: boolean;
+	/** bit 0 = express flag; bits 7:1 = half-span. */
+	flags: number;
+	start_floor: number;
+	/** Floor span (top = start_floor + height_metric). */
+	height_metric: number;
+	carrier_id: number;
 }
 
 // ─── PlacedObjectRecord ───────────────────────────────────────────────────────
@@ -91,4 +148,12 @@ export interface WorldState {
 	placed_objects: Record<string, PlacedObjectRecord>;
 	/** Sidecar records, indexed by PlacedObjectRecord.linked_record_index. */
 	sidecars: SidecarRecord[];
+	/** One CarrierRecord per elevator/escalator shaft. Rebuilt from cells on mutation. */
+	carriers: CarrierRecord[];
+	/** Special-link segment table (max MAX_SPECIAL_LINKS entries). Rebuilt from carriers. */
+	special_links: SpecialLinkSegment[];
+	/** Per-floor walkability bitmask (bit 0 = local, bit 1 = express). Size = GRID_HEIGHT. */
+	floor_walkability_flags: number[];
+	/** Per-floor bitmask of carrier IDs that serve each floor. Size = GRID_HEIGHT. */
+	transfer_group_cache: number[];
 }

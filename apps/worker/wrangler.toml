@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[rules]]
 type = "Text"
 globs = ["migrations/*.sql"]
+fallthrough = true
 
 [dev]
 port = 8787

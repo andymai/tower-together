@@ -1,11 +1,22 @@
 import type { ClientMessage } from "../types";
+import { init_carrier_state, tick_all_carriers } from "./carriers";
 import type { CellPatch, CommandResult } from "./commands";
 import { handle_place_tile, handle_remove_tile } from "./commands";
 import { createLedgerState, type LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
+import {
+	rebuild_special_links,
+	rebuild_transfer_group_cache,
+	rebuild_walkability_flags,
+} from "./routing";
 import { run_checkpoints, type SimState } from "./scheduler";
 import { advanceOneTick, createTimeState, type TimeState } from "./time";
-import { GRID_HEIGHT, GRID_WIDTH, type WorldState } from "./world";
+import {
+	GRID_HEIGHT,
+	GRID_WIDTH,
+	MAX_SPECIAL_LINKS,
+	type WorldState,
+} from "./world";
 
 export type { CellPatch, CommandResult };
 
@@ -52,6 +63,16 @@ export class TowerSim {
 			overlayToAnchor: {},
 			placed_objects: {},
 			sidecars: [],
+			carriers: [],
+			special_links: Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
+				active: false,
+				flags: 0,
+				start_floor: 0,
+				height_metric: 0,
+				carrier_id: -1,
+			})),
+			floor_walkability_flags: new Array(GRID_HEIGHT).fill(0),
+			transfer_group_cache: new Array(GRID_HEIGHT).fill(0),
 		};
 		const ledger = createLedgerState(STARTING_CASH);
 		return new TowerSim(time, world, ledger);
@@ -70,6 +91,23 @@ export class TowerSim {
 			snap.ledger = createLedgerState(cash);
 			delete (snap.world as unknown as Record<string, unknown>).cash;
 		}
+
+		// Migrate old saves without Phase 3 carrier/routing fields
+		init_carrier_state(snap.world);
+		snap.world.special_links ??= Array.from(
+			{ length: MAX_SPECIAL_LINKS },
+			() => ({
+				active: false,
+				flags: 0,
+				start_floor: 0,
+				height_metric: 0,
+				carrier_id: -1,
+			}),
+		);
+		// Recompute derived routing state from carriers
+		rebuild_special_links(snap.world);
+		rebuild_walkability_flags(snap.world);
+		rebuild_transfer_group_cache(snap.world);
 
 		return new TowerSim(snap.time, snap.world, snap.ledger);
 	}
@@ -90,6 +128,7 @@ export class TowerSim {
 			ledger: this.ledger,
 		};
 		run_checkpoints(state, prev_tick, curr_tick);
+		tick_all_carriers(this.world);
 
 		return {
 			simTime: this.time.total_ticks,
@@ -143,6 +182,14 @@ export class TowerSim {
 			sidecars: JSON.parse(
 				JSON.stringify(this.world.sidecars),
 			) as WorldState["sidecars"],
+			carriers: JSON.parse(
+				JSON.stringify(this.world.carriers),
+			) as WorldState["carriers"],
+			special_links: JSON.parse(
+				JSON.stringify(this.world.special_links),
+			) as WorldState["special_links"],
+			floor_walkability_flags: [...this.world.floor_walkability_flags],
+			transfer_group_cache: [...this.world.transfer_group_cache],
 		};
 	}
 

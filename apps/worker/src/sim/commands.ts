@@ -1,3 +1,4 @@
+import { rebuild_carrier_list } from "./carriers";
 import { type LedgerState, rebuild_facility_ledger } from "./ledger";
 import {
 	TILE_COSTS,
@@ -5,6 +6,11 @@ import {
 	TILE_WIDTHS,
 	VALID_TILE_TYPES,
 } from "./resources";
+import {
+	rebuild_special_links,
+	rebuild_transfer_group_cache,
+	rebuild_walkability_flags,
+} from "./routing";
 import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
@@ -109,14 +115,17 @@ function free_sidecar(index: number, world: WorldState): void {
 
 /**
  * Run all post-build / post-demolish global rebuilds.
- * Phase 3 will add routing and transfer-group cache here.
+ * Order matters: carriers → special_links → walkability → transfer_cache.
  */
 export function run_global_rebuilds(
 	world: WorldState,
 	ledger: LedgerState,
 ): void {
 	rebuild_facility_ledger(ledger, world);
-	// Phase 3+: rebuild_route_reachability, rebuild_transfer_group_cache, etc.
+	rebuild_carrier_list(world);
+	rebuild_special_links(world);
+	rebuild_walkability_flags(world);
+	rebuild_transfer_group_cache(world);
 }
 
 // ─── Place tile ───────────────────────────────────────────────────────────────

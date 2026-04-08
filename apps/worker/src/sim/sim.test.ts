@@ -10,44 +10,49 @@
  * Plus the Phase 1 time model (prerequisite for scheduler tests).
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { floor_to_slot, make_carrier, tick_all_carriers } from "./carriers";
+import {
+	fill_row_gaps,
+	handle_place_tile,
+	handle_remove_tile,
+	run_global_rebuilds,
+} from "./commands";
+import {
+	add_cashflow_from_family_resource,
+	createLedgerState,
+	do_expense_sweep,
+	do_ledger_rollover,
+	type LedgerState,
+	rebuild_facility_ledger,
+} from "./ledger";
+import { TILE_COSTS, YEN_1001, YEN_1002 } from "./resources";
+import {
+	is_floor_span_walkable_for_express_route,
+	is_floor_span_walkable_for_local_route,
+	select_best_route_candidate,
+} from "./routing";
+import { run_checkpoints, type SimState } from "./scheduler";
 import {
 	advanceOneTick,
 	createTimeState,
-	DAY_TICK_MAX,
 	DAY_TICK_INCOME,
+	DAY_TICK_MAX,
 	pre_day_4,
 } from "./time";
 import {
 	GRID_HEIGHT,
 	GRID_WIDTH,
-	UNDERGROUND_FLOORS,
-	UNDERGROUND_Y,
 	GROUND_Y,
 	isValidLobbyY,
-	type PlacedObjectRecord,
+	UNDERGROUND_FLOORS,
+	UNDERGROUND_Y,
 	type WorldState,
 } from "./world";
-import {
-	createLedgerState,
-	add_cashflow_from_family_resource,
-	rebuild_facility_ledger,
-	do_expense_sweep,
-	do_ledger_rollover,
-	type LedgerState,
-} from "./ledger";
-import { run_checkpoints, type SimState } from "./scheduler";
-import {
-	handle_place_tile,
-	handle_remove_tile,
-	fill_row_gaps,
-	run_global_rebuilds,
-} from "./commands";
-import { TILE_COSTS, TILE_WIDTHS, YEN_1001, YEN_1002 } from "./resources";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeWorld(opts?: { cash?: number }): WorldState {
+function makeWorld(_opts?: { cash?: number }): WorldState {
 	return {
 		towerId: "test",
 		name: "Test Tower",
@@ -59,6 +64,10 @@ function makeWorld(opts?: { cash?: number }): WorldState {
 		overlayToAnchor: {},
 		placed_objects: {},
 		sidecars: [],
+		carriers: [],
+		special_links: [],
+		floor_walkability_flags: new Array(GRID_HEIGHT).fill(0),
+		transfer_group_cache: new Array(GRID_HEIGHT).fill(0),
 	};
 }
 
@@ -97,7 +106,7 @@ describe("time model", () => {
 	});
 
 	it("increments day_tick and total_ticks each step", () => {
-		let t = createTimeState();
+		const t = createTimeState();
 		const { time } = advanceOneTick(t);
 		expect(time.day_tick).toBe(1);
 		expect(time.total_ticks).toBe(1);
@@ -334,8 +343,8 @@ describe("sidecar allocation", () => {
 
 describe("checkpoint dispatcher", () => {
 	const ALL_CHECKPOINTS = [
-		0x000, 0x020, 0x0f0, 0x3e8, 0x4b0, 0x578, 0x5dc, 0x640, 0x6a4, 0x708,
-		0x76c, 0x7d0, 0x898, 0x8fc, 0x9c4, 0x9e5, 0x9f6, 0x0a06,
+		0x000, 0x020, 0x0f0, 0x3e8, 0x4b0, 0x578, 0x5dc, 0x640, 0x6a4, 0x708, 0x76c,
+		0x7d0, 0x898, 0x8fc, 0x9c4, 0x9e5, 0x9f6, 0x0a06,
 	] as const;
 
 	it("defines exactly 18 checkpoints at the correct ticks", () => {
@@ -362,7 +371,13 @@ describe("checkpoint dispatcher", () => {
 	it("does NOT fire 0x0f0 checkpoint when tick range excludes it", () => {
 		const state = makeState();
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", state.world, state.ledger);
+		handle_place_tile(
+			0,
+			GROUND_Y - 1,
+			"hotel_single",
+			state.world,
+			state.ledger,
+		);
 		state.ledger.primary_ledger.fill(0);
 		// Range 0x0f1..0x0f2 should not include 0x0f0
 		run_checkpoints(state, 0x0f1, 0x0f2);
@@ -388,7 +403,9 @@ describe("checkpoint dispatcher", () => {
 		expect(state.ledger.secondary_ledger.every((v) => v === 0)).toBe(true);
 		expect(state.ledger.tertiary_ledger.every((v) => v === 0)).toBe(true);
 		// cycle base saved
-		expect(state.ledger.cash_balance_cycle_base).toBe(state.ledger.cash_balance);
+		expect(state.ledger.cash_balance_cycle_base).toBe(
+			state.ledger.cash_balance,
+		);
 	});
 
 	it("does NOT run expense sweep on a non-3-day boundary", () => {
@@ -405,7 +422,13 @@ describe("checkpoint dispatcher", () => {
 		// Use the facility-ledger as a counter: each rebuild zeroes then resets
 		const state = makeState();
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", state.world, state.ledger);
+		handle_place_tile(
+			0,
+			GROUND_Y - 1,
+			"hotel_single",
+			state.world,
+			state.ledger,
+		);
 
 		// Zero then run over 0x0f0
 		state.ledger.primary_ledger.fill(0);
@@ -420,7 +443,13 @@ describe("checkpoint dispatcher", () => {
 		// crosses 0x0f0 via wrap: prev=0x0f1, curr=0x0ef (wrapped).
 		const state = makeState();
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", state.world, state.ledger);
+		handle_place_tile(
+			0,
+			GROUND_Y - 1,
+			"hotel_single",
+			state.world,
+			state.ledger,
+		);
 		state.ledger.primary_ledger.fill(0);
 		// curr < prev ⟹ wrapped; 0x0f0 > 0x0ef so it qualifies via "tick > prev_tick"
 		run_checkpoints(state, 0x0ef, 0x0ee); // wrapped; 0x0f0 > 0x0ef → fires
@@ -430,7 +459,13 @@ describe("checkpoint dispatcher", () => {
 	it("does not fire checkpoint in future tick when not wrapped and tick not in range", () => {
 		const state = makeState();
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", state.world, state.ledger);
+		handle_place_tile(
+			0,
+			GROUND_Y - 1,
+			"hotel_single",
+			state.world,
+			state.ledger,
+		);
 		state.ledger.primary_ledger.fill(0);
 		// 0x0f0 is NOT in (0x100, 0x101]
 		run_checkpoints(state, 0x100, 0x101);
@@ -977,8 +1012,12 @@ describe("fill_row_gaps", () => {
 		// Place tiles at x=0 and x=3, leave x=1,2 empty
 		world.cells[`0,${y}`] = "floor";
 		world.cells[`3,${y}`] = "floor";
-		const patch: { x: number; y: number; tileType: string; isAnchor: boolean }[] =
-			[];
+		const patch: {
+			x: number;
+			y: number;
+			tileType: string;
+			isAnchor: boolean;
+		}[] = [];
 		fill_row_gaps(y, world, patch);
 		// x=1 and x=2 should be filled
 		expect(world.cells[`1,${y}`]).toBe("floor");
@@ -994,9 +1033,255 @@ describe("fill_row_gaps", () => {
 		world.cells[`0,${GROUND_Y}`] = "floor";
 		world.cells[`0,${y}`] = "floor";
 		world.cells[`2,${y}`] = "floor";
-		const patch: { x: number; y: number; tileType: string; isAnchor: boolean }[] =
-			[];
+		const patch: {
+			x: number;
+			y: number;
+			tileType: string;
+			isAnchor: boolean;
+		}[] = [];
 		fill_row_gaps(y, world, patch);
 		expect(world.cells[`1,${y}`]).toBeUndefined();
+	});
+});
+
+// ─── Phase 3: Routing + Carrier System ────────────────────────────────────────
+
+// Helper: place N contiguous elevator cells in a column as a vertical shaft
+function placeElevatorShaft(
+	world: WorldState,
+	ledger: ReturnType<typeof makeLedger>,
+	x: number,
+	fromFloor: number, // inclusive, floor index
+	toFloor: number, // inclusive, floor index
+): void {
+	const lo = Math.min(fromFloor, toFloor);
+	const hi = Math.max(fromFloor, toFloor);
+	for (let f = lo; f <= hi; f++) {
+		const y = GRID_HEIGHT - 1 - f;
+		world.cells[`${x},${y}`] = "elevator";
+	}
+	run_global_rebuilds(world, ledger);
+}
+
+describe("floor_to_slot", () => {
+	it("returns floor offset from bottom for express carrier", () => {
+		const carrier = make_carrier(0, 5, 1, 10, 30);
+		expect(floor_to_slot(carrier, 10)).toBe(0);
+		expect(floor_to_slot(carrier, 15)).toBe(5);
+		expect(floor_to_slot(carrier, 30)).toBe(20);
+	});
+
+	it("returns -1 for floors outside served range", () => {
+		const carrier = make_carrier(0, 5, 0, 10, 20);
+		expect(floor_to_slot(carrier, 9)).toBe(-1);
+		expect(floor_to_slot(carrier, 21)).toBe(-1);
+	});
+
+	it("returns floor offset for escalator", () => {
+		const carrier = make_carrier(0, 3, 2, 10, 15);
+		expect(floor_to_slot(carrier, 12)).toBe(2);
+	});
+});
+
+describe("rebuild_carrier_list", () => {
+	it("creates one carrier per elevator column", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		expect(world.carriers).toHaveLength(1);
+		expect(world.carriers[0].column).toBe(0);
+		expect(world.carriers[0].bottom_served_floor).toBe(10);
+		expect(world.carriers[0].top_served_floor).toBe(15);
+		expect(world.carriers[0].carrier_mode).toBe(0);
+	});
+
+	it("creates separate carriers for separate columns", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		placeElevatorShaft(world, ledger, 5, 10, 20);
+		expect(world.carriers).toHaveLength(2);
+	});
+
+	it("escalator cell creates a mode-2 carrier", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		world.cells[`2,${GRID_HEIGHT - 1 - 10}`] = "escalator";
+		world.cells[`2,${GRID_HEIGHT - 1 - 11}`] = "escalator";
+		run_global_rebuilds(world, ledger);
+		expect(world.carriers[0].carrier_mode).toBe(2);
+	});
+
+	it("preserves car position when carrier range extends", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		world.carriers[0].cars[0].current_floor = 12;
+		// Extend shaft upward
+		world.cells[`0,${GRID_HEIGHT - 1 - 16}`] = "elevator";
+		run_global_rebuilds(world, ledger);
+		expect(world.carriers[0].cars[0].current_floor).toBe(12);
+		expect(world.carriers[0].top_served_floor).toBe(16);
+	});
+
+	it("removes carrier when all cells demolished", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 12);
+		for (let f = 10; f <= 12; f++) {
+			delete world.cells[`0,${GRID_HEIGHT - 1 - f}`];
+		}
+		run_global_rebuilds(world, ledger);
+		expect(world.carriers).toHaveLength(0);
+	});
+});
+
+describe("rebuild_special_links", () => {
+	it("registers one active segment per carrier", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const active = world.special_links.filter((s) => s.active);
+		expect(active).toHaveLength(1);
+		expect(active[0].start_floor).toBe(10);
+		expect(active[0].height_metric).toBe(10);
+		expect(active[0].flags & 1).toBe(0); // local = not express
+	});
+});
+
+describe("rebuild_walkability_flags", () => {
+	it("sets bit 0 for floors covered by a local elevator", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		for (let f = 10; f <= 15; f++) {
+			expect(world.floor_walkability_flags[f] & 1).toBe(1);
+		}
+		expect(world.floor_walkability_flags[9] & 1).toBe(0);
+		expect(world.floor_walkability_flags[16] & 1).toBe(0);
+	});
+});
+
+describe("is_floor_span_walkable", () => {
+	it("local route: true when all floors covered", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 25);
+		expect(is_floor_span_walkable_for_local_route(world, 10, 20)).toBe(true);
+	});
+
+	it("local route: false when gap in coverage", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		// Two separate shafts with a gap
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		placeElevatorShaft(world, ledger, 5, 18, 25);
+		expect(is_floor_span_walkable_for_local_route(world, 10, 25)).toBe(false);
+	});
+
+	it("express route: false when only local elevator present", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		expect(is_floor_span_walkable_for_express_route(world, 10, 20)).toBe(false);
+	});
+});
+
+describe("select_best_route_candidate", () => {
+	it("returns null when from == to", () => {
+		const world = makeWorld();
+		world.floor_walkability_flags = new Array(GRID_HEIGHT).fill(0);
+		world.special_links = [];
+		world.transfer_group_cache = new Array(GRID_HEIGHT).fill(0);
+		expect(select_best_route_candidate(world, 10, 10)).toBeNull();
+	});
+
+	it("finds local route via special link with cost |Δ|*8", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const route = select_best_route_candidate(world, 10, 15);
+		expect(route).not.toBeNull();
+		expect(route?.cost).toBe(5 * 8); // |15-10| * 8 = 40
+	});
+
+	it("returns null if no carrier covers the span", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 14); // doesn't reach floor 15
+		const route = select_best_route_candidate(world, 10, 15);
+		expect(route).toBeNull();
+	});
+
+	it("prefers lower-cost local route over transfer route", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		// Single shaft covering full span → local route exists
+		placeElevatorShaft(world, ledger, 0, 10, 25);
+		const direct = select_best_route_candidate(world, 10, 25);
+		expect(direct?.cost).toBe(15 * 8); // local: 120
+	});
+});
+
+describe("car state machine", () => {
+	it("car starts idle at bottom floor", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const car = world.carriers[0].cars[0];
+		expect(car.current_floor).toBe(10);
+		expect(car.speed_counter).toBe(0);
+		expect(car.door_wait_counter).toBe(0);
+	});
+
+	it("car stays at bottom when no waiters after many ticks", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		for (let i = 0; i < 100; i++) tick_all_carriers(world);
+		const car = world.carriers[0].cars[0];
+		expect(car.current_floor).toBe(10);
+	});
+
+	it("car moves to target floor when waiting_count is set", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const carrier = world.carriers[0];
+		const car = carrier.cars[0];
+		// Request pickup at floor 15 (slot = 15 - 10 = 5)
+		car.waiting_count[5] = 1;
+		// Tick enough for car to travel 5 floors (8 ticks/floor = 40 ticks) + door dwell
+		for (let i = 0; i < 200; i++) tick_all_carriers(world);
+		expect(car.current_floor).toBe(15);
+	});
+
+	it("out-of-range car is reset to bottom floor", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const car = world.carriers[0].cars[0];
+		car.current_floor = 99; // force out of range
+		tick_all_carriers(world);
+		expect(car.current_floor).toBe(10);
+	});
+
+	it("car opens doors at target floor (door_wait_counter set)", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		placeElevatorShaft(world, ledger, 0, 10, 20);
+		const carrier = world.carriers[0];
+		const car = carrier.cars[0];
+		car.waiting_count[5] = 1; // floor 15
+		// Run until car arrives and opens doors
+		let doors_opened = false;
+		for (let i = 0; i < 200; i++) {
+			tick_all_carriers(world);
+			if (car.current_floor === 15 && car.door_wait_counter > 0) {
+				doors_opened = true;
+				break;
+			}
+		}
+		expect(doors_opened).toBe(true);
 	});
 });
