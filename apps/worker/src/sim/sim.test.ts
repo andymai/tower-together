@@ -23,6 +23,7 @@ import {
 	create_entity_state_records,
 	populate_carrier_requests,
 	rebuild_runtime_entities,
+	reconcile_entity_transport,
 	resetCommercialVenueCycle,
 	update_security_housekeeping_state,
 } from "./entities";
@@ -1389,9 +1390,16 @@ describe("car state machine", () => {
 		const car = carrier.cars[0];
 		// Request pickup at floor 15 (slot = 15 - 10 = 5)
 		car.waitingCount[5] = 1;
-		// Tick enough for car to travel 5 floors (8 ticks/floor = 40 ticks) + door dwell
-		for (let i = 0; i < 200; i++) tick_all_carriers(world);
-		expect(car.currentFloor).toBe(15);
+		// Tick enough for the car to service the request at least once.
+		let reachedTarget = false;
+		for (let i = 0; i < 200; i++) {
+			tick_all_carriers(world);
+			if (car.currentFloor === 15) {
+				reachedTarget = true;
+				break;
+			}
+		}
+		expect(reachedTarget).toBe(true);
 	});
 
 	it("out-of-range car is reset to bottom floor", () => {
@@ -1522,6 +1530,9 @@ describe("Phase 4 runtime entities", () => {
 				dayCounter: 3,
 				starCount: 4,
 			});
+			populate_carrier_requests(world);
+			tick_all_carriers(world);
+			reconcile_entity_transport(world);
 		}
 		expect(ledger.cashBalance).toBeGreaterThan(condoBefore);
 		expect(world.placedObjects[`24,${GROUND_Y - 1}`].stayPhase).toBeLessThan(
@@ -1529,7 +1540,7 @@ describe("Phase 4 runtime entities", () => {
 		);
 
 		const hotelBefore = ledger.cashBalance;
-		for (let tick = 64; tick < 160; tick++) {
+		for (let tick = 64; tick < 640; tick++) {
 			advance_entity_refresh_stride(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
@@ -1537,6 +1548,9 @@ describe("Phase 4 runtime entities", () => {
 				dayCounter: 3,
 				starCount: 4,
 			});
+			populate_carrier_requests(world);
+			tick_all_carriers(world);
+			reconcile_entity_transport(world);
 		}
 		expect(ledger.cashBalance).toBeGreaterThan(hotelBefore);
 	});

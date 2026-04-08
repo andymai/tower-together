@@ -37,6 +37,15 @@ export interface CarrierCar {
 	scheduleFlag: number;
 	/** Waiting entity count indexed by floor slot. */
 	waitingCount: number[];
+	pendingRouteIds: string[];
+}
+
+export interface CarrierPendingRoute {
+	entityId: string;
+	sourceFloor: number;
+	destinationFloor: number;
+	boarded: boolean;
+	directionFlag: number;
 }
 
 export interface CarrierRecord {
@@ -57,6 +66,8 @@ export interface CarrierRecord {
 	servedFloorFlags: number[];
 	primaryRouteStatusByFloor: number[];
 	secondaryRouteStatusByFloor: number[];
+	serviceScheduleFlags: number[];
+	pendingRoutes: CarrierPendingRoute[];
 	cars: CarrierCar[];
 }
 

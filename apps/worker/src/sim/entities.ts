@@ -1,4 +1,4 @@
-import { floor_to_slot } from "./carriers";
+import { enqueue_carrier_route } from "./carriers";
 import { add_cashflow_from_family_resource, type LedgerState } from "./ledger";
 import { OP_SCORE_THRESHOLDS, YEN_1001 } from "./resources";
 import { select_best_route_candidate } from "./routing";
@@ -210,11 +210,16 @@ function recomputeRoutesViableFlag(world: WorldState, time: TimeState): void {
 		: 0;
 }
 
+interface VenueSelection {
+	record: CommercialVenueRecord;
+	floor: number;
+}
+
 function pickAvailableVenue(
 	world: WorldState,
 	fromFloor: number,
 	allowedFamilies: Set<number>,
-): CommercialVenueRecord | null {
+): VenueSelection | null {
 	for (const [key, object] of Object.entries(world.placedObjects)) {
 		if (!allowedFamilies.has(object.objectTypeCode)) continue;
 		if (object.linkedRecordIndex < 0) continue;
@@ -231,7 +236,7 @@ function pickAvailableVenue(
 			continue;
 		}
 
-		return record;
+		return { record, floor: yToFloor(y) };
 	}
 
 	return null;
@@ -328,6 +333,8 @@ function processHotelEntity(
 			return;
 		case 0x01: {
 			if (time.daypartIndex >= 4) {
+				entity.encodedRouteTarget = 10;
+				entity.selectedFloor = entity.floorAnchor;
 				entity.stateCode = 0x05;
 				return;
 			}
@@ -337,12 +344,14 @@ function processHotelEntity(
 				COMMERCIAL_FAMILIES,
 			);
 			if (venue) {
-				reserveVenue(venue);
+				reserveVenue(venue.record);
 				recordDemandSample(entity, time);
 				object.activationTickCount = Math.min(
 					0x78,
 					object.activationTickCount + 1,
 				);
+				entity.encodedRouteTarget = venue.floor;
+				entity.selectedFloor = entity.floorAnchor;
 				entity.stateCode = 0x22;
 				lowerStress(entity, 16);
 			} else {
@@ -351,10 +360,14 @@ function processHotelEntity(
 			return;
 		}
 		case 0x22:
+			if (entity.selectedFloor !== entity.encodedRouteTarget) return;
+			entity.encodedRouteTarget = -1;
+			entity.selectedFloor = entity.floorAnchor;
 			entity.stateCode = 0x01;
 			return;
 		case 0x05:
 		case 0x04:
+			if (entity.selectedFloor !== 10) return;
 			checkoutHotelStay(world, ledger, entity, object);
 			return;
 		default:
@@ -400,8 +413,10 @@ function processOfficeEntity(
 			new Set([6, 10, 12]),
 		);
 		if (venue) {
-			reserveVenue(venue);
+			reserveVenue(venue.record);
 			recordDemandSample(entity, time);
+			entity.encodedRouteTarget = venue.floor;
+			entity.selectedFloor = entity.floorAnchor;
 			entity.stateCode = 0x22;
 			lowerStress(entity, 12);
 		} else {
@@ -409,7 +424,12 @@ function processOfficeEntity(
 		}
 	}
 
-	if (entity.stateCode === 0x22) entity.stateCode = 0x01;
+	if (entity.stateCode === 0x22) {
+		if (entity.selectedFloor !== entity.encodedRouteTarget) return;
+		entity.encodedRouteTarget = -1;
+		entity.selectedFloor = entity.floorAnchor;
+		entity.stateCode = 0x01;
+	}
 	recomputeObjectOperationalStatus(world, time, entity, object);
 }
 
@@ -451,14 +471,19 @@ function processCondoEntity(
 			new Set([6, 10]),
 		);
 		if (venue) {
-			reserveVenue(venue);
+			reserveVenue(venue.record);
 			recordDemandSample(entity, time);
+			entity.encodedRouteTarget = venue.floor;
+			entity.selectedFloor = entity.floorAnchor;
 			entity.stateCode = 0x22;
 			lowerStress(entity, 10);
 		} else {
 			raiseStress(entity, 7);
 		}
 	} else if (entity.stateCode === 0x22) {
+		if (entity.selectedFloor !== entity.encodedRouteTarget) return;
+		entity.encodedRouteTarget = -1;
+		entity.selectedFloor = entity.floorAnchor;
 		entity.stateCode = 0x01;
 	}
 
@@ -555,20 +580,6 @@ export function advance_entity_refresh_stride(
 	recomputeRoutesViableFlag(world, time);
 }
 
-function carrierAlreadyServingFloor(
-	world: WorldState,
-	carrierId: number,
-	floor: number,
-): boolean {
-	const carrier = world.carriers.find(
-		(candidate) => candidate.carrierId === carrierId,
-	);
-	if (!carrier) return false;
-	return carrier.cars.some(
-		(car) => car.currentFloor === floor || car.targetFloor === floor,
-	);
-}
-
 function shouldSeedElevatorDemand(entity: EntityRecord): boolean {
 	if (!ELEVATOR_DEMAND_STATES.has(entity.stateCode)) return false;
 	if (
@@ -583,43 +594,80 @@ function shouldSeedElevatorDemand(entity: EntityRecord): boolean {
 	return true;
 }
 
-export function populate_carrier_requests(world: WorldState): void {
-	for (const carrier of world.carriers) {
-		for (const car of carrier.cars) {
-			car.waitingCount.fill(0);
-		}
+function getElevatorDemand(entity: EntityRecord): {
+	sourceFloor: number;
+	destinationFloor: number;
+	directionFlag: number;
+} | null {
+	if (entity.stateCode === 0x04 || entity.stateCode === 0x05) {
+		return {
+			sourceFloor: entity.floorAnchor,
+			destinationFloor: 10,
+			directionFlag: 1,
+		};
 	}
 
-	const requests = new Map<string, number>();
+	if (entity.stateCode === 0x22 && entity.encodedRouteTarget >= 0) {
+		return {
+			sourceFloor: entity.floorAnchor,
+			destinationFloor: entity.encodedRouteTarget,
+			directionFlag: entity.encodedRouteTarget > entity.floorAnchor ? 0 : 1,
+		};
+	}
+
+	return null;
+}
+
+export function populate_carrier_requests(world: WorldState): void {
+	const activeDemandIds = new Set<string>();
 	for (const entity of world.entities) {
 		if (!shouldSeedElevatorDemand(entity)) continue;
-		const route = select_best_route_candidate(world, 10, entity.floorAnchor);
+		const demand = getElevatorDemand(entity);
+		if (!demand) continue;
+		activeDemandIds.add(entityKey(entity));
+		const route = select_best_route_candidate(
+			world,
+			demand.sourceFloor,
+			demand.destinationFloor,
+		);
 		if (!route) continue;
-		if (
-			carrierAlreadyServingFloor(world, route.carrierId, entity.floorAnchor)
-		) {
-			continue;
-		}
-		const key = `${route.carrierId}:${entity.floorAnchor}`;
-		requests.set(key, (requests.get(key) ?? 0) + 1);
-	}
-
-	for (const [key, count] of requests) {
-		const [carrierIdText, floorText] = key.split(":");
-		const carrierId = Number(carrierIdText);
-		const floor = Number(floorText);
 		const carrier = world.carriers.find(
-			(candidate) => candidate.carrierId === carrierId,
+			(candidate) => candidate.carrierId === route.carrierId,
 		);
 		if (!carrier) continue;
-		const slot = floor_to_slot(carrier, floor);
-		if (slot < 0) continue;
+		enqueue_carrier_route(
+			carrier,
+			entityKey(entity),
+			demand.sourceFloor,
+			demand.destinationFloor,
+			demand.directionFlag,
+		);
+	}
+
+	for (const carrier of world.carriers) {
+		carrier.pendingRoutes = carrier.pendingRoutes.filter(
+			(route) => route.boarded || activeDemandIds.has(route.entityId),
+		);
 		for (const car of carrier.cars) {
-			if (slot < car.waitingCount.length) {
-				car.waitingCount[slot] = count;
-				break;
-			}
+			car.pendingRouteIds = car.pendingRouteIds.filter((routeId) =>
+				carrier.pendingRoutes.some((route) => route.entityId === routeId),
+			);
 		}
+	}
+}
+
+export function reconcile_entity_transport(world: WorldState): void {
+	const pending = new Set(
+		world.carriers.flatMap((carrier) =>
+			carrier.pendingRoutes.map((route) => route.entityId),
+		),
+	);
+
+	for (const entity of world.entities) {
+		if (entity.encodedRouteTarget < 0) continue;
+		if (pending.has(entityKey(entity))) continue;
+		if (entity.selectedFloor === entity.encodedRouteTarget) continue;
+		entity.selectedFloor = entity.encodedRouteTarget;
 	}
 }
 

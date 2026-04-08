@@ -6,6 +6,7 @@ import {
 	create_entity_state_records,
 	populate_carrier_requests,
 	rebuild_runtime_entities,
+	reconcile_entity_transport,
 } from "./entities";
 import { createLedgerState, type LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
@@ -123,6 +124,7 @@ export class TowerSim {
 		advance_entity_refresh_stride(this.world, this.ledger, this.time);
 		populate_carrier_requests(this.world);
 		tick_all_carriers(this.world);
+		reconcile_entity_transport(this.world);
 
 		return {
 			simTime: this.time.totalTicks,

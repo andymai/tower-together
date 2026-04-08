@@ -110,6 +110,7 @@ function make_carrier_car(bottomFloor: number, numSlots: number): CarrierCar {
 		departureTimestamp: 0,
 		scheduleFlag: 0,
 		waitingCount: new Array(numSlots).fill(0),
+		pendingRouteIds: [],
 	};
 }
 
@@ -130,8 +131,44 @@ export function make_carrier(
 		servedFloorFlags: new Array(14).fill(1),
 		primaryRouteStatusByFloor: new Array(numSlots).fill(1),
 		secondaryRouteStatusByFloor: new Array(numSlots).fill(0),
+		serviceScheduleFlags: new Array(14).fill(1),
+		pendingRoutes: [],
 		cars: [make_carrier_car(bottom, numSlots)],
 	};
+}
+
+function sync_waiting_count(carrier: CarrierRecord, car: CarrierCar): void {
+	car.waitingCount.fill(0);
+	for (const routeId of car.pendingRouteIds) {
+		const route = carrier.pendingRoutes.find(
+			(candidate) => candidate.entityId === routeId,
+		);
+		if (!route || route.boarded) continue;
+		const slot = floor_to_slot(carrier, route.sourceFloor);
+		if (slot < 0 || slot >= car.waitingCount.length) continue;
+		car.waitingCount[slot] += 1;
+	}
+}
+
+function sync_assignment_status(carrier: CarrierRecord): void {
+	carrier.primaryRouteStatusByFloor.fill(0);
+	carrier.secondaryRouteStatusByFloor.fill(0);
+	for (const car of carrier.cars) {
+		for (const routeId of car.pendingRouteIds) {
+			const route = carrier.pendingRoutes.find(
+				(candidate) => candidate.entityId === routeId,
+			);
+			if (!route || route.boarded) continue;
+			const slot = floor_to_slot(carrier, route.sourceFloor);
+			if (slot < 0) continue;
+			if (route.directionFlag === 0) {
+				carrier.primaryRouteStatusByFloor[slot] = 1;
+			} else {
+				carrier.secondaryRouteStatusByFloor[slot] = 1;
+			}
+		}
+		sync_waiting_count(carrier, car);
+	}
 }
 
 // ─── Car state machine (§3.4) ─────────────────────────────────────────────────
@@ -142,11 +179,52 @@ export function make_carrier(
  * Falls back to bottomServedFloor when no waiters are present.
  */
 function select_next_target(car: CarrierCar, carrier: CarrierRecord): number {
-	if (!car.waitingCount.some((c) => c > 0)) {
-		return carrier.bottomServedFloor;
+	if (car.pendingRouteIds.length === 0) {
+		if (!car.waitingCount.some((count) => count > 0)) {
+			return carrier.bottomServedFloor;
+		}
+
+		const dir = car.directionFlag === 0 ? 1 : -1;
+		for (
+			let f = car.currentFloor + dir;
+			f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
+			f += dir
+		) {
+			const slot = floor_to_slot(carrier, f);
+			if (
+				slot >= 0 &&
+				slot < car.waitingCount.length &&
+				car.waitingCount[slot] > 0
+			) {
+				return f;
+			}
+		}
+		for (
+			let f = car.currentFloor - dir;
+			f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
+			f -= dir
+		) {
+			const slot = floor_to_slot(carrier, f);
+			if (
+				slot >= 0 &&
+				slot < car.waitingCount.length &&
+				car.waitingCount[slot] > 0
+			) {
+				return f;
+			}
+		}
+		return car.currentFloor;
 	}
 
 	const dir = car.directionFlag === 0 ? 1 : -1;
+	const targets = car.pendingRouteIds
+		.map((routeId) =>
+			carrier.pendingRoutes.find((route) => route.entityId === routeId),
+		)
+		.filter((route): route is NonNullable<typeof route> => route !== undefined)
+		.map((route) =>
+			route.boarded ? route.destinationFloor : route.sourceFloor,
+		);
 
 	// Scan in current direction first
 	for (
@@ -154,13 +232,7 @@ function select_next_target(car: CarrierCar, carrier: CarrierRecord): number {
 		f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
 		f += dir
 	) {
-		const slot = floor_to_slot(carrier, f);
-		if (
-			slot >= 0 &&
-			slot < car.waitingCount.length &&
-			car.waitingCount[slot] > 0
-		)
-			return f;
+		if (targets.includes(f)) return f;
 	}
 
 	// Reverse direction scan
@@ -169,16 +241,61 @@ function select_next_target(car: CarrierCar, carrier: CarrierRecord): number {
 		f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
 		f -= dir
 	) {
-		const slot = floor_to_slot(carrier, f);
+		if (targets.includes(f)) return f;
+	}
+
+	return car.currentFloor; // No waiters found; stay idle
+}
+
+function board_and_unload_routes(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+): boolean {
+	let changed = false;
+	const capacity = Math.max(1, car.waitingCount.length);
+
+	if (car.pendingRouteIds.length === 0) {
+		const slot = floor_to_slot(carrier, car.currentFloor);
 		if (
 			slot >= 0 &&
 			slot < car.waitingCount.length &&
 			car.waitingCount[slot] > 0
-		)
-			return f;
+		) {
+			car.waitingCount[slot] = 0;
+			return true;
+		}
 	}
 
-	return car.currentFloor; // No waiters found; stay idle
+	for (const routeId of [...car.pendingRouteIds]) {
+		const route = carrier.pendingRoutes.find(
+			(candidate) => candidate.entityId === routeId,
+		);
+		if (!route?.boarded) continue;
+		if (route.destinationFloor !== car.currentFloor) continue;
+		car.assignedCount = Math.max(0, car.assignedCount - 1);
+		car.pendingRouteIds = car.pendingRouteIds.filter(
+			(candidate) => candidate !== routeId,
+		);
+		carrier.pendingRoutes = carrier.pendingRoutes.filter(
+			(candidate) => candidate.entityId !== routeId,
+		);
+		changed = true;
+	}
+
+	for (const routeId of [...car.pendingRouteIds]) {
+		if (car.assignedCount >= capacity) break;
+		const route = carrier.pendingRoutes.find(
+			(candidate) => candidate.entityId === routeId,
+		);
+		if (!route || route.boarded) continue;
+		if (route.sourceFloor !== car.currentFloor) continue;
+		route.boarded = true;
+		car.assignedCount += 1;
+		changed = true;
+	}
+
+	if (changed) sync_assignment_status(carrier);
+	return changed;
 }
 
 /**
@@ -224,6 +341,11 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 				car.speedCounter = speed_ticks(carrier.carrierMode);
 			}
 		}
+		return;
+	}
+
+	if (board_and_unload_routes(carrier, car)) {
+		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 		return;
 	}
 
@@ -305,6 +427,9 @@ export function rebuild_carrier_list(world: WorldState): void {
 				}
 				if (car.waitingCount.length !== numSlots)
 					car.waitingCount = new Array(numSlots).fill(0);
+				car.pendingRouteIds = car.pendingRouteIds.filter((routeId) =>
+					existing.pendingRoutes.some((route) => route.entityId === routeId),
+				);
 			}
 			newCarriers.push(existing);
 		} else {
@@ -313,6 +438,9 @@ export function rebuild_carrier_list(world: WorldState): void {
 	}
 
 	world.carriers = newCarriers;
+	for (const carrier of world.carriers) {
+		sync_assignment_status(carrier);
+	}
 }
 
 /** Initialize routing arrays for a fresh WorldState. */
@@ -320,4 +448,26 @@ export function init_carrier_state(world: WorldState): void {
 	world.carriers ??= [];
 	world.floorWalkabilityFlags ??= new Array(GRID_HEIGHT).fill(0);
 	world.transferGroupCache ??= new Array(GRID_HEIGHT).fill(0);
+}
+
+export function enqueue_carrier_route(
+	carrier: CarrierRecord,
+	entityId: string,
+	sourceFloor: number,
+	destinationFloor: number,
+	directionFlag: number,
+): void {
+	if (carrier.pendingRoutes.some((route) => route.entityId === entityId))
+		return;
+	const car = carrier.cars[0];
+	if (!car) return;
+	carrier.pendingRoutes.push({
+		entityId,
+		sourceFloor,
+		destinationFloor,
+		boarded: false,
+		directionFlag,
+	});
+	car.pendingRouteIds.push(entityId);
+	sync_assignment_status(carrier);
 }
