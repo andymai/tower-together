@@ -96,28 +96,32 @@ The current flat `cells` patch model needs extensions for the new sim depth. Add
 
 ### 1.2 Tile Type Audit
 
+Tiles have a **1:4 height:width aspect ratio** — each tile is 4× wider than it is tall in game pixels. Pixel widths in the original game: lobby/floor = 1, elevator = 4, single room = 4, condo = 16, office = 9.
+
 Add all SimTower tile types to both `types.ts` files and the tile registry:
 
-| Family / type | Name | Width | Notes |
-|---|---|---|---|
-| 3 | Single Room | 1 | Hotel, income on checkout |
-| 4 | Twin Room | 2 | Hotel |
-| 5 | Suite | 3 | Hotel |
-| 6 | Restaurant | 2 | Commercial venue |
-| 7 | Office | 6 | Activates every 3rd day |
-| 9 | Condo | 3 | One-time sale |
-| 0x0a / 12 | Fast Food | 2 | Commercial venue |
-| 0x0c / 10 | Retail Shop | 2 | Commercial venue |
-| 0x12 | Cinema | 4 | Entertainment, paired link |
-| 0x1d | (other entertainment) | 4 | Single link |
-| 0x14 | Security Office | 2 | Passive; enables bomb patrol; stay_phase = duty tier |
-| 0x15 | Housekeeping | 2 | Passive cart; stay_phase = duty tier |
-| 0x18 | Parking | variable | Passive; contributes to transfer cache |
-| 0x1f / 0x20 / 0x21 | VIP Hotel Suite | varies | Required for 4→5 star; sets g_vip_system_eligibility |
-| 0x0e | Metro Station | varies | Required for 2→3 star; sets metro_placed gate flag |
-| 0x28 | Fire Suppressor | 2 | Prevents fire events |
-| Elevator shaft | — | 1 | Vertical anchor; multiple per column |
-| Escalator | — | 1 | Carrier mode 2 |
+| Family / type | Name | Tile span | Pixel width | Notes |
+|---|---|---|---|---|
+| 3 | Single Room | 1 | 4 | Hotel, income on checkout |
+| 4 | Twin Room | 2 | 8 | Hotel |
+| 5 | Suite | 3 | 12 | Hotel |
+| 6 | Restaurant | 2 | 8 | Commercial venue |
+| 7 | Office | 6 | 9 | Activates every 3rd day |
+| 9 | Condo | 3 | 16 | One-time sale |
+| 0x0a / 12 | Fast Food | 2 | 8 | Commercial venue |
+| 0x0c / 10 | Retail Shop | 2 | 8 | Commercial venue |
+| 0x12 | Cinema | 4 | 16 | Entertainment, paired link |
+| 0x1d | (other entertainment) | 4 | 16 | Single link |
+| 0x14 | Security Office | 2 | 8 | Passive; enables bomb patrol; stay_phase = duty tier |
+| 0x15 | Housekeeping | 2 | 8 | Passive cart; stay_phase = duty tier |
+| 0x18 | Parking | variable | variable | Passive; contributes to transfer cache |
+| 0x1f / 0x20 / 0x21 | VIP Hotel Suite | varies | varies | Required for 4→5 star; sets g_vip_system_eligibility |
+| 0x0e | Metro Station | varies | varies | Required for 2→3 star; sets metro_placed gate flag |
+| 0x28 | Fire Suppressor | 2 | 8 | Prevents fire events |
+| Elevator shaft | — | 1 | 4 | Vertical anchor; multiple per column |
+| Lobby/floor | — | 1 | 1 | Drag-placed, fills floor row |
+
+Note: office pixel width (9) and condo pixel width (16) are not exact multiples of their tile spans — they are original game pixel values from the asset graphics, not derived from tile spans × 4.
 
 Remove the current `hotel_single/twin/suite` naming shim and align with family codes.
 
@@ -144,7 +148,23 @@ function pre_day_4(t: TimeState): boolean { return t.daypart_index < 4; }
 
 The Durable Object's `setInterval` fires at 1 Hz real time = 1 sim tick per real second. Scale can be a config parameter later.
 
-### 1.4 Resource Tables
+### 1.4 New Game Initialization State
+
+Reproduce the exact initial state from `new_game_initializer` at `0x10d8_07f6`:
+
+- `g_cash_balance = 20000` → **$2,000,000** (cash in $100 units)
+- `g_cash_balance_cycle_base = 20000`; secondary/tertiary ledger totals = 0
+- `g_day_tick = 0x9e5` (= **2533**) — starts mid-day; `daypart_index = 6`. First full day cycle begins on the second sim day.
+- `g_day_counter = 0`, `g_calendar_phase_flag = 0`
+- `g_star_count = 1` (hard-code; exact write site not recovered)
+- `g_vip_system_eligibility = 0xffff` (−1: no VIP suite)
+- `g_eval_entity_index = 0xffff` (−1: no evaluation in progress)
+- `g_facility_progress_override = 0`, `g_security_ledger_scale = 0`
+- Star gate flags all zeroed: `metro_placed`, `office_placed`, `office_service_ok`, `security_adequate`, `routes_viable`, `office_service_in_progress`
+- `[0xc198..0xc19b] = 0xffffffff` (purpose unresolved, but must be all-ones)
+- No pre-placed objects, carriers, or special-link segments. Run `rebuild_transfer_group_cache` and `rebuild_route_reachability_tables` once at end of init.
+
+### 1.5 Resource Tables
 
 Hard-code the spec's known values into `sim/resources.ts`:
 
@@ -155,7 +175,7 @@ Hard-code the spec's known values into `sim/resources.ts`:
 - Operational score thresholds by star rating (1–2: 80/150, 3: 80/150, 4+: 80/200)
 - Activity score upgrade thresholds (300/1000/5000/10000/15000)
 
-### 1.5 Refactor TowerRoom → TowerSim Wrapper
+### 1.6 Refactor TowerRoom → TowerSim Wrapper
 
 Extract the current inline sim logic from `TowerRoom.ts` into `sim/index.ts`:
 
@@ -182,22 +202,24 @@ export class TowerSim {
 
 ### 2.1 PlacedObjectRecord
 
+18-byte (`0x12`) record with these recovered field offsets (confirmed via `FUN_1200_1847` and `FUN_1200_293e`):
+
 ```ts
 // sim/world.ts
 interface PlacedObjectRecord {
-  left_tile_index: number;
-  right_tile_index: number;
-  object_type_code: number;
-  object_state_code: number;   // stay_phase / open-close state
-  linked_record_index: number; // sidecar index
-  aux_value_or_timer: number;
-  subtype_tile_offset: number; // base_offset within multi-tile span
-  needs_refresh_flag: number;
-  // family-specific bytes
-  pairing_status: number;        // +0x15: 0=C, 1=B, 2=A
-  pairing_active_flag: number;   // +0x14
-  activation_tick_count: number; // +0x17
-  variant_index: number;         // +0x16: pricing tier 0–3
+  // +0x00..+0x05: family-specific runtime bytes (e.g. route_mode for routing entities)
+  left_tile_index: number;       // +0x06 word: leftmost tile occupied
+  right_tile_index: number;      // +0x08 word: rightmost tile occupied
+  object_type_code: number;      // +0x0a byte: placement-time type
+  stay_phase: number;            // +0x0b byte: per-family lifecycle / stay_phase
+  aux_value_or_timer: number;    // +0x0c word: tool-counter rotation index at init; runtime cycle counter
+  // +0x0e..+0x11: additional family-specific bytes
+  linked_record_index: number;   // +0x12 byte: sidecar slot; init = -1 (no sidecar)
+  needs_refresh_flag: number;    // +0x13 byte: dirty bit; init = 1
+  pairing_active_flag: number;   // +0x14 byte: init = 1 (first-activation latch)
+  pairing_status: number;        // +0x15 byte: 0=bad/refund-eligible, 1=ok, 2=good; init = -1
+  variant_index: number;         // +0x16 byte: rent tier 0–3; 4 = no payout; init 1 for families 3/4/5/7/9/10, 4 for drag-placed
+  activation_tick_count: number; // +0x17 byte: init = 0, capped at 0x78
 }
 ```
 
@@ -314,7 +336,7 @@ Hard-code all confirmed route delay values from startup tuning resource (type `0
 ```ts
 // sim/carriers.ts
 interface CarrierRecord {
-  carrier_mode: 0 | 1 | 2;  // local elevator, express, escalator
+  carrier_mode: 0 | 1 | 2;  // 0=Express Elevator, 1=Standard Elevator, 2=Service Elevator (from placement dispatcher FUN_1200_082c); route scorer treats 0/1 as "local-mode" and 2 as "express-mode"
   top_served_floor: number;
   bottom_served_floor: number;
   served_floor_flags: number[];  // 14 entries (7 dayparts × 2 calendar phases)
@@ -416,12 +438,16 @@ Slot acquire/release with minimum service duration (60 ticks for all three). Dai
 
 ### 4.6 Family 7 — Office
 
-6-tile span. Operational scoring:
-1. Per tile: `4096 / entity.byte_0x9` (inverse visit frequency)
-2. Average across 6 tiles
-3. Variant modifier: tier 0 → +30, tier 1 → 0, tier 2 → -30, tier 3 → force 0
-4. Support missing within 10 tiles → +60 penalty
-5. Compare against thresholds → `pairing_status` 0/1/2
+6-tile span. Operational scoring via `recompute_object_operational_status` (applies to all support-dependent families):
+1. **Per-tile metric**: `0x1000 / entity.byte_0x9` (sample count); returns 0 if count == 0
+2. **Span average**: sum across span tiles, divide by span count (office = 6)
+3. **Variant modifier** (from `variant_index` at `+0x16`): tier 0 → +30, tier 1 → 0, tier 2 → −30, tier 3 → force score to 0; clamp to ≥ 0
+4. **Support search**: `is_nearby_support_missing_for_object` within radius 10 tiles; office accepts families 3/4/5/6/10/12 but rejects another family 7
+5. **Support bonus**: if support found on either side → `+60`
+6. **Threshold mapping** (loaded by `refresh_operational_status_thresholds_for_star_rating`):
+   - Stars 1–3: lower=80, upper=150; Stars 4+: lower=80, upper=200
+   - score < lower → `pairing_status = 2` (good); < upper → 1 (ok); ≥ upper → 0 (bad/refund-eligible)
+7. **Pairing active flag**: if `object[+0x14]` was 0 and new status is nonzero → set to 1
 
 Activation/deactivation every 3rd day at checkpoint 0x09e5. Income via `add_cashflow_from_family_resource(7, variant)` each activation event + per-arrival.
 
@@ -474,22 +500,28 @@ Entity state machine: state 0x20 (consume phase budget, route to venue) → 0x60
 
 ### 5.2 Families 0x24–0x28 — Star Rating Evaluation Entities
 
-40 total entities (5 families × 8 slots). Activity score tracked per-family:
-- Single room occupied: +1
-- Twin/suite occupied: +2
-- Condo sold: +3
-- Office activated: +6
-- Entertainment link active: +income_rate value
+40 total entities (5 families × 8 slots each — the "8 slots per eval object" allocation is hardcoded, independent of tile span).
 
-Upgrade thresholds: 300 / 1000 / 5000 / 10000 / 15000.
+**`g_activity_score` IS `g_primary_family_ledger_total`.** There is no separate activity counter — the same aggregate that drives the cashflow display also drives the tower-tier gate. It is mutated exclusively via `add_to_primary_family_ledger_bucket(family_code, delta)`.
 
-When `g_activity_score` meets the next threshold and `calendar_phase_flag == 1`: evaluation eligible. Entities activate at floor 10, route to floors 109–119 during daypart 0. All 40 must arrive in one day. On success: emit `star_upgrade` notification, increment `star_count`. Entities park at night, reset next day.
+Per-family ledger contributions (all symmetric — same magnitude on deactivation):
+- Family 3 (single room): +1 on check-in / −1 on checkout
+- Family 4/5 (twin/suite): +2 / −2
+- Family 7 (office): +6 / −6
+- Family 9 (condo): +3 / −3
+- Family 10 (retail): +10 (constant; no decrement path)
+- Families 0x12/0x1d (entertainment): full clear-and-rebuild daily at checkpoint 0x0f0
+- Families 6/0xc (restaurant/fast-food): +field_0x8 (≥10) on facility-record link
 
-**Failure path**: route failure sets entity state → `0x27` (parked). The end-of-day reset sweep restores family-0x24 entities to state `0x27`. There is no carry-over: a failed evaluation run is discarded. A new run is triggered on the next eligible day. `check_evaluation_completion_and_award` only fires when an entity arrives at the eval zone (state `0x03`) AND `day_tick < 800`; entities that park at `0x27` without arriving never contribute to the arrival count.
+Upgrade thresholds for `g_primary_family_ledger_total`: 300 / 1000 / 5000 / 10000 / 15000.
 
-At checkpoint `0x04b0`, `FUN_1048_0179` dispatches entities that have arrived (state `0x03`) to begin their return (state `0x05`).
+**Dispatch model**: evaluation entities activate from state `0x20` (set by checkpoint 0x000 step 5 when `star_count > 2`) via the **normal entity-refresh stride**, not a dedicated checkpoint. The earlier probabilistic dispatch window (0x0051–0x00f0) was a misread and does not exist.
 
-Upper tower activation: when `star_count > 2`, entities on floors 109–119 activate (type 0x24–0x28 forced to state 0x20 at checkpoint 0x000 step 5).
+`check_evaluation_completion_and_award` counts arrivals (state `0x03`) only when `day_tick < 800`. All 40 must arrive within that window. Route failure → state `0x27` (parked); parked entities do not contribute. Failed runs are discarded; no carry-over to the next day.
+
+At checkpoint `0x04b0`, `FUN_1048_0179` sweeps arrived entities (state `0x03`) and advances them to return state (`0x05`).
+
+Upper tower activation: checkpoint 0x000 step 5 is gated on `g_eval_entity_index >= 0` (set only when `star_count > 2`). It computes the base entity index via `compute_subtype_tile_offset(floor, subtype, base_offset=0)` and forces the 8 consecutive slots to state `0x20`.
 
 ### 5.3 Fire Event
 
@@ -612,7 +644,7 @@ The UI should communicate these unlocks: locked tile types are shown greyed out 
 
 | Phase | Deliverable | Key spec sections |
 |---|---|---|
-| 1 | Correct grid, tile types, time model, resource tables, modular sim core | Time Model, Floor Indexing, Money Model (tables) |
+| 1 | Correct grid, tile types (with 1:4 aspect ratio), time model, new-game init state, resource tables, modular sim core | Time Model, Floor Indexing, Money Model (tables), New Game Initialization |
 | 2 | Full checkpoint skeleton, three-ledger money, build/demolish with side effects | Checkpoint Table, Ledger Roles, Build/Demolish commands |
 | 3 | Elevator/escalator routing, carrier car state machine, transfer-group cache | Route Resolution, Carrier Car State Machine, Queue Drain |
 | 4 | Entity AI: hotels, offices, condos, commercial venues, operational scoring | Families 3/4/5/7/9/6/0x0c/10, Demand Pipeline, Demand History |
