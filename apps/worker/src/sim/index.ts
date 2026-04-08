@@ -123,7 +123,7 @@ export class TowerSim {
 		run_checkpoints(state, prevTick, currTick);
 		advance_entity_refresh_stride(this.world, this.ledger, this.time);
 		populate_carrier_requests(this.world);
-		tick_all_carriers(this.world);
+		tick_all_carriers(this.world, this.time);
 		reconcile_entity_transport(this.world);
 
 		return {

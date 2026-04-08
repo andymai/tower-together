@@ -1,3 +1,4 @@
+import type { TimeState } from "./time";
 import {
 	type CarrierCar,
 	type CarrierRecord,
@@ -6,20 +7,47 @@ import {
 	yToFloor,
 } from "./world";
 
-// ─── Motion speed constants (ticks per floor) ─────────────────────────────────
-
 const LOCAL_TICKS_PER_FLOOR = 8;
 const EXPRESS_TICKS_PER_FLOOR = 4;
 const DEPARTURE_SEQUENCE_TICKS = 5;
 
-/**
- * Ticks required to travel one floor.
- * mode 2 (Service Elevator, used for express-mode long-hop routing) moves faster.
- * modes 0/1 (Express/Standard Elevators, local-mode routing) use standard speed.
- */
+function get_schedule_index(time: TimeState): number {
+	return time.calendarPhaseFlag * 7 + time.daypartIndex;
+}
+
 function speed_ticks(mode: 0 | 1 | 2): number {
 	if (mode === 2) return EXPRESS_TICKS_PER_FLOOR;
 	return LOCAL_TICKS_PER_FLOOR;
+}
+
+function get_car_capacity(carrier: CarrierRecord): number {
+	const servedSlots = new Set<number>();
+	for (
+		let floor = carrier.bottomServedFloor;
+		floor <= carrier.topServedFloor;
+		floor++
+	) {
+		const slot = floor_to_slot(carrier, floor);
+		if (slot >= 0) servedSlots.add(slot);
+	}
+	return Math.max(1, servedSlots.size);
+}
+
+function find_route(carrier: CarrierRecord, routeId: string) {
+	return carrier.pendingRoutes.find((route) => route.entityId === routeId);
+}
+
+function has_pending_floor_assignment(
+	carrier: CarrierRecord,
+	floor: number,
+	carIndex: number,
+): boolean {
+	const slot = floor_to_slot(carrier, floor);
+	if (slot < 0) return false;
+	return (
+		carrier.primaryRouteStatusByFloor[slot] === carIndex + 1 ||
+		carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1
+	);
 }
 
 function compute_car_motion_mode(
@@ -67,35 +95,18 @@ function advance_car_position_one_step(
 	}
 }
 
-// ─── Floor-to-slot index mapping (§3.6) ──────────────────────────────────────
-
-/**
- * Map a floor index to the car's waitingCount slot index.
- * Returns -1 if the floor is outside the carrier's range or not served.
- *
- * Modes 0/1 (Express/Standard Elevator, local-mode): serve at most 10 regular
- * slots plus sky-lobby slots (encoded as 10+). Sky-lobby formula: floor just
- * below each sky lobby (i.e. (floor-10)%15 == 14).
- *
- * Mode 2 (Service Elevator, express-mode): direct offset from bottomServedFloor,
- * can serve any floor in range.
- */
 export function floor_to_slot(carrier: CarrierRecord, floor: number): number {
 	if (floor < carrier.bottomServedFloor || floor > carrier.topServedFloor) {
 		return -1;
 	}
 	if (carrier.carrierMode === 0 || carrier.carrierMode === 1) {
-		// Local-mode elevator: up to 10 regular slots (0–9), then sky-lobby slots (10+)
 		const rel = floor - carrier.bottomServedFloor;
 		if (rel >= 0 && rel < 10) return rel;
 		if ((floor - 10) % 15 === 14) return Math.floor((floor - 10) / 15) + 10;
 		return -1;
 	}
-	// Mode 2 (Service/express-mode elevator): direct offset
 	return floor - carrier.bottomServedFloor;
 }
-
-// ─── Factory helpers ──────────────────────────────────────────────────────────
 
 function make_carrier_car(bottomFloor: number, numSlots: number): CarrierCar {
 	return {
@@ -129,7 +140,7 @@ export function make_carrier(
 		topServedFloor: top,
 		bottomServedFloor: bottom,
 		servedFloorFlags: new Array(14).fill(1),
-		primaryRouteStatusByFloor: new Array(numSlots).fill(1),
+		primaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		secondaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		serviceScheduleFlags: new Array(14).fill(1),
 		pendingRoutes: [],
@@ -137,13 +148,19 @@ export function make_carrier(
 	};
 }
 
-function sync_waiting_count(carrier: CarrierRecord, car: CarrierCar): void {
+function sync_waiting_count(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	carIndex: number,
+): void {
 	car.waitingCount.fill(0);
-	for (const routeId of car.pendingRouteIds) {
-		const route = carrier.pendingRoutes.find(
-			(candidate) => candidate.entityId === routeId,
+	for (const route of carrier.pendingRoutes) {
+		if (route.boarded) continue;
+		const isAssigned = car.pendingRouteIds.includes(route.entityId);
+		const unassignedToAnyCar = !carrier.cars.some((candidate) =>
+			candidate.pendingRouteIds.includes(route.entityId),
 		);
-		if (!route || route.boarded) continue;
+		if (!isAssigned && !(carIndex === 0 && unassignedToAnyCar)) continue;
 		const slot = floor_to_slot(carrier, route.sourceFloor);
 		if (slot < 0 || slot >= car.waitingCount.length) continue;
 		car.waitingCount[slot] += 1;
@@ -153,98 +170,179 @@ function sync_waiting_count(carrier: CarrierRecord, car: CarrierCar): void {
 function sync_assignment_status(carrier: CarrierRecord): void {
 	carrier.primaryRouteStatusByFloor.fill(0);
 	carrier.secondaryRouteStatusByFloor.fill(0);
-	for (const car of carrier.cars) {
-		for (const routeId of car.pendingRouteIds) {
-			const route = carrier.pendingRoutes.find(
-				(candidate) => candidate.entityId === routeId,
-			);
-			if (!route || route.boarded) continue;
-			const slot = floor_to_slot(carrier, route.sourceFloor);
-			if (slot < 0) continue;
-			if (route.directionFlag === 0) {
-				carrier.primaryRouteStatusByFloor[slot] = 1;
-			} else {
-				carrier.secondaryRouteStatusByFloor[slot] = 1;
-			}
+
+	for (const [carIndex, car] of carrier.cars.entries()) {
+		sync_waiting_count(carrier, car, carIndex);
+	}
+
+	for (const route of carrier.pendingRoutes) {
+		if (route.boarded) continue;
+		const slot = floor_to_slot(carrier, route.sourceFloor);
+		if (slot < 0) continue;
+		const table =
+			route.directionFlag === 0
+				? carrier.primaryRouteStatusByFloor
+				: carrier.secondaryRouteStatusByFloor;
+		const assignedCarIndex = carrier.cars.findIndex((car) =>
+			car.pendingRouteIds.includes(route.entityId),
+		);
+		if (assignedCarIndex < 0) {
+			table[slot] = Math.max(table[slot] ?? 0, 1);
+			continue;
 		}
-		sync_waiting_count(carrier, car);
+		const assignedCar = carrier.cars[assignedCarIndex];
+		if (!assignedCar) continue;
+		const capacity = get_car_capacity(carrier);
+		const atCapacity = assignedCar.assignedCount >= capacity;
+		const departingHere =
+			assignedCar.departureFlag !== 0 &&
+			assignedCar.currentFloor === route.sourceFloor;
+		table[slot] = atCapacity || departingHere ? 0x28 : assignedCarIndex + 1;
 	}
 }
 
-// ─── Car state machine (§3.4) ─────────────────────────────────────────────────
+function pick_unassigned_routes(
+	carrier: CarrierRecord,
+	directionFlag: number,
+): string[] {
+	return carrier.pendingRoutes
+		.filter((route) => {
+			if (route.boarded) return false;
+			if (route.directionFlag !== directionFlag) return false;
+			return !carrier.cars.some((car) =>
+				car.pendingRouteIds.includes(route.entityId),
+			);
+		})
+		.map((route) => route.entityId);
+}
 
-/**
- * Select the next floor the car should travel to.
- * Scans in the current direction first (SCAN algorithm), then reverses.
- * Falls back to bottomServedFloor when no waiters are present.
- */
-function select_next_target(car: CarrierCar, carrier: CarrierRecord): number {
-	if (car.pendingRouteIds.length === 0) {
-		if (!car.waitingCount.some((count) => count > 0)) {
-			return carrier.bottomServedFloor;
-		}
+function process_unit_travel_queue(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	carIndex: number,
+): void {
+	let remainingSlots = Math.max(
+		0,
+		get_car_capacity(carrier) - car.assignedCount,
+	);
+	if (remainingSlots === 0) return;
 
-		const dir = car.directionFlag === 0 ? 1 : -1;
-		for (
-			let f = car.currentFloor + dir;
-			f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
-			f += dir
-		) {
-			const slot = floor_to_slot(carrier, f);
-			if (
-				slot >= 0 &&
-				slot < car.waitingCount.length &&
-				car.waitingCount[slot] > 0
-			) {
-				return f;
-			}
-		}
-		for (
-			let f = car.currentFloor - dir;
-			f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
-			f -= dir
-		) {
-			const slot = floor_to_slot(carrier, f);
-			if (
-				slot >= 0 &&
-				slot < car.waitingCount.length &&
-				car.waitingCount[slot] > 0
-			) {
-				return f;
-			}
-		}
-		return car.currentFloor;
+	let primaryDirection = car.directionFlag;
+	let primaryQueue = pick_unassigned_routes(carrier, primaryDirection);
+	const hasPendingDestination = car.pendingRouteIds.some((routeId) => {
+		const route = find_route(carrier, routeId);
+		if (!route) return false;
+		const floor = route.boarded ? route.destinationFloor : route.sourceFloor;
+		return primaryDirection === 0
+			? floor >= car.currentFloor
+			: floor <= car.currentFloor;
+	});
+
+	if (primaryQueue.length === 0 && !hasPendingDestination) {
+		primaryDirection = primaryDirection === 0 ? 1 : 0;
+		car.directionFlag = primaryDirection;
+		primaryQueue = pick_unassigned_routes(carrier, primaryDirection);
 	}
 
+	for (const routeId of primaryQueue.slice(0, remainingSlots)) {
+		car.pendingRouteIds.push(routeId);
+		remainingSlots -= 1;
+	}
+
+	if (remainingSlots > 0) {
+		const alternateQueue = pick_unassigned_routes(
+			carrier,
+			primaryDirection === 0 ? 1 : 0,
+		);
+		for (const routeId of alternateQueue.slice(0, remainingSlots)) {
+			car.pendingRouteIds.push(routeId);
+		}
+	}
+
+	void carIndex;
+	sync_assignment_status(carrier);
+}
+
+function select_next_target(
+	car: CarrierCar,
+	carrier: CarrierRecord,
+	carIndex: number,
+): number {
 	const dir = car.directionFlag === 0 ? 1 : -1;
 	const targets = car.pendingRouteIds
-		.map((routeId) =>
-			carrier.pendingRoutes.find((route) => route.entityId === routeId),
-		)
+		.map((routeId) => find_route(carrier, routeId))
 		.filter((route): route is NonNullable<typeof route> => route !== undefined)
 		.map((route) =>
 			route.boarded ? route.destinationFloor : route.sourceFloor,
 		);
 
-	// Scan in current direction first
 	for (
-		let f = car.currentFloor + dir;
-		f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
-		f += dir
+		let floor = carrier.bottomServedFloor;
+		floor <= carrier.topServedFloor;
+		floor++
 	) {
-		if (targets.includes(f)) return f;
+		if (has_pending_floor_assignment(carrier, floor, carIndex)) {
+			targets.push(floor);
+		}
 	}
 
-	// Reverse direction scan
-	for (
-		let f = car.currentFloor - dir;
-		f >= carrier.bottomServedFloor && f <= carrier.topServedFloor;
-		f -= dir
-	) {
-		if (targets.includes(f)) return f;
+	if (targets.length === 0) {
+		return carrier.bottomServedFloor;
 	}
 
-	return car.currentFloor; // No waiters found; stay idle
+	for (
+		let floor = car.currentFloor + dir;
+		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
+		floor += dir
+	) {
+		if (targets.includes(floor)) return floor;
+	}
+
+	if (
+		(car.currentFloor === carrier.topServedFloor ||
+			car.currentFloor === carrier.bottomServedFloor) &&
+		car.scheduleFlag === 1
+	) {
+		car.directionFlag = car.directionFlag === 0 ? 1 : 0;
+	}
+
+	for (
+		let floor = car.currentFloor - dir;
+		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
+		floor -= dir
+	) {
+		if (targets.includes(floor)) return floor;
+	}
+
+	return car.currentFloor;
+}
+
+function load_schedule_flag(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	time: TimeState,
+): void {
+	if (
+		car.currentFloor !== carrier.bottomServedFloor &&
+		car.currentFloor !== carrier.topServedFloor
+	) {
+		return;
+	}
+	car.scheduleFlag = carrier.servedFloorFlags[get_schedule_index(time)] ?? 1;
+}
+
+function should_car_depart(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	time: TimeState,
+): boolean {
+	if (car.assignedCount >= get_car_capacity(carrier)) return true;
+	if ((carrier.serviceScheduleFlags[get_schedule_index(time)] ?? 1) === 0) {
+		return true;
+	}
+	return (
+		Math.abs(time.dayTick - car.departureTimestamp) > car.scheduleFlag * 30
+	);
 }
 
 function board_and_unload_routes(
@@ -252,24 +350,10 @@ function board_and_unload_routes(
 	car: CarrierCar,
 ): boolean {
 	let changed = false;
-	const capacity = Math.max(1, car.waitingCount.length);
-
-	if (car.pendingRouteIds.length === 0) {
-		const slot = floor_to_slot(carrier, car.currentFloor);
-		if (
-			slot >= 0 &&
-			slot < car.waitingCount.length &&
-			car.waitingCount[slot] > 0
-		) {
-			car.waitingCount[slot] = 0;
-			return true;
-		}
-	}
+	const capacity = get_car_capacity(carrier);
 
 	for (const routeId of [...car.pendingRouteIds]) {
-		const route = carrier.pendingRoutes.find(
-			(candidate) => candidate.entityId === routeId,
-		);
+		const route = find_route(carrier, routeId);
 		if (!route?.boarded) continue;
 		if (route.destinationFloor !== car.currentFloor) continue;
 		car.assignedCount = Math.max(0, car.assignedCount - 1);
@@ -284,9 +368,7 @@ function board_and_unload_routes(
 
 	for (const routeId of [...car.pendingRouteIds]) {
 		if (car.assignedCount >= capacity) break;
-		const route = carrier.pendingRoutes.find(
-			(candidate) => candidate.entityId === routeId,
-		);
+		const route = find_route(carrier, routeId);
 		if (!route || route.boarded) continue;
 		if (route.sourceFloor !== car.currentFloor) continue;
 		route.boarded = true;
@@ -298,15 +380,12 @@ function board_and_unload_routes(
 	return changed;
 }
 
-/**
- * Advance one car by one tick.
- *
- * Branch 1 — door open (doorWaitCounter > 0): drain entities (Phase 4).
- * Branch 2 — in transit (speedCounter > 0): move floor by floor toward target.
- * Branch 3 — idle: select next target and start moving.
- */
-function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
-	// Out-of-range reset: snap car back inside served range
+function step_carrier_car(
+	car: CarrierCar,
+	carrier: CarrierRecord,
+	carIndex: number,
+	time: TimeState,
+): void {
 	if (
 		car.currentFloor < carrier.bottomServedFloor ||
 		car.currentFloor > carrier.topServedFloor
@@ -318,14 +397,12 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 		return;
 	}
 
-	// Branch 1: doors open — dwell, then close
 	if (car.doorWaitCounter > 0) {
 		if (compute_car_motion_mode(carrier, car) === 0) car.doorWaitCounter--;
 		else car.doorWaitCounter = 0;
 		return;
 	}
 
-	// Branch 2: in transit — advance one floor when speedCounter expires
 	if (car.speedCounter > 0) {
 		car.speedCounter--;
 		if (car.speedCounter === 0) {
@@ -344,47 +421,51 @@ function step_carrier_car(car: CarrierCar, carrier: CarrierRecord): void {
 		return;
 	}
 
+	process_unit_travel_queue(carrier, car, carIndex);
 	if (board_and_unload_routes(carrier, car)) {
 		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 		return;
 	}
 
-	// Branch 3: idle — pick next target and start moving
-	const next = select_next_target(car, carrier);
-	if (next === car.currentFloor) return; // Nothing to do
+	load_schedule_flag(carrier, car, time);
+	const next = select_next_target(car, carrier, carIndex);
+	if (next === car.currentFloor) {
+		if (
+			car.pendingRouteIds.length > 0 &&
+			should_car_depart(carrier, car, time)
+		) {
+			car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
+			if (car.departureFlag === 0) {
+				car.departureTimestamp = time.dayTick;
+			}
+			car.departureFlag = 1;
+		}
+		return;
+	}
+
 	car.targetFloor = next;
 	car.directionFlag = next > car.currentFloor ? 0 : 1;
 	car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
 	if (car.departureFlag === 0) {
-		car.departureTimestamp = 0;
+		car.departureTimestamp = time.dayTick;
 	}
 	car.departureFlag = 1;
 }
 
-/** Tick all cars in all carriers. Called every sim tick from TowerSim.step(). */
-export function tick_all_carriers(world: WorldState): void {
+export function tick_all_carriers(world: WorldState, time: TimeState): void {
 	for (const carrier of world.carriers) {
-		for (const car of carrier.cars) {
-			step_carrier_car(car, carrier);
+		for (const [carIndex, car] of carrier.cars.entries()) {
+			step_carrier_car(car, carrier, carIndex, time);
 		}
 	}
 }
 
-// ─── Carrier list rebuild ─────────────────────────────────────────────────────
-
-/**
- * Scan elevator cells, group by column, and rebuild world.carriers.
- * Escalators are NOT carriers — they become special-link segments in routing.ts.
- * Preserves car state for existing columns; creates fresh records for new ones.
- * Called by run_global_rebuilds() after any build/demolish.
- */
 export function rebuild_carrier_list(world: WorldState): void {
 	const columns = new Map<number, { floors: Set<number>; mode: 0 | 1 | 2 }>();
 
 	for (const [key, type] of Object.entries(world.overlays)) {
-		// Only elevators become carrier records; escalators are special-link segments.
 		if (type !== "elevator") continue;
-		const mode: 0 | 1 | 2 = 1; // current UI tool places the standard elevator
+		const mode: 0 | 1 | 2 = 1;
 
 		const [xStr, yStr] = key.split(",");
 		const x = Number(xStr);
@@ -392,8 +473,7 @@ export function rebuild_carrier_list(world: WorldState): void {
 		const floor = yToFloor(y);
 
 		if (!columns.has(x)) columns.set(x, { floors: new Set(), mode });
-		// biome-ignore lint/style/noNonNullAssertion: just inserted above
-		columns.get(x)!.floors.add(floor);
+		columns.get(x)?.floors.add(floor);
 	}
 
 	const newCarriers: CarrierRecord[] = [];
@@ -405,17 +485,20 @@ export function rebuild_carrier_list(world: WorldState): void {
 		const top = sorted[sorted.length - 1];
 		const numSlots = top - bottom + 1;
 
-		const existing = world.carriers.find((c) => c.column === col);
+		const existing = world.carriers.find((carrier) => carrier.column === col);
 		if (existing) {
-			// Update range and reassign id; preserve car positions
 			existing.carrierId = id++;
 			existing.carrierMode = mode;
 			existing.topServedFloor = top;
 			existing.bottomServedFloor = bottom;
-			if (existing.servedFloorFlags.length !== 14)
+			if (existing.servedFloorFlags.length !== 14) {
 				existing.servedFloorFlags = new Array(14).fill(1);
+			}
+			if (existing.serviceScheduleFlags.length !== 14) {
+				existing.serviceScheduleFlags = new Array(14).fill(1);
+			}
 			if (existing.primaryRouteStatusByFloor.length !== numSlots) {
-				existing.primaryRouteStatusByFloor = new Array(numSlots).fill(1);
+				existing.primaryRouteStatusByFloor = new Array(numSlots).fill(0);
 				existing.secondaryRouteStatusByFloor = new Array(numSlots).fill(0);
 			}
 			for (const car of existing.cars) {
@@ -425,8 +508,9 @@ export function rebuild_carrier_list(world: WorldState): void {
 					car.speedCounter = 0;
 					car.doorWaitCounter = 0;
 				}
-				if (car.waitingCount.length !== numSlots)
+				if (car.waitingCount.length !== numSlots) {
 					car.waitingCount = new Array(numSlots).fill(0);
+				}
 				car.pendingRouteIds = car.pendingRouteIds.filter((routeId) =>
 					existing.pendingRoutes.some((route) => route.entityId === routeId),
 				);
@@ -443,7 +527,6 @@ export function rebuild_carrier_list(world: WorldState): void {
 	}
 }
 
-/** Initialize routing arrays for a fresh WorldState. */
 export function init_carrier_state(world: WorldState): void {
 	world.carriers ??= [];
 	world.floorWalkabilityFlags ??= new Array(GRID_HEIGHT).fill(0);
@@ -459,8 +542,6 @@ export function enqueue_carrier_route(
 ): void {
 	if (carrier.pendingRoutes.some((route) => route.entityId === entityId))
 		return;
-	const car = carrier.cars[0];
-	if (!car) return;
 	carrier.pendingRoutes.push({
 		entityId,
 		sourceFloor,
@@ -468,6 +549,5 @@ export function enqueue_carrier_route(
 		boarded: false,
 		directionFlag,
 	});
-	car.pendingRouteIds.push(entityId);
 	sync_assignment_status(carrier);
 }

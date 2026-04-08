@@ -116,8 +116,17 @@ export function is_floor_span_walkable_for_local_route(
 ): boolean {
 	const lo = Math.min(fromFloor, toFloor);
 	const hi = Math.max(fromFloor, toFloor);
+	if (hi - lo >= 7) return false;
+	let seenGap = false;
+	let scanned = 0;
 	for (let f = lo; f <= hi; f++) {
-		if (!(world.floorWalkabilityFlags[f] & 1)) return false;
+		const flags = world.floorWalkabilityFlags[f] ?? 0;
+		if (flags === 0) return false;
+		scanned += 1;
+		if ((flags & 1) === 0) {
+			seenGap = true;
+		}
+		if (seenGap && scanned > 2) return false;
 	}
 	return true;
 }
@@ -133,6 +142,7 @@ export function is_floor_span_walkable_for_express_route(
 ): boolean {
 	const lo = Math.min(fromFloor, toFloor);
 	const hi = Math.max(fromFloor, toFloor);
+	if (hi - lo >= 7) return false;
 	for (let f = lo; f <= hi; f++) {
 		if (!(world.floorWalkabilityFlags[f] & 2)) return false;
 	}
@@ -161,6 +171,7 @@ export function select_best_route_candidate(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
+	preferLocalMode = true,
 ): RouteCandidate | null {
 	if (fromFloor === toFloor) return null;
 
@@ -173,18 +184,50 @@ export function select_best_route_candidate(
 		if (!best || cost < best.cost) best = { carrierId, cost };
 	}
 
-	// Check special-link segments first (covers local + express carriers)
-	for (const seg of world.specialLinks) {
-		if (!seg.active) continue;
-		if (seg.startFloor > lo || seg.startFloor + seg.heightMetric < hi) continue;
-		const isExpress = (seg.flags & 1) !== 0;
-		tryCandidate(seg.carrierId, isExpress ? delta * 8 + 0x280 : delta * 8);
+	if (preferLocalMode) {
+		if (
+			delta === 1 ||
+			is_floor_span_walkable_for_local_route(world, fromFloor, toFloor)
+		) {
+			for (const seg of world.specialLinks) {
+				if (!seg.active) continue;
+				if (seg.startFloor > lo || seg.startFloor + seg.heightMetric < hi)
+					continue;
+				const isExpress = (seg.flags & 1) !== 0;
+				tryCandidate(seg.carrierId, isExpress ? delta * 8 + 0x280 : delta * 8);
+			}
+		}
+	} else if (
+		delta === 1 ||
+		is_floor_span_walkable_for_express_route(world, fromFloor, toFloor)
+	) {
+		for (const seg of world.specialLinks) {
+			if (!seg.active) continue;
+			if ((seg.flags & 1) === 0) continue;
+			if (seg.startFloor > lo || seg.startFloor + seg.heightMetric < hi)
+				continue;
+			tryCandidate(seg.carrierId, delta * 8 + 0x280);
+		}
 	}
 
-	// Check direct carrier connections (safety net if specialLinks not rebuilt)
+	// Check direct carrier connections with mode filtering and source-floor
+	// congestion penalties (0x28 = at-capacity/departing).
 	for (const carrier of world.carriers) {
+		if (
+			preferLocalMode ? carrier.carrierMode === 2 : carrier.carrierMode !== 2
+		) {
+			continue;
+		}
 		if (carrier.bottomServedFloor > lo || carrier.topServedFloor < hi) continue;
-		tryCandidate(carrier.carrierId, delta * 8 + 0x280);
+		const floorStatus = get_floor_slot_status(
+			carrier,
+			fromFloor,
+			toFloor > fromFloor ? 0 : 1,
+		);
+		tryCandidate(
+			carrier.carrierId,
+			floorStatus === 0x28 ? 1000 + delta * 8 : delta * 8 + 0x280,
+		);
 	}
 
 	// Check transfer routes via transferGroupCache
@@ -197,7 +240,25 @@ export function select_best_route_candidate(
 		const leg2 = tMask & bMask; // carriers covering t → toFloor
 		// Valid transfer: leg1 and leg2 non-zero and distinct (different carriers)
 		if (leg1 && leg2 && (leg1 & leg2) === 0) {
-			tryCandidate(ctz(leg1), delta * 8 + 3000);
+			const carrierId = ctz(leg1);
+			const carrier = world.carriers.find(
+				(candidate) => candidate.carrierId === carrierId,
+			);
+			if (!carrier) continue;
+			if (
+				preferLocalMode ? carrier.carrierMode === 2 : carrier.carrierMode !== 2
+			) {
+				continue;
+			}
+			const floorStatus = get_floor_slot_status(
+				carrier,
+				fromFloor,
+				toFloor > fromFloor ? 0 : 1,
+			);
+			tryCandidate(
+				carrierId,
+				floorStatus === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000,
+			);
 			break; // first transfer found is sufficient for cost comparison
 		}
 	}
@@ -211,4 +272,18 @@ export function select_best_route_candidate(
 function ctz(n: number): number {
 	if (n === 0) return 32;
 	return Math.log2(n & -n) | 0;
+}
+
+function get_floor_slot_status(
+	carrier: WorldState["carriers"][number],
+	floor: number,
+	directionFlag: number,
+): number {
+	const slot = floor - carrier.bottomServedFloor;
+	const table =
+		directionFlag === 0
+			? carrier.primaryRouteStatusByFloor
+			: carrier.secondaryRouteStatusByFloor;
+	if (slot < 0 || slot >= table.length) return 0;
+	return table[slot] ?? 0;
 }
