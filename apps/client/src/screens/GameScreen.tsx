@@ -11,7 +11,7 @@ let toastCounter = 0;
 
 import * as socket from "../lib/socket";
 import type { ConnectionStatus, SelectedTool, ServerMessage } from "../types";
-import { TILE_COSTS } from "../types";
+import { DAY_TICK_MAX, TILE_COSTS } from "../types";
 
 interface Props {
 	playerId: string;
@@ -28,28 +28,26 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
-	{ id: "empty", label: "Erase", color: "#888", cost: 0 },
-	{ id: "floor", label: "Floor", color: "#777", cost: TILE_COSTS.floor },
-	{ id: "lobby", label: "Lobby", color: "#c9a84c", cost: TILE_COSTS.lobby },
-	{ id: "stairs", label: "Stairs", color: "#e8d5a3", cost: TILE_COSTS.stairs },
-	{
-		id: "hotel_single",
-		label: "Single",
-		color: "#2d9c8d",
-		cost: TILE_COSTS.hotel_single,
-	},
-	{
-		id: "hotel_twin",
-		label: "Twin",
-		color: "#2d7a9c",
-		cost: TILE_COSTS.hotel_twin,
-	},
-	{
-		id: "hotel_suite",
-		label: "Suite",
-		color: "#2d4f9c",
-		cost: TILE_COSTS.hotel_suite,
-	},
+	{ id: "empty",          label: "Erase",       color: "#888",    cost: 0 },
+	{ id: "floor",          label: "Floor",        color: "#777",    cost: TILE_COSTS.floor },
+	{ id: "lobby",          label: "Lobby",        color: "#c9a84c", cost: TILE_COSTS.lobby },
+	{ id: "stairs",         label: "Stairs",       color: "#e8d5a3", cost: TILE_COSTS.stairs },
+	{ id: "hotel_single",   label: "Single",       color: "#2d9c8d", cost: TILE_COSTS.hotel_single },
+	{ id: "hotel_twin",     label: "Twin",         color: "#2d7a9c", cost: TILE_COSTS.hotel_twin },
+	{ id: "hotel_suite",    label: "Suite",        color: "#2d4f9c", cost: TILE_COSTS.hotel_suite },
+	{ id: "vip_single",     label: "VIP S",        color: "#3d8c7d", cost: TILE_COSTS.vip_single },
+	{ id: "vip_twin",       label: "VIP T",        color: "#3d6a8c", cost: TILE_COSTS.vip_twin },
+	{ id: "vip_suite",      label: "VIP Su",       color: "#3d3f8c", cost: TILE_COSTS.vip_suite },
+	{ id: "restaurant",     label: "Restaurant",   color: "#c07840", cost: TILE_COSTS.restaurant },
+	{ id: "fast_food",      label: "Fast Food",    color: "#c0a040", cost: TILE_COSTS.fast_food },
+	{ id: "retail",         label: "Retail",       color: "#a0c040", cost: TILE_COSTS.retail },
+	{ id: "office",         label: "Office",       color: "#8080c0", cost: TILE_COSTS.office },
+	{ id: "condo",          label: "Condo",        color: "#60a080", cost: TILE_COSTS.condo },
+	{ id: "cinema",         label: "Cinema",       color: "#c040a0", cost: TILE_COSTS.cinema },
+	{ id: "security",       label: "Security",     color: "#c04040", cost: TILE_COSTS.security },
+	{ id: "housekeeping",   label: "Housekeeping", color: "#8cb0c0", cost: TILE_COSTS.housekeeping },
+	{ id: "metro",          label: "Metro",        color: "#60c0c0", cost: TILE_COSTS.metro },
+	{ id: "fire_suppressor",label: "Fire Supp.",   color: "#e06060", cost: TILE_COSTS.fire_suppressor },
 ];
 
 export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
@@ -175,8 +173,10 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 		}
 	}
 
-	const day = Math.floor(simTime / 24) + 1;
-	const hour = simTime % 24;
+	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
+	// Map day_tick (0–2599) to SimTower clock: 6:00am (tick 0) → 1:00am next day (tick 2599)
+	const dayTick = simTime % DAY_TICK_MAX;
+	const hour = (6 + Math.floor((dayTick * 19) / DAY_TICK_MAX)) % 24;
 
 	const statusColor =
 		connectionStatus === "connected"
@@ -264,7 +264,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 				<div style={styles.toolbarRight}>
 					<span style={styles.cashDisplay}>${cash.toLocaleString()}</span>
 					<span style={styles.statItem}>
-						Day {day} · {String(hour).padStart(2, "0")}:00
+						Day {day} · {String(hour).padStart(2, "0")}h
 					</span>
 					<span style={styles.statItem}>
 						{playerCount} player{playerCount !== 1 ? "s" : ""}

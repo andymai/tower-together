@@ -1,22 +1,32 @@
 import Phaser from "phaser";
-import { TILE_WIDTHS } from "../types";
+import { GRID_HEIGHT, GRID_WIDTH, TILE_WIDTHS, UNDERGROUND_FLOORS, UNDERGROUND_Y } from "../types";
 
-const GRID_WIDTH = 64;
-const GRID_HEIGHT = 110; // 10 underground + 100 above-ground floors
 const CELL_SIZE = 16;
-
-// Floor numbering: internal floor = (GRID_HEIGHT - 1) - Y  (floor 109 at top, floor 0 at bottom)
-// UI label = internal floor - UNDERGROUND_FLOORS  (so floor 10 → "0", floor 0 → "-10")
-const UNDERGROUND_FLOORS = 10; // floors 0-9 are underground
-const UNDERGROUND_Y = GRID_HEIGHT - UNDERGROUND_FLOORS; // Y=100: first underground row
 
 // Tile fill colors
 const TILE_COLORS: Record<string, number> = {
-	floor: 0x555555,
-	lobby: 0xc9a84c,
-	hotel_single: 0x2d9c8d,
-	hotel_twin: 0x2d7a9c,
-	hotel_suite: 0x2d4f9c,
+	floor:          0x555555,
+	lobby:          0xc9a84c,
+	hotel_single:   0x2d9c8d,
+	hotel_twin:     0x2d7a9c,
+	hotel_suite:    0x2d4f9c,
+	vip_single:     0x3d8c7d,
+	vip_twin:       0x3d6a8c,
+	vip_suite:      0x3d3f8c,
+	restaurant:     0xc07840,
+	fast_food:      0xc0a040,
+	retail:         0xa0c040,
+	office:         0x8080c0,
+	condo:          0x60a080,
+	cinema:         0xc040a0,
+	entertainment:  0xa040c0,
+	security:       0xc04040,
+	housekeeping:   0x8cb0c0,
+	parking:        0x707080,
+	metro:          0x60c0c0,
+	fire_suppressor: 0xe06060,
+	elevator:       0xb0a070,
+	escalator:      0xa0b070,
 };
 
 const COLOR_SKY = 0x5ba8d4; // blue sky (above ground)
@@ -178,8 +188,7 @@ export class GameScene extends Phaser.Scene {
 		// Stairs sit on top of existing tiles — not shift-fillable via this path.
 		if (this.selectedTool === "stairs") return false;
 		if (this.selectedTool === "lobby") {
-			const groundY = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS;
-			const floorsAboveGround = groundY - y;
+			const floorsAboveGround = (GRID_HEIGHT - 1 - UNDERGROUND_FLOORS) - y;
 			if (floorsAboveGround < 0 || floorsAboveGround % 15 !== 0) return false;
 		}
 		const needsSupport = this.selectedTool !== "lobby";
@@ -465,8 +474,7 @@ export class GameScene extends Phaser.Scene {
 
 		// Lobby is only placeable on ground floor and every 15 floors above
 		if (this.selectedTool === "lobby") {
-			const groundY = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS;
-			const floorsAboveGround = groundY - y;
+			const floorsAboveGround = (GRID_HEIGHT - 1 - UNDERGROUND_FLOORS) - y;
 			if (floorsAboveGround < 0 || floorsAboveGround % 15 !== 0) return;
 		}
 

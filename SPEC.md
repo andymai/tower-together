@@ -59,7 +59,7 @@ The goal is a simulation that plays the same way as the original — same rules,
 - All deterministic daily checkpoint logic: timing, ordering, etc.
 - All income and expense amounts: payout table values, expense table values, operating cost formulas.
 - All thresholds and scoring: operational score formulas, `pairing_status` transitions, star-rating activity thresholds.
-- All capacity and routing rules: carrier cost formulas, slot limits, walkability checks, transfer-group logic.
+- All capacity and routing rules: carrier cost formulas, slot limits, walkability checks, transfer-group logic, elevator routing.
 - All event trigger conditions: fire every 84 days, bomb every 60 days, evaluation on `calendar_phase_flag == 1`.
 - All occupancy lifecycle rules: `stay_phase` transitions, checkout timing, condo refund conditions.
 
@@ -215,24 +215,50 @@ The following checkpoints fire during each day cycle (day_tick range 0x000–0xa
 - `0x0a0`: morning notification popup
 - `0x0f0`: facility ledger rebuild; fire/bomb event triggers
 - `0x3e8`: entertainment half-runtime activation (pass 1)
-- `0x04b0`: hotel sale count reset; entertainment ready-phase promotion
+- `0x04b0`: hotel sale count reset; entertainment ready-phase promotion; evaluation entity midday return dispatch
 - `0x0578`: entertainment half-runtime activation (pass 2)
 - `0x05dc`: entertainment facility phase advance (pass 1)
-- `0x0640`: hotel-pairing and operational update; request-queue flush; stay-phase advance; entertainment midday cycle; security housekeeping; progress override clear
+- `0x0640`: hotel-pairing and operational update; request-queue flush; stay-phase advance; entertainment midday cycle; security housekeeping reset (param=0); progress override clear
 - `0x06a4`: afternoon notification popup
-- `0x0708`: security housekeeping state update
+- `0x0708`: no-op
 - `0x076c`: entertainment facility phase advance (pass 2)
-- `0x07d0`: linked facility record advance; security housekeeping; periodic event trigger (every 12 days)
+- `0x07d0`: linked facility record advance; security housekeeping tier-2 check (param=2); periodic event trigger (every 12 days)
 - `0x0898`: type-6 facility record advance
 - `0x08fc`: day counter increment; calendar phase recompute; palette update
 - `0x09c4`: runtime entity refresh and reset sweep
 - `0x09e5`: ledger rollover; cashflow reactivation; periodic operating expenses
 - `0x09f6`: end-of-day notification popup
-- `0x0960`, `0x0a06`: no-op
+- `0x0960`: no-op
+- `0x0a06`: security housekeeping tier-5 check (param=5)
 
 In addition, every tick when `day_tick > 0x0f0`:
 - if `daypart_index < 6`: 1/16 chance to trigger a random news event
-- if `daypart_index < 4`: trigger VIP/special visitor check (1/100 chance per tick)
+- if `daypart_index < 4`: call `trigger_vip_special_visitor()` — see "VIP/Special Visitor Toggle" below
+
+### VIP Hotel Suite And The Star Advancement Gate
+
+**`g_vip_system_eligibility` (DS:0xbc5c)** stores the floor index of the placed VIP hotel suite (object types `0x1f`, `0x20`, or `0x21`). Initialized to `0xffff` (−1 signed) on new game, meaning no VIP suite. Set to the object's floor index when a VIP suite is first placed. Saved and restored with the tower file.
+
+This value gates two behaviors:
+1. The VIP/special visitor toggle (see below) — only fires when `bc5c >= 0`.
+2. The 4→5 star advancement (see "Star Advancement Gate" below) — blocked when `bc5c < 0`.
+
+**Secondary use**: `g_vip_system_eligibility` is also used as a floor-range lower-bound in elevator-extension and object-placement validation: placement below `bc5c − 1` fires an error. When no VIP suite is placed (`bc5c = −1`), this bound equals `−2` and never activates.
+
+### VIP/Special Visitor Toggle
+
+`trigger_vip_special_visitor()` runs each tick when `day_tick > 0x0f0` and `daypart_index < 4`. Guards:
+- `game_state_flags & 0x09 == 0` (not paused or suspended)
+- `g_vip_system_eligibility [0xbc5c] >= 0` (a VIP hotel suite exists)
+
+Probability: `rand() % 100 == 0` (1% per tick).
+
+On trigger: sweep all placed objects of type `0x1f`, `0x20`, or `0x21`. For each:
+- If `object[+0xc] == 0`: set `object[+0xc] = 2` (activate VIP state); fire notification `0x271a` (shown once after the sweep if any object activated).
+- If `object[+0xc] != 0`: clear `object[+0xc] = 0` (deactivate VIP state).
+- Mark dirty (`object[+0x13] = 1`).
+
+This toggles the VIP-visit display state on VIP-category objects (cosmetic only). It is **not** connected to star-rating evaluation and does not dispatch or reset evaluation entities. The manual's claim that VIP satisfaction blocks star advancement is misleading — the actual gate is only whether a VIP suite has been placed.
 
 ### Checkpoint `0x000`: Start Of Day
 
@@ -286,12 +312,12 @@ Fire a morning progress notification popup (no gate; no simulation state effects
 
 For all **paired-link** entertainment records (`family_selector >= 0`): if `link_phase_state == 0`, set all forward-half entity slots to state `0x20` and advance `link_phase_state` to 1.
 
-### Checkpoint `0x04b0`: Hotel Sale Count Reset; Entertainment Ready-Phase Promotion
+### Checkpoint `0x04b0`: Hotel Sale Count Reset; Entertainment Ready-Phase Promotion; Evaluation Midday Return
 
 1. Reset `g_family345_sale_count = 0`.
 2. **Promote paired-link records to ready-phase**: for each paired-link with `link_phase_state >= 2`, advance `link_phase_state` to 3.
 3. **Activate single-link reverse-half entities**: for each single-link record (`family_selector < 0`) with `link_phase_state == 0`, set all reverse-half entity slots to state `0x20` and advance `link_phase_state` to 1.
-4. Perform hotel-pairing housekeeping (role not fully decoded).
+4. **Evaluation entity midday return dispatch** (`FUN_1048_0179`): if evaluation is active (`g_eval_entity_index >= 0`, i.e. `[0xbc60] >= 0`): sweep floors 0x6d–0x77 for placed objects of types 0x24–0x28; clear each object's sidecar at offset `+0xc` to 0 and mark dirty; for every associated runtime entity in state `0x03` (arrived at eval zone), advance to state `0x05` (begin return journey). Then if `game_state_flags bit 2` is set (i.e. `[0xbc7a] & 4 != 0`): clear bit 2 (`[0xbc7a] -= 4`).
 
 ### Checkpoint `0x0578`: Entertainment Half-Runtime Activation (Pass 2)
 
@@ -326,7 +352,7 @@ Execute in order:
    - **Promote paired-link reverse-half to ready-phase**: for each paired-link with `link_phase_state >= 2`, advance `link_phase_state` to 3.
    - **Advance reverse phase** for all links: for single-link records, process reverse-half entities in state `0x03` → `0x05` or `0x01`, accrue income via `accrue_facility_income_by_family(0x1d)`, reset `link_phase_state = 0`. For paired-link records, do the same, accrue income via `accrue_facility_income_by_family(0x12)`, reset `link_phase_state = 0`.
 
-8. **Security housekeeping update**: call `update_security_housekeeping_state()`.
+8. **Security housekeeping reset**: call `update_security_housekeeping_state(0)`. With `param = 0`, this always results in tier 0 (insufficient): the security-adequate flag (`[0xc1a0]`) is cleared and all type-0x14/0x15 objects have their `stay_phase` set to 0. This is a daily reset of the security duty state.
 
 9. **Clear progress override**: clear the `facility_progress_override` gate bit and mark global state dirty.
 
@@ -334,9 +360,9 @@ Execute in order:
 
 Fire an afternoon progress notification popup (no gate; no simulation state effects).
 
-### Checkpoint `0x0708`: Security Housekeeping State Update
+### Checkpoint `0x0708`: No-Op
 
-Call `update_security_housekeeping_state()`.
+No simulation state changes.
 
 ### Checkpoint `0x076c`: Entertainment Facility Phase Advance (Pass 2)
 
@@ -345,7 +371,7 @@ For all **paired-link** records: advance reverse-half phase (same logic as midda
 ### Checkpoint `0x07d0`: Late Facility Cycle
 
 1. **Advance linked facility records**: sweep 0x200-entry venue table; for each valid entry where the placed object is **not** type 6: call `seed_facility_runtime_link_state(floor, subtype, record_index)`.
-2. Call `update_security_housekeeping_state()`.
+2. **Security housekeeping tier-2 check**: call `update_security_housekeeping_state(2)`. If the tower's required security tier (computed as `primary_ledger_total / security_scale`) is ≤ 2, the security-adequate flag is set and all type-0x14/0x15 objects get `stay_phase = required_tier`. If the required tier exceeds 2, they are set to tier 2 and the adequate flag stays clear.
 3. If `day_counter % 12 == 11`: if a gate byte is not already set, set it and fire a periodic maintenance notification popup. No simulation state is affected beyond the gate byte.
 
 ### Checkpoint `0x0898`: Type-6 Facility Record Advance
@@ -395,6 +421,24 @@ Execute in order:
 4. Call `rebuild_all_entity_tile_spans()` (same as step 1 of 0x09c4).
 
 5. Call `reset_entity_runtime_state()` (same as step 2 of 0x09c4).
+
+### Checkpoint `0x0960`: No-Op
+
+No simulation state changes.
+
+### Checkpoint `0x0a06`: Security Housekeeping Final Tier Check
+
+Call `update_security_housekeeping_state(5)`. This is the final daily security check. If the tower's required security tier is ≤ 5, the adequate flag is set and type-0x14/0x15 objects get `stay_phase = required_tier`. If the required tier exceeds 5 (which is the function's own maximum return value, tier 6 meaning very-high-ledger towers), they are set to tier 5 and adequate flag stays clear. In practice this means: if the tower has placed enough security/housekeeping facilities to meet the ledger-scaled requirement, `[0xc1a0] = 1` for the rest of the day.
+
+**`update_security_housekeeping_state(param)` behavior** (called at checkpoints 0x0640, 0x07d0, 0x0a06):
+1. Only executes if `star_count > 2` (`[0xbc40] > 2`).
+2. If `[0xbc68] == 0` (no security scaling factor): fire "security insufficient" display notification, set `[0xc1a0] = 0`, return.
+3. Otherwise: compute `required_tier = g_primary_family_ledger_total / [0xbc68]`, clamped to 1–6 by tier thresholds (< 500 → 1; < 1000 → 2; < 1500 → 3; < 2000 → 4; < 2500 → 5; else 6).
+4. If `param < required_tier`: insufficient → `tier = param`; if `param == 5`, fire display notification; set `[0xc1a0] = 0`.
+5. If `param >= required_tier`: `tier = required_tier`; set `[0xc1a0] = 1`.
+6. Sweep all placed objects: for each of type 0x14 (security guard) or 0x15 (housekeeping cart): if `([0xc1a0] != 0) OR (object[+0xb] != 5)`: set `object[+0xb] = tier`, mark dirty.
+
+The `stay_phase` of type-0x14/0x15 objects tracks the duty tier and is read by the bomb-patrol check path.
 
 ### Checkpoint `0x09f6`: End-of-Day Notification
 
@@ -613,14 +657,18 @@ For express elevators / escalators (`carrier_mode != 0`):
 
 ### Route Delays
 
-Preserve these startup-tuned values (loaded from the startup tuning resource):
+All delay values are confirmed from the startup tuning resource (type `0xff05`, id `1000`), loaded sequentially by `load_startup_tuning_resource_table`:
 
-- queue-entry delay: `5` ticks
-- route-failure delay: `300` ticks
-- waiting-state delay (0x28 at-capacity status): value from tuning resource
-- re-queue-failure delay: value from tuning resource
-- per-stop direct delay for even-parity segments: `16` ticks
-- per-stop direct delay for odd-parity segments: `35` ticks
+| Global (DS offset) | Value | Used when |
+|---|---|---|
+| `0xe5ee` | `300` | Loaded but **not referenced** by any code path — vestigial. |
+| `0xe5f0` | `5` | **Waiting-state delay**: carrier floor-slot status == `0x28` (at-capacity/departing). Entity parks in waiting state. |
+| `0xe5f2` | `0` | **Re-queue-failure delay**: `assign_request_to_runtime_route` fails to find a valid transfer floor. Also used by the queue-drain path when ejecting an entity from an at-capacity queue. |
+| `0xe5f4` | `300` | **Route-failure delay**: `select_best_route_candidate` returns < 0 (no route exists). |
+| `0xe5f6` | `0` | **Venue-unavailable delay**: target commercial venue slot is invalid, already demolished, or its path-seed entry has no dependency. |
+
+- per-stop direct delay for even-parity segments: `16` ticks (DS:`0xe62c`)
+- per-stop direct delay for odd-parity segments: `35` ticks (DS:`0xe62e`)
 
 Long-distance penalty (applied when `abs(segment_height_metric - entity_height_metric) > 0x4f`):
 - add `0x1e` if delta < `0x7d`
@@ -1733,6 +1781,46 @@ Gate behavior:
 - after `0x00f0`, dispatch is forced
 - after daypart `0`, entities park
 
+### Star Advancement Gate
+
+Star count (`bc40`, 1–5 for stars, 6 for Tower) is incremented by `FUN_1148_002d`, called daily from `FUN_1098_03ab`. It checks two conditions:
+
+1. `compute_tower_tier_from_ledger() > bc40` — ledger total exceeds the threshold for the next star level (thresholds: 300/1000/5000/10000/15000, see "Star Rating Model").
+2. `FUN_1150_007e()` — all per-star-level qualitative gate conditions are met.
+
+If both pass, `bc40` increments by 1, a palette/visual update fires, and `FUN_1150_003d` resets the evaluation state flags.
+
+#### Per-Star Gate Conditions (`FUN_1150_007e`)
+
+| Current stars (`bc40`) | Required before advancing |
+|---|---|
+| 1 | None — always eligible once ledger threshold met |
+| 2 | Metro station placed (`[0xc19e] == 1`, set by `check_and_trigger_treasure` when type `0x0e` is built) |
+| 3 | Office placed (`[0xc19f] == 1`); security adequate (`[0xc1a0] == 1`); office service rating passed (`[0xc197] == 1`); `daypart_index >= 4`; `calendar_phase_flag != 1`; viable commercial routes (`[0xc1a1] == 1`) |
+| 4 | VIP hotel suite placed (`g_vip_system_eligibility [0xbc5c] >= 0`); security adequate (`[0xc1a0]`); `daypart_index >= 4`; `calendar_phase_flag != 1`; viable commercial routes (`[0xc1a1]`) |
+| 5 | Always blocked — Tower advancement handled by separate mechanism |
+
+#### Gate Flags
+
+| Flag | Address | Set by | Meaning |
+|---|---|---|---|
+| `metro_placed` | `0xc19e` | `check_and_trigger_treasure` on type-`0x0e` build | Metro station exists |
+| `office_placed` | `0xc19f` | `check_and_trigger_treasure` on type-`0x05` build | Office exists |
+| `office_service_ok` | `0xc197` | Office service evaluation (every 9th day at star=3) | Office service rating meets threshold |
+| `security_adequate` | `0xc1a0` | `update_security_housekeeping_state` | Security/housekeeping coverage adequate |
+| `routes_viable` | `0xc1a1` | `rebuild_path_seed_bucket_table` when `star > 2` | Commercial routes exist |
+| `vip_suite_placed` | `0xbc5c` | VIP suite object placement handler | VIP hotel suite floor index (≥ 0 = suite exists) |
+
+All gate flags are cleared by `FUN_1150_0000` at new-game initialization. `FUN_1150_003d` (called after each star advance) resets `office_service_ok`, `office_service_in_progress`, and `evaluation_pending` flags, and fires a star-advance notification (`bc40 + 0xbd4`).
+
+#### Office Service Evaluation (Star 3 Gate)
+
+Checked every 9th day (`day_counter % 9 == 3`) when `star_count == 3`. If an office (type `0x05`) entity is in state `0x01` with a service assignment, the evaluation triggers:
+- Computes `compute_runtime_tile_average()` against threshold `[0xe5ec]`.
+- If average exceeds threshold (service too slow): `0xc197 = 0`, fires fail notification `0xbbb`.
+- If average meets threshold: `0xc197 = 1`, fires pass notification `0xbba`.
+- Evaluation result is cleared on demolition or rebuild of the evaluated office.
+
 ### Family `0x18`: Parking
 
 Parking is passive infrastructure.
@@ -2305,41 +2393,44 @@ Entities are initially allocated at object placement time via `recompute_object_
 
 ### Tier 2: Gaps That Affect Deterministic Correctness
 
-These are recovered incompletely. A simulation with these gaps will produce wrong outcomes in the affected subsystems, not just wrong presentation.
+All previously identified Tier 2 gaps have been resolved. The following entries are retained for record and cross-reference.
 
-#### Route Delay Values — Two Values Not Recovered
+#### Route Delay Values — RESOLVED
 
-The startup tuning resource supplies two delay values that are loaded but not yet extracted:
+All delay values extracted from startup tuning resource (type `0xff05`, id `1000`). See "Route Delays" table in the Route Resolution section. Key values:
+- **Waiting-state delay** (carrier at-capacity, 0x28 status): **5 ticks** (`[0xe5f0]`)
+- **Re-queue-failure delay** (no valid transfer floor): **0 ticks** (`[0xe5f2]`)
+- **Route-failure delay** (no route at all): **300 ticks** (`[0xe5f4]`)
+- **Venue-unavailable delay**: **0 ticks** (`[0xe5f6]`)
+- `[0xe5ee]` = 300 is loaded but never read by any code (vestigial).
 
-- **Waiting-state delay**: added when a carrier's floor-slot status is `0x28` (at capacity / departing). Controls how long an entity waits before retrying a carrier route.
-- **Re-queue-failure delay**: added when `assign_request_to_runtime_route` fails to find a valid transfer floor. Controls retry cadence after a failed board attempt.
+#### Retail `derived_state_code` — RESOLVED
 
-Both feed directly into entity timing and therefore into when occupancy events and income triggers fire. A safe default is to use the same value as the route-failure delay (300 ticks) until the exact values are recovered.
+**Confirmed: retail (`type 10`) always returns 0.** `derive_commercial_venue_state_code` has an explicit `else if (param_1 == 10) { local_8 = 0; }` branch. The retail threshold values (25, 20) loaded from the startup resource into `[0xe620]`/`[0xe622]` are never read by `derive_commercial_venue_state_code` — they are vestigial/unused. Retail `derived_state_code` is always 0; this has no simulation-correctness impact.
 
-#### Retail `derived_state_code` — Contradictory Information
+#### Star-Rating Evaluation — Failure Recovery Path — RESOLVED
 
-The daily closure path (`seed_facility_runtime_link_state`) says `derived_state_code` for type 10 (retail) is **always 0**, but the startup tuning data includes two threshold values (25 and 20) for retail alongside the restaurant/fast-food thresholds that clearly drive `derive_commercial_venue_state_code`. The correct behavior is unresolved: either retail always returns 0 and the thresholds are vestigial, or the "always 0" note is wrong and the thresholds apply. The `derived_state_code` field may only be used for display; if so, this gap does not affect simulation correctness.
+From `handle_evaluation_entity_outbound_route`: route failure (result `0xffff`) sets entity state → `0x27` (parked). The end-of-day reset sweep (`reset_entity_runtime_state @ 1228:0000`) resets family-0x24 entities to state `0x27`. There is no mechanism to re-activate parked evaluation entities mid-run. The evaluation attempt ends and is not resumed on a later day — a new run must be triggered.
 
-#### Star-Rating Evaluation — Failure Recovery Path
+`check_evaluation_completion_and_award` only fires when an entity arrives at the eval zone (state `0x03`) AND `g_day_tick < 800`. Entities that can't route and park at `0x27` never contribute to the arrival count. An evaluation run where not all 40 entities arrive by `g_day_tick < 800` simply fails; the upgrade does not fire for that day.
 
-The evaluation flow (spawn 40 entities at floor 10, route to floors 109–119, all must arrive in daypart 0) is fully described for the success case. The failure path is not:
+The "probabilistic dispatch between ticks `0x0051` and `0x00f0`" described in an earlier analysis does not appear in the main scheduler. Evaluation entities are dispatched from state `0x20` (set at evaluation initialization) via the normal entity-refresh stride mechanism, not by a dedicated scheduler checkpoint.
 
-- If the run ends without all 40 arriving (daypart 0 ends, entities park at state `0x27`), does the upgrade fire the next eligible day, or is the partially-completed run discarded?
-- The probabilistic dispatch between ticks `0x0051` and `0x00f0` uses what probability distribution?
+#### Checkpoint `0x04b0` Step 4 — RESOLVED
 
-A conservative implementation can treat any day with all 40 arriving as a successful evaluation and not award partial progress.
+Step 4 is `FUN_1048_0179` — **evaluation entity midday return dispatch**. See the checkpoint `0x04b0` section for the full description. It is not hotel-pairing housekeeping. Hotel-pairing operations (attempt_pairing_with_floor_neighbor, update_hotel_pair_stay_states) happen at checkpoint `0x0640`.
 
-#### Checkpoint `0x04b0` Hotel-Pairing Housekeeping
+#### `update_security_housekeeping_state()` — RESOLVED
 
-Step 4 of checkpoint `0x04b0` ("perform hotel-pairing housekeeping") is not decoded. If this writes to hotel room `stay_phase` or pairing fields, it affects occupancy and checkout timing for hotel rooms already in the active band. The surrounding steps (sale count reset, entertainment ready-phase) are purely bookkeeping, but this step's simulation effects are unknown.
+Fully described. See checkpoint `0x0a06` section for the complete behavior. Called three times per day with escalating thresholds: `param=0` at `0x0640` (always resets to tier 0), `param=2` at `0x07d0` (awards up to tier 2), `param=5` at `0x0a06` (awards up to tier 5). Affects `stay_phase` of type-0x14 (security) and type-0x15 (housekeeping) objects. The bomb-patrol path reads these stay_phase values.
 
-#### `update_security_housekeeping_state()` — Behavior Not Described
+#### Per-Tick VIP/Special Visitor Check — RESOLVED
 
-Called at checkpoints `0x0640`, `0x0708`, and `0x07d0`. The spec notes only that it exists. If it writes object state (security guard position, housekeeping cart state), it affects the bomb patrol path, which is otherwise deterministic. If it is purely display-side, it has no simulation effect.
+Fully described. See "VIP/Special Visitor Toggle" section. It is **not** connected to star-rating evaluation. It toggles the `object[+0xc]` sidecar field on types `0x1f`/`0x20`/`0x21` and fires notification `0x271a`.
 
-#### Per-Tick VIP/Special Visitor Check
+#### VIP System Eligibility Flag And Star Advancement Gate — RESOLVED
 
-Every tick when `day_tick > 0x0f0` and `daypart_index < 4`, a "VIP/special visitor check" fires with 1/100 probability. The spec does not describe what this triggers. Candidates: star-rating evaluation eligibility recheck, or a separate hidden-treasure / VIP notification. If this gate controls when evaluation entities are first dispatched, getting it wrong shifts when star upgrades become available.
+`g_vip_system_eligibility` (`[0xbc5c]`) stores the floor index of the placed VIP hotel suite. Set during object placement by the placement dispatch handler. Initialized to `0xffff` (−1). The 4→5 star advancement gate requires `bc5c >= 0` (VIP suite placed). Full per-star gate conditions documented in "Star Advancement Gate" section. The VIP visitor animation (toggle on `0x1f/0x20/0x21`) is cosmetic only and does not affect advancement.
 
 ### Tier 3: Player Interaction Gaps
 
@@ -2392,7 +2483,6 @@ These do not affect simulation correctness or player-command semantics.
 
 ### Confidence Notes
 
-- **Fully specified and implementable now**: time model, money model (cash/ledgers/expense sweep), condo family 9 (complete state machine + scoring + sale/refund + A/B/C rating, including state 0x01 calendar-phase stagger special path), hotel rooms families 3/4/5 (complete state machine + stay_phase lifecycle + multi-tile checkout), hotel guests family 0x21 (complete state machine with all states 0x01/0x22/0x27/0x41/0x62 + venue selection + slot acquisition/release + minimum stay wait + return routing), commercial venues 6/0xc/10 (CommercialVenueRecord full layout + slot protocol + capacity recompute + progress slot logic + venue allocation initialization), parking (family `0x18`), route resolution (full selection algorithm + scoring + walkability + transfer-group cache + queue drain + arrival dispatch + out-of-range car reset), payout and expense tables, object placement/demolish framework, operational scoring pipeline, demand counter pipeline, entertainment link phase machine + entity state machine + all income rates, demand history log + service request pipeline, fire event (full bidirectional spread + object deletion + interval prompt + extinguish), bomb/terrorist event (full setup + blast + security hit-check + resolution), VIP/security/treasure event triggers and flow, prompt blocking semantics, family 0x0f vacancy claimant (full state machine + claim-completion writes), path-seed bucket table (full source table + bucket layout).
-- **Mostly specified, with Tier 2 gaps**: full scheduler checkpoint bodies fully recovered; star-rating evaluation entity thresholds and single-run rule confirmed; carrier initialization confirmed. Remaining Tier 2 gaps: two route delay tuning values, retail `derived_state_code` ambiguity, evaluation failure-recovery path, checkpoint `0x04b0` hotel-pairing step, `update_security_housekeeping_state` behavior, per-tick VIP check trigger.
+- **Fully specified and implementable now**: time model, money model (cash/ledgers/expense sweep), condo family 9 (complete state machine + scoring + sale/refund + A/B/C rating, including state 0x01 calendar-phase stagger special path), hotel rooms families 3/4/5 (complete state machine + stay_phase lifecycle + multi-tile checkout), hotel guests family 0x21 (complete state machine with all states 0x01/0x22/0x27/0x41/0x62 + venue selection + slot acquisition/release + minimum stay wait + return routing), commercial venues 6/0xc/10 (CommercialVenueRecord full layout + slot protocol + capacity recompute + progress slot logic + venue allocation initialization), parking (family `0x18`), route resolution (full selection algorithm + scoring + walkability + transfer-group cache + queue drain + arrival dispatch + out-of-range car reset + all delay values), payout and expense tables, object placement/demolish framework, operational scoring pipeline, demand counter pipeline, entertainment link phase machine + entity state machine + all income rates, demand history log + service request pipeline, fire event (full bidirectional spread + object deletion + interval prompt + extinguish), bomb/terrorist event (full setup + blast + security hit-check + resolution), VIP/security/treasure event triggers and flow (including VIP toggle mechanics + VIP suite placement gate for 4→5 star advancement), star advancement gate (all per-star conditions for 1→2 through 4→5, including metro/office/office-service/security/VIP-suite gates), prompt blocking semantics, family 0x0f vacancy claimant (full state machine + claim-completion writes), path-seed bucket table (full source table + bucket layout), security/housekeeping state machine (all three daily checkpoints + full tier logic), full scheduler checkpoint bodies including 0x04b0 step 4 (eval midday return dispatch) and 0x0a06 (final security check), retail derived_state_code (confirmed always 0), star-rating evaluation failure path (fail = no upgrade, no carry-over).
 - **Partially specified (player interaction)**: elevator editor controls (adding/removing cars, changing waiting floors, weekday/weekend schedule); build/demolish rebuild ordering for non-carrier objects; rent-change dialog semantics.
 - **Cosmetic only (Tier 4)**: player-facing tier labels, calendar phase and progress-override player meanings, type 0x28 identity, ledger report presentation.
