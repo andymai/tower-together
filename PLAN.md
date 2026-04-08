@@ -100,28 +100,28 @@ Tiles have a **1:4 height:width aspect ratio** — each tile is 4× wider than i
 
 Add all SimTower tile types to both `types.ts` files and the tile registry:
 
-| Family / type | Name | Tile span | Pixel width | Notes |
+**Column key**: "Entity count" = runtime entity/occupant slots (one per sub-tile). "Tile width" = geometric placement width in game coordinate units as recovered from `FUN_1200_0000` in the binary (see SPEC.md "Object Tile Widths" table). These two columns are independent: entity count drives state-machine loops; tile width drives placement, collision, and render math.
+
+| Family / type | Name | Entity count | Tile width | Notes |
 |---|---|---|---|---|
 | 3 | Single Room | 1 | 4 | Hotel, income on checkout |
 | 4 | Twin Room | 2 | 8 | Hotel |
 | 5 | Suite | 3 | 12 | Hotel |
-| 6 | Restaurant | 2 | 8 | Commercial venue |
+| 6 | Restaurant | 1 | 24 | Commercial venue |
 | 7 | Office | 6 | 9 | Activates every 3rd day |
 | 9 | Condo | 3 | 16 | One-time sale |
-| 0x0a / 12 | Fast Food | 2 | 8 | Commercial venue |
-| 0x0c / 10 | Retail Shop | 2 | 8 | Commercial venue |
-| 0x12 | Cinema | 4 | 16 | Entertainment, paired link |
-| 0x1d | (other entertainment) | 4 | 16 | Single link |
-| 0x14 | Security Office | 2 | 8 | Passive; enables bomb patrol; stay_phase = duty tier |
-| 0x15 | Housekeeping | 2 | 8 | Passive cart; stay_phase = duty tier |
-| 0x18 | Parking | variable | variable | Passive; contributes to transfer cache |
-| 0x1f / 0x20 / 0x21 | VIP Hotel Suite | varies | varies | Required for 4→5 star; sets g_vip_system_eligibility |
-| 0x0e | Metro Station | varies | varies | Required for 2→3 star; sets metro_placed gate flag |
-| 0x28 | Fire Suppressor | 2 | 8 | Prevents fire events |
-| Elevator shaft | — | 1 | 4 | Vertical anchor; multiple per column |
-| Lobby/floor | — | 1 | 1 | Drag-placed, fills floor row |
-
-Note: office pixel width (9) and condo pixel width (16) are not exact multiples of their tile spans — they are original game pixel values from the asset graphics, not derived from tile spans × 4.
+| 0x0a / 12 | Fast Food | 1 | 12 | Commercial venue |
+| 0x0c / 10 | Retail Shop | 1 | 16 | Commercial venue |
+| 0x12 | Cinema | — | 24 | Entertainment, paired link |
+| 0x1d | (other entertainment) | — | 24 | Single link |
+| 0x14 | Security Office | — | varies | Passive; enables bomb patrol; stay_phase = duty tier |
+| 0x15 | Housekeeping | — | varies | Passive cart; stay_phase = duty tier |
+| 0x18 | Parking | — | 4 | Passive; contributes to transfer cache |
+| 0x1f / 0x20 / 0x21 | VIP Hotel Suite | — | 30 | Required for 4→5 star; sets g_vip_system_eligibility |
+| 0x0e | Metro Station | — | varies | Required for 2→3 star; sets metro_placed gate flag |
+| 0x28 | Fire Suppressor | — | 28 | Prevents fire events (same width as eval entities) |
+| Elevator shaft (0x01) | — | — | 4 | Vertical anchor; multiple per column |
+| Lobby/floor (0x00) | — | — | 1 | Drag-placed, fills floor row |
 
 Remove the current `hotel_single/twin/suite` naming shim and align with family codes.
 
@@ -233,6 +233,9 @@ Implement all checkpoint bodies in `sim/scheduler.ts`. Initially most body logic
 const CHECKPOINTS: Array<[number, (state: SimState) => void]> = [
   [0x000, checkpoint_start_of_day],
   [0x020, checkpoint_housekeeping_reset],
+  [0x050, checkpoint_progress_notification],  // fires if facility_progress_override bit set
+  [0x078, checkpoint_progress_notification],  // fires if facility_progress_override bit set
+  [0x0a0, checkpoint_morning_notification],
   [0x0f0, checkpoint_facility_ledger_rebuild],
   [0x3e8, checkpoint_entertainment_half1],
   [0x4b0, checkpoint_hotel_sale_reset],    // + eval entity midday return dispatch (FUN_1048_0179)
@@ -245,6 +248,7 @@ const CHECKPOINTS: Array<[number, (state: SimState) => void]> = [
   [0x7d0, checkpoint_late_facility],       // security housekeeping tier-2 check param=2
   [0x898, checkpoint_type6_advance],
   [0x8fc, checkpoint_day_counter],
+  [0x960, checkpoint_noop],               // no-op; fires at tick 2400, between 0x0898 and 0x09c4
   [0x9c4, checkpoint_runtime_refresh],
   [0x9e5, checkpoint_ledger_rollover],
   [0x9f6, checkpoint_end_of_day],
@@ -472,7 +476,7 @@ Commercial trip alternation: restaurant vs fast-food selection based on `calenda
 
 ### 4.8 Demand Pipeline
 
-Implement `rebase_entity_elapsed_from_clock` and `advance_entity_demand_counters`. These maintain `byte_0x9` (sample count) and `word_0xe` (accumulated elapsed). The tile average = `word_0xe / byte_0x9` feeds into operational scoring. 300-tick clamp prevents outliers.
+Implement `rebase_entity_elapsed_from_clock` and `advance_entity_demand_counters`. These maintain `byte_0x9` (sample count) and `word_0xe` (accumulated elapsed total). The tile average used by `compute_runtime_tile_average` is `4096 / byte_0x9` — NOT `word_0xe / byte_0x9`. `word_0xe` is maintained by the pipeline but is not read by the scoring functions (its purpose is display-only or unused). 300-tick clamp on `word_0xc` prevents outliers from dominating the running sum.
 
 ### 4.9 Demand History + Coverage Propagation
 

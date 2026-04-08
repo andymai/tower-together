@@ -227,10 +227,10 @@ The following checkpoints fire during each day cycle (day_tick range 0x000–0xa
 - `0x07d0`: linked facility record advance; security housekeeping tier-2 check (param=2); periodic event trigger (every 12 days)
 - `0x0898`: type-6 facility record advance
 - `0x08fc`: day counter increment; calendar phase recompute; palette update
+- `0x0960`: no-op
 - `0x09c4`: runtime entity refresh and reset sweep
 - `0x09e5`: ledger rollover; cashflow reactivation; periodic operating expenses
 - `0x09f6`: end-of-day notification popup
-- `0x0960`: no-op
 - `0x0a06`: security housekeeping tier-5 check (param=5)
 
 In addition, every tick when `day_tick > 0x0f0`:
@@ -286,6 +286,10 @@ Clear `g_facility_progress_override` to 0, then:
 ### Checkpoint `0x020`: Housekeeping Daily Reset
 
 Sweep all type-0x15 (housekeeping) objects and reset `state` from 6 → 0.
+
+### Checkpoints `0x050` and `0x078`: Conditional Progress Notifications
+
+If the `facility_progress_override` gate bit is set: fire a conditional progress notification popup. No simulation state changes.
 
 ### Checkpoint `0x0a0`: Morning Notification Popup
 
@@ -386,6 +390,10 @@ For all **paired-link** records: advance reverse-half phase (same logic as midda
 2. Recompute `g_calendar_phase_flag = compute_calendar_phase_flag()`.
 3. Update display palette (Windows `SelectPalette` / `RealizePalette` calls — no simulation state effect).
 
+### Checkpoint `0x0960`: No-Op
+
+No simulation state changes.
+
 ### Checkpoint `0x09c4`: Runtime Refresh Sweep
 
 Execute in order:
@@ -424,9 +432,9 @@ Execute in order:
 
 5. Call `reset_entity_runtime_state()` (same as step 2 of 0x09c4).
 
-### Checkpoint `0x0960`: No-Op
+### Checkpoint `0x09f6`: End-of-Day Notification
 
-No simulation state changes.
+Fire an end-of-day popup. Every 5th day (`day_counter % 5 == 4`) a special variant fires; otherwise the standard end-of-day notification.
 
 ### Checkpoint `0x0a06`: Security Housekeeping Final Tier Check
 
@@ -441,10 +449,6 @@ Call `update_security_housekeeping_state(5)`. This is the final daily security c
 6. Sweep all placed objects: for each of type 0x14 (security guard) or 0x15 (housekeeping cart): if `([0xc1a0] != 0) OR (object[+0xb] != 5)`: set `object[+0xb] = tier`, mark dirty.
 
 The `stay_phase` of type-0x14/0x15 objects tracks the duty tier and is read by the bomb-patrol check path.
-
-### Checkpoint `0x09f6`: End-of-Day Notification
-
-Fire an end-of-day popup. Every 5th day (`day_counter % 5 == 4`) a special variant fires; otherwise the standard end-of-day notification.
 
 ## New Game Initialization
 
