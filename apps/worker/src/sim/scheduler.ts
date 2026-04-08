@@ -69,7 +69,7 @@ function checkpoint_type6_advance(_s: SimState): void {
 }
 
 function checkpoint_day_counter(s: SimState): void {
-	// Increment day_counter and recompute calendar_phase_flag.
+	// Increment dayCounter and recompute calendarPhaseFlag.
 	// (time.ts already does this via advanceOneTick; this body is a no-op here
 	//  because time state is mutated in advanceOneTick before run_checkpoints.)
 	void s;
@@ -80,7 +80,7 @@ function checkpoint_runtime_refresh(_s: SimState): void {
 }
 
 function checkpoint_ledger_rollover(s: SimState): void {
-	do_ledger_rollover(s.ledger, s.world, s.time.day_counter);
+	do_ledger_rollover(s.ledger, s.world, s.time.dayCounter);
 }
 
 function checkpoint_end_of_day(_s: SimState): void {

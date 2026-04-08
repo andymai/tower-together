@@ -11,16 +11,16 @@ export const TILE_WIDTHS: Record<string, number> = {
 	elevator: 1,
 	escalator: 1,
 	// Hotels (families 3/4/5)
-	hotel_single: 1,
-	hotel_twin: 2,
-	hotel_suite: 3,
+	hotelSingle: 1,
+	hotelTwin: 2,
+	hotelSuite: 3,
 	// VIP Hotel Suites (families 0x1f/0x20/0x21)
-	vip_single: 1,
-	vip_twin: 2,
-	vip_suite: 3,
+	vipSingle: 1,
+	vipTwin: 2,
+	vipSuite: 3,
 	// Commercial (families 6/0x0a/0x0c)
 	restaurant: 2,
-	fast_food: 2,
+	fastFood: 2,
 	retail: 2,
 	// Office (family 7)
 	office: 6,
@@ -34,7 +34,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	housekeeping: 2, // family 0x15
 	parking: 4, // family 0x18
 	metro: 4, // family 0x0e
-	fire_suppressor: 2, // family 0x28
+	fireSuppressor: 2, // family 0x28
 };
 
 /** One-time construction cost in dollars. */
@@ -44,14 +44,14 @@ export const TILE_COSTS: Record<string, number> = {
 	stairs: 0,
 	elevator: 0, // cost per car, handled separately
 	escalator: 0,
-	hotel_single: 50_000,
-	hotel_twin: 80_000,
-	hotel_suite: 120_000,
-	vip_single: 100_000,
-	vip_twin: 150_000,
-	vip_suite: 225_000,
+	hotelSingle: 50_000,
+	hotelTwin: 80_000,
+	hotelSuite: 120_000,
+	vipSingle: 100_000,
+	vipTwin: 150_000,
+	vipSuite: 225_000,
 	restaurant: 500_000,
-	fast_food: 200_000,
+	fastFood: 200_000,
 	retail: 300_000,
 	office: 900_000,
 	condo: 500_000,
@@ -61,7 +61,7 @@ export const TILE_COSTS: Record<string, number> = {
 	housekeeping: 100_000,
 	parking: 1_000_000,
 	metro: 2_000_000,
-	fire_suppressor: 500_000,
+	fireSuppressor: 500_000,
 };
 
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
@@ -72,13 +72,13 @@ export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
 export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	1: "elevator",
 	2: "escalator",
-	3: "hotel_single",
-	4: "hotel_twin",
-	5: "hotel_suite",
+	3: "hotelSingle",
+	4: "hotelTwin",
+	5: "hotelSuite",
 	6: "restaurant",
 	7: "office",
 	9: "condo",
-	10: "fast_food",
+	10: "fastFood",
 	12: "retail",
 	14: "metro",
 	18: "cinema",
@@ -86,10 +86,10 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	21: "housekeeping",
 	24: "parking",
 	29: "entertainment",
-	31: "vip_single",
-	32: "vip_twin",
-	33: "vip_suite",
-	40: "fire_suppressor",
+	31: "vipSingle",
+	32: "vipTwin",
+	33: "vipSuite",
+	40: "fireSuppressor",
 };
 
 export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
@@ -100,9 +100,9 @@ export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 // Income per checkout/activation event, indexed by variant tier (0=best, 3=worst).
 
 export const YEN_1001: Record<string, number[]> = {
-	hotel_single: [30, 20, 15, 5],
-	hotel_twin: [30, 20, 15, 5],
-	hotel_suite: [30, 20, 15, 5],
+	hotelSingle: [30, 20, 15, 5],
+	hotelTwin: [30, 20, 15, 5],
+	hotelSuite: [30, 20, 15, 5],
 	office: [150, 100, 50, 20],
 	condo: [2000, 1500, 1000, 400],
 	retail: [200, 150, 100, 40],
@@ -113,12 +113,12 @@ export const YEN_1001: Record<string, number[]> = {
 
 export const YEN_1002: Record<string, number> = {
 	restaurant: 500,
-	fast_food: 50,
+	fastFood: 50,
 	retail: 1000,
 	security: 200,
 	housekeeping: 100,
-	elevator_local: 200, // per unit per 3-day period
-	elevator_express: 100,
+	elevatorLocal: 200, // per unit per 3-day period
+	elevatorExpress: 100,
 	escalator: 100,
 };
 

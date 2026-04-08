@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { runMigrations } from "../db/migrations";
 import { type SimSnapshot, TowerSim } from "../sim/index";
 import { createLedgerState } from "../sim/ledger";
+import { createGateFlags } from "../sim/world";
 import type { ClientMessage, ServerMessage } from "../types";
 
 interface Env {
@@ -42,17 +43,18 @@ export class TowerRoom extends DurableObject<Env> {
 				name: old.name as string,
 				width: (old.width as number) ?? 64,
 				height: (old.height as number) ?? 120,
+				gateFlags: createGateFlags(),
 				cells: (old.cells as Record<string, string>) ?? {},
 				cellToAnchor: (old.cellToAnchor as Record<string, string>) ?? {},
 				overlays: (old.overlays as Record<string, string>) ?? {},
 				overlayToAnchor: (old.overlayToAnchor as Record<string, string>) ?? {},
-				placed_objects: {},
+				placedObjects: {},
 				sidecars: [],
 				// Phase 3 fields — populated by TowerSim.from_snapshot migration
 				carriers: [],
-				special_links: [],
-				floor_walkability_flags: [],
-				transfer_group_cache: [],
+				specialLinks: [],
+				floorWalkabilityFlags: [],
+				transferGroupCache: [],
 			};
 			// cash lived at the flat root in the oldest save format; migrate to ledger
 			if (!snap.ledger) {
@@ -61,12 +63,12 @@ export class TowerRoom extends DurableObject<Env> {
 		}
 		if (!snap.time) {
 			snap.time = {
-				day_tick: 0,
-				daypart_index: 0,
-				day_counter: 0,
-				calendar_phase_flag: 0,
-				star_count: 1,
-				total_ticks: (old.simTime as number) ?? 0,
+				dayTick: 0,
+				daypartIndex: 0,
+				dayCounter: 0,
+				calendarPhaseFlag: 0,
+				starCount: 1,
+				totalTicks: (old.simTime as number) ?? 0,
 			};
 		}
 		return TowerSim.from_snapshot(snap);

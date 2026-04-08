@@ -60,17 +60,17 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		name: "Test Tower",
 		width: GRID_WIDTH,
 		height: GRID_HEIGHT,
-		gate_flags: createGateFlags(),
+		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
 		overlays: {},
 		overlayToAnchor: {},
-		placed_objects: {},
+		placedObjects: {},
 		sidecars: [],
 		carriers: [],
-		special_links: [],
-		floor_walkability_flags: new Array(GRID_HEIGHT).fill(0),
-		transfer_group_cache: new Array(GRID_HEIGHT).fill(0),
+		specialLinks: [],
+		floorWalkabilityFlags: new Array(GRID_HEIGHT).fill(0),
+		transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 	};
 }
 
@@ -100,56 +100,56 @@ function placeSupportRow(y: number, world: WorldState, _ledger: LedgerState) {
 describe("time model", () => {
 	it("createTimeState starts at tick 0 (test baseline)", () => {
 		const t = createTimeState();
-		expect(t.day_tick).toBe(0);
-		expect(t.daypart_index).toBe(0);
-		expect(t.day_counter).toBe(0);
-		expect(t.calendar_phase_flag).toBe(0);
-		expect(t.star_count).toBe(1);
-		expect(t.total_ticks).toBe(0);
+		expect(t.dayTick).toBe(0);
+		expect(t.daypartIndex).toBe(0);
+		expect(t.dayCounter).toBe(0);
+		expect(t.calendarPhaseFlag).toBe(0);
+		expect(t.starCount).toBe(1);
+		expect(t.totalTicks).toBe(0);
 	});
 
-	it("increments day_tick and total_ticks each step", () => {
+	it("increments dayTick and totalTicks each step", () => {
 		const t = createTimeState();
 		const { time } = advanceOneTick(t);
-		expect(time.day_tick).toBe(1);
-		expect(time.total_ticks).toBe(1);
+		expect(time.dayTick).toBe(1);
+		expect(time.totalTicks).toBe(1);
 	});
 
-	it("computes daypart_index as floor(day_tick / 400)", () => {
+	it("computes daypartIndex as floor(dayTick / 400)", () => {
 		let t = createTimeState();
 		// tick 0 → part 0; tick 399 → part 0; tick 400 → part 1
 		for (let i = 0; i < 400; i++) {
-			expect(t.daypart_index).toBe(0);
+			expect(t.daypartIndex).toBe(0);
 			t = advanceOneTick(t).time;
 		}
-		expect(t.daypart_index).toBe(1);
+		expect(t.daypartIndex).toBe(1);
 	});
 
-	it("wraps day_tick at DAY_TICK_MAX (2600)", () => {
+	it("wraps dayTick at DAY_TICK_MAX (2600)", () => {
 		expect(DAY_TICK_MAX).toBe(0x0a28);
 		let t = createTimeState();
 		for (let i = 0; i < DAY_TICK_MAX; i++) {
 			t = advanceOneTick(t).time;
 		}
 		// After DAY_TICK_MAX advances the counter wraps back to 0.
-		expect(t.day_tick).toBe(0);
+		expect(t.dayTick).toBe(0);
 	});
 
 	it("sets incomeCheckpoint=true only at DAY_TICK_INCOME (0x08fc)", () => {
 		expect(DAY_TICK_INCOME).toBe(0x08fc);
 		let t = createTimeState();
-		// Advance to day_tick = DAY_TICK_INCOME - 1
+		// Advance to dayTick = DAY_TICK_INCOME - 1
 		for (let i = 0; i < DAY_TICK_INCOME - 1; i++) {
 			t = advanceOneTick(t).time;
 		}
-		// The next step (DAY_TICK_INCOME - 1 → DAY_TICK_INCOME - 1 is already t.day_tick)
+		// The next step (DAY_TICK_INCOME - 1 → DAY_TICK_INCOME - 1 is already t.dayTick)
 		// One more step brings us to DAY_TICK_INCOME - should NOT yet be the checkpoint
-		// Actually t.day_tick is already DAY_TICK_INCOME - 1 after the loop above.
-		// advanceOneTick will produce day_tick = DAY_TICK_INCOME → that IS the checkpoint.
+		// Actually t.dayTick is already DAY_TICK_INCOME - 1 after the loop above.
+		// advanceOneTick will produce dayTick = DAY_TICK_INCOME → that IS the checkpoint.
 		// So let's check the tick just before too.
 		// Advance one more to reach DAY_TICK_INCOME:
 		const atIncome = advanceOneTick(t);
-		expect(atIncome.time.day_tick).toBe(DAY_TICK_INCOME);
+		expect(atIncome.time.dayTick).toBe(DAY_TICK_INCOME);
 		expect(atIncome.incomeCheckpoint).toBe(true);
 		// The tick before should NOT have triggered it
 		// Roll back: advance from 0 to DAY_TICK_INCOME - 2
@@ -158,31 +158,31 @@ describe("time model", () => {
 			t2 = advanceOneTick(t2).time;
 		}
 		const beforeIncome = advanceOneTick(t2);
-		expect(beforeIncome.time.day_tick).toBe(DAY_TICK_INCOME - 1);
+		expect(beforeIncome.time.dayTick).toBe(DAY_TICK_INCOME - 1);
 		expect(beforeIncome.incomeCheckpoint).toBe(false);
 	});
 
-	it("increments day_counter at DAY_TICK_INCOME", () => {
+	it("increments dayCounter at DAY_TICK_INCOME", () => {
 		let t = createTimeState();
 		for (let i = 0; i < DAY_TICK_INCOME; i++) {
 			t = advanceOneTick(t).time;
 		}
-		expect(t.day_counter).toBe(1);
+		expect(t.dayCounter).toBe(1);
 	});
 
-	it("computes calendar_phase_flag correctly", () => {
-		// flag = (day_counter % 12) % 3 >= 2 ? 1 : 0
+	it("computes calendarPhaseFlag correctly", () => {
+		// flag = (dayCounter % 12) % 3 >= 2 ? 1 : 0
 		// day 0→0, 1→0, 2→1, 3→0, 4→0, 5→1, 6→0, 7→0, 8→1, 9→0, 10→0, 11→1
 		const expected = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
 		let t = createTimeState();
 		for (let day = 0; day <= 12; day++) {
 			// Advance to DAY_TICK_INCOME for this day
-			while (t.day_counter <= day && t.day_tick !== 0) {
+			while (t.dayCounter <= day && t.dayTick !== 0) {
 				t = advanceOneTick(t).time;
 			}
-			// After day_counter = day, check the flag
-			if (t.day_counter === day) {
-				expect(t.calendar_phase_flag).toBe(expected[day]);
+			// After dayCounter = day, check the flag
+			if (t.dayCounter === day) {
+				expect(t.calendarPhaseFlag).toBe(expected[day]);
 			}
 			// advance one full day
 			for (let i = 0; i < DAY_TICK_MAX; i++) {
@@ -193,78 +193,78 @@ describe("time model", () => {
 
 	it("createNewGameTimeState starts at NEW_GAME_DAY_TICK (0x9e5 = 2533), daypart 6", () => {
 		const t = createNewGameTimeState();
-		expect(t.day_tick).toBe(NEW_GAME_DAY_TICK);
-		expect(t.day_tick).toBe(0x9e5);
-		expect(t.daypart_index).toBe(6);
-		expect(t.day_counter).toBe(0);
-		expect(t.star_count).toBe(1);
+		expect(t.dayTick).toBe(NEW_GAME_DAY_TICK);
+		expect(t.dayTick).toBe(0x9e5);
+		expect(t.daypartIndex).toBe(6);
+		expect(t.dayCounter).toBe(0);
+		expect(t.starCount).toBe(1);
 	});
 
 	it("pre_day_4 returns true for daypart < 4, false otherwise", () => {
 		const t = createTimeState();
-		expect(pre_day_4({ ...t, daypart_index: 0 })).toBe(true);
-		expect(pre_day_4({ ...t, daypart_index: 3 })).toBe(true);
-		expect(pre_day_4({ ...t, daypart_index: 4 })).toBe(false);
-		expect(pre_day_4({ ...t, daypart_index: 6 })).toBe(false);
+		expect(pre_day_4({ ...t, daypartIndex: 0 })).toBe(true);
+		expect(pre_day_4({ ...t, daypartIndex: 3 })).toBe(true);
+		expect(pre_day_4({ ...t, daypartIndex: 4 })).toBe(false);
+		expect(pre_day_4({ ...t, daypartIndex: 6 })).toBe(false);
 	});
 });
 
 // ─── Phase 2.1: PlacedObjectRecord ───────────────────────────────────────────
 
 describe("PlacedObjectRecord", () => {
-	it("is created with correct spec-compliant init values for hotel_single", () => {
+	it("is created with correct spec-compliant init values for hotelSingle", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeSupportRow(GROUND_Y + 1, world, ledger); // support one row below
-		// Place a floor row at GROUND_Y so hotel_single at GROUND_Y - 1 can have support
+		// Place a floor row at GROUND_Y so hotelSingle at GROUND_Y - 1 can have support
 		placeSupportRow(GROUND_Y, world, ledger);
 		const y = GROUND_Y - 1;
 		world.cells[`0,${y + 1}`] = "floor"; // ensure support
-		const result = handle_place_tile(0, y, "hotel_single", world, ledger);
+		const result = handle_place_tile(0, y, "hotelSingle", world, ledger);
 		expect(result.accepted).toBe(true);
-		const rec = world.placed_objects[`0,${y}`];
+		const rec = world.placedObjects[`0,${y}`];
 		expect(rec).toBeDefined();
-		expect(rec.left_tile_index).toBe(0);
-		expect(rec.right_tile_index).toBe(0); // width 1
-		expect(rec.object_type_code).toBe(3); // family code for hotel_single
-		expect(rec.stay_phase).toBe(0); // init = 0
-		expect(rec.linked_record_index).toBe(-1); // no sidecar for hotel
-		expect(rec.needs_refresh_flag).toBe(1); // init = 1 (dirty — picked up next sweep)
-		expect(rec.pairing_status).toBe(-1); // init = -1 (invalid; first sweep populates)
-		expect(rec.pairing_active_flag).toBe(1); // init = 1 (first-activation latch)
-		expect(rec.activation_tick_count).toBe(0);
-		expect(rec.variant_index).toBe(1); // family 3 → init = 1
+		expect(rec.leftTileIndex).toBe(0);
+		expect(rec.rightTileIndex).toBe(0); // width 1
+		expect(rec.objectTypeCode).toBe(3); // family code for hotelSingle
+		expect(rec.stayPhase).toBe(0); // init = 0
+		expect(rec.linkedRecordIndex).toBe(-1); // no sidecar for hotel
+		expect(rec.needsRefreshFlag).toBe(1); // init = 1 (dirty — picked up next sweep)
+		expect(rec.pairingStatus).toBe(-1); // init = -1 (invalid; first sweep populates)
+		expect(rec.pairingActiveFlag).toBe(1); // init = 1 (first-activation latch)
+		expect(rec.activationTickCount).toBe(0);
+		expect(rec.variantIndex).toBe(1); // family 3 → init = 1
 	});
 
-	it("sets right_tile_index = left + width - 1 for multi-tile objects", () => {
+	it("sets rightTileIndex = left + width - 1 for multi-tile objects", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 6; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		const result = handle_place_tile(0, y, "hotel_twin", world, ledger);
+		const result = handle_place_tile(0, y, "hotelTwin", world, ledger);
 		expect(result.accepted).toBe(true);
-		const rec = world.placed_objects[`0,${y}`];
-		expect(rec.left_tile_index).toBe(0);
-		expect(rec.right_tile_index).toBe(1); // width 2
+		const rec = world.placedObjects[`0,${y}`];
+		expect(rec.leftTileIndex).toBe(0);
+		expect(rec.rightTileIndex).toBe(1); // width 2
 	});
 
-	it("stores placed_objects keyed by anchor position", () => {
+	it("stores placedObjects keyed by anchor position", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 6; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_suite", world, ledger);
-		expect(world.placed_objects[`0,${y}`]).toBeDefined();
+		handle_place_tile(0, y, "hotelSuite", world, ledger);
+		expect(world.placedObjects[`0,${y}`]).toBeDefined();
 		// extension cells don't get their own record
-		expect(world.placed_objects[`1,${y}`]).toBeUndefined();
-		expect(world.placed_objects[`2,${y}`]).toBeUndefined();
+		expect(world.placedObjects[`1,${y}`]).toBeUndefined();
+		expect(world.placedObjects[`2,${y}`]).toBeUndefined();
 	});
 
 	it("infrastructure tiles do not create PlacedObjectRecord", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		handle_place_tile(0, GROUND_Y, "lobby", world, ledger);
-		expect(Object.keys(world.placed_objects)).toHaveLength(0);
+		expect(Object.keys(world.placedObjects)).toHaveLength(0);
 	});
 });
 
@@ -281,23 +281,23 @@ describe("sidecar allocation", () => {
 		const ledger = makeLedger();
 		setupSupport(world);
 		handle_place_tile(0, GROUND_Y - 1, "restaurant", world, ledger);
-		const rec = world.placed_objects[`0,${GROUND_Y - 1}`];
-		expect(rec.linked_record_index).toBeGreaterThanOrEqual(0);
-		const sidecar = world.sidecars[rec.linked_record_index];
+		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		expect(rec.linkedRecordIndex).toBeGreaterThanOrEqual(0);
+		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
 		if (sidecar.kind === "commercial_venue") {
 			expect(sidecar.capacity).toBe(6);
-			expect(sidecar.owner_subtype_index).toBe(0); // x=0
+			expect(sidecar.ownerSubtypeIndex).toBe(0); // x=0
 		}
 	});
 
-	it("allocates CommercialVenueRecord for fast_food with capacity 4", () => {
+	it("allocates CommercialVenueRecord for fastFood with capacity 4", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "fast_food", world, ledger);
-		const rec = world.placed_objects[`0,${GROUND_Y - 1}`];
-		const sidecar = world.sidecars[rec.linked_record_index];
+		handle_place_tile(0, GROUND_Y - 1, "fastFood", world, ledger);
+		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
 		if (sidecar.kind === "commercial_venue") expect(sidecar.capacity).toBe(4);
 	});
@@ -307,8 +307,8 @@ describe("sidecar allocation", () => {
 		const ledger = makeLedger();
 		setupSupport(world);
 		handle_place_tile(0, GROUND_Y - 1, "retail", world, ledger);
-		const rec = world.placed_objects[`0,${GROUND_Y - 1}`];
-		const sidecar = world.sidecars[rec.linked_record_index];
+		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
 		if (sidecar.kind === "commercial_venue") expect(sidecar.capacity).toBe(3);
 	});
@@ -318,35 +318,35 @@ describe("sidecar allocation", () => {
 		const ledger = makeLedger();
 		setupSupport(world);
 		handle_place_tile(0, GROUND_Y - 1, "security", world, ledger);
-		const rec = world.placed_objects[`0,${GROUND_Y - 1}`];
-		const sidecar = world.sidecars[rec.linked_record_index];
+		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("service_request");
 	});
 
-	it("allocates EntertainmentLinkRecord for cinema with paired_subtype_index=0xff", () => {
+	it("allocates EntertainmentLinkRecord for cinema with pairedSubtypeIndex=0xff", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
 		handle_place_tile(0, GROUND_Y - 1, "cinema", world, ledger);
-		const rec = world.placed_objects[`0,${GROUND_Y - 1}`];
-		const sidecar = world.sidecars[rec.linked_record_index];
+		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("entertainment_link");
 		if (sidecar.kind === "entertainment_link") {
-			expect(sidecar.paired_subtype_index).toBe(0xff);
+			expect(sidecar.pairedSubtypeIndex).toBe(0xff);
 		}
 	});
 
-	it("marks sidecar as invalid (owner_subtype_index=0xff) when demolished", () => {
+	it("marks sidecar as invalid (ownerSubtypeIndex=0xff) when demolished", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
 		const y = GROUND_Y - 1;
 		handle_place_tile(0, y, "restaurant", world, ledger);
-		const rec = world.placed_objects[`0,${y}`];
-		const sidecarIdx = rec.linked_record_index;
+		const rec = world.placedObjects[`0,${y}`];
+		const sidecarIdx = rec.linkedRecordIndex;
 		handle_remove_tile(0, y, world, ledger);
-		expect(world.sidecars[sidecarIdx].owner_subtype_index).toBe(0xff);
-		expect(world.placed_objects[`0,${y}`]).toBeUndefined();
+		expect(world.sidecars[sidecarIdx].ownerSubtypeIndex).toBe(0xff);
+		expect(world.placedObjects[`0,${y}`]).toBeUndefined();
 	});
 });
 
@@ -367,16 +367,16 @@ describe("checkpoint dispatcher", () => {
 
 	it("fires checkpoint_facility_ledger_rebuild at tick 0x0f0", () => {
 		const state = makeState();
-		// Place a tile so primary_ledger has something to count
+		// Place a tile so primaryLedger has something to count
 		const y = GROUND_Y - 1;
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_single", state.world, state.ledger);
-		// primary_ledger is zeroed after rebuild_facility_ledger from handle_place_tile
-		// Now manually zero primary_ledger to simulate it being dirty
-		state.ledger.primary_ledger.fill(0);
+		handle_place_tile(0, y, "hotelSingle", state.world, state.ledger);
+		// primaryLedger is zeroed after rebuild_facility_ledger from handle_place_tile
+		// Now manually zero primaryLedger to simulate it being dirty
+		state.ledger.primaryLedger.fill(0);
 		// Run checkpoints from prev=0x0ef to curr=0x0f0 — should fire rebuild
 		run_checkpoints(state, 0x0ef, 0x0f0);
-		expect(state.ledger.primary_ledger[3]).toBe(1); // family code 3 = hotel_single
+		expect(state.ledger.primaryLedger[3]).toBe(1); // family code 3 = hotelSingle
 	});
 
 	it("does NOT fire 0x0f0 checkpoint when tick range excludes it", () => {
@@ -385,48 +385,46 @@ describe("checkpoint dispatcher", () => {
 		handle_place_tile(
 			0,
 			GROUND_Y - 1,
-			"hotel_single",
+			"hotelSingle",
 			state.world,
 			state.ledger,
 		);
-		state.ledger.primary_ledger.fill(0);
+		state.ledger.primaryLedger.fill(0);
 		// Range 0x0f1..0x0f2 should not include 0x0f0
 		run_checkpoints(state, 0x0f1, 0x0f2);
-		expect(state.ledger.primary_ledger[3]).toBe(0);
+		expect(state.ledger.primaryLedger[3]).toBe(0);
 	});
 
 	it("fires checkpoint_ledger_rollover at tick 0x9e5 on a 3-day boundary", () => {
 		const state = makeState();
-		// Set day_counter to a multiple of 3 so rollover runs
-		state.time = { ...state.time, day_counter: 3 };
-		const _cashBefore = state.ledger.cash_balance;
+		// Set dayCounter to a multiple of 3 so rollover runs
+		state.time = { ...state.time, dayCounter: 3 };
+		const _cashBefore = state.ledger.cashBalance;
 		// Place a restaurant to generate an expense
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
 		for (let x = 0; x < 2; x++) state.world.cells[`${x},${GROUND_Y}`] = "floor";
 		handle_place_tile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
-		const cashAfterBuild = state.ledger.cash_balance;
-		state.ledger.secondary_ledger.fill(5);
-		state.ledger.tertiary_ledger.fill(5);
+		const cashAfterBuild = state.ledger.cashBalance;
+		state.ledger.secondaryLedger.fill(5);
+		state.ledger.tertiaryLedger.fill(5);
 		run_checkpoints(state, 0x9e4, 0x9e5);
 		// Expense sweep should have fired → cash decreased
-		expect(state.ledger.cash_balance).toBeLessThan(cashAfterBuild);
+		expect(state.ledger.cashBalance).toBeLessThan(cashAfterBuild);
 		// Rolling ledgers should be zeroed
-		expect(state.ledger.secondary_ledger.every((v) => v === 0)).toBe(true);
-		expect(state.ledger.tertiary_ledger.every((v) => v === 0)).toBe(true);
+		expect(state.ledger.secondaryLedger.every((v) => v === 0)).toBe(true);
+		expect(state.ledger.tertiaryLedger.every((v) => v === 0)).toBe(true);
 		// cycle base saved
-		expect(state.ledger.cash_balance_cycle_base).toBe(
-			state.ledger.cash_balance,
-		);
+		expect(state.ledger.cashBalanceCycleBase).toBe(state.ledger.cashBalance);
 	});
 
 	it("does NOT run expense sweep on a non-3-day boundary", () => {
 		const state = makeState();
-		state.time = { ...state.time, day_counter: 1 }; // not a multiple of 3
+		state.time = { ...state.time, dayCounter: 1 }; // not a multiple of 3
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
 		handle_place_tile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
-		const cashAfterBuild = state.ledger.cash_balance;
+		const cashAfterBuild = state.ledger.cashBalance;
 		run_checkpoints(state, 0x9e4, 0x9e5);
-		expect(state.ledger.cash_balance).toBe(cashAfterBuild);
+		expect(state.ledger.cashBalance).toBe(cashAfterBuild);
 	});
 
 	it("fires each checkpoint exactly once when tick crosses it", () => {
@@ -436,15 +434,15 @@ describe("checkpoint dispatcher", () => {
 		handle_place_tile(
 			0,
 			GROUND_Y - 1,
-			"hotel_single",
+			"hotelSingle",
 			state.world,
 			state.ledger,
 		);
 
 		// Zero then run over 0x0f0
-		state.ledger.primary_ledger.fill(0);
+		state.ledger.primaryLedger.fill(0);
 		run_checkpoints(state, 0x0ef, 0x0f1); // 0x0f0 in range once
-		expect(state.ledger.primary_ledger[3]).toBe(1);
+		expect(state.ledger.primaryLedger[3]).toBe(1);
 	});
 
 	it("handles day wraparound: fires start-of-day checkpoint at tick 0", () => {
@@ -457,14 +455,14 @@ describe("checkpoint dispatcher", () => {
 		handle_place_tile(
 			0,
 			GROUND_Y - 1,
-			"hotel_single",
+			"hotelSingle",
 			state.world,
 			state.ledger,
 		);
-		state.ledger.primary_ledger.fill(0);
+		state.ledger.primaryLedger.fill(0);
 		// curr < prev ⟹ wrapped; 0x0f0 > 0x0ef so it qualifies via "tick > prev_tick"
 		run_checkpoints(state, 0x0ef, 0x0ee); // wrapped; 0x0f0 > 0x0ef → fires
-		expect(state.ledger.primary_ledger[3]).toBe(1);
+		expect(state.ledger.primaryLedger[3]).toBe(1);
 	});
 
 	it("does not fire checkpoint in future tick when not wrapped and tick not in range", () => {
@@ -473,110 +471,110 @@ describe("checkpoint dispatcher", () => {
 		handle_place_tile(
 			0,
 			GROUND_Y - 1,
-			"hotel_single",
+			"hotelSingle",
 			state.world,
 			state.ledger,
 		);
-		state.ledger.primary_ledger.fill(0);
+		state.ledger.primaryLedger.fill(0);
 		// 0x0f0 is NOT in (0x100, 0x101]
 		run_checkpoints(state, 0x100, 0x101);
-		expect(state.ledger.primary_ledger[3]).toBe(0);
+		expect(state.ledger.primaryLedger[3]).toBe(0);
 	});
 });
 
 // ─── Phase 2.3: Three-ledger money model ─────────────────────────────────────
 
 describe("ledger: add_cashflow_from_family_resource", () => {
-	it("credits cash_balance by payout * YEN_UNIT for known tile", () => {
+	it("credits cashBalance by payout * YEN_UNIT for known tile", () => {
 		const ledger = makeLedger(0);
-		// hotel_single variant 0 → YEN_1001.hotel_single[0] = 30 → ¥30,000
-		add_cashflow_from_family_resource(ledger, "hotel_single", 0, 3);
-		expect(ledger.cash_balance).toBe(30_000);
+		// hotelSingle variant 0 → YEN_1001.hotelSingle[0] = 30 → ¥30,000
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		expect(ledger.cashBalance).toBe(30_000);
 	});
 
 	it("uses correct variant index into YEN_1001", () => {
 		const ledger = makeLedger(0);
-		// hotel_single variant 2 → 15 → ¥15,000
-		add_cashflow_from_family_resource(ledger, "hotel_single", 2, 3);
-		expect(ledger.cash_balance).toBe(15_000);
+		// hotelSingle variant 2 → 15 → ¥15,000
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 2, 3);
+		expect(ledger.cashBalance).toBe(15_000);
 	});
 
 	it("clamps variant index to max 3", () => {
 		const ledger = makeLedger(0);
 		// variant 99 → clamps to index 3 → 5 → ¥5,000
-		add_cashflow_from_family_resource(ledger, "hotel_single", 99, 3);
-		expect(ledger.cash_balance).toBe(5_000);
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 99, 3);
+		expect(ledger.cashBalance).toBe(5_000);
 	});
 
 	it("is a no-op for unknown tile_name", () => {
 		const ledger = makeLedger(1000);
 		add_cashflow_from_family_resource(ledger, "unknown_tile", 0, 0);
-		expect(ledger.cash_balance).toBe(1000);
+		expect(ledger.cashBalance).toBe(1000);
 	});
 
 	it("does not exceed CASH_CAP (99,999,999)", () => {
 		const ledger = makeLedger(99_999_990);
 		// condo variant 0 → 2000 → ¥2,000,000 — would exceed cap
 		add_cashflow_from_family_resource(ledger, "condo", 0, 9);
-		expect(ledger.cash_balance).toBe(99_999_999);
+		expect(ledger.cashBalance).toBe(99_999_999);
 	});
 
-	it("updates secondary_ledger[family_code]", () => {
+	it("updates secondaryLedger[family_code]", () => {
 		const ledger = makeLedger(0);
-		add_cashflow_from_family_resource(ledger, "hotel_single", 0, 3);
-		expect(ledger.secondary_ledger[3]).toBe(30_000);
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		expect(ledger.secondaryLedger[3]).toBe(30_000);
 	});
 
-	it("updates primary_ledger[family_code]", () => {
+	it("updates primaryLedger[family_code]", () => {
 		const ledger = makeLedger(0);
-		add_cashflow_from_family_resource(ledger, "hotel_single", 0, 3);
-		expect(ledger.primary_ledger[3]).toBe(30_000);
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		expect(ledger.primaryLedger[3]).toBe(30_000);
 	});
 
 	it("ignores family_code out of [0,255]", () => {
 		const ledger = makeLedger(0);
 		// family_code = -1 should not throw but won't write to ledger arrays
-		add_cashflow_from_family_resource(ledger, "hotel_single", 0, -1);
-		expect(ledger.cash_balance).toBe(30_000); // cash still credited
+		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, -1);
+		expect(ledger.cashBalance).toBe(30_000); // cash still credited
 	});
 });
 
 describe("ledger: rebuild_facility_ledger", () => {
-	it("counts placed_objects by object_type_code", () => {
+	it("counts placedObjects by objectTypeCode", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		world.cells[`0,${GROUND_Y}`] = "floor";
 		world.cells[`1,${GROUND_Y}`] = "floor";
-		// Manually add two hotel_single objects
-		world.placed_objects[`0,${y}`] = {
-			left_tile_index: 0,
-			right_tile_index: 0,
-			object_type_code: 3,
-			stay_phase: 0,
-			linked_record_index: -1,
-			aux_value_or_timer: 0,
-			needs_refresh_flag: 1,
-			pairing_status: -1,
-			pairing_active_flag: 1,
-			activation_tick_count: 0,
-			variant_index: 1,
+		// Manually add two hotelSingle objects
+		world.placedObjects[`0,${y}`] = {
+			leftTileIndex: 0,
+			rightTileIndex: 0,
+			objectTypeCode: 3,
+			stayPhase: 0,
+			linkedRecordIndex: -1,
+			auxValueOrTimer: 0,
+			needsRefreshFlag: 1,
+			pairingStatus: -1,
+			pairingActiveFlag: 1,
+			activationTickCount: 0,
+			variantIndex: 1,
 		};
-		world.placed_objects[`1,${y}`] = {
-			...world.placed_objects[`0,${y}`],
-			left_tile_index: 1,
-			right_tile_index: 1,
+		world.placedObjects[`1,${y}`] = {
+			...world.placedObjects[`0,${y}`],
+			leftTileIndex: 1,
+			rightTileIndex: 1,
 		};
 		rebuild_facility_ledger(ledger, world);
-		expect(ledger.primary_ledger[3]).toBe(2);
+		expect(ledger.primaryLedger[3]).toBe(2);
 	});
 
-	it("zeroes primary_ledger before counting", () => {
+	it("zeroes primaryLedger before counting", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		ledger.primary_ledger[3] = 99;
+		ledger.primaryLedger[3] = 99;
 		rebuild_facility_ledger(ledger, world);
-		expect(ledger.primary_ledger[3]).toBe(0);
+		expect(ledger.primaryLedger[3]).toBe(0);
 	});
 });
 
@@ -587,43 +585,43 @@ describe("ledger: do_expense_sweep", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
 		handle_place_tile(0, y, "restaurant", world, ledger);
-		const cashAfterBuild = ledger.cash_balance;
+		const cashAfterBuild = ledger.cashBalance;
 		do_expense_sweep(ledger, world);
 		// restaurant expense = 500 * 1000 = 500,000
-		expect(cashAfterBuild - ledger.cash_balance).toBe(500_000);
+		expect(cashAfterBuild - ledger.cashBalance).toBe(500_000);
 	});
 
-	it("updates tertiary_ledger for the charged type", () => {
+	it("updates tertiaryLedger for the charged type", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
 		handle_place_tile(0, y, "restaurant", world, ledger);
-		const rec = world.placed_objects[`0,${y}`];
+		const rec = world.placedObjects[`0,${y}`];
 		do_expense_sweep(ledger, world);
-		expect(ledger.tertiary_ledger[rec.object_type_code]).toBeGreaterThan(0);
+		expect(ledger.tertiaryLedger[rec.objectTypeCode]).toBeGreaterThan(0);
 	});
 
-	it("does not allow cash_balance to go below 0", () => {
+	it("does not allow cashBalance to go below 0", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(100); // barely any cash
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		world.placed_objects[`0,${y}`] = {
-			left_tile_index: 0,
-			right_tile_index: 1,
-			object_type_code: 6, // restaurant
-			stay_phase: 0,
-			linked_record_index: -1,
-			aux_value_or_timer: 0,
-			needs_refresh_flag: 1,
-			pairing_status: -1,
-			pairing_active_flag: 1,
-			activation_tick_count: 0,
-			variant_index: 4, // family 6 (restaurant) → init = 4
+		world.placedObjects[`0,${y}`] = {
+			leftTileIndex: 0,
+			rightTileIndex: 1,
+			objectTypeCode: 6, // restaurant
+			stayPhase: 0,
+			linkedRecordIndex: -1,
+			auxValueOrTimer: 0,
+			needsRefreshFlag: 1,
+			pairingStatus: -1,
+			pairingActiveFlag: 1,
+			activationTickCount: 0,
+			variantIndex: 4, // family 6 (restaurant) → init = 4
 		};
 		do_expense_sweep(ledger, world);
-		expect(ledger.cash_balance).toBe(0);
+		expect(ledger.cashBalance).toBe(0);
 	});
 });
 
@@ -634,33 +632,33 @@ describe("ledger: do_ledger_rollover", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
 		handle_place_tile(0, y, "restaurant", world, ledger);
-		ledger.secondary_ledger[6] = 1000;
-		ledger.tertiary_ledger[6] = 500;
-		const cashBefore = ledger.cash_balance;
+		ledger.secondaryLedger[6] = 1000;
+		ledger.tertiaryLedger[6] = 500;
+		const cashBefore = ledger.cashBalance;
 		do_ledger_rollover(ledger, world, 3); // day 3 → 3 % 3 === 0
-		expect(ledger.cash_balance).toBeLessThan(cashBefore); // expense fired
-		expect(ledger.secondary_ledger[6]).toBe(0);
-		expect(ledger.tertiary_ledger[6]).toBe(0);
-		expect(ledger.cash_balance_cycle_base).toBe(ledger.cash_balance);
+		expect(ledger.cashBalance).toBeLessThan(cashBefore); // expense fired
+		expect(ledger.secondaryLedger[6]).toBe(0);
+		expect(ledger.tertiaryLedger[6]).toBe(0);
+		expect(ledger.cashBalanceCycleBase).toBe(ledger.cashBalance);
 	});
 
-	it("is a no-op when day_counter % 3 !== 0", () => {
+	it("is a no-op when dayCounter % 3 !== 0", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
-		const cashBefore = ledger.cash_balance;
-		ledger.secondary_ledger[6] = 1000;
+		const cashBefore = ledger.cashBalance;
+		ledger.secondaryLedger[6] = 1000;
 		do_ledger_rollover(ledger, world, 1);
-		expect(ledger.cash_balance).toBe(cashBefore);
-		expect(ledger.secondary_ledger[6]).toBe(1000);
+		expect(ledger.cashBalance).toBe(cashBefore);
+		expect(ledger.secondaryLedger[6]).toBe(1000);
 	});
 
-	it("is a no-op on day 0 (day_counter=0, 0%3===0) but expense sweep has nothing to charge", () => {
+	it("is a no-op on day 0 (dayCounter=0, 0%3===0) but expense sweep has nothing to charge", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
-		const cashBefore = ledger.cash_balance;
+		const cashBefore = ledger.cashBalance;
 		do_ledger_rollover(ledger, world, 0); // 0 % 3 === 0 → fires but no objects
 		// No objects → no expense, but secondary/tertiary are reset and cycle_base set
-		expect(ledger.cash_balance_cycle_base).toBe(cashBefore);
+		expect(ledger.cashBalanceCycleBase).toBe(cashBefore);
 	});
 });
 
@@ -724,7 +722,7 @@ describe("handle_place_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		// No floor tile at y+1 → no support
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotel_single", world, ledger);
+		const r = handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/support/i);
 	});
@@ -742,17 +740,17 @@ describe("handle_place_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(1_000_000);
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		const cost = TILE_COSTS.hotel_single;
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotel_single", world, ledger);
+		const cost = TILE_COSTS.hotelSingle;
+		const r = handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		expect(r.accepted).toBe(true);
-		expect(ledger.cash_balance).toBe(1_000_000 - cost);
+		expect(ledger.cashBalance).toBe(1_000_000 - cost);
 	});
 
 	it("returns a patch array covering each placed cell", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotel_twin", world, ledger);
+		const r = handle_place_tile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(r.patch).toHaveLength(2);
 		expect(r.patch?.[0]).toMatchObject({ x: 0, isAnchor: true });
@@ -764,7 +762,7 @@ describe("handle_place_tile", () => {
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 3; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_suite", world, ledger);
+		handle_place_tile(0, y, "hotelSuite", world, ledger);
 		expect(world.cellToAnchor[`1,${y}`]).toBe(`0,${y}`);
 		expect(world.cellToAnchor[`2,${y}`]).toBe(`0,${y}`);
 	});
@@ -778,9 +776,9 @@ describe("handle_place_tile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 			world.cells[`${x},${y}`] = "floor";
 		}
-		handle_place_tile(0, y, "hotel_suite", world, ledger);
+		handle_place_tile(0, y, "hotelSuite", world, ledger);
 		// Anchor cell holds the tile type
-		expect(world.cells[`0,${y}`]).toBe("hotel_suite");
+		expect(world.cells[`0,${y}`]).toBe("hotelSuite");
 	});
 
 	it("stairs placement succeeds as overlay on existing base tiles", () => {
@@ -804,11 +802,11 @@ describe("handle_place_tile", () => {
 	it("runs global rebuilds (facility ledger updated) after placement", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		ledger.primary_ledger.fill(99);
+		ledger.primaryLedger.fill(99);
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", world, ledger);
-		// rebuild_facility_ledger zeroes then counts → should be 1 hotel_single
-		expect(ledger.primary_ledger[3]).toBe(1);
+		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		// rebuild_facility_ledger zeroes then counts → should be 1 hotelSingle
+		expect(ledger.primaryLedger[3]).toBe(1);
 	});
 });
 
@@ -834,7 +832,7 @@ describe("handle_remove_tile", () => {
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_twin", world, ledger);
+		handle_place_tile(0, y, "hotelTwin", world, ledger);
 		handle_remove_tile(0, y, world, ledger);
 		expect(world.cells[`0,${y}`]).toBeUndefined();
 		expect(world.cells[`1,${y}`]).toBeUndefined();
@@ -846,7 +844,7 @@ describe("handle_remove_tile", () => {
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < 2; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_twin", world, ledger);
+		handle_place_tile(0, y, "hotelTwin", world, ledger);
 		// Click extension cell
 		handle_remove_tile(1, y, world, ledger);
 		expect(world.cells[`0,${y}`]).toBeUndefined();
@@ -857,9 +855,9 @@ describe("handle_remove_tile", () => {
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotel_single", world, ledger);
+		handle_place_tile(0, y, "hotelSingle", world, ledger);
 		handle_remove_tile(0, y, world, ledger);
-		expect(world.placed_objects[`0,${y}`]).toBeUndefined();
+		expect(world.placedObjects[`0,${y}`]).toBeUndefined();
 	});
 
 	it("turns to floor (not empty) when tiles above exist", () => {
@@ -872,19 +870,19 @@ describe("handle_remove_tile", () => {
 			world.cells[`${x},${GROUND_Y - 1}`] = "floor";
 		}
 		// Place hotel at y, then place floor above it
-		world.cells[`0,${y}`] = "hotel_single";
-		world.placed_objects[`0,${y}`] = {
-			left_tile_index: 0,
-			right_tile_index: 0,
-			object_type_code: 3,
-			stay_phase: 0,
-			linked_record_index: -1,
-			aux_value_or_timer: 0,
-			needs_refresh_flag: 1,
-			pairing_status: -1,
-			pairing_active_flag: 1,
-			activation_tick_count: 0,
-			variant_index: 1,
+		world.cells[`0,${y}`] = "hotelSingle";
+		world.placedObjects[`0,${y}`] = {
+			leftTileIndex: 0,
+			rightTileIndex: 0,
+			objectTypeCode: 3,
+			stayPhase: 0,
+			linkedRecordIndex: -1,
+			auxValueOrTimer: 0,
+			needsRefreshFlag: 1,
+			pairingStatus: -1,
+			pairingActiveFlag: 1,
+			activationTickCount: 0,
+			variantIndex: 1,
 		};
 		// Place a floor tile directly above
 		world.cells[`0,${y - 1}`] = "floor";
@@ -912,12 +910,12 @@ describe("handle_remove_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotel_single", world, ledger);
-		// Now rebuild primary_ledger artificially
-		ledger.primary_ledger[3] = 99;
+		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		// Now rebuild primaryLedger artificially
+		ledger.primaryLedger[3] = 99;
 		handle_remove_tile(0, GROUND_Y - 1, world, ledger);
-		// After demolish, rebuild runs → primary_ledger[3] = 0
-		expect(ledger.primary_ledger[3]).toBe(0);
+		// After demolish, rebuild runs → primaryLedger[3] = 0
+		expect(ledger.primaryLedger[3]).toBe(0);
 	});
 });
 
@@ -963,7 +961,7 @@ describe("world constants", () => {
 
 describe("YEN tables", () => {
 	it("YEN_1001 hotel payout: [30, 20, 15, 5]", () => {
-		expect(YEN_1001.hotel_single).toEqual([30, 20, 15, 5]);
+		expect(YEN_1001.hotelSingle).toEqual([30, 20, 15, 5]);
 	});
 
 	it("YEN_1001 office payout: [150, 100, 50, 20]", () => {
@@ -982,8 +980,8 @@ describe("YEN tables", () => {
 		expect(YEN_1002.restaurant).toBe(500);
 	});
 
-	it("YEN_1002 fast_food expense = 50", () => {
-		expect(YEN_1002.fast_food).toBe(50);
+	it("YEN_1002 fastFood expense = 50", () => {
+		expect(YEN_1002.fastFood).toBe(50);
 	});
 
 	it("YEN_1002 retail expense = 1000", () => {
@@ -998,8 +996,8 @@ describe("YEN tables", () => {
 		expect(YEN_1002.housekeeping).toBe(100);
 	});
 
-	it("YEN_1002 elevator_local expense = 200", () => {
-		expect(YEN_1002.elevator_local).toBe(200);
+	it("YEN_1002 elevatorLocal expense = 200", () => {
+		expect(YEN_1002.elevatorLocal).toBe(200);
 	});
 
 	it("YEN_1002 escalator expense = 100", () => {
@@ -1104,9 +1102,9 @@ describe("rebuild_carrier_list", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 15);
 		expect(world.carriers).toHaveLength(1);
 		expect(world.carriers[0].column).toBe(0);
-		expect(world.carriers[0].bottom_served_floor).toBe(10);
-		expect(world.carriers[0].top_served_floor).toBe(15);
-		expect(world.carriers[0].carrier_mode).toBe(0);
+		expect(world.carriers[0].bottomServedFloor).toBe(10);
+		expect(world.carriers[0].topServedFloor).toBe(15);
+		expect(world.carriers[0].carrierMode).toBe(0);
 	});
 
 	it("creates separate carriers for separate columns", () => {
@@ -1128,25 +1126,25 @@ describe("rebuild_carrier_list", () => {
 		// No carrier record for escalators
 		expect(world.carriers).toHaveLength(0);
 		// But a special-link segment covers floors 10–11
-		const active = world.special_links.filter((s) => s.active);
+		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
-		expect(active[0].start_floor).toBe(10);
-		expect(active[0].height_metric).toBe(1); // floors 10 and 11
+		expect(active[0].startFloor).toBe(10);
+		expect(active[0].heightMetric).toBe(1); // floors 10 and 11
 		expect(active[0].flags & 1).toBe(0); // local-mode (not express)
-		expect(active[0].carrier_id).toBe(-1); // no carrier_id
+		expect(active[0].carrierId).toBe(-1); // no carrierId
 	});
 
 	it("preserves car position when carrier range extends", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 15);
-		world.carriers[0].cars[0].current_floor = 12;
+		world.carriers[0].cars[0].currentFloor = 12;
 		// Extend shaft upward
 		world.cells[`0,${GRID_HEIGHT - 1 - 16}`] = "floor";
 		world.overlays[`0,${GRID_HEIGHT - 1 - 16}`] = "elevator";
 		run_global_rebuilds(world, ledger);
-		expect(world.carriers[0].cars[0].current_floor).toBe(12);
-		expect(world.carriers[0].top_served_floor).toBe(16);
+		expect(world.carriers[0].cars[0].currentFloor).toBe(12);
+		expect(world.carriers[0].topServedFloor).toBe(16);
 	});
 
 	it("removes carrier when all cells demolished", () => {
@@ -1161,15 +1159,15 @@ describe("rebuild_carrier_list", () => {
 	});
 });
 
-describe("rebuild_special_links", () => {
+describe("rebuild_specialLinks", () => {
 	it("registers one active segment per carrier", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
-		const active = world.special_links.filter((s) => s.active);
+		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
-		expect(active[0].start_floor).toBe(10);
-		expect(active[0].height_metric).toBe(10);
+		expect(active[0].startFloor).toBe(10);
+		expect(active[0].heightMetric).toBe(10);
 		expect(active[0].flags & 1).toBe(0); // local = not express
 	});
 });
@@ -1180,10 +1178,10 @@ describe("rebuild_walkability_flags", () => {
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 15);
 		for (let f = 10; f <= 15; f++) {
-			expect(world.floor_walkability_flags[f] & 1).toBe(1);
+			expect(world.floorWalkabilityFlags[f] & 1).toBe(1);
 		}
-		expect(world.floor_walkability_flags[9] & 1).toBe(0);
-		expect(world.floor_walkability_flags[16] & 1).toBe(0);
+		expect(world.floorWalkabilityFlags[9] & 1).toBe(0);
+		expect(world.floorWalkabilityFlags[16] & 1).toBe(0);
 	});
 });
 
@@ -1215,9 +1213,9 @@ describe("is_floor_span_walkable", () => {
 describe("select_best_route_candidate", () => {
 	it("returns null when from == to", () => {
 		const world = makeWorld();
-		world.floor_walkability_flags = new Array(GRID_HEIGHT).fill(0);
-		world.special_links = [];
-		world.transfer_group_cache = new Array(GRID_HEIGHT).fill(0);
+		world.floorWalkabilityFlags = new Array(GRID_HEIGHT).fill(0);
+		world.specialLinks = [];
+		world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
 		expect(select_best_route_candidate(world, 10, 10)).toBeNull();
 	});
 
@@ -1254,9 +1252,9 @@ describe("car state machine", () => {
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const car = world.carriers[0].cars[0];
-		expect(car.current_floor).toBe(10);
-		expect(car.speed_counter).toBe(0);
-		expect(car.door_wait_counter).toBe(0);
+		expect(car.currentFloor).toBe(10);
+		expect(car.speedCounter).toBe(0);
+		expect(car.doorWaitCounter).toBe(0);
 	});
 
 	it("car stays at bottom when no waiters after many ticks", () => {
@@ -1265,20 +1263,20 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		for (let i = 0; i < 100; i++) tick_all_carriers(world);
 		const car = world.carriers[0].cars[0];
-		expect(car.current_floor).toBe(10);
+		expect(car.currentFloor).toBe(10);
 	});
 
-	it("car moves to target floor when waiting_count is set", () => {
+	it("car moves to target floor when waitingCount is set", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
 		// Request pickup at floor 15 (slot = 15 - 10 = 5)
-		car.waiting_count[5] = 1;
+		car.waitingCount[5] = 1;
 		// Tick enough for car to travel 5 floors (8 ticks/floor = 40 ticks) + door dwell
 		for (let i = 0; i < 200; i++) tick_all_carriers(world);
-		expect(car.current_floor).toBe(15);
+		expect(car.currentFloor).toBe(15);
 	});
 
 	it("out-of-range car is reset to bottom floor", () => {
@@ -1286,23 +1284,23 @@ describe("car state machine", () => {
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const car = world.carriers[0].cars[0];
-		car.current_floor = 99; // force out of range
+		car.currentFloor = 99; // force out of range
 		tick_all_carriers(world);
-		expect(car.current_floor).toBe(10);
+		expect(car.currentFloor).toBe(10);
 	});
 
-	it("car opens doors at target floor (door_wait_counter set)", () => {
+	it("car opens doors at target floor (doorWaitCounter set)", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
-		car.waiting_count[5] = 1; // floor 15
+		car.waitingCount[5] = 1; // floor 15
 		// Run until car arrives and opens doors
 		let doors_opened = false;
 		for (let i = 0; i < 200; i++) {
 			tick_all_carriers(world);
-			if (car.current_floor === 15 && car.door_wait_counter > 0) {
+			if (car.currentFloor === 15 && car.doorWaitCounter > 0) {
 				doors_opened = true;
 				break;
 			}

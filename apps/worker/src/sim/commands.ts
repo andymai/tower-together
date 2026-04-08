@@ -42,7 +42,7 @@ export interface CommandResult {
 
 const INFRASTRUCTURE_TILES = new Set(["floor", "lobby", "stairs"]);
 
-// Families whose variant_index initialises to 1; all others initialise to 4 (no payout).
+// Families whose variantIndex initialises to 1; all others initialise to 4 (no payout).
 const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, 10]);
 
 // ─── PlacedObjectRecord helpers ───────────────────────────────────────────────
@@ -56,17 +56,17 @@ function make_placed_object(
 	const familyCode = TILE_TO_FAMILY_CODE[tileType] ?? 0;
 	const sidecarIndex = alloc_sidecar(tileType, x, world);
 	return {
-		left_tile_index: x,
-		right_tile_index: x + width - 1,
-		object_type_code: familyCode,
-		stay_phase: 0,
-		linked_record_index: sidecarIndex,
-		aux_value_or_timer: 0,
-		needs_refresh_flag: 1, // picked up by next refresh sweep
-		pairing_status: -1, // invalid; first scoring sweep populates
-		pairing_active_flag: 1, // first-activation latch
-		activation_tick_count: 0,
-		variant_index: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
+		leftTileIndex: x,
+		rightTileIndex: x + width - 1,
+		objectTypeCode: familyCode,
+		stayPhase: 0,
+		linkedRecordIndex: sidecarIndex,
+		auxValueOrTimer: 0,
+		needsRefreshFlag: 1, // picked up by next refresh sweep
+		pairingStatus: -1, // invalid; first scoring sweep populates
+		pairingActiveFlag: 1, // first-activation latch
+		activationTickCount: 0,
+		variantIndex: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
 	};
 }
 
@@ -76,28 +76,27 @@ function alloc_sidecar(tileType: string, x: number, world: WorldState): number {
 
 	if (
 		tileType === "restaurant" ||
-		tileType === "fast_food" ||
+		tileType === "fastFood" ||
 		tileType === "retail"
 	) {
 		const r: CommercialVenueRecord = {
 			kind: "commercial_venue",
-			owner_subtype_index: x,
-			capacity:
-				tileType === "restaurant" ? 6 : tileType === "fast_food" ? 4 : 3,
-			visit_count: 0,
+			ownerSubtypeIndex: x,
+			capacity: tileType === "restaurant" ? 6 : tileType === "fastFood" ? 4 : 3,
+			visitCount: 0,
 		};
 		record = r;
 	} else if (tileType === "security" || tileType === "housekeeping") {
 		const r: ServiceRequestEntry = {
 			kind: "service_request",
-			owner_subtype_index: x,
+			ownerSubtypeIndex: x,
 		};
 		record = r;
 	} else if (tileType === "cinema" || tileType === "entertainment") {
 		const r: EntertainmentLinkRecord = {
 			kind: "entertainment_link",
-			owner_subtype_index: x,
-			paired_subtype_index: 0xff,
+			ownerSubtypeIndex: x,
+			pairedSubtypeIndex: 0xff,
 		};
 		record = r;
 	}
@@ -110,7 +109,7 @@ function alloc_sidecar(tileType: string, x: number, world: WorldState): number {
 /** Mark a sidecar as invalid (demolished). */
 function free_sidecar(index: number, world: WorldState): void {
 	const rec = world.sidecars[index];
-	if (rec) rec.owner_subtype_index = 0xff;
+	if (rec) rec.ownerSubtypeIndex = 0xff;
 }
 
 // ─── Global rebuilds ──────────────────────────────────────────────────────────
@@ -206,7 +205,7 @@ export function handle_place_tile(
 			reason: "Lobby only allowed on ground floor or every 15 floors above",
 		};
 	}
-	if (cost > ledger.cash_balance) {
+	if (cost > ledger.cashBalance) {
 		return { accepted: false, reason: "Insufficient funds" };
 	}
 
@@ -244,11 +243,11 @@ export function handle_place_tile(
 		world.cells[`${x + dx},${y}`] = tileType;
 		world.cellToAnchor[`${x + dx},${y}`] = `${x},${y}`;
 	}
-	ledger.cash_balance -= cost;
+	ledger.cashBalance -= cost;
 
 	// PlacedObjectRecord
 	if (!INFRASTRUCTURE_TILES.has(tileType)) {
-		world.placed_objects[`${x},${y}`] = make_placed_object(x, tileType, world);
+		world.placedObjects[`${x},${y}`] = make_placed_object(x, tileType, world);
 	}
 
 	const patch: CellPatch[] = Array.from({ length: tileWidth }, (_, dx) => ({
@@ -334,12 +333,12 @@ export function handle_remove_tile(
 	}
 
 	// Remove PlacedObjectRecord and free sidecar
-	const rec = world.placed_objects[anchorKey];
+	const rec = world.placedObjects[anchorKey];
 	if (rec) {
-		if (rec.linked_record_index >= 0) {
-			free_sidecar(rec.linked_record_index, world);
+		if (rec.linkedRecordIndex >= 0) {
+			free_sidecar(rec.linkedRecordIndex, world);
 		}
-		delete world.placed_objects[anchorKey];
+		delete world.placedObjects[anchorKey];
 	}
 
 	const patch: CellPatch[] = [];

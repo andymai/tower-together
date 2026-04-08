@@ -22,16 +22,16 @@ export type TileType =
 	| "elevator"
 	| "escalator"
 	// Hotels
-	| "hotel_single"
-	| "hotel_twin"
-	| "hotel_suite"
+	| "hotelSingle"
+	| "hotelTwin"
+	| "hotelSuite"
 	// VIP Hotels
-	| "vip_single"
-	| "vip_twin"
-	| "vip_suite"
+	| "vipSingle"
+	| "vipTwin"
+	| "vipSuite"
 	// Commercial
 	| "restaurant"
-	| "fast_food"
+	| "fastFood"
 	| "retail"
 	// Office / Condo
 	| "office"
@@ -44,7 +44,7 @@ export type TileType =
 	| "housekeeping"
 	| "parking"
 	| "metro"
-	| "fire_suppressor";
+	| "fireSuppressor";
 
 export type SelectedTool = TileType;
 
@@ -57,14 +57,14 @@ export const TILE_WIDTHS: Record<string, number> = {
 	stairs: 2,
 	elevator: 1,
 	escalator: 1,
-	hotel_single: 1,
-	hotel_twin: 2,
-	hotel_suite: 3,
-	vip_single: 1,
-	vip_twin: 2,
-	vip_suite: 3,
+	hotelSingle: 1,
+	hotelTwin: 2,
+	hotelSuite: 3,
+	vipSingle: 1,
+	vipTwin: 2,
+	vipSuite: 3,
 	restaurant: 2,
-	fast_food: 2,
+	fastFood: 2,
 	retail: 2,
 	office: 6,
 	condo: 3,
@@ -74,7 +74,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	housekeeping: 2,
 	parking: 4,
 	metro: 4,
-	fire_suppressor: 2,
+	fireSuppressor: 2,
 };
 
 /** Construction cost in dollars. */
@@ -84,14 +84,14 @@ export const TILE_COSTS: Record<string, number> = {
 	stairs: 0,
 	elevator: 0,
 	escalator: 0,
-	hotel_single: 50_000,
-	hotel_twin: 80_000,
-	hotel_suite: 120_000,
-	vip_single: 100_000,
-	vip_twin: 150_000,
-	vip_suite: 225_000,
+	hotelSingle: 50_000,
+	hotelTwin: 80_000,
+	hotelSuite: 120_000,
+	vipSingle: 100_000,
+	vipTwin: 150_000,
+	vipSuite: 225_000,
 	restaurant: 500_000,
-	fast_food: 200_000,
+	fastFood: 200_000,
 	retail: 300_000,
 	office: 900_000,
 	condo: 500_000,
@@ -101,7 +101,7 @@ export const TILE_COSTS: Record<string, number> = {
 	housekeeping: 100_000,
 	parking: 1_000_000,
 	metro: 2_000_000,
-	fire_suppressor: 500_000,
+	fireSuppressor: 500_000,
 };
 
 // ─── Wire protocol ────────────────────────────────────────────────────────────

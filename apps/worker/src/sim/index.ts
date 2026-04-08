@@ -59,34 +59,34 @@ export class TowerSim {
 			name,
 			width: GRID_WIDTH,
 			height: GRID_HEIGHT,
-			gate_flags: createGateFlags(),
+			gateFlags: createGateFlags(),
 			cells: {},
 			cellToAnchor: {},
 			overlays: {},
 			overlayToAnchor: {},
-			placed_objects: {},
+			placedObjects: {},
 			sidecars: [],
 			carriers: [],
-			special_links: Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
+			specialLinks: Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
 				active: false,
 				flags: 0,
-				start_floor: 0,
-				height_metric: 0,
-				carrier_id: -1,
+				startFloor: 0,
+				heightMetric: 0,
+				carrierId: -1,
 			})),
-			floor_walkability_flags: new Array(GRID_HEIGHT).fill(0),
-			transfer_group_cache: new Array(GRID_HEIGHT).fill(0),
+			floorWalkabilityFlags: new Array(GRID_HEIGHT).fill(0),
+			transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 		};
 		const ledger = createLedgerState(STARTING_CASH);
 		return new TowerSim(time, world, ledger);
 	}
 
 	static from_snapshot(snap: SimSnapshot): TowerSim {
-		// Migrate old saves that have a flat WorldState without placed_objects
+		// Migrate old saves that have a flat WorldState without placedObjects
 		if (snap.world.height < GRID_HEIGHT) snap.world.height = GRID_HEIGHT;
-		snap.world.placed_objects ??= {};
+		snap.world.placedObjects ??= {};
 		snap.world.sidecars ??= [];
-		snap.world.gate_flags ??= createGateFlags();
+		snap.world.gateFlags ??= createGateFlags();
 
 		// Migrate old saves that stored cash in world instead of ledger
 		if (!snap.ledger) {
@@ -98,14 +98,14 @@ export class TowerSim {
 
 		// Migrate old saves without Phase 3 carrier/routing fields
 		init_carrier_state(snap.world);
-		snap.world.special_links ??= Array.from(
+		snap.world.specialLinks ??= Array.from(
 			{ length: MAX_SPECIAL_LINKS },
 			() => ({
 				active: false,
 				flags: 0,
-				start_floor: 0,
-				height_metric: 0,
-				carrier_id: -1,
+				startFloor: 0,
+				heightMetric: 0,
+				carrierId: -1,
 			}),
 		);
 		// Recompute derived routing state from carriers
@@ -119,12 +119,12 @@ export class TowerSim {
 	// ── Tick ──────────────────────────────────────────────────────────────────
 
 	step(): StepResult {
-		const prevTick = this.time.day_tick;
-		const balanceBefore = this.ledger.cash_balance;
+		const prevTick = this.time.dayTick;
+		const balanceBefore = this.ledger.cashBalance;
 
 		const { time } = advanceOneTick(this.time);
 		this.time = time;
-		const currTick = this.time.day_tick;
+		const currTick = this.time.dayTick;
 
 		const state: SimState = {
 			time: this.time,
@@ -135,8 +135,8 @@ export class TowerSim {
 		tick_all_carriers(this.world);
 
 		return {
-			simTime: this.time.total_ticks,
-			economyChanged: this.ledger.cash_balance !== balanceBefore,
+			simTime: this.time.totalTicks,
+			economyChanged: this.ledger.cashBalance !== balanceBefore,
 		};
 	}
 
@@ -176,35 +176,35 @@ export class TowerSim {
 			name: this.world.name,
 			width: this.world.width,
 			height: this.world.height,
-			gate_flags: { ...this.world.gate_flags },
+			gateFlags: { ...this.world.gateFlags },
 			cells: { ...this.world.cells },
 			cellToAnchor: { ...this.world.cellToAnchor },
 			overlays: { ...this.world.overlays },
 			overlayToAnchor: { ...this.world.overlayToAnchor },
-			placed_objects: JSON.parse(
-				JSON.stringify(this.world.placed_objects),
-			) as WorldState["placed_objects"],
+			placedObjects: JSON.parse(
+				JSON.stringify(this.world.placedObjects),
+			) as WorldState["placedObjects"],
 			sidecars: JSON.parse(
 				JSON.stringify(this.world.sidecars),
 			) as WorldState["sidecars"],
 			carriers: JSON.parse(
 				JSON.stringify(this.world.carriers),
 			) as WorldState["carriers"],
-			special_links: JSON.parse(
-				JSON.stringify(this.world.special_links),
-			) as WorldState["special_links"],
-			floor_walkability_flags: [...this.world.floor_walkability_flags],
-			transfer_group_cache: [...this.world.transfer_group_cache],
+			specialLinks: JSON.parse(
+				JSON.stringify(this.world.specialLinks),
+			) as WorldState["specialLinks"],
+			floorWalkabilityFlags: [...this.world.floorWalkabilityFlags],
+			transferGroupCache: [...this.world.transferGroupCache],
 		};
 	}
 
 	private cloneLedger(): LedgerState {
 		return {
-			cash_balance: this.ledger.cash_balance,
-			primary_ledger: [...this.ledger.primary_ledger],
-			secondary_ledger: [...this.ledger.secondary_ledger],
-			tertiary_ledger: [...this.ledger.tertiary_ledger],
-			cash_balance_cycle_base: this.ledger.cash_balance_cycle_base,
+			cashBalance: this.ledger.cashBalance,
+			primaryLedger: [...this.ledger.primaryLedger],
+			secondaryLedger: [...this.ledger.secondaryLedger],
+			tertiaryLedger: [...this.ledger.tertiaryLedger],
+			cashBalanceCycleBase: this.ledger.cashBalanceCycleBase,
 		};
 	}
 
@@ -217,10 +217,10 @@ export class TowerSim {
 		return this.world.name;
 	}
 	get simTime(): number {
-		return this.time.total_ticks;
+		return this.time.totalTicks;
 	}
 	get cash(): number {
-		return this.ledger.cash_balance;
+		return this.ledger.cashBalance;
 	}
 	get width(): number {
 		return this.world.width;
