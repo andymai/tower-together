@@ -30,7 +30,7 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
 	{ id: "empty", label: "Erase", color: "#888", cost: 0 },
 	{ id: "floor", label: "Floor", color: "#777", cost: TILE_COSTS.floor },
-	{ id: "lobby", label: "Lobby", color: "#c9a84c", cost: TILE_COSTS.lobby },
+	{ id: "lobby", label: "Lobby", color: "#c9a77a", cost: TILE_COSTS.lobby },
 	{ id: "stairs", label: "Stairs", color: "#e8d5a3", cost: TILE_COSTS.stairs },
 	{
 		id: "elevator",
@@ -47,36 +47,36 @@ const TOOLS: ToolDef[] = [
 	{
 		id: "hotelSingle",
 		label: "Single",
-		color: "#2d9c8d",
+		color: "#f28b82",
 		cost: TILE_COSTS.hotelSingle,
 	},
 	{
 		id: "hotelTwin",
 		label: "Twin",
-		color: "#2d7a9c",
+		color: "#e35d5b",
 		cost: TILE_COSTS.hotelTwin,
 	},
 	{
 		id: "hotelSuite",
 		label: "Suite",
-		color: "#2d4f9c",
+		color: "#b63c3c",
 		cost: TILE_COSTS.hotelSuite,
 	},
 	{
 		id: "restaurant",
 		label: "Restaurant",
-		color: "#c07840",
+		color: "#e58a3a",
 		cost: TILE_COSTS.restaurant,
 	},
 	{
 		id: "fastFood",
 		label: "Fast Food",
-		color: "#c0a040",
+		color: "#f2b24d",
 		cost: TILE_COSTS.fastFood,
 	},
 	{ id: "retail", label: "Retail", color: "#a0c040", cost: TILE_COSTS.retail },
-	{ id: "office", label: "Office", color: "#8080c0", cost: TILE_COSTS.office },
-	{ id: "condo", label: "Condo", color: "#60a080", cost: TILE_COSTS.condo },
+	{ id: "office", label: "Office", color: "#a8b7c4", cost: TILE_COSTS.office },
+	{ id: "condo", label: "Condo", color: "#e7cf6b", cost: TILE_COSTS.condo },
 	{ id: "cinema", label: "Cinema", color: "#c040a0", cost: TILE_COSTS.cinema },
 	{
 		id: "security",
