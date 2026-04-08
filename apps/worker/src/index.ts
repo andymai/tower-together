@@ -3,6 +3,12 @@ import { cors } from "hono/cors";
 import { TowerRegistry } from "./durable-objects/TowerRegistry";
 import { TowerRoom } from "./durable-objects/TowerRoom";
 import { towersRouter } from "./routes/towers";
+import {
+	assignTowerAlias,
+	fetchTowerInfo,
+	getTowerRoomStub,
+	resolveTowerAlias,
+} from "./tower-service";
 
 interface Env {
 	TOWER_ROOM: DurableObjectNamespace;
@@ -20,8 +26,7 @@ app.use("*", async (c, next) => {
 // WebSocket route — forward upgrade to Durable Object
 app.get("/api/ws/:towerId", async (c) => {
 	const towerId = c.req.param("towerId");
-	const stub = c.env.TOWER_ROOM.get(c.env.TOWER_ROOM.idFromName(towerId));
-	return stub.fetch(c.req.raw);
+	return getTowerRoomStub(c.env, towerId).fetch(c.req.raw);
 });
 
 // Resolve an alias or tower ID to a tower ID
@@ -29,12 +34,7 @@ app.get("/api/resolve/:slug", async (c) => {
 	const slug = c.req.param("slug");
 
 	// Treat as an alias — query TowerRegistry only.
-	const registry = c.env.TOWER_REGISTRY.get(
-		c.env.TOWER_REGISTRY.idFromName("global"),
-	);
-	const resolveUrl = new URL("http://do/resolve");
-	resolveUrl.searchParams.set("alias", slug);
-	const res = await registry.fetch(resolveUrl.toString());
+	const res = await resolveTowerAlias(c.env, slug);
 	if (res.ok) {
 		const data = (await res.json()) as { towerId: string };
 		return c.json({ towerId: data.towerId });
@@ -67,20 +67,13 @@ app.put("/api/towers/:id/alias", async (c) => {
 	}
 
 	// Verify the tower exists
-	const roomStub = c.env.TOWER_ROOM.get(c.env.TOWER_ROOM.idFromName(towerId));
-	const infoRes = await roomStub.fetch("http://do/info");
+	const infoRes = await fetchTowerInfo(c.env, towerId);
 	if (!infoRes.ok) {
 		return c.json({ error: "Tower not found" }, 404);
 	}
 
 	// Register the alias
-	const registry = c.env.TOWER_REGISTRY.get(
-		c.env.TOWER_REGISTRY.idFromName("global"),
-	);
-	const setUrl = new URL("http://do/set-alias");
-	setUrl.searchParams.set("alias", alias);
-	setUrl.searchParams.set("towerId", towerId);
-	const res = await registry.fetch(setUrl.toString(), { method: "PUT" });
+	const res = await assignTowerAlias(c.env, alias, towerId);
 	if (!res.ok) {
 		const err = (await res.json()) as { error: string };
 		return c.json({ error: err.error }, res.status as 409);

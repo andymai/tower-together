@@ -39,6 +39,10 @@ export interface CommandResult {
 	economyChanged?: boolean;
 }
 
+export type SimCommand =
+	| { type: "place_tile"; x: number; y: number; tileType: string }
+	| { type: "remove_tile"; x: number; y: number };
+
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 
 const INFRASTRUCTURE_TILES = new Set(["floor", "lobby", "stairs"]);

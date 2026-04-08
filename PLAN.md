@@ -9,8 +9,11 @@ The simulation logic is entirely server-authoritative. The client is a thin rend
 ```
 apps/
   worker/src/
+    protocol.ts                   # Wire → domain command mapping for websocket payloads
+    tower-service.ts              # Shared DO RPC helpers for tower + alias operations
     sim/                        # Pure simulation core — no I/O, no Cloudflare deps
       index.ts                  # TowerSim class: step(), submit_command(), save/load
+      snapshot.ts               # Snapshot creation + migration/defaulting for persisted saves
       time.ts                   # day_tick, daypart_index, day_counter, calendar_phase_flag
       world.ts                  # Floors, PlacedObjectRecord, tile adjacency helpers
       entities.ts               # RuntimeEntityTable + all entity record fields
@@ -32,7 +35,9 @@ apps/
         evaluation.ts           # Families 0x24–0x28
         parking.ts              # Family 0x18 (passive)
     durable-objects/
-      TowerRoom.ts              # WebSocket glue: wraps TowerSim, serializes patches
+      TowerRoom.ts              # Room coordinator: transport/session/tick orchestration
+      TowerRoomRepository.ts    # SQLite snapshot persistence
+      TowerRoomSessions.ts      # Socket registry + broadcast fanout
       TowerRegistry.ts
     routes/
       towers.ts
@@ -59,7 +64,9 @@ apps/
 
 **Key architectural invariants:**
 - `sim/` has zero dependencies on Cloudflare, Phaser, or React. It can be unit-tested in Node.
-- `TowerRoom.ts` is purely I/O glue: it receives WebSocket messages, calls `sim.submit_command()`, calls `sim.step()` on a timer, and fans out patches to all sockets.
+- WebSocket wire messages are translated into domain `SimCommand` values before they enter `sim/`.
+- Snapshot normalization and save-format migration live in `sim/snapshot.ts`, not in the Durable Object.
+- `TowerRoom.ts` coordinates runtime concerns only: it receives WebSocket messages, dispatches domain commands to `sim.submit_command()`, calls `sim.step()` on a timer, and fans out patches to all sockets via collaborators.
 - The client never simulates — it applies server patches and renders.
 - `sim/index.ts` exposes exactly the API the spec describes: `step()`, `advance_ticks(n)`, `submit_command(cmd)`, `collect_notifications()`, `save_state()`, `load_state(snap)`.
 
@@ -193,6 +200,13 @@ export class TowerSim {
 `TowerRoom.ts` becomes ~100 lines: accept WebSocket, call `sim.submit_command()`, call `sim.step()` each real-second tick, broadcast resulting patches + notifications.
 
 **End state:** The game runs with correct time, correct tile types, correct floor numbering, basic placeholder income (hotels earn flat rates at checkout time), and proper modular code structure. Existing multiplayer works unchanged.
+
+### Architecture Follow-up Completed (2026-04-08)
+
+- Added `protocol.ts` so transport-level websocket messages are mapped to domain `SimCommand` values before entering `TowerSim`.
+- Added `sim/snapshot.ts` so snapshot creation, migration, and defaulting are owned by the simulation package rather than `TowerRoom`.
+- Split `TowerRoom` runtime support into `TowerRoomRepository` (SQLite persistence) and `TowerRoomSessions` (connection fanout).
+- Added `tower-service.ts` so worker routes and alias endpoints share DO RPC helpers instead of duplicating internal endpoint construction.
 
 ---
 

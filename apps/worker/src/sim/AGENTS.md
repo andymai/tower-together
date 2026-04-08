@@ -5,7 +5,10 @@ No I/O, no Cloudflare dependencies, no Phaser. Fully unit-testable in Node.
 ## Files
 
 ### `index.ts`
-`TowerSim` class — the public façade. Exposes `create()`, `from_snapshot()`, `step()`, `submit_command()`, `save_state()`, and read-only accessors. `step()` advances the clock by one tick and fires all checkpoints via `scheduler.ts`. `submit_command()` delegates to `commands.ts`.
+`TowerSim` class — the public façade. Exposes `create()`, `from_snapshot()`, `step()`, `submit_command()`, `save_state()`, and read-only accessors. `step()` advances the clock by one tick and fires all checkpoints via `scheduler.ts`. `submit_command()` accepts sim-level commands only and delegates to `commands.ts`.
+
+### `snapshot.ts`
+Simulation snapshot helpers. Owns new-game snapshot creation plus snapshot normalization/migration for persisted saves before `TowerSim.from_snapshot()` reconstructs runtime state.
 
 ### `time.ts`
 `TimeState` + `advanceOneTick()`. Tracks `day_tick` (0–2599), `daypart_index` (day_tick÷400), `day_counter`, `calendar_phase_flag`, `star_count`, and `total_ticks`. Constants: `DAY_TICK_MAX = 0x0a28`, `DAY_TICK_INCOME = 0x08fc`, `NEW_GAME_DAY_TICK = 0x9e5`. Two factory functions: `createTimeState()` (starts at tick 0, for unit tests) and `createNewGameTimeState()` (starts at 0x9e5 / daypart 6, matches the real game's `new_game_initializer`).
@@ -23,7 +26,7 @@ Three-ledger money model. `LedgerState` holds `cash_balance`, `primary_ledger[]`
 `SimState` bundle (`time + world + ledger`) and `run_checkpoints(state, prev_tick, curr_tick)`. Fires all 18 checkpoint bodies at the correct `day_tick` values: 0x000, 0x020, 0x0f0, 0x3e8, 0x4b0, 0x578, 0x5dc, 0x640, 0x6a4, 0x708, 0x76c, 0x7d0, 0x898, 0x8fc, 0x9c4, 0x9e5, 0x9f6, 0x0a06. Most Phase 3/4 bodies are stubs.
 
 ### `commands.ts`
-`handle_place_tile()` and `handle_remove_tile()` — validate, mutate `WorldState + LedgerState`, create/free `PlacedObjectRecord` and sidecar records, call `run_global_rebuilds()` (facility ledger + carrier list + special links + walkability + transfer cache). Also exports `CellPatch`, `CommandResult`, `fill_row_gaps()`.
+`handle_place_tile()` and `handle_remove_tile()` — validate, mutate `WorldState + LedgerState`, create/free `PlacedObjectRecord` and sidecar records, call `run_global_rebuilds()` (facility ledger + carrier list + special links + walkability + transfer cache). Also exports `SimCommand`, `CellPatch`, `CommandResult`, `fill_row_gaps()`.
 
 ### `carriers.ts`
 `CarrierRecord` and `CarrierCar` state machine. `floor_to_slot(carrier, floor)` maps floor index to car waiting-count slot: modes 0/1 (local-mode) use up to 10 regular slots + sky-lobby slots; mode 2 (Service/express) uses direct offset. `rebuild_carrier_list(world)` scans **only elevator** overlays (escalators are special-link segments, not carriers) and rebuilds `world.carriers`. Car speed: mode 2 uses EXPRESS_TICKS_PER_FLOOR (4); modes 0/1 use LOCAL_TICKS_PER_FLOOR (8). `tick_all_carriers(world)` advances every car by one tick (called by `TowerSim.step()`). Car state machine: Branch 1 = doors open, Branch 2 = in transit, Branch 3 = idle/SCAN next target.

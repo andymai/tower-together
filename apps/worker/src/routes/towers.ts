@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { fetchTowerInfo, initializeTower } from "../tower-service";
 
 interface Env {
 	TOWER_ROOM: DurableObjectNamespace;
@@ -23,14 +24,7 @@ towersRouter.post("/towers", async (c) => {
 	const name = body.name ?? "My Tower";
 	const towerId = generateTowerId();
 
-	const id = c.env.TOWER_ROOM.idFromName(towerId);
-	const stub = c.env.TOWER_ROOM.get(id);
-
-	const initUrl = new URL("http://do/init");
-	initUrl.searchParams.set("towerId", towerId);
-	initUrl.searchParams.set("name", name);
-
-	const res = await stub.fetch(initUrl.toString(), { method: "POST" });
+	const res = await initializeTower(c.env, towerId, name);
 	if (!res.ok) {
 		const err = await res.json<{ error: string }>();
 		return c.json({ error: err.error ?? "Failed to initialize tower" }, 500);
@@ -43,10 +37,7 @@ towersRouter.post("/towers", async (c) => {
 towersRouter.get("/towers/:id", async (c) => {
 	const towerId = c.req.param("id");
 
-	const id = c.env.TOWER_ROOM.idFromName(towerId);
-	const stub = c.env.TOWER_ROOM.get(id);
-
-	const res = await stub.fetch("http://do/info");
+	const res = await fetchTowerInfo(c.env, towerId);
 	if (!res.ok) {
 		const err = await res.json<{ error: string }>();
 		return c.json(

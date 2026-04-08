@@ -1,6 +1,5 @@
-import type { ClientMessage } from "../types";
 import { init_carrier_state, tick_all_carriers } from "./carriers";
-import type { CellPatch, CommandResult } from "./commands";
+import type { CellPatch, CommandResult, SimCommand } from "./commands";
 import { handle_place_tile, handle_remove_tile } from "./commands";
 import { createLedgerState, type LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
@@ -10,79 +9,16 @@ import {
 	rebuild_walkability_flags,
 } from "./routing";
 import { run_checkpoints, type SimState } from "./scheduler";
-import { advanceOneTick, createNewGameTimeState, type TimeState } from "./time";
 import {
-	createGateFlags,
-	GRID_HEIGHT,
-	GRID_WIDTH,
-	MAX_SPECIAL_LINKS,
-	type WorldState,
-} from "./world";
+	createInitialSnapshot,
+	normalizeSnapshot,
+	type SimSnapshot,
+} from "./snapshot";
+import { advanceOneTick, type TimeState } from "./time";
+import { GRID_HEIGHT, MAX_SPECIAL_LINKS, type WorldState } from "./world";
 
+export type { SimSnapshot } from "./snapshot";
 export type { CellPatch, CommandResult };
-
-// ─── Snake_case → camelCase migration (pre-rename saves) ────────────────────
-
-function snakeToCamel(s: string): string {
-	return s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-}
-
-function renameKeysShallow(obj: unknown): void {
-	if (!obj || typeof obj !== "object") return;
-	const o = obj as Record<string, unknown>;
-	for (const k of Object.keys(o)) {
-		if (k.includes("_")) {
-			const camel = snakeToCamel(k);
-			if (!(camel in o)) o[camel] = o[k];
-			delete o[k];
-		}
-	}
-}
-
-function renameKeysDeep(obj: unknown): void {
-	if (!obj || typeof obj !== "object") return;
-	if (Array.isArray(obj)) {
-		for (const item of obj) renameKeysDeep(item);
-		return;
-	}
-	const o = obj as Record<string, unknown>;
-	for (const k of Object.keys(o)) {
-		if (k.includes("_")) {
-			const camel = snakeToCamel(k);
-			if (!(camel in o)) o[camel] = o[k];
-			delete o[k];
-		}
-	}
-	for (const v of Object.values(o)) renameKeysDeep(v);
-}
-
-function migrate_snake_to_camel(snap: SimSnapshot): void {
-	if (snap.time) renameKeysShallow(snap.time);
-	if (snap.ledger) renameKeysShallow(snap.ledger);
-	if (snap.world) {
-		// Don't recurse into cells/overlays/cellToAnchor — those are
-		// Record<"x,y", string> and rewriting their keys would corrupt them.
-		const w = snap.world as unknown as Record<string, unknown>;
-		const skipKeys = new Set([
-			"cells",
-			"overlays",
-			"cellToAnchor",
-			"overlayToAnchor",
-		]);
-		renameKeysShallow(w);
-		for (const [k, v] of Object.entries(w)) {
-			if (!skipKeys.has(k)) renameKeysDeep(v);
-		}
-	}
-}
-
-// ─── Snapshot type ────────────────────────────────────────────────────────────
-
-export interface SimSnapshot {
-	time: TimeState;
-	world: WorldState;
-	ledger: LedgerState;
-}
 
 // ─── Step result ──────────────────────────────────────────────────────────────
 
@@ -107,56 +43,31 @@ export class TowerSim {
 	// ── Factory methods ────────────────────────────────────────────────────────
 
 	static create(towerId: string, name: string): TowerSim {
-		// New game starts at tick 0x9e5 (mid-day) per new_game_initializer spec.
-		const time = createNewGameTimeState();
-		const world: WorldState = {
-			towerId,
-			name,
-			width: GRID_WIDTH,
-			height: GRID_HEIGHT,
-			gateFlags: createGateFlags(),
-			cells: {},
-			cellToAnchor: {},
-			overlays: {},
-			overlayToAnchor: {},
-			placedObjects: {},
-			sidecars: [],
-			carriers: [],
-			specialLinks: Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
-				active: false,
-				flags: 0,
-				startFloor: 0,
-				heightMetric: 0,
-				carrierId: -1,
-			})),
-			floorWalkabilityFlags: new Array(GRID_HEIGHT).fill(0),
-			transferGroupCache: new Array(GRID_HEIGHT).fill(0),
-		};
-		const ledger = createLedgerState(STARTING_CASH);
-		return new TowerSim(time, world, ledger);
+		return TowerSim.from_snapshot(
+			createInitialSnapshot(towerId, name, STARTING_CASH),
+		);
 	}
 
 	static from_snapshot(snap: SimSnapshot): TowerSim {
-		// Migrate snake_case → camelCase field names from pre-rename saves.
-		migrate_snake_to_camel(snap);
+		const normalized = normalizeSnapshot(snap);
 
 		// Migrate old saves that have a flat WorldState without placedObjects
-		if (snap.world.height < GRID_HEIGHT) snap.world.height = GRID_HEIGHT;
-		snap.world.placedObjects ??= {};
-		snap.world.sidecars ??= [];
-		snap.world.gateFlags ??= createGateFlags();
+		if (normalized.world.height < GRID_HEIGHT)
+			normalized.world.height = GRID_HEIGHT;
+		normalized.world.placedObjects ??= {};
+		normalized.world.sidecars ??= [];
 
 		// Migrate old saves that stored cash in world instead of ledger
-		if (!snap.ledger) {
-			const old = snap.world as unknown as Record<string, unknown>;
+		if (!normalized.ledger) {
+			const old = normalized.world as unknown as Record<string, unknown>;
 			const cash = (old.cash as number) ?? STARTING_CASH;
-			snap.ledger = createLedgerState(cash);
-			delete (snap.world as unknown as Record<string, unknown>).cash;
+			normalized.ledger = createLedgerState(cash);
+			delete (normalized.world as unknown as Record<string, unknown>).cash;
 		}
 
 		// Migrate old saves without Phase 3 carrier/routing fields
-		init_carrier_state(snap.world);
-		snap.world.specialLinks ??= Array.from(
+		init_carrier_state(normalized.world);
+		normalized.world.specialLinks ??= Array.from(
 			{ length: MAX_SPECIAL_LINKS },
 			() => ({
 				active: false,
@@ -167,11 +78,11 @@ export class TowerSim {
 			}),
 		);
 		// Recompute derived routing state from carriers
-		rebuild_special_links(snap.world);
-		rebuild_walkability_flags(snap.world);
-		rebuild_transfer_group_cache(snap.world);
+		rebuild_special_links(normalized.world);
+		rebuild_walkability_flags(normalized.world);
+		rebuild_transfer_group_cache(normalized.world);
 
-		return new TowerSim(snap.time, snap.world, snap.ledger);
+		return new TowerSim(normalized.time, normalized.world, normalized.ledger);
 	}
 
 	// ── Tick ──────────────────────────────────────────────────────────────────
@@ -200,7 +111,7 @@ export class TowerSim {
 
 	// ── Commands ──────────────────────────────────────────────────────────────
 
-	submit_command(cmd: ClientMessage): CommandResult {
+	submit_command(cmd: SimCommand): CommandResult {
 		switch (cmd.type) {
 			case "place_tile":
 				return handle_place_tile(
@@ -212,9 +123,6 @@ export class TowerSim {
 				);
 			case "remove_tile":
 				return handle_remove_tile(cmd.x, cmd.y, this.world, this.ledger);
-			case "join_tower":
-			case "ping":
-				return { accepted: true };
 		}
 	}
 
