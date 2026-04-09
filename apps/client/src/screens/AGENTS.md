@@ -4,4 +4,4 @@ Full-page React screen components.
 
 - **GuestScreen.tsx** — Name entry form. Writes `playerId` (UUID) and `displayName` to localStorage. Calls `onEnter` prop when done.
 - **LobbyScreen.tsx** — Create tower (`POST /api/towers`) or join an existing tower by ID. Maintains a recent-towers list in localStorage. Calls `onJoin(towerId)` on success.
-- **GameScreen.tsx** — Main game screen. Owns WebSocket lifecycle (`TowerSocket`), tool selection state, simTime/playerCount display, and the Phaser canvas via `PhaserGame`. Dispatches `place_tile`/`remove_tile` commands on cell click.
+- **GameScreen.tsx** — Main game screen. Owns WebSocket lifecycle (`TowerSocket`), tool selection state, simTime/playerCount display, and the Phaser canvas via `PhaserGame`. Dispatches `place_tile`/`remove_tile` commands on cell click. Also mirrors live `entities`/`carriers` wire updates into a fixed top-right debug HUD so transport population, queue count, boarded count, active trips, and moving-car counts are visible even when the scene looks static.

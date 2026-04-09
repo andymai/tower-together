@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameScene } from "../game/GameScene";
 import { PhaserGame } from "../game/PhaserGame";
+import * as socket from "../lib/socket";
+import type {
+	CarrierCarStateData,
+	ConnectionStatus,
+	EntityStateData,
+	SelectedTool,
+	ServerMessage,
+} from "../types";
+import { DAY_TICK_MAX, TILE_COSTS } from "../types";
 
 interface Toast {
 	id: number;
@@ -8,10 +17,7 @@ interface Toast {
 }
 
 let toastCounter = 0;
-
-import * as socket from "../lib/socket";
-import type { ConnectionStatus, SelectedTool, ServerMessage } from "../types";
-import { DAY_TICK_MAX, TILE_COSTS } from "../types";
+const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
 
 interface Props {
 	playerId: string;
@@ -107,6 +113,8 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const [cash, setCash] = useState(0);
 	const [playerCount, setPlayerCount] = useState(0);
 	const [towerName, setTowerName] = useState(towerId);
+	const [entities, setEntities] = useState<EntityStateData[]>([]);
+	const [carriers, setCarriers] = useState<CarrierCarStateData[]>([]);
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [aliasInput, setAliasInput] = useState("");
 	const [aliasError, setAliasError] = useState("");
@@ -131,6 +139,8 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					setSimTime(msg.simTime);
 					setCash(msg.cash);
 					setTowerName(msg.name || msg.towerId);
+					setEntities(msg.entities);
+					setCarriers(msg.carriers);
 					sceneRef.current?.applyInitState(
 						msg.cells,
 						msg.entities,
@@ -141,9 +151,11 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					sceneRef.current?.applyPatch(msg.cells);
 					break;
 				case "entity_update":
+					setEntities(msg.entities);
 					sceneRef.current?.applyEntities(msg.entities);
 					break;
 				case "carrier_update":
+					setCarriers(msg.carriers);
 					sceneRef.current?.applyCarriers(msg.carriers);
 					break;
 				case "command_result":
@@ -243,6 +255,26 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 			: connectionStatus === "connecting"
 				? "#facc15"
 				: "#f87171";
+	const queuedEntities = entities.filter(
+		(entity) =>
+			!entity.boardedOnCarrier &&
+			(entity.stateCode === 0x22 ||
+				ELEVATOR_QUEUE_STATES.has(entity.stateCode) ||
+				entity.routeMode === 2),
+	);
+	const boardedEntities = entities.filter((entity) => entity.boardedOnCarrier);
+	const activeTrips = entities.filter((entity) => entity.routeMode !== 0);
+	const movingCars = carriers.filter(
+		(car) => car.speedCounter > 0 || car.currentFloor !== car.targetFloor,
+	);
+	const doorWaitCars = carriers.filter((car) => car.doorWaitCounter > 0);
+	const occupancyByCar = new Map<string, number>();
+	for (const entity of boardedEntities) {
+		if (entity.carrierId === null || entity.assignedCarIndex < 0) continue;
+		const key = `${entity.carrierId}:${entity.assignedCarIndex}`;
+		occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
+	}
+	const peakCarLoad = Math.max(0, ...occupancyByCar.values());
 
 	return (
 		<div style={styles.container}>
@@ -343,6 +375,57 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					selectedTool={selectedTool}
 					sceneRef={sceneRef}
 				/>
+				<div style={styles.debugPanel}>
+					<div style={styles.debugTitle}>Debug</div>
+					<div style={styles.debugRow}>
+						<span>Total population</span>
+						<strong>{entities.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Queued</span>
+						<strong>{queuedEntities.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Boarded</span>
+						<strong>{boardedEntities.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Active trips</span>
+						<strong>{activeTrips.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Cars</span>
+						<strong>{carriers.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Moving cars</span>
+						<strong>{movingCars.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Door wait cars</span>
+						<strong>{doorWaitCars.length}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Peak car load</span>
+						<strong>{peakCarLoad}</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Trip state `0x22`</span>
+						<strong>
+							{entities.filter((entity) => entity.stateCode === 0x22).length}
+						</strong>
+					</div>
+					<div style={styles.debugRow}>
+						<span>Checkout `0x04/0x05`</span>
+						<strong>
+							{
+								entities.filter((entity) =>
+									ELEVATOR_QUEUE_STATES.has(entity.stateCode),
+								).length
+							}
+						</strong>
+					</div>
+				</div>
 			</div>
 
 			{/* Toasts */}
@@ -483,6 +566,38 @@ const styles: Record<string, React.CSSProperties> = {
 		cursor: "pointer",
 	},
 	canvasWrapper: { flex: 1, overflow: "hidden", position: "relative" },
+	debugPanel: {
+		position: "absolute",
+		top: 12,
+		right: 12,
+		zIndex: 40,
+		minWidth: 196,
+		padding: "10px 12px",
+		borderRadius: 8,
+		background: "rgba(14, 18, 24, 0.9)",
+		border: "1px solid rgba(123, 148, 170, 0.35)",
+		backdropFilter: "blur(6px)",
+		display: "flex",
+		flexDirection: "column",
+		gap: 4,
+		pointerEvents: "none",
+	},
+	debugTitle: {
+		fontSize: 11,
+		fontWeight: 700,
+		color: "#d9e7f2",
+		textTransform: "uppercase",
+		letterSpacing: "0.08em",
+		marginBottom: 2,
+	},
+	debugRow: {
+		display: "flex",
+		justifyContent: "space-between",
+		gap: 12,
+		fontSize: 12,
+		color: "#aab8c2",
+		fontVariantNumeric: "tabular-nums",
+	},
 	statusBar: {
 		display: "flex",
 		alignItems: "center",
