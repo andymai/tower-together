@@ -199,7 +199,7 @@ export class TowerRoom extends DurableObject<Env> {
 
 	private startTick(): void {
 		if (this.tickTimer !== null) return;
-		this.tickTimer = setInterval(() => this.tick(), 1000);
+		this.tickTimer = setInterval(() => this.tick(), 50);
 	}
 
 	private stopTick(): void {
