@@ -1,20 +1,8 @@
+import type { TransportMetrics } from "../game/transportSelectors";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
-export interface DebugMetrics {
-	totalPopulation: number;
-	queuedEntities: number;
-	boardedEntities: number;
-	activeTrips: number;
-	totalCars: number;
-	movingCars: number;
-	doorWaitCars: number;
-	peakCarLoad: number;
-	state22Entities: number;
-	checkoutQueueEntities: number;
-}
-
 interface Props {
-	metrics: DebugMetrics;
+	metrics: TransportMetrics;
 	speedMultiplier: 1 | 3 | 10;
 	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
 }

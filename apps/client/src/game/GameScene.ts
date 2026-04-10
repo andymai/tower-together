@@ -8,6 +8,7 @@ import {
 	UNDERGROUND_FLOORS,
 	UNDERGROUND_Y,
 } from "../types";
+import { buildOccupancyByCar, isQueuedEntity } from "./transportSelectors";
 
 const TILE_WIDTH = 4;
 const TILE_HEIGHT = TILE_WIDTH * 4;
@@ -98,8 +99,6 @@ const FAMILY_POPULATION: Record<number, number> = {
 	7: 6,
 	9: 3,
 };
-
-const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
 
 interface TimedSnapshot<T> {
 	simTime: number;
@@ -691,7 +690,7 @@ export class GameScene extends Phaser.Scene {
 			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
 
 		for (const entity of entitySnapshot.items) {
-			if (!this.shouldRenderQueuedEntity(entity)) continue;
+			if (!isQueuedEntity(entity)) continue;
 			const color = ENTITY_STRESS_COLORS[entity.stressLevel] ?? 0x111111;
 			const spanWidth = FAMILY_WIDTHS[entity.familyCode] ?? 1;
 			const population = FAMILY_POPULATION[entity.familyCode] ?? 1;
@@ -721,20 +720,9 @@ export class GameScene extends Phaser.Scene {
 		const g = this.carGraphics;
 		g.clear();
 		this.clearCarLabels();
-		const occupancyByCar = new Map<string, number>();
 		const entitySnapshot = this.currentEntitySnapshot ??
 			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
-		for (const entity of entitySnapshot.items) {
-			if (
-				!entity.boardedOnCarrier ||
-				entity.carrierId === null ||
-				entity.assignedCarIndex < 0
-			) {
-				continue;
-			}
-			const key = `${entity.carrierId}:${entity.assignedCarIndex}`;
-			occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
-		}
+		const occupancyByCar = buildOccupancyByCar(entitySnapshot.items);
 
 		for (const car of this.getDisplayedCars()) {
 			const { x, y, width, height } = this.getCarBounds(car);
@@ -870,15 +858,6 @@ export class GameScene extends Phaser.Scene {
 		const tickIntervalMs = Math.max(1, this.presentationClock.tickIntervalMs);
 		return (
 			this.presentationClock.simTime + Math.min(1, elapsedMs / tickIntervalMs)
-		);
-	}
-
-	private shouldRenderQueuedEntity(entity: EntityStateData): boolean {
-		return (
-			!entity.boardedOnCarrier &&
-			(entity.stateCode === 0x22 ||
-				ELEVATOR_QUEUE_STATES.has(entity.stateCode) ||
-				entity.routeMode === 2)
 		);
 	}
 

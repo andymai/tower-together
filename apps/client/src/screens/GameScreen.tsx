@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import type { GameScene } from "../game/GameScene";
 import { PhaserGame } from "../game/PhaserGame";
+import { buildTransportMetrics } from "../game/transportSelectors";
 import type { SelectedTool } from "../types";
 import { DAY_TICK_MAX, TILE_COSTS } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
-import { type DebugMetrics, GameDebugPanel } from "./GameDebugPanel";
+import { GameDebugPanel } from "./GameDebugPanel";
 import { GamePromptModal } from "./GamePromptModal";
 import { GameStatusBar } from "./GameStatusBar";
 import { GameToasts } from "./GameToasts";
@@ -100,48 +101,6 @@ const TOOLS: ToolDef[] = [
 ];
 
 let toastCounter = 0;
-
-function buildDebugMetrics(
-	entities: ReturnType<typeof useTowerSession>["entities"],
-	carriers: ReturnType<typeof useTowerSession>["carriers"],
-): DebugMetrics {
-	const queuedEntities = entities.filter(
-		(entity) =>
-			!entity.boardedOnCarrier &&
-			(entity.stateCode === 0x22 ||
-				entity.stateCode === 0x04 ||
-				entity.stateCode === 0x05 ||
-				entity.routeMode === 2),
-	);
-	const boardedEntities = entities.filter((entity) => entity.boardedOnCarrier);
-	const activeTrips = entities.filter((entity) => entity.routeMode !== 0);
-	const movingCars = carriers.filter(
-		(car) => car.speedCounter > 0 || car.currentFloor !== car.targetFloor,
-	);
-	const doorWaitCars = carriers.filter((car) => car.doorWaitCounter > 0);
-	const occupancyByCar = new Map<string, number>();
-	for (const entity of boardedEntities) {
-		if (entity.carrierId === null || entity.assignedCarIndex < 0) continue;
-		const key = `${entity.carrierId}:${entity.assignedCarIndex}`;
-		occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
-	}
-
-	return {
-		totalPopulation: entities.length,
-		queuedEntities: queuedEntities.length,
-		boardedEntities: boardedEntities.length,
-		activeTrips: activeTrips.length,
-		totalCars: carriers.length,
-		movingCars: movingCars.length,
-		doorWaitCars: doorWaitCars.length,
-		peakCarLoad: Math.max(0, ...occupancyByCar.values()),
-		state22Entities: entities.filter((entity) => entity.stateCode === 0x22)
-			.length,
-		checkoutQueueEntities: entities.filter(
-			(entity) => entity.stateCode === 0x04 || entity.stateCode === 0x05,
-		).length,
-	};
-}
 
 export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const [selectedTool, setSelectedTool] = useState<SelectedTool>("floor");
@@ -255,7 +214,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
 	const dayTick = simTime % DAY_TICK_MAX;
 	const hour = (6 + Math.floor((dayTick * 19) / DAY_TICK_MAX)) % 24;
-	const metrics = buildDebugMetrics(entities, carriers);
+	const metrics = buildTransportMetrics(entities, carriers);
 
 	return (
 		<div style={styles.container}>
