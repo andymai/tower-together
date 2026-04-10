@@ -3,7 +3,7 @@ import type { ClientMessage } from "./types";
 
 export type SessionMessage = Extract<
 	ClientMessage,
-	{ type: "join_tower" } | { type: "ping" }
+	{ type: "join_tower" } | { type: "ping" } | { type: "set_speed" }
 >;
 
 export function parseClientMessage(
@@ -19,7 +19,9 @@ export function parseClientMessage(
 }
 
 export function isSessionMessage(msg: ClientMessage): msg is SessionMessage {
-	return msg.type === "join_tower" || msg.type === "ping";
+	return (
+		msg.type === "join_tower" || msg.type === "ping" || msg.type === "set_speed"
+	);
 }
 
 export function toSimCommand(msg: ClientMessage): SimCommand | null {
@@ -35,6 +37,7 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 			return { type: "remove_tile", x: msg.x, y: msg.y };
 		case "join_tower":
 		case "ping":
+		case "set_speed":
 			return null;
 	}
 }

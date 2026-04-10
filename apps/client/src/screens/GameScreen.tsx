@@ -120,6 +120,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const [aliasError, setAliasError] = useState("");
 	const [aliasSaving, setAliasSaving] = useState(false);
 	const [toasts, setToasts] = useState<Toast[]>([]);
+	const [speedMultiplier, setSpeedMultiplier] = useState<1 | 3 | 10>(1);
 
 	const addToast = useCallback((message: string) => {
 		const id = ++toastCounter;
@@ -378,6 +379,30 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 				<div style={styles.debugPanel}>
 					<div style={styles.debugTitle}>Debug</div>
 					<div style={styles.debugRow}>
+						<span>Speed</span>
+						<span style={styles.speedButtons}>
+							{([1, 3, 10] as const).map((m) => (
+								<button
+									key={m}
+									type="button"
+									style={{
+										...styles.speedButton,
+										...(speedMultiplier === m ? styles.speedButtonActive : {}),
+									}}
+									onClick={() => {
+										setSpeedMultiplier(m);
+										socket.send({
+											type: "set_speed",
+											multiplier: m,
+										});
+									}}
+								>
+									{m}x
+								</button>
+							))}
+						</span>
+					</div>
+					<div style={styles.debugRow}>
 						<span>Total population</span>
 						<strong>{entities.length}</strong>
 					</div>
@@ -580,7 +605,7 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "flex",
 		flexDirection: "column",
 		gap: 4,
-		pointerEvents: "none",
+		pointerEvents: "auto",
 	},
 	debugTitle: {
 		fontSize: 11,
@@ -597,6 +622,25 @@ const styles: Record<string, React.CSSProperties> = {
 		fontSize: 12,
 		color: "#aab8c2",
 		fontVariantNumeric: "tabular-nums",
+	},
+	speedButtons: {
+		display: "flex",
+		gap: 4,
+	},
+	speedButton: {
+		padding: "1px 6px",
+		borderRadius: 3,
+		border: "1px solid #555",
+		background: "transparent",
+		color: "#aab8c2",
+		fontSize: 11,
+		cursor: "pointer",
+		lineHeight: "16px",
+	},
+	speedButtonActive: {
+		background: "#3b82f6",
+		borderColor: "#3b82f6",
+		color: "#fff",
 	},
 	statusBar: {
 		display: "flex",

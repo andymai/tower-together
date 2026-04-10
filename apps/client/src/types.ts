@@ -130,4 +130,5 @@ export type ClientMessage =
 	| { type: "join_tower"; playerId: string; displayName: string }
 	| { type: "place_tile"; x: number; y: number; tileType: string }
 	| { type: "remove_tile"; x: number; y: number }
-	| { type: "ping" };
+	| { type: "ping" }
+	| { type: "set_speed"; multiplier: 1 | 3 | 10 };

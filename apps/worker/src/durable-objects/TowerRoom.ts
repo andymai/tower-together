@@ -18,6 +18,7 @@ interface Env {
 export class TowerRoom extends DurableObject<Env> {
 	private sim: TowerSim | null = null;
 	private tickTimer: ReturnType<typeof setInterval> | null = null;
+	private speedMultiplier: 1 | 3 | 10 = 1;
 	private isRunning = false;
 	private readonly repository: TowerRoomRepository;
 	private readonly sessions = new TowerRoomSessions();
@@ -148,6 +149,12 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
+		if (isSessionMessage(msg) && msg.type === "set_speed") {
+			this.speedMultiplier = msg.multiplier;
+			if (this.isRunning) this.restartTick();
+			return;
+		}
+
 		const command = toSimCommand(msg);
 		if (!command) return;
 
@@ -199,7 +206,13 @@ export class TowerRoom extends DurableObject<Env> {
 
 	private startTick(): void {
 		if (this.tickTimer !== null) return;
-		this.tickTimer = setInterval(() => this.tick(), 50);
+		const interval = Math.round(50 / this.speedMultiplier);
+		this.tickTimer = setInterval(() => this.tick(), interval);
+	}
+
+	private restartTick(): void {
+		this.stopTick();
+		this.startTick();
 	}
 
 	private stopTick(): void {
