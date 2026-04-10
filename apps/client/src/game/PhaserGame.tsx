@@ -4,11 +4,17 @@ import { GameScene } from "./GameScene";
 
 interface Props {
 	onCellClick: (x: number, y: number, shift: boolean) => void;
+	onCellInspect: (x: number, y: number) => void;
 	selectedTool: string;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
 
-export function PhaserGame({ onCellClick, selectedTool, sceneRef }: Props) {
+export function PhaserGame({
+	onCellClick,
+	onCellInspect,
+	selectedTool,
+	sceneRef,
+}: Props) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const gameRef = useRef<Phaser.Game | null>(null);
 
@@ -45,6 +51,10 @@ export function PhaserGame({ onCellClick, selectedTool, sceneRef }: Props) {
 	useEffect(() => {
 		sceneRef.current?.setOnCellClick(onCellClick);
 	}, [onCellClick, sceneRef]);
+
+	useEffect(() => {
+		sceneRef.current?.setOnCellInspect(onCellInspect);
+	}, [onCellInspect, sceneRef]);
 
 	useEffect(() => {
 		sceneRef.current?.setSelectedTool(selectedTool);

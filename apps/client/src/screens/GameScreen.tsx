@@ -24,6 +24,50 @@ interface ActivePrompt {
 	cost?: number;
 }
 
+interface CellInfoData {
+	x: number;
+	y: number;
+	tileType: string;
+	objectInfo?: {
+		objectTypeCode: number;
+		variantIndex: number;
+		pairingStatus: number;
+		stayPhase: number;
+		activationTickCount: number;
+	};
+	carrierInfo?: {
+		carrierId: number;
+		carrierMode: 0 | 1 | 2;
+		topServedFloor: number;
+		bottomServedFloor: number;
+		carCount: number;
+		maxCars: number;
+		servedFloors: number[];
+	};
+}
+
+const RENT_LEVEL_LABELS = ["High", "Medium", "Low", "Minimal"];
+const CARRIER_MODE_LABELS: Record<number, string> = {
+	0: "Express",
+	1: "Standard",
+	2: "Service",
+};
+const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 6, 7, 9, 10, 12]);
+const FAMILY_LABELS: Record<number, string> = {
+	3: "Hotel (Single)",
+	4: "Hotel (Twin)",
+	5: "Hotel (Suite)",
+	6: "Restaurant",
+	7: "Office",
+	9: "Condo",
+	10: "Fast Food",
+	12: "Retail",
+	18: "Cinema",
+	20: "Security",
+	21: "Housekeeping",
+	29: "Entertainment",
+};
+
 let toastCounter = 0;
 const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
 
@@ -130,6 +174,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [speedMultiplier, setSpeedMultiplier] = useState<1 | 3 | 10>(1);
 	const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(null);
+	const [inspectedCell, setInspectedCell] = useState<CellInfoData | null>(null);
 
 	const addToast = useCallback(
 		(message: string, variant: "error" | "info" = "error") => {
@@ -204,6 +249,15 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 						prev?.promptId === msg.promptId ? null : prev,
 					);
 					break;
+				case "cell_info":
+					setInspectedCell({
+						x: msg.x,
+						y: msg.y,
+						tileType: msg.tileType,
+						objectInfo: msg.objectInfo,
+						carrierInfo: msg.carrierInfo,
+					});
+					break;
 			}
 		});
 	}, [addToast]);
@@ -247,6 +301,10 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 		},
 		[selectedTool],
 	);
+
+	const handleCellInspect = useCallback((x: number, y: number) => {
+		socket.send({ type: "query_cell", x, y });
+	}, []);
 
 	async function handleSetAlias() {
 		const alias = aliasInput.trim().toLowerCase();
@@ -415,6 +473,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 			<div ref={canvasWrapperRef} style={styles.canvasWrapper}>
 				<PhaserGame
 					onCellClick={handleCellClick}
+					onCellInspect={handleCellInspect}
 					selectedTool={selectedTool}
 					sceneRef={sceneRef}
 				/>
@@ -529,6 +588,180 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					</div>
 				</div>
 			)}
+
+			{/* Inspection dialog */}
+			{inspectedCell &&
+				(inspectedCell.objectInfo || inspectedCell.carrierInfo) && (
+					<button
+						type="button"
+						style={styles.modalOverlay}
+						onClick={() => setInspectedCell(null)}
+					>
+						<div
+							role="dialog"
+							style={styles.inspectDialog}
+							onClick={(e) => e.stopPropagation()}
+							onKeyDown={() => {}}
+						>
+							<div style={styles.inspectHeader}>
+								<span style={styles.inspectTitle}>
+									{inspectedCell.carrierInfo
+										? `${CARRIER_MODE_LABELS[inspectedCell.carrierInfo.carrierMode] ?? "Elevator"} Elevator`
+										: (FAMILY_LABELS[
+												inspectedCell.objectInfo?.objectTypeCode ?? -1
+											] ?? inspectedCell.tileType)}
+								</span>
+								<button
+									type="button"
+									style={styles.inspectClose}
+									onClick={() => setInspectedCell(null)}
+								>
+									&times;
+								</button>
+							</div>
+
+							{/* Rent level controls */}
+							{inspectedCell.objectInfo &&
+								RENT_ADJUSTABLE_FAMILIES.has(
+									inspectedCell.objectInfo.objectTypeCode,
+								) && (
+									<div style={styles.inspectSection}>
+										<div style={styles.inspectLabel}>Rent Level</div>
+										<div style={styles.rentButtons}>
+											{RENT_LEVEL_LABELS.map((label, i) => (
+												<button
+													type="button"
+													key={label}
+													style={{
+														...styles.rentButton,
+														...(inspectedCell.objectInfo?.variantIndex === i
+															? styles.rentButtonActive
+															: {}),
+													}}
+													onClick={() => {
+														socket.send({
+															type: "set_rent_level",
+															x: inspectedCell.x,
+															y: inspectedCell.y,
+															rentLevel: i,
+														});
+														setInspectedCell((prev) =>
+															prev?.objectInfo
+																? {
+																		...prev,
+																		objectInfo: {
+																			...prev.objectInfo,
+																			variantIndex: i,
+																		},
+																	}
+																: prev,
+														);
+													}}
+												>
+													{label}
+												</button>
+											))}
+										</div>
+									</div>
+								)}
+
+							{/* Elevator controls */}
+							{inspectedCell.carrierInfo && (
+								<>
+									<div style={styles.inspectSection}>
+										<div style={styles.inspectRow}>
+											<span style={styles.inspectLabel}>Mode</span>
+											<span style={styles.inspectValue}>
+												{CARRIER_MODE_LABELS[
+													inspectedCell.carrierInfo.carrierMode
+												] ?? "Unknown"}
+											</span>
+										</div>
+										<div style={styles.inspectRow}>
+											<span style={styles.inspectLabel}>Floors</span>
+											<span style={styles.inspectValue}>
+												{inspectedCell.carrierInfo.bottomServedFloor - 10} to{" "}
+												{inspectedCell.carrierInfo.topServedFloor - 10}
+											</span>
+										</div>
+									</div>
+									<div style={styles.inspectSection}>
+										<div style={styles.inspectRow}>
+											<span style={styles.inspectLabel}>Cars</span>
+											<span style={styles.inspectValue}>
+												{inspectedCell.carrierInfo.carCount} /{" "}
+												{inspectedCell.carrierInfo.maxCars}
+											</span>
+										</div>
+										<div style={styles.carButtons}>
+											<button
+												type="button"
+												style={{
+													...styles.carButton,
+													...(inspectedCell.carrierInfo.carCount >= 8
+														? styles.carButtonDisabled
+														: {}),
+												}}
+												disabled={inspectedCell.carrierInfo.carCount >= 8}
+												onClick={() => {
+													socket.send({
+														type: "add_elevator_car",
+														x: inspectedCell.x,
+													});
+													setInspectedCell((prev) =>
+														prev?.carrierInfo
+															? {
+																	...prev,
+																	carrierInfo: {
+																		...prev.carrierInfo,
+																		carCount: prev.carrierInfo.carCount + 1,
+																	},
+																}
+															: prev,
+													);
+												}}
+											>
+												+ Add Car
+											</button>
+											<button
+												type="button"
+												style={{
+													...styles.carButton,
+													...(inspectedCell.carrierInfo.carCount <= 1
+														? styles.carButtonDisabled
+														: {}),
+												}}
+												disabled={inspectedCell.carrierInfo.carCount <= 1}
+												onClick={() => {
+													socket.send({
+														type: "remove_elevator_car",
+														x: inspectedCell.x,
+													});
+													setInspectedCell((prev) =>
+														prev?.carrierInfo
+															? {
+																	...prev,
+																	carrierInfo: {
+																		...prev.carrierInfo,
+																		carCount: Math.max(
+																			1,
+																			prev.carrierInfo.carCount - 1,
+																		),
+																	},
+																}
+															: prev,
+													);
+												}}
+											>
+												- Remove Car
+											</button>
+										</div>
+									</div>
+								</>
+							)}
+						</div>
+					</button>
+				)}
 
 			{/* Toasts */}
 			{toasts.length > 0 && (
@@ -839,5 +1072,100 @@ const styles: Record<string, React.CSSProperties> = {
 		fontSize: 14,
 		fontWeight: 600,
 		cursor: "pointer",
+	},
+	inspectDialog: {
+		background: "#242424",
+		border: "1px solid #444",
+		borderRadius: 12,
+		padding: "16px 20px",
+		minWidth: 280,
+		maxWidth: 380,
+		display: "flex",
+		flexDirection: "column",
+		gap: 12,
+		boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+	},
+	inspectHeader: {
+		display: "flex",
+		justifyContent: "space-between",
+		alignItems: "center",
+	},
+	inspectTitle: {
+		fontSize: 16,
+		fontWeight: 700,
+		color: "#e0e0e0",
+	},
+	inspectClose: {
+		background: "transparent",
+		border: "none",
+		color: "#888",
+		fontSize: 20,
+		cursor: "pointer",
+		padding: "0 4px",
+		lineHeight: 1,
+	},
+	inspectSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 6,
+	},
+	inspectRow: {
+		display: "flex",
+		justifyContent: "space-between",
+		alignItems: "center",
+		fontSize: 13,
+	},
+	inspectLabel: {
+		color: "#888",
+		fontSize: 12,
+		fontWeight: 600,
+		textTransform: "uppercase",
+		letterSpacing: "0.05em",
+	},
+	inspectValue: {
+		color: "#ccc",
+		fontSize: 13,
+		fontVariantNumeric: "tabular-nums",
+	},
+	rentButtons: {
+		display: "flex",
+		gap: 4,
+		marginTop: 4,
+	},
+	rentButton: {
+		flex: 1,
+		padding: "6px 8px",
+		borderRadius: 4,
+		border: "1px solid #555",
+		background: "transparent",
+		color: "#aaa",
+		fontSize: 12,
+		fontWeight: 500,
+		cursor: "pointer",
+	},
+	rentButtonActive: {
+		background: "rgba(74, 222, 128, 0.15)",
+		borderColor: "#4ade80",
+		color: "#4ade80",
+	},
+	carButtons: {
+		display: "flex",
+		gap: 8,
+		marginTop: 4,
+	},
+	carButton: {
+		flex: 1,
+		padding: "6px 12px",
+		borderRadius: 4,
+		border: "1px solid #555",
+		background: "transparent",
+		color: "#ccc",
+		fontSize: 12,
+		fontWeight: 500,
+		cursor: "pointer",
+	},
+	carButtonDisabled: {
+		opacity: 0.4,
+		cursor: "default",
 	},
 };

@@ -99,6 +99,7 @@ const FAMILY_POPULATION: Record<number, number> = {
 const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
+export type CellInspectHandler = (x: number, y: number) => void;
 
 const LABEL_PANEL_WIDTH = 24;
 
@@ -125,6 +126,7 @@ export class GameScene extends Phaser.Scene {
 	private hoveredCell: { x: number; y: number } | null = null;
 	private selectedTool: string = "floor";
 	private onCellClick: CellClickHandler | null = null;
+	private onCellInspect: CellInspectHandler | null = null;
 
 	// Pan state
 	private isPanning = false;
@@ -153,6 +155,10 @@ export class GameScene extends Phaser.Scene {
 
 	setOnCellClick(handler: CellClickHandler): void {
 		this.onCellClick = handler;
+	}
+
+	setOnCellInspect(handler: CellInspectHandler): void {
+		this.onCellInspect = handler;
 	}
 
 	setSelectedTool(tool: string): void {
@@ -958,7 +964,19 @@ export class GameScene extends Phaser.Scene {
 		});
 
 		this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-			if (pointer.middleButtonDown() || pointer.rightButtonDown()) {
+			if (pointer.rightButtonDown()) {
+				const cell = this.worldToCell(pointer.worldX, pointer.worldY);
+				if (
+					cell.x >= 0 &&
+					cell.x < GRID_WIDTH &&
+					cell.y >= 0 &&
+					cell.y < GRID_HEIGHT
+				) {
+					this.onCellInspect?.(cell.x, cell.y);
+				}
+				return;
+			}
+			if (pointer.middleButtonDown()) {
 				this.isPanning = true;
 				this.panStartX = pointer.x;
 				this.panStartY = pointer.y;

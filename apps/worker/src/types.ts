@@ -6,7 +6,11 @@ export type ClientMessage =
 	| { type: "remove_tile"; x: number; y: number }
 	| { type: "ping" }
 	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
-	| { type: "prompt_response"; promptId: string; accepted: boolean };
+	| { type: "prompt_response"; promptId: string; accepted: boolean }
+	| { type: "query_cell"; x: number; y: number }
+	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
+	| { type: "add_elevator_car"; x: number }
+	| { type: "remove_elevator_car"; x: number };
 
 // ─── WebSocket messages to client ────────────────────────────────────────────
 
@@ -79,4 +83,26 @@ export type ServerMessage =
 			cost?: number;
 	  }
 	| { type: "prompt_dismissed"; promptId: string }
+	| {
+			type: "cell_info";
+			x: number;
+			y: number;
+			tileType: string;
+			objectInfo?: {
+				objectTypeCode: number;
+				variantIndex: number;
+				pairingStatus: number;
+				stayPhase: number;
+				activationTickCount: number;
+			};
+			carrierInfo?: {
+				carrierId: number;
+				carrierMode: 0 | 1 | 2;
+				topServedFloor: number;
+				bottomServedFloor: number;
+				carCount: number;
+				maxCars: number;
+				servedFloors: number[];
+			};
+	  }
 	| { type: "pong" };

@@ -155,6 +155,19 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
+		if (msg.type === "query_cell") {
+			const info = this.sim.query_cell(msg.x, msg.y);
+			this.sessions.send(ws, {
+				type: "cell_info",
+				x: msg.x,
+				y: msg.y,
+				tileType: info.tileType,
+				objectInfo: info.objectInfo,
+				carrierInfo: info.carrierInfo,
+			});
+			return;
+		}
+
 		const command = toSimCommand(msg);
 		if (!command) return;
 

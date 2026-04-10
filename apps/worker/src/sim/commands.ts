@@ -44,7 +44,10 @@ export interface CommandResult {
 export type SimCommand =
 	| { type: "place_tile"; x: number; y: number; tileType: string }
 	| { type: "remove_tile"; x: number; y: number }
-	| { type: "prompt_response"; promptId: string; accepted: boolean };
+	| { type: "prompt_response"; promptId: string; accepted: boolean }
+	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
+	| { type: "add_elevator_car"; x: number }
+	| { type: "remove_elevator_car"; x: number };
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 
@@ -532,6 +535,87 @@ export function handle_remove_tile(
 	run_global_rebuilds(world, ledger);
 
 	return { accepted: true, patch };
+}
+
+// ─── Gap-fill helper ──────────────────────────────────────────────────────────
+
+// ─── Rent level adjustment ────────────────────────────────────────────────────
+
+/** Families that support rent level changes (variant_index 0-3). */
+const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 6, 7, 9, 10, 12]);
+
+export function handle_set_rent_level(
+	x: number,
+	y: number,
+	rentLevel: number,
+	world: WorldState,
+): CommandResult {
+	if (rentLevel < 0 || rentLevel > 3) {
+		return { accepted: false, reason: "Rent level must be 0-3" };
+	}
+	const anchorKey = world.cellToAnchor[`${x},${y}`] ?? `${x},${y}`;
+	const record = world.placedObjects[anchorKey];
+	if (!record) {
+		return { accepted: false, reason: "No facility here" };
+	}
+	if (!RENT_ADJUSTABLE_FAMILIES.has(record.objectTypeCode)) {
+		return {
+			accepted: false,
+			reason: "This facility does not have adjustable rent",
+		};
+	}
+	record.variantIndex = rentLevel;
+	record.needsRefreshFlag = 1;
+	return { accepted: true, patch: [] };
+}
+
+// ─── Elevator car management ─────────────────────────────────────────────────
+
+export function handle_add_elevator_car(
+	x: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	const activeCars = carrier.cars.filter((c) => c.active).length;
+	if (activeCars >= 8) {
+		return { accepted: false, reason: "Maximum 8 cars per shaft" };
+	}
+	// Activate first inactive car
+	for (const car of carrier.cars) {
+		if (!car.active) {
+			car.active = true;
+			car.currentFloor = carrier.bottomServedFloor;
+			car.targetFloor = carrier.bottomServedFloor;
+			car.prevFloor = carrier.bottomServedFloor;
+			car.homeFloor = carrier.bottomServedFloor;
+			return { accepted: true, patch: [] };
+		}
+	}
+	return { accepted: false, reason: "No car slots available" };
+}
+
+export function handle_remove_elevator_car(
+	x: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	const activeCars = carrier.cars.filter((c) => c.active);
+	if (activeCars.length <= 1) {
+		return { accepted: false, reason: "Must keep at least 1 car" };
+	}
+	// Deactivate last active car
+	const lastCar = activeCars[activeCars.length - 1];
+	lastCar.active = false;
+	lastCar.assignedCount = 0;
+	lastCar.pendingAssignmentCount = 0;
+	lastCar.pendingRouteIds = [];
+	return { accepted: true, patch: [] };
 }
 
 // ─── Gap-fill helper ──────────────────────────────────────────────────────────

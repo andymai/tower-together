@@ -1,6 +1,12 @@
 import { init_carrier_state, tick_all_carriers } from "./carriers";
 import type { CellPatch, CommandResult, SimCommand } from "./commands";
-import { handle_place_tile, handle_remove_tile } from "./commands";
+import {
+	handle_add_elevator_car,
+	handle_place_tile,
+	handle_remove_elevator_car,
+	handle_remove_tile,
+	handle_set_rent_level,
+} from "./commands";
 import {
 	advance_entity_refresh_stride,
 	create_entity_state_records,
@@ -253,7 +259,96 @@ export class TowerSim {
 					economyChanged: true,
 				};
 			}
+			case "set_rent_level":
+				return handle_set_rent_level(cmd.x, cmd.y, cmd.rentLevel, this.world);
+			case "add_elevator_car":
+				return handle_add_elevator_car(cmd.x, this.world);
+			case "remove_elevator_car":
+				return handle_remove_elevator_car(cmd.x, this.world);
 		}
+	}
+
+	// ── Cell inspection ──────────────────────────────────────────────────────────
+
+	query_cell(
+		x: number,
+		y: number,
+	): {
+		tileType: string;
+		objectInfo?: {
+			objectTypeCode: number;
+			variantIndex: number;
+			pairingStatus: number;
+			stayPhase: number;
+			activationTickCount: number;
+		};
+		carrierInfo?: {
+			carrierId: number;
+			carrierMode: 0 | 1 | 2;
+			topServedFloor: number;
+			bottomServedFloor: number;
+			carCount: number;
+			maxCars: number;
+			servedFloors: number[];
+		};
+	} {
+		const key = `${x},${y}`;
+		const anchorKey = this.world.cellToAnchor[key] ?? key;
+		const tileType = this.world.cells[anchorKey] ?? "empty";
+
+		const record = this.world.placedObjects[anchorKey];
+		const objectInfo = record
+			? {
+					objectTypeCode: record.objectTypeCode,
+					variantIndex: record.variantIndex,
+					pairingStatus: record.pairingStatus,
+					stayPhase: record.stayPhase,
+					activationTickCount: record.activationTickCount,
+				}
+			: undefined;
+
+		// Check for carrier at this column (elevator overlays)
+		const overlayKey =
+			this.world.overlayToAnchor[key] ??
+			(this.world.overlays[key] ? key : null);
+		let carrierInfo:
+			| {
+					carrierId: number;
+					carrierMode: 0 | 1 | 2;
+					topServedFloor: number;
+					bottomServedFloor: number;
+					carCount: number;
+					maxCars: number;
+					servedFloors: number[];
+			  }
+			| undefined;
+
+		if (overlayKey) {
+			const [anchorXStr] = overlayKey.split(",");
+			const col = Number(anchorXStr);
+			const carrier = this.world.carriers.find((c) => c.column === col);
+			if (carrier) {
+				const servedFloors: number[] = [];
+				for (
+					let f = carrier.bottomServedFloor;
+					f <= carrier.topServedFloor;
+					f++
+				) {
+					servedFloors.push(f);
+				}
+				carrierInfo = {
+					carrierId: carrier.carrierId,
+					carrierMode: carrier.carrierMode,
+					topServedFloor: carrier.topServedFloor,
+					bottomServedFloor: carrier.bottomServedFloor,
+					carCount: carrier.cars.filter((c) => c.active).length,
+					maxCars: 8,
+					servedFloors,
+				};
+			}
+		}
+
+		return { tileType, objectInfo, carrierInfo };
 	}
 
 	// ── Serialization ──────────────────────────────────────────────────────────

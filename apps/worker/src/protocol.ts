@@ -3,7 +3,10 @@ import type { ClientMessage } from "./types";
 
 export type SessionMessage = Extract<
 	ClientMessage,
-	{ type: "join_tower" } | { type: "ping" } | { type: "set_speed" }
+	| { type: "join_tower" }
+	| { type: "ping" }
+	| { type: "set_speed" }
+	| { type: "query_cell" }
 >;
 
 export function parseClientMessage(
@@ -20,7 +23,10 @@ export function parseClientMessage(
 
 export function isSessionMessage(msg: ClientMessage): msg is SessionMessage {
 	return (
-		msg.type === "join_tower" || msg.type === "ping" || msg.type === "set_speed"
+		msg.type === "join_tower" ||
+		msg.type === "ping" ||
+		msg.type === "set_speed" ||
+		msg.type === "query_cell"
 	);
 }
 
@@ -41,9 +47,21 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 				promptId: msg.promptId,
 				accepted: msg.accepted,
 			};
+		case "set_rent_level":
+			return {
+				type: "set_rent_level",
+				x: msg.x,
+				y: msg.y,
+				rentLevel: msg.rentLevel,
+			};
+		case "add_elevator_car":
+			return { type: "add_elevator_car", x: msg.x };
+		case "remove_elevator_car":
+			return { type: "remove_elevator_car", x: msg.x };
 		case "join_tower":
 		case "ping":
 		case "set_speed":
+		case "query_cell":
 			return null;
 	}
 }
