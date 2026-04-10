@@ -427,6 +427,15 @@ export class TowerSim {
 			.map((n) => ({ kind: n.kind, message: n.message ?? "" }));
 	}
 
+	drainPrompts(): Array<{
+		promptId: string;
+		promptKind: "bomb_ransom" | "fire_rescue" | "carrier_edit_confirmation";
+		message: string;
+		cost?: number;
+	}> {
+		return this.world.pendingPrompts.splice(0);
+	}
+
 	// ── Accessors for TowerRoom ────────────────────────────────────────────────
 
 	get towerId(): string {

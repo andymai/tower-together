@@ -35,6 +35,7 @@ import {
 	update_security_housekeeping_state,
 } from "./entities";
 import { handlePromptResponse, tickBombEvent } from "./events";
+import { TowerSim } from "./index";
 import {
 	add_cashflow_from_family_resource,
 	createLedgerState,
@@ -2453,6 +2454,36 @@ describe("Phase 4 runtime entities", () => {
 			true,
 		);
 		expect(carrier.cars.filter((car) => car.active)).toHaveLength(1);
+	});
+
+	it("exposes command-generated prompts immediately after submit_command", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		const carrier = make_carrier(0, 0, 1, 10, 15, 2);
+		world.carriers.push(carrier);
+		carrier.pendingRoutes.push({
+			entityId: "test",
+			sourceFloor: 10,
+			destinationFloor: 15,
+			boarded: false,
+			directionFlag: 0,
+			assignedCarIndex: 0,
+		});
+
+		const sim = TowerSim.from_snapshot({
+			time: createTimeState(),
+			world,
+			ledger,
+		});
+
+		const result = sim.submit_command({ type: "remove_elevator_car", x: 0 });
+		expect(result.accepted).toBe(true);
+		expect(sim.drainPrompts()).toMatchObject([
+			{
+				promptKind: "carrier_edit_confirmation",
+				promptId: "carrier_remove_0",
+			},
+		]);
 	});
 
 	it("advances bomb search automatically when security exists", () => {
