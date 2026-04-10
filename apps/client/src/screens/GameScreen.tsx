@@ -190,18 +190,49 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 
 	const sceneRef = useRef<GameScene | null>(null);
 	const canvasWrapperRef = useRef<HTMLDivElement>(null);
+	const clockSampleRef = useRef<{
+		simTime: number;
+		receivedAtMs: number;
+		tickIntervalMs: number;
+	} | null>(null);
+
+	const updatePresentationClock = useCallback((nextSimTime: number) => {
+		const receivedAtMs = performance.now();
+		const previous = clockSampleRef.current;
+		let tickIntervalMs = previous?.tickIntervalMs ?? 50;
+		if (previous && nextSimTime > previous.simTime) {
+			tickIntervalMs =
+				(receivedAtMs - previous.receivedAtMs) /
+				(nextSimTime - previous.simTime);
+		}
+		if (!Number.isFinite(tickIntervalMs) || tickIntervalMs <= 0) {
+			tickIntervalMs = 50;
+		}
+		clockSampleRef.current = {
+			simTime: nextSimTime,
+			receivedAtMs,
+			tickIntervalMs,
+		};
+		sceneRef.current?.setPresentationClock(
+			nextSimTime,
+			receivedAtMs,
+			tickIntervalMs,
+		);
+	}, []);
 
 	useEffect(() => {
 		return socket.onMessage((msg: ServerMessage) => {
 			switch (msg.type) {
 				case "init_state":
 					setSimTime(msg.simTime);
+					updatePresentationClock(msg.simTime);
 					setCash(msg.cash);
 					setTowerName(msg.name || msg.towerId);
 					setEntities(msg.entities);
 					setCarriers(msg.carriers);
 					sceneRef.current?.applyInitState(
 						msg.cells,
+						msg.simTime,
 						msg.entities,
 						msg.carriers,
 					);
@@ -211,11 +242,11 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					break;
 				case "entity_update":
 					setEntities(msg.entities);
-					sceneRef.current?.applyEntities(msg.entities);
+					sceneRef.current?.applyEntities(msg.simTime, msg.entities);
 					break;
 				case "carrier_update":
 					setCarriers(msg.carriers);
-					sceneRef.current?.applyCarriers(msg.carriers);
+					sceneRef.current?.applyCarriers(msg.simTime, msg.carriers);
 					break;
 				case "command_result":
 					if (msg.accepted && msg.patch) {
@@ -229,6 +260,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					break;
 				case "time_update":
 					setSimTime(msg.simTime);
+					updatePresentationClock(msg.simTime);
 					break;
 				case "economy_update":
 					setCash(msg.cash);
@@ -260,7 +292,7 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					break;
 			}
 		});
-	}, [addToast]);
+	}, [addToast, updatePresentationClock]);
 
 	useEffect(() => {
 		return socket.onStatus((status: ConnectionStatus) => {

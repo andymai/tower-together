@@ -79,6 +79,9 @@ const ENTITY_STRESS_COLORS: Record<EntityStateData["stressLevel"], number> = {
 const CAR_COLOR = 0xf6d463;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
+const DEFAULT_TICK_INTERVAL_MS = 50;
+const LOCAL_TICKS_PER_FLOOR = 8;
+const EXPRESS_TICKS_PER_FLOOR = 4;
 
 const FAMILY_WIDTHS: Record<number, number> = {
 	3: TILE_WIDTHS.hotelSingle,
@@ -97,6 +100,11 @@ const FAMILY_POPULATION: Record<number, number> = {
 };
 
 const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
+
+interface TimedSnapshot<T> {
+	simTime: number;
+	items: T[];
+}
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
@@ -120,8 +128,17 @@ export class GameScene extends Phaser.Scene {
 	private anchorSet: Set<string> = new Set();
 	// Overlay tiles (e.g. stairs) keyed by "x,y"
 	private overlayGrid: Map<string, string> = new Map();
-	private entities: EntityStateData[] = [];
-	private carriers: CarrierCarStateData[] = [];
+	private previousEntitySnapshot: TimedSnapshot<EntityStateData> | null = null;
+	private currentEntitySnapshot: TimedSnapshot<EntityStateData> | null = null;
+	private previousCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
+		null;
+	private currentCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
+		null;
+	private presentationClock = {
+		simTime: 0,
+		receivedAtMs: 0,
+		tickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
+	};
 
 	private hoveredCell: { x: number; y: number } | null = null;
 	private selectedTool: string = "floor";
@@ -295,6 +312,7 @@ export class GameScene extends Phaser.Scene {
 			isAnchor: boolean;
 			isOverlay?: boolean;
 		}>,
+		simTime: number,
 		entities: EntityStateData[] = [],
 		carriers: CarrierCarStateData[] = [],
 	): void {
@@ -310,8 +328,15 @@ export class GameScene extends Phaser.Scene {
 				if (cell.isAnchor) this.anchorSet.add(key);
 			}
 		}
-		this.entities = entities;
-		this.carriers = carriers;
+		this.previousEntitySnapshot = null;
+		this.currentEntitySnapshot = { simTime, items: entities };
+		this.previousCarrierSnapshot = null;
+		this.currentCarrierSnapshot = { simTime, items: carriers };
+		this.presentationClock = {
+			simTime,
+			receivedAtMs: performance.now(),
+			tickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
+		};
 		this.drawAllCells();
 	}
 
@@ -347,14 +372,29 @@ export class GameScene extends Phaser.Scene {
 		this.drawAllCells();
 	}
 
-	applyEntities(entities: EntityStateData[]): void {
-		this.entities = entities;
-		this.drawAllCells();
+	applyEntities(simTime: number, entities: EntityStateData[]): void {
+		this.previousEntitySnapshot = this.currentEntitySnapshot;
+		this.currentEntitySnapshot = { simTime, items: entities };
+		this.drawDynamicOverlays();
 	}
 
-	applyCarriers(carriers: CarrierCarStateData[]): void {
-		this.carriers = carriers;
-		this.drawAllCells();
+	applyCarriers(simTime: number, carriers: CarrierCarStateData[]): void {
+		this.previousCarrierSnapshot = this.currentCarrierSnapshot;
+		this.currentCarrierSnapshot = { simTime, items: carriers };
+		this.drawDynamicOverlays();
+	}
+
+	setPresentationClock(
+		simTime: number,
+		receivedAtMs: number,
+		tickIntervalMs = DEFAULT_TICK_INTERVAL_MS,
+	): void {
+		this.presentationClock = {
+			simTime,
+			receivedAtMs,
+			tickIntervalMs:
+				tickIntervalMs > 0 ? tickIntervalMs : DEFAULT_TICK_INTERVAL_MS,
+		};
 	}
 
 	create(): void {
@@ -396,6 +436,7 @@ export class GameScene extends Phaser.Scene {
 		if (this.arrowKeys.down.isDown) cam.scrollY += PAN_SPEED;
 
 		this.updateFloorLabels();
+		this.drawDynamicOverlays();
 	}
 
 	private setupFloorLabels(): void {
@@ -481,8 +522,6 @@ export class GameScene extends Phaser.Scene {
 	private drawAllCells(): void {
 		const g = this.cellGraphics;
 		g.clear();
-		this.entityGraphics.clear();
-		this.carGraphics.clear();
 		this.clearTileLabels();
 
 		// Sky background (above ground)
@@ -597,6 +636,10 @@ export class GameScene extends Phaser.Scene {
 		}
 
 		this.drawTileLabels();
+		this.drawDynamicOverlays();
+	}
+
+	private drawDynamicOverlays(): void {
 		this.drawEntities();
 		this.drawCars();
 	}
@@ -644,8 +687,10 @@ export class GameScene extends Phaser.Scene {
 		g.clear();
 		const queueIndices = new Map<string, number>();
 		const elevatorColumnsByFloor = this.collectElevatorColumnsByFloor();
+		const entitySnapshot = this.currentEntitySnapshot ??
+			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
 
-		for (const entity of this.entities) {
+		for (const entity of entitySnapshot.items) {
 			if (!this.shouldRenderQueuedEntity(entity)) continue;
 			const color = ENTITY_STRESS_COLORS[entity.stressLevel] ?? 0x111111;
 			const spanWidth = FAMILY_WIDTHS[entity.familyCode] ?? 1;
@@ -677,7 +722,9 @@ export class GameScene extends Phaser.Scene {
 		g.clear();
 		this.clearCarLabels();
 		const occupancyByCar = new Map<string, number>();
-		for (const entity of this.entities) {
+		const entitySnapshot = this.currentEntitySnapshot ??
+			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
+		for (const entity of entitySnapshot.items) {
 			if (
 				!entity.boardedOnCarrier ||
 				entity.carrierId === null ||
@@ -689,7 +736,7 @@ export class GameScene extends Phaser.Scene {
 			occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
 		}
 
-		for (const car of this.carriers) {
+		for (const car of this.getDisplayedCars()) {
 			const { x, y, width, height } = this.getCarBounds(car);
 			const occupancy =
 				occupancyByCar.get(`${car.carrierId}:${car.carIndex}`) ?? 0;
@@ -741,24 +788,89 @@ export class GameScene extends Phaser.Scene {
 		const height = Math.max(8, Math.floor(TILE_HEIGHT * 0.55));
 		const x =
 			car.column * TILE_WIDTH + gutter + car.carIndex * (width + gutter);
-		const y =
-			this.carWorldY(car.currentFloor, car.targetFloor, car.speedCounter) -
-			height / 2;
+		const y = this.carWorldY(car) - height / 2;
 		return { x, y, width, height };
 	}
 
-	private carWorldY(
-		currentFloor: number,
-		targetFloor: number,
-		speedCounter: number,
-	): number {
-		const currentY = (GRID_HEIGHT - 1 - currentFloor + 0.5) * TILE_HEIGHT;
-		if (speedCounter <= 0 || currentFloor === targetFloor) return currentY;
+	private carWorldY(car: CarrierCarStateData): number {
+		return (GRID_HEIGHT - 1 - this.predictCarFloor(car) + 0.5) * TILE_HEIGHT;
+	}
 
-		const direction = targetFloor > currentFloor ? -1 : 1;
-		const ticksPerFloor = 8;
-		const progress = (ticksPerFloor - speedCounter) / ticksPerFloor;
-		return currentY + direction * progress * TILE_HEIGHT;
+	private getDisplayedCars(): CarrierCarStateData[] {
+		const current = this.currentCarrierSnapshot;
+		if (!current) return [];
+
+		const presentationTime = this.getPresentationTime();
+		const previous = this.previousCarrierSnapshot;
+		if (
+			previous &&
+			presentationTime >= previous.simTime &&
+			presentationTime <= current.simTime
+		) {
+			const progress =
+				(presentationTime - previous.simTime) /
+				Math.max(1, current.simTime - previous.simTime);
+			const previousByKey = new Map(
+				previous.items.map((car) => [this.carKey(car), car]),
+			);
+			return current.items.map((car) => {
+				const from = previousByKey.get(this.carKey(car));
+				if (!from) return car;
+				const interpolatedFloor = Phaser.Math.Linear(
+					this.predictCarFloor(from, 0),
+					this.predictCarFloor(car, 0),
+					progress,
+				);
+				return {
+					...car,
+					currentFloor: interpolatedFloor,
+				};
+			});
+		}
+
+		return current.items.map((car) => ({
+			...car,
+			currentFloor: this.predictCarFloor(
+				car,
+				Math.max(0, presentationTime - current.simTime),
+			),
+		}));
+	}
+
+	private carKey(car: CarrierCarStateData): string {
+		return `${car.carrierId}:${car.carIndex}`;
+	}
+
+	private predictCarFloor(
+		car: CarrierCarStateData,
+		additionalTicks = 0,
+	): number {
+		if (car.currentFloor === car.targetFloor || car.speedCounter <= 0) {
+			return car.currentFloor;
+		}
+
+		const ticksPerFloor =
+			car.carrierMode === 2 ? EXPRESS_TICKS_PER_FLOOR : LOCAL_TICKS_PER_FLOOR;
+		const travelledTicks = Math.max(
+			0,
+			ticksPerFloor - car.speedCounter + additionalTicks,
+		);
+		const travelledFloors = travelledTicks / ticksPerFloor;
+		const maxTravel = Math.abs(car.targetFloor - car.currentFloor);
+		const clampedTravel = Math.min(maxTravel, travelledFloors);
+		const direction = car.targetFloor > car.currentFloor ? 1 : -1;
+		return car.currentFloor + direction * clampedTravel;
+	}
+
+	private getPresentationTime(): number {
+		const elapsedMs = Math.max(
+			0,
+			performance.now() - this.presentationClock.receivedAtMs,
+		);
+		const tickIntervalMs = Math.max(1, this.presentationClock.tickIntervalMs);
+		return (
+			this.presentationClock.simTime + Math.min(1, elapsedMs / tickIntervalMs)
+		);
 	}
 
 	private shouldRenderQueuedEntity(entity: EntityStateData): boolean {

@@ -113,8 +113,8 @@ export type ServerMessage =
 			carriers: CarrierCarStateData[];
 	  }
 	| { type: "state_patch"; cells: CellData[] }
-	| { type: "entity_update"; entities: EntityStateData[] }
-	| { type: "carrier_update"; carriers: CarrierCarStateData[] }
+	| { type: "entity_update"; simTime: number; entities: EntityStateData[] }
+	| { type: "carrier_update"; simTime: number; carriers: CarrierCarStateData[] }
 	| {
 			type: "command_result";
 			accepted: boolean;

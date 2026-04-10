@@ -16,10 +16,13 @@ interface Env {
 }
 
 export class TowerRoom extends DurableObject<Env> {
+	private static readonly STATE_BROADCAST_INTERVAL_MS = 100;
+
 	private sim: TowerSim | null = null;
 	private tickTimer: ReturnType<typeof setInterval> | null = null;
 	private speedMultiplier: 1 | 3 | 10 = 1;
 	private isRunning = false;
+	private lastStateBroadcastAt = 0;
 	private readonly repository: TowerRoomRepository;
 	private readonly sessions = new TowerRoomSessions();
 
@@ -183,14 +186,7 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const patch = result.patch ?? [];
 		this.broadcast({ type: "state_patch", cells: patch });
-		this.broadcast({
-			type: "entity_update",
-			entities: this.sim.entitiesToArray(),
-		});
-		this.broadcast({
-			type: "carrier_update",
-			carriers: this.sim.carriersToArray(),
-		});
+		this.broadcastDynamicState();
 		this.sessions.send(ws, {
 			type: "command_result",
 			accepted: true,
@@ -248,14 +244,13 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const result = this.sim.step();
 		this.broadcast({ type: "time_update", simTime: result.simTime });
-		this.broadcast({
-			type: "entity_update",
-			entities: this.sim.entitiesToArray(),
-		});
-		this.broadcast({
-			type: "carrier_update",
-			carriers: this.sim.carriersToArray(),
-		});
+		const now = Date.now();
+		if (
+			now - this.lastStateBroadcastAt >=
+			TowerRoom.STATE_BROADCAST_INTERVAL_MS
+		) {
+			this.broadcastDynamicState(now);
+		}
 		if (result.economyChanged) {
 			this.broadcast({ type: "economy_update", cash: this.sim.cash });
 		}
@@ -284,5 +279,20 @@ export class TowerRoom extends DurableObject<Env> {
 
 	private broadcast(msg: ServerMessage, exclude?: WebSocket): void {
 		this.sessions.broadcast(msg, exclude);
+	}
+
+	private broadcastDynamicState(now = Date.now()): void {
+		if (!this.sim) return;
+		this.lastStateBroadcastAt = now;
+		this.broadcast({
+			type: "entity_update",
+			simTime: this.sim.simTime,
+			entities: this.sim.entitiesToArray(),
+		});
+		this.broadcast({
+			type: "carrier_update",
+			simTime: this.sim.simTime,
+			carriers: this.sim.carriersToArray(),
+		});
 	}
 }
