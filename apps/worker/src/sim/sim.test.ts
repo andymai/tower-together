@@ -2192,7 +2192,7 @@ describe("Phase 4 runtime entities", () => {
 			starCount: 4,
 		});
 
-		expect(officeEntity.stateCode).toBe(0x01);
+		expect(officeEntity.stateCode).toBe(0x21); // at office, ready for next action
 		expect(officeEntity.routeMode).toBe(0);
 		expect(officeEntity.encodedRouteTarget).toBe(-1);
 		expect(venue.todayVisitCount).toBe(1);
@@ -2275,7 +2275,7 @@ describe("Phase 4 runtime entities", () => {
 			starCount: 4,
 		};
 		advance_entity_refresh_stride(world, ledger, activeTime);
-		expect(entity.stateCode).toBe(0x22);
+		expect(entity.stateCode).toBe(0x00); // commuting to office
 		expect(entity.selectedFloor).toBe(10);
 		expect(entity.encodedRouteTarget).toBe(entity.floorAnchor);
 

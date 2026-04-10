@@ -43,7 +43,9 @@ const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 const HOTEL_FAMILIES = new Set([3, 4, 5]);
 const COMMERCIAL_FAMILIES = new Set([6, 10, 12]);
 const CATHEDRAL_FAMILIES = new Set([0x24, 0x25, 0x26, 0x27, 0x28]);
-const ELEVATOR_DEMAND_STATES = new Set([0x01, 0x04, 0x05, 0x22, 0x60, 0x45]);
+const ELEVATOR_DEMAND_STATES = new Set([
+	0x00, 0x01, 0x04, 0x05, 0x22, 0x60, 0x45,
+]);
 const ROUTE_MODE_NONE = 0;
 const ROUTE_MODE_SEGMENT = 1;
 const ROUTE_MODE_CARRIER = 2;
@@ -81,6 +83,7 @@ function makeEntity(
 function initialStateForFamily(familyCode: number): number {
 	if (HOTEL_FAMILIES.has(familyCode)) return 0x24;
 	if (CATHEDRAL_FAMILIES.has(familyCode)) return 0x27; // parked; activated at day-start
+	if (familyCode === 7) return 0x20; // morning activation; allows same-day commute
 	return 0x27;
 }
 
@@ -422,16 +425,34 @@ function processOfficeEntity(
 	const object = findObjectForEntity(world, entity);
 	if (!object) return;
 
-	const activeDay = time.dayCounter % 3 === 0 && time.daypartIndex < 4;
-	if (!activeDay) {
-		entity.stateCode = 0x27;
+	const state = entity.stateCode;
+
+	// --- Night / failure park states (0x25, 0x26, 0x27) ---
+	// Gate: day_tick > 2300 → transition to morning activation (0x20)
+	if (state === 0x25 || state === 0x26 || state === 0x27) {
+		if (time.dayTick > 2300) {
+			entity.stateCode = 0x20;
+		}
 		return;
 	}
 
-	if (entity.stateCode === 0x27) {
+	// --- Morning activation (0x20) ---
+	if (state === 0x20) {
+		// Weekday-only: calendar_phase_flag must be 0
+		if (time.calendarPhaseFlag !== 0) return;
+		// Needs operational pairing
+		if (object.pairingActiveFlag === 0) return;
+
+		// Daypart gate: daypart 0 → 1/12 stagger; daypart 1–2 → dispatch; daypart ≥ 3 → dispatch
+		if (time.daypartIndex === 0) {
+			if (Math.random() * 12 >= 1) return;
+		}
+
+		// 3-day cashflow (first entity triggers income once per 3-day cycle)
 		if (
 			entity.baseOffset === 0 &&
-			object.auxValueOrTimer !== time.dayCounter + 1
+			object.auxValueOrTimer !== time.dayCounter + 1 &&
+			time.dayCounter % 3 === 0
 		) {
 			object.auxValueOrTimer = time.dayCounter + 1;
 			add_cashflow_from_family_resource(
@@ -441,20 +462,60 @@ function processOfficeEntity(
 				object.objectTypeCode,
 			);
 		}
+
+		// Dispatch: route from lobby (floor 10) to office floor
 		if (entity.floorAnchor !== 10) {
 			entity.encodedRouteTarget = entity.floorAnchor;
 			entity.selectedFloor = 10;
-			entity.stateCode = 0x22;
-			return;
+			entity.stateCode = 0x00;
+		} else {
+			// Office is on lobby floor — skip commute
+			entity.stateCode = 0x21;
 		}
-		entity.stateCode = 0x01;
+		return;
 	}
 
-	if (entity.stateCode === 0x01) {
+	// --- Commuting to office (0x00) — in transit, handled by carrier system ---
+	if (state === 0x00) {
+		// Waiting for carrier pickup / in transit; arrival handled by dispatch_entity_arrival
+		return;
+	}
+
+	// --- At office, ready for venue visits (0x21) ---
+	if (state === 0x21) {
+		// Gate: daypart ≥ 4 → evening departure
+		if (time.daypartIndex >= 4) {
+			entity.stateCode = 0x05;
+			entity.encodedRouteTarget = 10;
+			entity.selectedFloor = entity.floorAnchor;
+			return;
+		}
+		// Gate: daypart 3 → 1/12 chance; daypart < 3 → wait
+		if (time.daypartIndex === 3) {
+			if (Math.random() * 12 >= 1) return;
+		} else if (time.daypartIndex < 3) {
+			return;
+		}
+
+		// Dispatch: try to visit a commercial venue
+		entity.stateCode = 0x01;
+		return;
+	}
+
+	// --- Venue selection (0x01) ---
+	if (state === 0x01) {
+		// Gate: daypart ≥ 4 → evening departure
+		if (time.daypartIndex >= 4) {
+			entity.stateCode = 0x05;
+			entity.encodedRouteTarget = 10;
+			entity.selectedFloor = entity.floorAnchor;
+			return;
+		}
+
 		const venue = pickAvailableVenue(
 			world,
 			entity.floorAnchor,
-			new Set([6, 10, 12]),
+			COMMERCIAL_FAMILIES,
 		);
 		if (venue) {
 			reserveVenue(venue.record);
@@ -462,6 +523,7 @@ function processOfficeEntity(
 			if (venue.floor === entity.floorAnchor) {
 				complete_same_floor_trip(entity);
 				lowerStress(entity, 12);
+				entity.stateCode = 0x21;
 				recomputeObjectOperationalStatus(world, time, entity, object);
 				return;
 			}
@@ -471,15 +533,22 @@ function processOfficeEntity(
 			lowerStress(entity, 12);
 		} else {
 			raiseStress(entity, 8);
+			entity.stateCode = 0x26;
 		}
+		return;
 	}
 
-	if (entity.stateCode === 0x22) {
-		if (entity.selectedFloor !== entity.encodedRouteTarget) return;
-		entity.encodedRouteTarget = -1;
-		entity.selectedFloor = entity.floorAnchor;
-		entity.stateCode = 0x01;
+	// --- In transit to venue (0x22) — arrival handled by dispatch_entity_arrival ---
+	if (state === 0x22) {
+		return;
 	}
+
+	// --- Evening departure (0x05) — in transit to lobby, handled by carrier system ---
+	if (state === 0x05) {
+		// Waiting for carrier pickup / in transit; arrival handled by dispatch_entity_arrival
+		return;
+	}
+
 	recomputeObjectOperationalStatus(world, time, entity, object);
 }
 
@@ -672,6 +741,15 @@ function getElevatorDemand(entity: EntityRecord): {
 	destinationFloor: number;
 	directionFlag: number;
 } | null {
+	// Office commute: route from lobby (floor 10) to office floor
+	if (entity.stateCode === 0x00 && entity.encodedRouteTarget >= 0) {
+		return {
+			sourceFloor: entity.selectedFloor,
+			destinationFloor: entity.encodedRouteTarget,
+			directionFlag: entity.encodedRouteTarget > entity.selectedFloor ? 0 : 1,
+		};
+	}
+
 	if (entity.stateCode === 0x04 || entity.stateCode === 0x05) {
 		return {
 			sourceFloor: entity.selectedFloor,
@@ -848,6 +926,7 @@ function clear_entity_route(entity: EntityRecord): void {
 
 function should_finalize_segment_trip(entity: EntityRecord): boolean {
 	return (
+		entity.stateCode === 0x00 ||
 		entity.stateCode === 0x22 ||
 		entity.stateCode === 0x04 ||
 		entity.stateCode === 0x05
@@ -898,15 +977,32 @@ function dispatch_entity_arrival(
 			}
 			return;
 		case 7:
+			// Arrived at office floor from morning commute (0x00)
+			if (entity.stateCode === 0x00 && arrivalFloor === entity.floorAnchor) {
+				entity.encodedRouteTarget = -1;
+				entity.selectedFloor = entity.floorAnchor;
+				entity.stateCode = 0x21;
+				if (object)
+					recomputeObjectOperationalStatus(world, time, entity, object);
+				return;
+			}
+			// Arrived at venue floor from venue trip (0x22)
 			if (
 				entity.stateCode === 0x22 &&
 				entity.encodedRouteTarget === arrivalFloor
 			) {
 				entity.encodedRouteTarget = -1;
 				entity.selectedFloor = entity.floorAnchor;
-				entity.stateCode = 0x01;
+				entity.stateCode = 0x21;
 				if (object)
 					recomputeObjectOperationalStatus(world, time, entity, object);
+				return;
+			}
+			// Arrived at lobby from evening departure (0x05)
+			if (entity.stateCode === 0x05 && arrivalFloor === 10) {
+				entity.encodedRouteTarget = -1;
+				entity.selectedFloor = entity.floorAnchor;
+				entity.stateCode = 0x27;
 			}
 			return;
 		case 9:
