@@ -573,6 +573,7 @@ function processOfficeEntity(
 
 	// --- Venue selection (0x01) ---
 	if (state === 0x01) {
+		runOfficeServiceEvaluation(world, time, entity, object);
 		// Gate: daypart ≥ 4 → evening departure
 		if (time.daypartIndex >= 4) {
 			entity.stateCode = 0x05;
@@ -944,7 +945,8 @@ function resolve_entity_route_between_floors(
 		entity.routeCarrierOrSegment = route.id;
 		entity.queueTick = time?.dayTick ?? entity.queueTick;
 		entity.encodedRouteTarget = destinationFloor;
-		// Per-stop transit delay: local-branch = 16 ticks/floor, express-branch = 35
+		// Per-stop transit delay: local stair branch = 16 ticks/floor,
+		// express escalator branch = 35 ticks/floor.
 		const segment = world.specialLinks[route.id];
 		const isExpressBranch = segment ? (segment.flags & 1) !== 0 : false;
 		const perStopDelay = isExpressBranch ? 35 : 16;
@@ -1273,8 +1275,10 @@ export function update_security_housekeeping_state(
 
 	if (param === 0) {
 		world.gateFlags.securityAdequate = 0;
+		if (world.gateFlags.securityLedgerScale === 0) return;
 		for (const object of Object.values(world.placedObjects)) {
 			if (object.objectTypeCode === 20 || object.objectTypeCode === 21) {
+				if (object.unitStatus === 5) continue;
 				object.unitStatus = 0;
 				object.needsRefreshFlag = 1;
 			}
@@ -1311,6 +1315,7 @@ export function update_security_housekeeping_state(
 	world.gateFlags.securityAdequate = adequate;
 	for (const object of Object.values(world.placedObjects)) {
 		if (object.objectTypeCode === 20 || object.objectTypeCode === 21) {
+			if (!adequate && object.unitStatus === 5) continue;
 			object.unitStatus = dutyTier;
 			object.needsRefreshFlag = 1;
 		}
@@ -1320,18 +1325,21 @@ export function update_security_housekeeping_state(
 export function runOfficeServiceEvaluation(
 	world: WorldState,
 	time: TimeState,
+	entity?: EntityRecord,
+	object?: PlacedObjectRecord,
 ): void {
 	if (time.starCount !== 3 || time.dayCounter % 9 !== 3) return;
-
-	let passed = false;
-	for (const entity of world.entities) {
-		if (entity.familyCode !== 7 || entity.stateCode !== 0x01) continue;
-		const object = findObjectForEntity(world, entity);
-		if (!object) continue;
-		passed ||= object.evalLevel > 0;
+	if (world.gateFlags.officeServiceOk !== 0) return;
+	if (
+		world.gateFlags.evalEntityIndex >= 0 &&
+		world.gateFlags.evalEntityIndex !== 0xffff
+	) {
+		return;
 	}
-
-	world.gateFlags.officeServiceOk = passed ? 1 : 0;
+	if (!entity || !object) return;
+	if (entity.familyCode !== 7 || entity.stateCode !== 0x01) return;
+	if (object.evalLevel <= 0) return;
+	world.gateFlags.officeServiceOk = 1;
 }
 
 export function refund_unhappy_condos(
@@ -1551,15 +1559,13 @@ const ENTERTAINMENT_FAMILY_SINGLE = 0x1d;
  * Paired-link budget tiers indexed by `linkAgeCounter / 3`.
  * Selectors 0..6 → [40, 40, 40, 20], selectors 7..13 → [60, 60, 40, 20].
  */
-function pairedBudget(linkAgeCounter: number): number {
-	const selector = Math.trunc(linkAgeCounter / 3);
-	if (selector < 7) {
-		if (selector < 3) return 40;
-		return 20;
-	}
-	if (selector < 10) return 60;
-	if (selector < 12) return 40;
-	return 20;
+function pairedBudget(linkAgeCounter: number, selector: number): number {
+	const ageTier = Math.min(3, Math.trunc(linkAgeCounter / 3));
+	const lowSelectorTable = [40, 40, 40, 20];
+	const highSelectorTable = [60, 60, 40, 20];
+	const table =
+		selector >= 0 && selector < 7 ? lowSelectorTable : highSelectorTable;
+	return table[ageTier] ?? table[table.length - 1] ?? 20;
 }
 
 /**
@@ -1579,12 +1585,15 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 
 		sidecar.attendanceCounter = 0;
 		sidecar.activeRuntimeCount = 0;
-		sidecar.forwardPhase = 0;
-		sidecar.reversePhase = 0;
-		sidecar.linkAgeCounter++;
+		sidecar.linkPhaseState = 0;
+		sidecar.pendingTransitionFlag = 0;
+		sidecar.linkAgeCounter = Math.min(0x7f, sidecar.linkAgeCounter + 1);
 
 		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
-			const budget = pairedBudget(sidecar.linkAgeCounter);
+			const budget = pairedBudget(
+				sidecar.linkAgeCounter,
+				sidecar.familySelectorOrSingleLinkFlag,
+			);
 			sidecar.forwardBudget = budget;
 			sidecar.reverseBudget = budget;
 		} else {
@@ -1604,8 +1613,8 @@ export function activateEntertainmentForwardHalf(world: WorldState): void {
 		const object = findObjectBySidecarOwner(world, sidecar);
 		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
 			continue;
-		if (sidecar.forwardPhase === 0) {
-			sidecar.forwardPhase = 1;
+		if (sidecar.linkPhaseState === 0) {
+			sidecar.linkPhaseState = 1;
 		}
 	}
 }
@@ -1621,12 +1630,12 @@ export function promoteAndActivateSingleReverse(world: WorldState): void {
 		if (!object) continue;
 
 		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
-			if (sidecar.forwardPhase === 2) {
-				sidecar.forwardPhase = 3;
+			if (sidecar.linkPhaseState === 2) {
+				sidecar.linkPhaseState = 3;
 			}
 		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
-			if (sidecar.reversePhase === 0) {
-				sidecar.reversePhase = 1;
+			if (sidecar.linkPhaseState === 0) {
+				sidecar.linkPhaseState = 1;
 			}
 		}
 	}
@@ -1641,8 +1650,8 @@ export function activateEntertainmentReverseHalf(world: WorldState): void {
 		const object = findObjectBySidecarOwner(world, sidecar);
 		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
 			continue;
-		if (sidecar.reversePhase === 0) {
-			sidecar.reversePhase = 1;
+		if (sidecar.linkPhaseState === 1) {
+			sidecar.linkPhaseState = 2;
 		}
 	}
 }
@@ -1667,13 +1676,13 @@ export function advanceEntertainmentForwardPhase(world: WorldState): void {
 		const object = findObjectBySidecarOwner(world, sidecar);
 		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
 			continue;
-		if (sidecar.forwardPhase < 1) continue;
+		if (sidecar.linkPhaseState < 1) continue;
 
 		sidecar.activeRuntimeCount = Math.max(
 			0,
 			sidecar.activeRuntimeCount - sidecar.forwardBudget,
 		);
-		sidecar.forwardPhase = 0;
+		sidecar.linkPhaseState = sidecar.activeRuntimeCount === 0 ? 1 : 2;
 
 		// Park forward-half entities for this entertainment record
 		for (const entity of world.entities) {
@@ -1700,7 +1709,7 @@ export function advanceEntertainmentReversePhaseAndAccrue(
 		if (!object) continue;
 
 		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
-			if (sidecar.reversePhase >= 1) {
+			if (sidecar.linkPhaseState >= 1) {
 				sidecar.activeRuntimeCount = Math.max(
 					0,
 					sidecar.activeRuntimeCount - sidecar.reverseBudget,
@@ -1716,21 +1725,25 @@ export function advanceEntertainmentReversePhaseAndAccrue(
 				}
 			}
 		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
-			if (sidecar.reversePhase >= 1) {
+			if (sidecar.linkPhaseState >= 1) {
 				sidecar.activeRuntimeCount = Math.max(
 					0,
 					sidecar.activeRuntimeCount - sidecar.reverseBudget,
 				);
-				const payout = 20_000;
-				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
-				ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] =
-					(ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
+				if (sidecar.attendanceCounter > 0) {
+					const payout = 20_000;
+					ledger.cashBalance = Math.min(
+						99_999_999,
+						ledger.cashBalance + payout,
+					);
+					ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] =
+						(ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
+				}
 			}
 		}
 
 		// Reset phases
-		sidecar.forwardPhase = 0;
-		sidecar.reversePhase = 0;
+		sidecar.linkPhaseState = 0;
 
 		// Park all entertainment entities for this record
 		for (const entity of world.entities) {

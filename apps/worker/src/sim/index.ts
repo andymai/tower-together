@@ -20,6 +20,7 @@ import {
 	tickBombEvent,
 	tickFireEvent,
 	tickVipSpecialVisitor,
+	triggerRandomNewsEvent,
 } from "./events";
 import { createLedgerState, type LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
@@ -68,7 +69,7 @@ export interface StepResult {
 	notifications: Array<{ kind: string; message: string }>;
 	prompts: Array<{
 		promptId: string;
-		promptKind: "bomb_ransom" | "fire_rescue";
+		promptKind: "bomb_ransom" | "fire_rescue" | "carrier_edit_confirmation";
 		message: string;
 		cost?: number;
 	}>;
@@ -196,12 +197,13 @@ export class TowerSim {
 			world: this.world,
 			ledger: this.ledger,
 		};
+		triggerRandomNewsEvent(this.world, this.time);
+		tickVipSpecialVisitor(this.world, this.time);
 		run_checkpoints(state, prevTick, currTick);
 
 		// Per-tick event processing
 		tickBombEvent(this.world, this.ledger, this.time);
 		tickFireEvent(this.world, this.ledger, this.time);
-		tickVipSpecialVisitor(this.world, this.time);
 
 		advance_entity_refresh_stride(this.world, this.ledger, this.time);
 		populate_carrier_requests(this.world, this.time);

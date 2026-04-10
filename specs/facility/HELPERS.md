@@ -31,7 +31,7 @@ Recovered state machine:
   - same-floor arrival or no-route failure resets to `0`
 - state `3`: route toward the selected room floor stored in `entity[+6]`
   - queued or en-route results stay in `3`
-  - same-floor arrival during the valid daytime window activates the selected vacant unit, moves to `2`, and writes a 3-tick pending countdown
+  - same-floor arrival while `g_day_tick < 0x05dc` activates the selected vacant unit, moves to `2`, and writes a 3-tick pending countdown
   - same-floor arrival outside the window, or no-route failure, resets to `0`
 - state `2`: pending countdown
   - decrements `entity[+0xa]` from `3` down to `0`
@@ -53,8 +53,9 @@ Claim-completion writes:
 
 Additional recovered constraints:
 
-- the vacant-room search is limited to rentable units in the same modulo-6 floor group
-- successful claim promotion only occurs while the clock is still before tick `0x05dc`
+- the vacant-room search is limited to rentable units whose floor satisfies `floor % 6 == claimant_floor_class`; this is a modulo remainder class, not `floor / 6`
+- the helper seeds its upward-first search from the recorded spawn floor in `entity[+7]`, but the modulo filter itself is a `% 6` equality check
+- successful claim promotion only occurs while the clock is still before tick `0x05dc`; there is no separate lower bound beyond normal state dispatch reaching the same-floor arrival path
 - the search starts at the claimant's recorded spawn floor, scans upward first to the top of the tower, then scans downward from the floor just below the spawn floor
 - only families `3`, `4`, and `5` are eligible
 - a slot qualifies only when the room `unit_status` is `0x28` or `0x30`
@@ -91,7 +92,10 @@ Recovered gate / dispatch behavior:
 Venue selection algorithm:
 
 1. pick service family uniformly: `0 = retail`, `1 = restaurant`, `2 = fast food`
-2. always sample from bucket row `0` for that family, falling back to the same global row if the requested row is empty
+2. always sample from bucket row `0` for that family
+   - a bucket row is one entry in the 7-row per-type commercial-zone table used by random venue selection
+   - row index `0` is the lowest / default 15-floor zone bucket
+   - the generic selector falls back to row `0` when the requested row is empty, but family `0x21` already passes row `0`, so that fallback is a no-op here
 3. choose a random record uniformly from the row
 4. reject the choice if the venue record is invalid or closed
 5. if no valid record is found, park for the night instead of retrying immediately
@@ -111,3 +115,8 @@ Return behavior:
 - queued or en-route results move to `0x62`
 - same-floor arrival resets to `0x01` and starts the next daytime cycle
 - no-route failure parks the guest in `0x27`
+
+Minimum venue stay:
+
+- `release_commercial_venue_slot` compares `g_day_tick - entity[+0x0a]` against `get_commercial_venue_service_duration_ticks(facility_type_code)`
+- restaurant (`6`), fast food (`0x0c`), and retail (`10`) all use the same recovered minimum dwell: `60` ticks

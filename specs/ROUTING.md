@@ -143,6 +143,12 @@ The cache is rebuilt:
 - after any carrier edit or demolition that changes served-floor coverage
 - after placement or demolition of a sky lobby / transit concourse
 
+Recovered invalidation rule for the visible route-failure suppression cache:
+
+- `rebuild_route_reachability_tables()` begins by calling `clear_visible_route_history_cache()`
+- the one-popup-per-source-floor suppression is therefore reset on new game and on any route-topology rebuild that refreshes reachability
+- successful routes and ordinary time passage do not clear the suppression bytes
+
 They feed:
 
 - carrier transfer scoring

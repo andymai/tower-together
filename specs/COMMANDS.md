@@ -177,6 +177,22 @@ Price-change commands update `rent_level` (placed-object offset `+0x16`) and the
 
 Prompt-response commands resolve the currently active modal event or decision point and then allow the simulation to continue.
 
+Recovered decision-bearing prompt classes:
+
+- bomb ransom prompt (`0x2713`): response chooses pay vs refuse
+- fire rescue prompt (`0xbc2` or `0xbc3`): response chooses helicopter dispatch vs decline
+- carrier-edit confirmation prompt (`0x3ed`): response chooses continue vs cancel for served-floor removal, car removal, or whole-shaft demolition when active routes would be disrupted
+
+Recovered dialogs that are not separate prompt-response command types:
+
+- bomb armed / search-start status dialogs (`0xbcd`, `0xbce`)
+- bomb found / exploded cleanup dialogs (`0xbcf`, `0xbd0`)
+- treasure dialog (`0xbe0`)
+- object inspector dialogs (`0x2fb`, `0x2fc`)
+
+These may block the original UI until dismissed, but they do not introduce extra
+branching command payloads in a headless implementation.
+
 ## Pause / Resume
 
 Recovered headless rule:

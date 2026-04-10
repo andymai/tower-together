@@ -107,6 +107,21 @@ export function do_expense_sweep(ledger: LedgerState, world: WorldState): void {
 					: 0x01;
 		ledger.expenseLedger[code] += amount;
 	}
+
+	for (const segment of world.specialLinks) {
+		if (!segment.active) continue;
+		const units = Math.max(
+			1,
+			((Math.max(1, segment.heightMetric) >> 1) + 1) | 0,
+		);
+		const expenseKey = (segment.flags & 1) === 0 ? "stairs" : "escalator";
+		const typeCode = (segment.flags & 1) === 0 ? 0x1b : 0x16;
+		const rate = YEN_1002[expenseKey];
+		if (!rate) continue;
+		const amount = rate * YEN_UNIT * units;
+		ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);
+		ledger.expenseLedger[typeCode] += amount;
+	}
 }
 
 // ─── Facility ledger rebuild ──────────────────────────────────────────────────
@@ -141,10 +156,10 @@ export function do_ledger_rollover(
 	dayCounter: number,
 ): void {
 	if (dayCounter % 3 !== 0) return;
-	do_expense_sweep(ledger, world);
 	ledger.cashBalanceCycleBase = ledger.cashBalance;
 	ledger.incomeLedger.fill(0);
 	ledger.expenseLedger.fill(0);
+	do_expense_sweep(ledger, world);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

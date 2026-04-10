@@ -10,6 +10,15 @@ There are three carrier modes:
 
 These labels are build identities. The router's local-vs-express selection is related but not identical.
 
+Terminology used in this spec:
+
+- **carrier** = the shaft/header-level record: mode, served-floor span, schedule tables, queue tables, transfer reachability, and up to 8 moving units
+- **car** = one moving cab inside a carrier
+
+The binary uses data from both levels during dispatch, so older notes sometimes used
+"carrier" and "car" interchangeably. This spec does not: queueing and reachability are
+carrier-level; motion, doors, dwell, and assignments are car-level.
+
 ## Carrier Record
 
 A carrier needs:
@@ -264,13 +273,22 @@ Residual note:
 
 ## Home Floor
 
-Each car has a per-car home floor stored at:
+The per-car byte at `car[-0x51]` is **not** the home floor. It is the
+`nearest_work_floor` / next-turn marker written by `find_nearest_work_floor`.
+
+The actual home-floor value used by `select_next_target_floor` and
+`should_car_depart` comes from the carrier header tail slot:
 
 ```
-carrier->reachability_masks_by_floor[car_index - 8]
+carrier->reachability_masks_by_floor[car_index - 8]   // semantic alias: home_floor_by_car[car_index]
 ```
 
-This is set at construction time and is per-car (not per-carrier).
+This slot is per-car (not a shared per-carrier floor). The runtime read path is
+recovered. Parity note for initialization:
+
+- first car in a shaft: home floor = the floor where the player started the shaft
+- later cars in that shaft: home floor = the floor the player clicked when placing that
+  car
 
 Target-floor selection (`select_next_target_floor` at `1098:1553`):
 
@@ -294,6 +312,36 @@ Target-floor selection (`select_next_target_floor` at `1098:1553`):
 - if nothing found in current direction, wraps around: reverses direction and scans
   from the opposite endpoint back toward the current floor
 - if still nothing found, returns -1 (no target)
+
+`find_nearest_work_floor` uses that same `home_floor_by_car[car_index]` slot as its
+final fallback when no pending work exists in the current travel direction, and stores
+that result into `car[-0x51]`.
+
+## Door And Boarding Counters
+
+The elevator tick loop uses two separate countdown bytes:
+
+- `car[-0x5d]`: `door_wait_counter`
+- `car[-0x5c]`: boarding / departure-sequence countdown (`speed_counter` in older notes)
+
+Recovered behavior:
+
+- `advance_car_position_one_step` seeds `door_wait_counter = 5` for a full stop
+  (`compute_car_motion_mode == 0`) and `door_wait_counter = 2` for a slow stop
+  (`compute_car_motion_mode == 1`)
+- while `door_wait_counter > 0`, `advance_carrier_car_state` re-runs
+  `compute_car_motion_mode`
+- if the motion mode is still `0`, it decrements `door_wait_counter`
+- if the motion mode becomes nonzero, it clears `door_wait_counter` immediately
+- when an idle car starts boarding at its current target floor, the code sets the
+  boarding marker `car[-0x5c] = 5`
+- `dispatch_carrier_car_arrivals` keys off **exactly** `car[-0x5c] == 5` before running
+  unload/arrival effects
+- after that, `advance_carrier_car_state` decrements `car[-0x5c]` once per tick
+- when `car[-0x5c]` reaches `0`, the car snapshots `prev_floor`, recomputes target and
+  direction, and runs `should_car_depart`
+- if `should_car_depart` says "not yet", the code reloads `car[-0x5c] = 1`, which
+  creates a one-tick retry loop instead of immediate departure
 
 ## Queue-Full Retry Behavior
 

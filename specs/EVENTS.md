@@ -40,13 +40,45 @@ Armed bomb behavior:
 
 ### Security Patrol
 
-Binary-verified from `FUN_10d0_01c4` at `10d0:01c4`.
+Binary-verified from `trigger_bomb_event` at `10d0:006e`, `FUN_10d0_01c4` at `10d0:01c4`,
+`FUN_1100_033d` at `1100:033d`, `FUN_1100_0701` at `1100:0701`, and `FUN_1100_0fe5`
+at `1100:0fe5`.
 
-The "deterministic patrol" is the normal security guard entity movement. When a security
-guard visits a floor/tile, `FUN_10d0_01c4(floor, tile)` is called. If the floor and tile
-exactly match the bomb's stored position (`[0xbc7e]`, `[0xbc7c]`), the bomb is found and
-`resolve_bomb_search(1)` is called. There is no special search algorithm — the guard's
-normal route determines whether the bomb is discovered.
+Bomb search does not use a bespoke "find the bomb" algorithm. It reuses the shared
+service-response helper pool seeded from the 10-slot security/housekeeping stack table.
+
+Recovered behavior:
+
+- on bomb arming, `FUN_1100_033d(1)` seeds up to 10 live stack slots, with 6 helper
+  entities per slot
+- if no security exists (`0xbc5e < 0`), the helpers are left idle, so there is no active
+  bomb-search patrol
+- if security exists, one helper per live stack starts active and the others idle
+- there is no separate global "guard patrol" scheduler: those active helpers are advanced only
+  when their raw runtime-entity slots are visited by the normal 1/16 entity refresh stride
+  described in `TIME.md`
+- multi-stack coverage is therefore the interleaving of all live state-0 helpers in raw
+  runtime-table order, not a bespoke whole-tower queue
+- each time a helper is moved onto a floor, `FUN_1100_0fe5` seeds its scan counter from
+  that floor's right edge: `scan_tile = right_tile - 2`
+- during `FUN_1100_0701`, while `left_tile < scan_tile`, the helper decrements
+  `scan_tile` and calls `FUN_10d0_01c4(current_floor, scan_tile)`
+- this yields a deterministic right-to-left tile sweep over
+  `[right_tile - 3 .. left_tile]` on every visited floor
+- once a floor is exhausted, the helper chooses the next floor from mutable lower/upper
+  bounds stored on the owning service stack (`object[+0xb]`, `object[+0xc]`), validates
+  the move with `FUN_10a8_133b`, then reseeds the tile scan on the destination floor
+- helpers below their owning service floor try `upper_bound - 1` first and fall back to
+  `lower_bound + 1`; helpers at or above their owning service floor do the opposite
+- on bomb arming with security, those floor bounds start at `bomb_floor - 1` and
+  `bomb_floor`, then tighten after each successful move, so the search expands one floor
+  at a time around the target area rather than pathing directly to the hidden tile
+- a helper that cannot advance to either candidate floor returns `0`, and its caller
+  permanently demotes that helper to idle state `1`
+
+`check_bomb_search_tile_for_hidden_bomb(floor, tile)` simply compares the visited floor/tile against the stored
+bomb position (`[0xbc7e]`, `[0xbc7c]`). On an exact match it calls
+`resolve_bomb_search(1)`.
 
 ### Per-Tick Bomb Handler
 
@@ -198,3 +230,37 @@ This event is independent of star evaluation — it is a cosmetic/income event f
 ## Random News Events
 
 After the early daily checkpoint and before late-day periods, the simulation can emit random news events with a low per-tick chance. These are cosmetic outputs only and do not change core simulation state.
+
+Recovered trigger path (`trigger_random_news_event` at `11d0:03b1`):
+
+- runs only while notifications are enabled (`[0x6c2] != 0`) and no bomb/fire event flag in `game_state_flags & 9` is set
+- first RNG gate: `rand() % 16 == 0`, so the base trigger rate is `1/16` per eligible tick
+- second RNG gate: `rand() % 6` chooses one of six visible-map sample buckets, not a star tier
+- the six buckets sample the current viewport at:
+  - mid-height, quarter-width
+  - mid-height, half-width
+  - mid-height, three-quarter-width
+  - lower-quarter-height, quarter-width
+  - lower-quarter-height, half-width
+  - lower-quarter-height, three-quarter-width
+- the sampled screen slot is converted back to a placed object; if the slot is empty above ground, a fallback “tower/general news” path is used instead
+
+Recovered object-to-notification mapping (`FUN_11d0_06c0` -> `FUN_11d0_042c`):
+
+- hotel families `3/4/5`: notification `0x629`
+- condo family `9`: notification `0x629` in the common case, with a `1/10` branch to `0x628`
+- office family `7`: notification `0x5a8`
+- restaurant family `6`: `0x568` or `0x569` with equal probability
+- fast-food / retail families `0x0c` and `10`: `0x569` or `0x668` with equal probability
+- parking ramp family `0x0b`: `0x6a8` or `0x6a9` with equal probability
+- single-screen entertainment families `0x1d/0x1e`: notification `0xb28`
+- paired entertainment families `0x12/0x13/0x22/0x23`: use the ready link selector byte when `link_phase_state == 3`; otherwise no news event is emitted from that sample
+- empty above-ground sample (`return -1`): emits one of the general tower news notifications `0x2712`, `0x271b`, or `0x271c`, gated by the periodic-maintenance flag and by `(day_counter / 3) % 4`
+- unsupported, inactive, or not-ready samples return `-2` and suppress the event
+
+No recovered branch in this helper depends on star rating. The probabilities are driven by:
+
+- eligible-tick frequency
+- the uniform 6-bucket viewport sample
+- whether the sampled object is active / news-eligible
+- small per-family variant rolls inside the mapper

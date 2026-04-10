@@ -440,9 +440,9 @@ describe("checkpoint dispatcher", () => {
 		expect(state.ledger.cashBalance).toBeLessThan(cashAfterBuild);
 		// Rolling ledgers should be zeroed
 		expect(state.ledger.incomeLedger.every((v) => v === 0)).toBe(true);
-		expect(state.ledger.expenseLedger.every((v) => v === 0)).toBe(true);
-		// cycle base saved
-		expect(state.ledger.cashBalanceCycleBase).toBe(state.ledger.cashBalance);
+		expect(state.ledger.expenseLedger.some((v) => v > 0)).toBe(true);
+		// cycle base is saved before the fresh expense pass
+		expect(state.ledger.cashBalanceCycleBase).toBe(cashAfterBuild);
 	});
 
 	it("does NOT run expense sweep on a non-3-day boundary", () => {
@@ -565,7 +565,7 @@ describe("ledger: add_cashflow_from_family_resource", () => {
 	it("updates populationLedger[family_code]", () => {
 		const ledger = makeLedger(0);
 		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
-		expect(ledger.populationLedger[3]).toBe(30_000);
+		expect(ledger.populationLedger[3]).toBe(0);
 	});
 
 	it("ignores family_code out of [0,255]", () => {
@@ -675,7 +675,7 @@ describe("ledger: do_expense_sweep", () => {
 		do_expense_sweep(ledger, world);
 
 		expect(cashBefore - ledger.cashBalance).toBe(
-			(2 * 200 + 1 * 400 + 3 * 100) * 1000,
+			(2 * 100 + 1 * 200 + 3 * 100) * 1000,
 		);
 	});
 });
@@ -694,8 +694,8 @@ describe("ledger: do_ledger_rollover", () => {
 		do_ledger_rollover(ledger, world, 3); // day 3 → 3 % 3 === 0
 		expect(ledger.cashBalance).toBeLessThan(cashBefore); // expense fired
 		expect(ledger.incomeLedger[6]).toBe(0);
-		expect(ledger.expenseLedger[6]).toBe(0);
-		expect(ledger.cashBalanceCycleBase).toBe(ledger.cashBalance);
+		expect(ledger.expenseLedger[6]).toBeGreaterThan(0);
+		expect(ledger.cashBalanceCycleBase).toBe(cashBefore);
 	});
 
 	it("is a no-op when dayCounter % 3 !== 0", () => {
@@ -1197,20 +1197,20 @@ describe("YEN tables", () => {
 		expect(YEN_1002.housekeeping).toBe(100);
 	});
 
-	it("YEN_1002 elevatorLocal expense = 200", () => {
-		expect(YEN_1002.elevatorLocal).toBe(200);
+	it("YEN_1002 elevatorLocal expense = 100", () => {
+		expect(YEN_1002.elevatorLocal).toBe(100);
 	});
 
-	it("YEN_1002 elevatorExpress expense = 400", () => {
-		expect(YEN_1002.elevatorExpress).toBe(400);
+	it("YEN_1002 elevatorExpress expense = 200", () => {
+		expect(YEN_1002.elevatorExpress).toBe(200);
 	});
 
 	it("YEN_1002 elevatorService expense = 100", () => {
 		expect(YEN_1002.elevatorService).toBe(100);
 	});
 
-	it("YEN_1002 escalator expense = 100", () => {
-		expect(YEN_1002.escalator).toBe(100);
+	it("YEN_1002 escalator expense = 0", () => {
+		expect(YEN_1002.escalator).toBe(0);
 	});
 });
 
@@ -1400,7 +1400,7 @@ describe("rebuild_carrier_list", () => {
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
 		expect(active[0].heightMetric).toBe(2); // floors 10 and 11 inclusive
-		expect(active[0].flags & 1).toBe(0); // escalator = local-branch (bit 0 = 0)
+		expect(active[0].flags & 1).toBe(1); // escalator = express branch
 	});
 
 	it("preserves car position when carrier range extends", () => {
@@ -1441,12 +1441,12 @@ describe("rebuild_specialLinks", () => {
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
 		expect(active[0].heightMetric).toBe(11);
-		expect(active[0].flags & 1).toBe(1); // stairs = express-branch (bit 0 = 1)
+		expect(active[0].flags & 1).toBe(0); // stairs = local branch
 	});
 });
 
 describe("rebuild_walkability_flags", () => {
-	it("sets bit 1 (express) for floors covered by a stairs span", () => {
+	it("sets bit 0 (local) for floors covered by a stairs span", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		for (let floor = 10; floor <= 15; floor++) {
@@ -1455,9 +1455,9 @@ describe("rebuild_walkability_flags", () => {
 		}
 		run_global_rebuilds(world, ledger);
 		for (let f = 10; f <= 15; f++) {
-			expect(world.floorWalkabilityFlags[f] & 2).toBe(2);
+			expect(world.floorWalkabilityFlags[f] & 1).toBe(1);
 		}
-		expect(world.floorWalkabilityFlags[9] & 2).toBe(0);
+		expect(world.floorWalkabilityFlags[9] & 1).toBe(0);
 		expect(world.floorWalkabilityFlags[16] & 2).toBe(0);
 	});
 });
@@ -1501,7 +1501,7 @@ describe("select_best_route_candidate", () => {
 		const ledger = makeLedger();
 		for (let floor = 10; floor <= 20; floor++) {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
-			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "escalator";
+			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
 		run_global_rebuilds(world, ledger);
 		const route = select_best_route_candidate(world, 10, 15);

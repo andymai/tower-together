@@ -68,6 +68,42 @@ function hasSecurityGuard(world: WorldState): boolean {
 	return world.gateFlags.securityLedgerScale > 0;
 }
 
+function objectNewsCode(objectTypeCode: number): string | null {
+	switch (objectTypeCode) {
+		case 3:
+		case 4:
+		case 5:
+			return "0x629";
+		case 6:
+			return sampleNewsVariant(["0x568", "0x569"]);
+		case 7:
+			return "0x5a8";
+		case 9:
+			return sampleLcgNews(10) === 0 ? "0x628" : "0x629";
+		case 10:
+		case 12:
+			return sampleNewsVariant(["0x569", "0x668"]);
+		case 18:
+		case 29:
+			return "0xb28";
+		case 24:
+			return sampleNewsVariant(["0x6a8", "0x6a9"]);
+		default:
+			return null;
+	}
+}
+
+let newsLcgSource: EventState | null = null;
+function sampleLcgNews(modulo: number): number {
+	if (!newsLcgSource) return 0;
+	return sampleLcg15(newsLcgSource) % modulo;
+}
+
+function sampleNewsVariant(codes: string[]): string {
+	const index = sampleLcgNews(codes.length);
+	return codes[index] ?? codes[0] ?? "news";
+}
+
 /** Delete all objects covering a given floor/tile (same teardown as demolition). */
 function deleteObjectCoveringFloorTile(
 	world: WorldState,
@@ -443,7 +479,7 @@ export function tickVipSpecialVisitor(
 	if (time.dayTick <= 0xf0) return;
 	if (time.daypartIndex >= 4) return;
 	if ((es.gameStateFlags & 9) !== 0) return;
-	// VIP system eligibility: a VIP suite must be placed
+	// Eligibility is keyed off the metro placement/floor state.
 	if (
 		world.gateFlags.vipSuiteFloor < 0 ||
 		world.gateFlags.vipSuiteFloor === 0xffff
@@ -454,18 +490,12 @@ export function tickVipSpecialVisitor(
 	// 1% chance per tick
 	if (sampleLcg15(es) % 100 !== 0) return;
 
-	// Sweep all placed objects for hotel suite variants (types 0x1f, 0x20, 0x21)
-	// In our implementation these are type 3/4/5 with vipFlag
+	if (world.gateFlags.metroPlaced === 0) return;
+
+	// Sweep metro stack objects and toggle the display-only aux word.
 	let activated = false;
 	for (const record of Object.values(world.placedObjects)) {
-		if (!record.vipFlag) continue;
-		if (
-			record.objectTypeCode !== 3 &&
-			record.objectTypeCode !== 4 &&
-			record.objectTypeCode !== 5
-		) {
-			continue;
-		}
+		if (record.objectTypeCode !== 14) continue;
 		if (record.auxValueOrTimer === 0) {
 			record.auxValueOrTimer = 2; // activate special visitor
 			record.needsRefreshFlag = 1;
@@ -475,8 +505,42 @@ export function tickVipSpecialVisitor(
 			record.needsRefreshFlag = 1;
 		}
 	}
-	// Notification 0x271a would be emitted here in a full implementation
-	void activated;
+	if (activated) {
+		world.pendingNotifications.push({
+			kind: "event",
+			message: "0x271a",
+		});
+	}
+}
+
+export function triggerRandomNewsEvent(
+	world: WorldState,
+	time: TimeState,
+): void {
+	const es = world.eventState;
+	if (time.dayTick <= 0xf0) return;
+	if (time.daypartIndex >= 6) return;
+	if ((es.gameStateFlags & 9) !== 0) return;
+	if (sampleLcg15(es) % 16 !== 0) return;
+
+	const candidates = Object.values(world.placedObjects);
+	newsLcgSource = es;
+	try {
+		if (candidates.length === 0) {
+			world.pendingNotifications.push({
+				kind: "news",
+				message: sampleNewsVariant(["0x2712", "0x271b", "0x271c"]),
+			});
+			return;
+		}
+		const object = candidates[sampleLcg15(es) % candidates.length];
+		if (!object) return;
+		const code = objectNewsCode(object.objectTypeCode);
+		if (!code) return;
+		world.pendingNotifications.push({ kind: "news", message: code });
+	} finally {
+		newsLcgSource = null;
+	}
 }
 
 // ─── Daily event checkpoint dispatcher ───────────────────────────────────────
@@ -490,11 +554,11 @@ export function checkDailyEvents(
 	ledger: LedgerState,
 	time: TimeState,
 ): void {
-	if (time.dayCounter % 60 === 59) {
-		tryTriggerBombEvent(world, ledger, time);
-	}
 	if (time.dayCounter % 84 === 83) {
 		tryTriggerFireEvent(world, ledger, time);
+	}
+	if (time.dayCounter % 60 === 59) {
+		tryTriggerBombEvent(world, ledger, time);
 	}
 }
 

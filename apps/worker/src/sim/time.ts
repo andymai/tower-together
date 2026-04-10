@@ -1,6 +1,7 @@
 // Day cycle constants
 export const DAY_TICK_MAX = 0x0a28; // 2600 ticks per day
 export const DAY_TICK_INCOME = 0x08fc; // 2300: checkpoint where dayCounter increments
+export const DAY_COUNTER_WRAP = 0x2ed4;
 
 /**
  * Starting dayTick for a new game (from new_game_initializer at 0x10d8_07f6).
@@ -71,6 +72,9 @@ export function advanceOneTick(t: TimeState): {
 
 	if (dayTick === DAY_TICK_INCOME) {
 		dayCounter = t.dayCounter + 1;
+		if (dayCounter >= DAY_COUNTER_WRAP) {
+			dayCounter = 0;
+		}
 		calendarPhaseFlag = (dayCounter % 12) % 3 >= 2 ? 1 : 0;
 		incomeCheckpoint = true;
 	}

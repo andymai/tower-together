@@ -23,6 +23,10 @@ Maintain at least:
 - condo staggering
 - some progression gates
 
+Wrap behavior is exact: at the end-of-day increment, if `day_counter` reaches `0x2ed4`,
+the scheduler resets it to `0` and immediately recomputes the flag from that wrapped
+counter, so the next day starts at phase `0`.
+
 ## `facility_progress_override`
 
 When active and the tower is below 5 stars, commercial venues use the more generous capacity tier normally reserved for the override state. This flag is periodically set and cleared by scheduler checkpoints.
@@ -34,6 +38,12 @@ The simulation tracks whether a metro station has been placed. That state:
 - enables metro-related display behavior
 - gates 4-star to 5-star advancement
 - affects some vertical-placement bounds
+
+Binary-backed distinction:
+
+- progression and placement use the global metro floor/presence state
+- the random VIP/special-visitor toggle uses the placed-object aux word `object[+0xc]` on types `0x1f..0x21`
+- no simulation gate has been recovered that reads that aux word, so it is treated as display-only state
 
 ## Star Advancement
 
@@ -77,10 +87,16 @@ new game and `reset_star_gate_state` (`1150:003d`) on each star advancement.
 
 ### Trigger
 
-Every 9th day (`g_day_counter % 9 == 3`), when all of:
+This is not a scheduler checkpoint. The trigger helper is called from a family-`7` office
+runtime-state branch in the `1228` entity handler during normal entity refresh. It only
+becomes eligible on evaluation days, while stale evaluation state is separately cleared at
+checkpoint `0x0640`.
+
+During that office-entity refresh path, when all of:
 - `star_count == 3`
 - `office_service_ok == 0` (not already passed)
 - `eval_in_progress == 0`
+- `g_day_counter % 9 == 3`
 
 The system scans for an office entity in state 0x01 with an active service assignment.
 On match: stores entity identity in `eval_target_entity`, sets `eval_in_progress = 1`,

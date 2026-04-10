@@ -279,16 +279,18 @@ export interface EntertainmentLinkRecord {
 	ownerSubtypeIndex: number;
 	/** 0xff = no pair yet. */
 	pairedSubtypeIndex: number;
-	/** Incremented at 0x0f0 each day; used to derive paired-link budget tier. */
+	/** 0xff for single-venue records; 0..13 paired selector bucket. */
+	familySelectorOrSingleLinkFlag: number;
+	/** Incremented at 0x0f0 each day; saturates at 0x7f. */
 	linkAgeCounter: number;
 	/** Forward-half attendance budget (seeded at 0x0f0). */
 	forwardBudget: number;
 	/** Reverse-half attendance budget (seeded at 0x0f0). */
 	reverseBudget: number;
-	/** Forward phase: 0=idle, 1=activated, 2=first-guest-arrived, 3=ready. */
-	forwardPhase: number;
-	/** Reverse phase: 0=idle, 1=activated, 2=first-guest-arrived, 3=ready. */
-	reversePhase: number;
+	/** 0=idle, 1=activated, 2=attendance started, 3=ready. */
+	linkPhaseState: number;
+	/** Reserved flag used by the placement/runtime pipeline. */
+	pendingTransitionFlag: number;
 	/** Cumulative attendance this cycle. */
 	attendanceCounter: number;
 	/** Active runtime attendee count (decremented on phase advance). */
@@ -399,13 +401,19 @@ export interface WorldState {
 }
 
 export type SimNotification = {
-	kind: "morning" | "afternoon" | "end_of_day" | "route_failure" | "event";
+	kind:
+		| "morning"
+		| "afternoon"
+		| "end_of_day"
+		| "route_failure"
+		| "event"
+		| "news";
 	message?: string;
 };
 
 export type SimPrompt = {
 	promptId: string;
-	promptKind: "bomb_ransom" | "fire_rescue";
+	promptKind: "bomb_ransom" | "fire_rescue" | "carrier_edit_confirmation";
 	message: string;
 	cost?: number;
 };

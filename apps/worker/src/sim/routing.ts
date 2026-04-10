@@ -64,7 +64,7 @@ export function rebuild_special_links(world: WorldState): void {
 		const span = topFloor - entryFloor + 1;
 		world.specialLinks[segmentIndex++] = {
 			active: true,
-			flags: (span << 1) | (group.type === "stairs" ? 1 : 0),
+			flags: (span << 1) | (group.type === "escalator" ? 1 : 0),
 			heightMetric: span,
 			entryFloor,
 			reservedByte: 0,
@@ -364,7 +364,7 @@ function score_local_route_segment(
 	if (!segment_covers_floor(segment, toFloor)) return 0x7fff;
 	if (!can_enter_segment_from_floor(segment, fromFloor, toFloor)) return 0x7fff;
 	const delta = Math.abs(toFloor - fromFloor);
-	return (segment.flags & 1) !== 0 ? delta * 8 + 0x280 : delta * 8;
+	return (segment.flags & 1) !== 0 ? 0x7fff : delta * 8;
 }
 
 function score_express_route_segment(

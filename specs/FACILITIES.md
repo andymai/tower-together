@@ -84,7 +84,7 @@ Support search is local and tile-based. Different families use different support
 
 `map_neighbor_family_to_support_match` (`1140:01b8`) normalizes a neighbor's family
 code into a support-match code, or returns 0 when the neighbor does not qualify.
-Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → `0x12`, `0x1d/0x1e` → `0x1d`.
+Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → party hall (`0x12`), `0x1d/0x1e` → cinema (`0x1d`).
 
 Accepted support families:
 

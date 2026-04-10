@@ -113,11 +113,13 @@ function alloc_sidecar(tileType: string, x: number, world: WorldState): number {
 			kind: "entertainment_link",
 			ownerSubtypeIndex: x,
 			pairedSubtypeIndex: 0xff,
+			familySelectorOrSingleLinkFlag:
+				tileType === "entertainment" ? Math.floor(Math.random() * 14) : 0xff,
 			linkAgeCounter: 0,
 			forwardBudget: 0,
 			reverseBudget: 0,
-			forwardPhase: 0,
-			reversePhase: 0,
+			linkPhaseState: 0,
+			pendingTransitionFlag: 0,
 			attendanceCounter: 0,
 			activeRuntimeCount: 0,
 		};
@@ -222,12 +224,12 @@ export function run_global_rebuilds(
 	world.gateFlags.securityLedgerScale = 0;
 	for (const [key, object] of Object.entries(world.placedObjects)) {
 		if (object.objectTypeCode === 7) world.gateFlags.officePlaced = 1;
-		if (object.objectTypeCode === 14) world.gateFlags.metroPlaced = 1;
-		if (object.objectTypeCode === 20) world.gateFlags.securityLedgerScale += 1;
-		if (object.vipFlag) {
+		if (object.objectTypeCode === 14) {
+			world.gateFlags.metroPlaced = 1;
 			const [, y] = key.split(",").map(Number);
 			world.gateFlags.vipSuiteFloor = world.height - 1 - y;
 		}
+		if (object.objectTypeCode === 20) world.gateFlags.securityLedgerScale += 1;
 	}
 
 	rebuild_facility_ledger(ledger, world);

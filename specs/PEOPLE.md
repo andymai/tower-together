@@ -93,7 +93,7 @@ player-facing labels without adding any simulation-level stress tracking.
 | `+0x07` | byte | `spawn_floor` / source floor | written when route begins |
 | `+0x08` | byte | `route_carrier_or_segment` | `0x40+i` = carrier i up, `0x58+i` = down, `0xfe` = invalid, `0xff` = none |
 | `+0x09` | byte | `sample_count` | feeds operational score (see FACILITIES.md) |
-| `+0x0a` | word | `route_queue_tick` | `g_day_tick` snapshot when queued |
+| `+0x0a` | word | `last_sample_tick` | `g_day_tick` snapshot used by the demand / elapsed-time rebase pipeline |
 | `+0x0c` | word | `target_floor_packed` | `(10 - floor) * 0x400`, or elapsed/flags packed |
 | `+0x0e` | word | `accumulated_elapsed` | running sum for demand pipeline |
 
@@ -114,7 +114,8 @@ Transient entity that searches for and claims vacant hotel rooms. One per hotel 
 entity slot. Not a persistent occupant.
 
 Entity fields: `+6` = target floor (`0x58` = searching), `+7` = spawn floor
-(negative = uninitialized), `+0xa` = pending countdown (set to 3 on claim).
+(negative = uninitialized). The shared record word at `+0x0a` remains `last_sample_tick`;
+family-0x0f` uses other family-specific countdown state instead of repurposing that field.
 
 | State | Behavior |
 |-------|----------|
@@ -288,12 +289,15 @@ sweeps floors 100–104 for types 0x24–0x28, forces 8 entity slots each to sta
 Passive transfer infrastructure. No runtime entity behavior. Contributes to
 route/transfer-group cache via carrier reachability. Never dispatched in tick-stride.
 
-### Family `0x0e` — Security Guard / Family `0x0f` — Housekeeping Cart
+### Security / Housekeeping Service Stacks
 
-These are placed-object types, not actor families with dispatch state machines.
-State managed by security/housekeeping checkpoint system. Security guard (type 0x0e)
-state reset to 0 at day start; housekeeping cart (type 0x0f) state reset 6→0 at
-checkpoint 0x020. Stay-phase set to required tier by `update_security_housekeeping_state`.
+The live checkpoint logic operates on paired service-stack placed objects (`0x14/0x15`),
+not on a persistent guard/cart actor family. `update_security_housekeeping_state`
+assigns their stay-phase tier and marks them dirty; checkpoint `0x020` resets live
+type-`0x15` stacks from stay-phase `6` back to `0`.
+
+Bomb and fire response use transient helper entities seeded from the shared 10-slot
+service-stack table rather than separate always-running placed-object actors.
 
 Note: family code `0x0f` is also used for the vacancy claimant entity (see above).
 The type code and family code namespaces are independent — context determines which

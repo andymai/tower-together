@@ -235,6 +235,13 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.ledger.incomeLedger ??= new Array(256).fill(0);
 	snapshot.ledger.expenseLedger ??= new Array(256).fill(0);
 
+	for (const sidecar of snapshot.world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		sidecar.familySelectorOrSingleLinkFlag ??= 0xff;
+		sidecar.linkPhaseState ??= 0;
+		sidecar.pendingTransitionFlag ??= 0;
+	}
+
 	const vipAnchors = new Set<string>();
 	for (const [key, tileType] of Object.entries(snapshot.world.cells)) {
 		const standardTile = LEGACY_VIP_TILE_TO_STANDARD[tileType];

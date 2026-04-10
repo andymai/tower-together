@@ -93,7 +93,10 @@ Morning/evening behavior:
 - evening check-in resets into the `0x08` band
 - successful outbound trips decrement the counter
 - failures and bounces increment it
-- checkout fires when `unit_status & 7 == 0`
+- checkout does **not** fire directly from the initial `0x00` / `0x08` activation values
+- instead, the room first reaches the sibling-sync sentinel `0x10`; `dispatch_hotel_345_state_10_set_checkout_counter` then rewrites that sentinel to `1` for family `3` or `2` for families `4` and `5`
+- the checkout-route handler decrements from that rewritten countdown, so the final checkout trigger is reached from `1 -> 0` (single room) or `2 -> 1 -> 0` (twin/suite)
+- therefore the `unit_status & 7 == 0` test is consistent: it is checked only after the sync-sentinel rewrite has put the room into the explicit final countdown
 
 ## Sibling Sync
 
@@ -121,6 +124,7 @@ Checkout-ready sync:
 - sibling-sync wait dispatches only after late-day thresholds
 - the object enters the `0x10` sync sentinel when all siblings are ready, with a one-round shortcut when `unit_status & 7 == 1`
 - checkout routing decrements the shared trip counter and triggers payout as soon as the low three bits reach `0`
+- the check-in band values `0x00` / `0x08` are not the values consumed by this final trigger; the checkout path always passes through the `0x10 -> 1/2` rewrite first
 
 Detailed dispatch windows:
 
@@ -138,6 +142,9 @@ Lobby routing window:
 Checkout effects:
 
 - payout is realized exactly once by the room object, using the family payout table and `rent_level`
+- `collect_hotel_checkout_income` increments `g_family345_sale_count` once per completed checkout
+- that counter is cumulative only within the current day: checkpoint `0x04b0` resets it to `0`
+- checkout milestones set `g_newspaper_trigger = 1` on every 2nd checkout while `g_family345_sale_count < 20`, then on every 8th checkout thereafter
 - morning checkout moves the room to `0x28`
 - evening checkout moves the room to `0x30`
 - the occupancy latch and activation counter are cleared so the room can be reassigned on a later cycle

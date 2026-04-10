@@ -12,7 +12,6 @@ import {
 	reset_entity_runtime_state,
 	resetCommercialVenueCycle,
 	resetHousekeepingDutyTier,
-	runOfficeServiceEvaluation,
 	seedEntertainmentBudgets,
 	update_security_housekeeping_state,
 } from "./entities";
@@ -36,8 +35,6 @@ export interface SimState {
 // ─── Checkpoint bodies ────────────────────────────────────────────────────────
 
 function checkpoint_start_of_day(_s: SimState): void {
-	// Daily event triggers (bomb at day%60==59, fire at day%84==83)
-	checkDailyEvents(_s.world, _s.ledger, _s.time);
 	// Activate cathedral evaluation entities
 	activateEvalEntities(_s.world, _s.time);
 }
@@ -47,6 +44,7 @@ function checkpoint_housekeeping_reset(_s: SimState): void {
 }
 
 function checkpoint_facility_ledger_rebuild(s: SimState): void {
+	checkDailyEvents(s.world, s.ledger, s.time);
 	rebuild_facility_ledger(s.ledger, s.world);
 	seedEntertainmentBudgets(s.world);
 }
@@ -90,7 +88,6 @@ function checkpoint_entertainment_phase2(_s: SimState): void {
 
 function checkpoint_late_facility(_s: SimState): void {
 	update_security_housekeeping_state(_s.world, _s.ledger, _s.time, 2);
-	runOfficeServiceEvaluation(_s.world, _s.time);
 }
 
 function checkpoint_type6_advance(_s: SimState): void {

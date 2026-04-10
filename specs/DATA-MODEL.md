@@ -130,7 +130,7 @@ The top-level simulation state must include:
 The simulation also maintains derived or sidecar tables such as:
 
 - commercial venue records
-- entertainment-link records
+- entertainment venue records (`entertainment-link` in older binary-facing notes)
 - service-request entries
 - transfer-group cache
 - walkability flags

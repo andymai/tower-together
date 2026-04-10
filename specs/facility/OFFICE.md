@@ -52,7 +52,7 @@ Exact open/closed bands:
 Activation cadence:
 
 - `recompute_object_operational_status` runs every day
-- office activation and deactivation cashflow changes only run on the `g_day_counter % 3 == 0` cadence at the `0x09e5` sweep (starting on day 0)
+- office activation and deactivation cashflow changes only run on the `g_day_counter % 3 == 0` cadence at the `0x09e5` sweep. Because `0x09e5` runs after the `0x08fc` day-counter increment, a fresh game first hits this cadence at `g_day_counter == 3`, not day 0.
 - activation increments `activation_tick_count` (record `+0x17`) up to a cap of `120` (0x78). This is cumulative, not per-day — it saturates at 120 and resets to 0 only on deactivation. It feeds into readiness scoring but is not consumed by any discrete trigger.
 - fresh reopen after a close resets `unit_status` to `0`, adds `+6` to the population ledger, and refreshes the 6-tile span
 

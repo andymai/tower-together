@@ -110,7 +110,8 @@ Confirmed per-unit infrastructure expenses:
 - Security office: `$20,000`
 - Housekeeping: `$10,000`
 - Recycling Center: `$50,000`
-- Escalator-family special-link unit: `$5,000`
+- local-branch special-link unit: `$5,000`
+- express-branch special-link unit: `$0`
 - Metro Station: `$100,000`
 - Express Elevator unit: `$20,000`
 - Service Elevator unit: `$10,000`
@@ -123,12 +124,20 @@ Binary-confirmed expense lookup rules:
 - special-link sweeps charge either type `0x1b` or type `0x16`, scaled by `(unit_count >> 1) + 1`
 - parking uses a separate parking-expense routine and is not a direct YEN `#1002` row lookup
 
+Binary-confirmed carrier expense values:
+
+- YEN `#1002[0x2a] = 200`, so express carriers charge `$20,000` per car on each 3-day expense pass
+- YEN `#1002[0x01] = 100`, so standard carriers charge `$10,000` per car on each 3-day expense pass
+- YEN `#1002[0x2b] = 100`, so service carriers charge `$10,000` per car on each 3-day expense pass
+- there is no extra divisor or currency conversion in the carrier path: `add_scaled_infrastructure_expense_by_type` byte-swaps the 32-bit YEN entry, multiplies it by `unit_count`, subtracts the result from cash, and records that exact amount in the expense ledger
+
 Recovered special-link branch mapping:
 
 - raw special-link records with low flag bit `0` charge as type `0x1b`
 - raw special-link records with low flag bit `1` charge as type `0x16`
-- the same low bit also controls route behavior: low-bit-`0` links are the local branch, and low-bit-`1` links are the express-only branch
-- string and menu evidence confirms the player-facing labels separately: type `0x16` is `Stairs`, type `0x1b` is `Escalator`
+- `place_stairs_or_escalator_link` confirms the same low bit also controls route behavior and walkability writes: low-bit-`0` links are the local stair branch, and low-bit-`1` links are the express escalator branch
+- YEN `#1002` contains an expense row for type `0x1b` with value `50` (`$5,000`) and no nonzero row for type `0x16`, so the 3-day upkeep path charges stairs `$5,000` per scaled unit and escalators `$0`
+- this is a real type-row inversion in the binary's expense path, not a spec typo: player-facing labels still identify type `0x16` as `Stairs` and type `0x1b` as `Escalator`, but periodic upkeep remaps raw branch bit `0` to row `0x1b` and raw branch bit `1` to row `0x16`
 
 Parking expense formula:
 

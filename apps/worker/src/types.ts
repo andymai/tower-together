@@ -78,7 +78,7 @@ export type ServerMessage =
 	| {
 			type: "prompt";
 			promptId: string;
-			promptKind: "bomb_ransom" | "fire_rescue";
+			promptKind: "bomb_ransom" | "fire_rescue" | "carrier_edit_confirmation";
 			message: string;
 			cost?: number;
 	  }

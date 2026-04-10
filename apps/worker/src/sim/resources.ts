@@ -117,10 +117,11 @@ export const YEN_1002: Record<string, number> = {
 	retail: 1000,
 	security: 200,
 	housekeeping: 100,
-	elevatorLocal: 200, // per unit per 3-day period
-	elevatorExpress: 400,
+	elevatorLocal: 100, // per unit per 3-day period
+	elevatorExpress: 200,
 	elevatorService: 100,
-	escalator: 100,
+	escalator: 0,
+	stairs: 50,
 };
 
 // ─── Operational score thresholds ─────────────────────────────────────────────
