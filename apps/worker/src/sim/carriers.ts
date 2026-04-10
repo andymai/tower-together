@@ -956,8 +956,10 @@ export function flush_carriers_end_of_day(world: WorldState): void {
 	for (const carrier of world.carriers) {
 		// Drain floor queues
 		for (const queue of carrier.floorQueues.values()) {
-			queue.up.clear();
-			queue.down.clear();
+			queue.up.head = 0;
+			queue.up.count = 0;
+			queue.down.head = 0;
+			queue.down.count = 0;
 		}
 
 		// Clear pending and completed route tracking

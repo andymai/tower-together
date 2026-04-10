@@ -14,6 +14,14 @@ import { DAY_TICK_MAX, TILE_COSTS } from "../types";
 interface Toast {
 	id: number;
 	message: string;
+	variant: "error" | "info";
+}
+
+interface ActivePrompt {
+	promptId: string;
+	promptKind: "bomb_ransom" | "fire_rescue";
+	message: string;
+	cost?: number;
 }
 
 let toastCounter = 0;
@@ -121,14 +129,19 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 	const [aliasSaving, setAliasSaving] = useState(false);
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [speedMultiplier, setSpeedMultiplier] = useState<1 | 3 | 10>(1);
+	const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(null);
 
-	const addToast = useCallback((message: string) => {
-		const id = ++toastCounter;
-		setToasts((prev) => [...prev, { id, message }]);
-		setTimeout(() => {
-			setToasts((prev) => prev.filter((t) => t.id !== id));
-		}, 3000);
-	}, []);
+	const addToast = useCallback(
+		(message: string, variant: "error" | "info" = "error") => {
+			const id = ++toastCounter;
+			setToasts((prev) => [...prev, { id, message, variant }]);
+			const duration = variant === "info" ? 8000 : 3000;
+			setTimeout(() => {
+				setToasts((prev) => prev.filter((t) => t.id !== id));
+			}, duration);
+		},
+		[],
+	);
 
 	const sceneRef = useRef<GameScene | null>(null);
 	const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -174,6 +187,22 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 					break;
 				case "economy_update":
 					setCash(msg.cash);
+					break;
+				case "notification":
+					if (msg.message) addToast(msg.message, "info");
+					break;
+				case "prompt":
+					setActivePrompt({
+						promptId: msg.promptId,
+						promptKind: msg.promptKind,
+						message: msg.message,
+						cost: msg.cost,
+					});
+					break;
+				case "prompt_dismissed":
+					setActivePrompt((prev) =>
+						prev?.promptId === msg.promptId ? null : prev,
+					);
 					break;
 			}
 		});
@@ -244,6 +273,19 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 			setAliasSaving(false);
 		}
 	}
+
+	const respondToPrompt = useCallback(
+		(accepted: boolean) => {
+			if (!activePrompt) return;
+			socket.send({
+				type: "prompt_response",
+				promptId: activePrompt.promptId,
+				accepted,
+			});
+			setActivePrompt(null);
+		},
+		[activePrompt],
+	);
 
 	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
 	// Map day_tick (0–2599) to SimTower clock: 6:00am (tick 0) → 1:00am next day (tick 2599)
@@ -453,11 +495,51 @@ export function GameScreen({ playerId, displayName, towerId, onLeave }: Props) {
 				</div>
 			</div>
 
+			{/* Prompt modal */}
+			{activePrompt && (
+				<div style={styles.modalOverlay}>
+					<div style={styles.modal}>
+						<div style={styles.modalIcon}>
+							{activePrompt.promptKind === "bomb_ransom" ? "💣" : "🔥"}
+						</div>
+						<div style={styles.modalTitle}>
+							{activePrompt.promptKind === "bomb_ransom"
+								? "Bomb Threat"
+								: "Fire Emergency"}
+						</div>
+						<div style={styles.modalMessage}>{activePrompt.message}</div>
+						<div style={styles.modalButtons}>
+							<button
+								type="button"
+								style={styles.modalAccept}
+								onClick={() => respondToPrompt(true)}
+							>
+								{activePrompt.cost
+									? `Pay $${activePrompt.cost.toLocaleString()}`
+									: "Accept"}
+							</button>
+							<button
+								type="button"
+								style={styles.modalDecline}
+								onClick={() => respondToPrompt(false)}
+							>
+								Decline
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* Toasts */}
 			{toasts.length > 0 && (
 				<div style={styles.toastContainer}>
 					{toasts.map((t) => (
-						<div key={t.id} style={styles.toast}>
+						<div
+							key={t.id}
+							style={
+								t.variant === "info" ? styles.toastInfo : styles.toastError
+							}
+						>
 							{t.message}
 						</div>
 					))}
@@ -676,7 +758,7 @@ const styles: Record<string, React.CSSProperties> = {
 		pointerEvents: "none",
 		zIndex: 100,
 	},
-	toast: {
+	toastError: {
 		padding: "7px 14px",
 		borderRadius: 6,
 		background: "#3a1a1a",
@@ -684,5 +766,78 @@ const styles: Record<string, React.CSSProperties> = {
 		color: "#f87171",
 		fontSize: 13,
 		whiteSpace: "nowrap",
+	},
+	toastInfo: {
+		padding: "7px 14px",
+		borderRadius: 6,
+		background: "#1a2a3a",
+		border: "1px solid #3a7bd5",
+		color: "#93c5fd",
+		fontSize: 13,
+		whiteSpace: "nowrap",
+	},
+	modalOverlay: {
+		position: "fixed",
+		top: 0,
+		left: 0,
+		right: 0,
+		bottom: 0,
+		background: "rgba(0, 0, 0, 0.6)",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		zIndex: 200,
+	},
+	modal: {
+		background: "#242424",
+		border: "1px solid #444",
+		borderRadius: 12,
+		padding: "24px 32px",
+		minWidth: 340,
+		maxWidth: 420,
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "center",
+		gap: 12,
+		boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+	},
+	modalIcon: {
+		fontSize: 36,
+	},
+	modalTitle: {
+		fontSize: 18,
+		fontWeight: 700,
+		color: "#e0e0e0",
+	},
+	modalMessage: {
+		fontSize: 14,
+		color: "#aaa",
+		textAlign: "center",
+		lineHeight: "1.5",
+	},
+	modalButtons: {
+		display: "flex",
+		gap: 12,
+		marginTop: 8,
+	},
+	modalAccept: {
+		padding: "8px 20px",
+		borderRadius: 6,
+		border: "1px solid #4ade80",
+		background: "rgba(74, 222, 128, 0.15)",
+		color: "#4ade80",
+		fontSize: 14,
+		fontWeight: 600,
+		cursor: "pointer",
+	},
+	modalDecline: {
+		padding: "8px 20px",
+		borderRadius: 6,
+		border: "1px solid #555",
+		background: "transparent",
+		color: "#aaa",
+		fontSize: 14,
+		fontWeight: 600,
+		cursor: "pointer",
 	},
 };

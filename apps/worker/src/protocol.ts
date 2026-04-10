@@ -35,6 +35,12 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 			};
 		case "remove_tile":
 			return { type: "remove_tile", x: msg.x, y: msg.y };
+		case "prompt_response":
+			return {
+				type: "prompt_response",
+				promptId: msg.promptId,
+				accepted: msg.accepted,
+			};
 		case "join_tower":
 		case "ping":
 		case "set_speed":

@@ -394,9 +394,18 @@ export interface WorldState {
 	eventState: EventState;
 	/** Pending notifications emitted during the current tick (drained by the transport layer). */
 	pendingNotifications: SimNotification[];
+	/** Pending prompts requiring player response (drained by the transport layer). */
+	pendingPrompts: SimPrompt[];
 }
 
 export type SimNotification = {
 	kind: "morning" | "afternoon" | "end_of_day" | "route_failure" | "event";
 	message?: string;
+};
+
+export type SimPrompt = {
+	promptId: string;
+	promptKind: "bomb_ransom" | "fire_rescue";
+	message: string;
+	cost?: number;
 };

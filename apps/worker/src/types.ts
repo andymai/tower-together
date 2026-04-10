@@ -5,7 +5,8 @@ export type ClientMessage =
 	| { type: "place_tile"; x: number; y: number; tileType: string }
 	| { type: "remove_tile"; x: number; y: number }
 	| { type: "ping" }
-	| { type: "set_speed"; multiplier: 1 | 3 | 10 };
+	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
+	| { type: "prompt_response"; promptId: string; accepted: boolean };
 
 // ─── WebSocket messages to client ────────────────────────────────────────────
 
@@ -69,4 +70,13 @@ export type ServerMessage =
 	| { type: "presence_update"; playerCount: number }
 	| { type: "time_update"; simTime: number }
 	| { type: "economy_update"; cash: number }
+	| { type: "notification"; kind: string; message: string }
+	| {
+			type: "prompt";
+			promptId: string;
+			promptKind: "bomb_ransom" | "fire_rescue";
+			message: string;
+			cost?: number;
+	  }
+	| { type: "prompt_dismissed"; promptId: string }
 	| { type: "pong" };

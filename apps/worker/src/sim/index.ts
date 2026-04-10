@@ -9,7 +9,12 @@ import {
 	rebuild_runtime_entities,
 	reconcile_entity_transport,
 } from "./entities";
-import { tickBombEvent, tickFireEvent, tickVipSpecialVisitor } from "./events";
+import {
+	handlePromptResponse,
+	tickBombEvent,
+	tickFireEvent,
+	tickVipSpecialVisitor,
+} from "./events";
 import { createLedgerState, type LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
 import {
@@ -54,6 +59,13 @@ export interface CarrierCarStateRecord {
 export interface StepResult {
 	simTime: number;
 	economyChanged?: boolean;
+	notifications: Array<{ kind: string; message: string }>;
+	prompts: Array<{
+		promptId: string;
+		promptKind: "bomb_ransom" | "fire_rescue";
+		message: string;
+		cost?: number;
+	}>;
 }
 
 // ─── TowerSim ─────────────────────────────────────────────────────────────────
@@ -198,9 +210,18 @@ export class TowerSim {
 		});
 		reconcile_entity_transport(this.world, this.ledger, this.time);
 
+		// Drain pending notifications and prompts
+		const notifications = this.world.pendingNotifications.splice(0);
+		const prompts = this.world.pendingPrompts.splice(0);
+
 		return {
 			simTime: this.time.totalTicks,
 			economyChanged: this.ledger.cashBalance !== balanceBefore,
+			notifications: notifications.map((n) => ({
+				kind: n.kind,
+				message: n.message ?? "",
+			})),
+			prompts,
 		};
 	}
 
@@ -218,6 +239,20 @@ export class TowerSim {
 				);
 			case "remove_tile":
 				return handle_remove_tile(cmd.x, cmd.y, this.world, this.ledger);
+			case "prompt_response": {
+				handlePromptResponse(
+					this.world,
+					this.ledger,
+					this.time,
+					cmd.promptId,
+					cmd.accepted,
+				);
+				return {
+					accepted: true,
+					patch: [],
+					economyChanged: true,
+				};
+			}
 		}
 	}
 
@@ -269,6 +304,7 @@ export class TowerSim {
 				JSON.stringify(this.world.eventState),
 			) as WorldState["eventState"],
 			pendingNotifications: [],
+			pendingPrompts: [],
 		};
 	}
 
@@ -280,6 +316,12 @@ export class TowerSim {
 			tertiaryLedger: [...this.ledger.tertiaryLedger],
 			cashBalanceCycleBase: this.ledger.cashBalanceCycleBase,
 		};
+	}
+
+	drainNotifications(): Array<{ kind: string; message: string }> {
+		return this.world.pendingNotifications
+			.splice(0)
+			.map((n) => ({ kind: n.kind, message: n.message ?? "" }));
 	}
 
 	// ── Accessors for TowerRoom ────────────────────────────────────────────────

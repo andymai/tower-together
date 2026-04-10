@@ -77,6 +77,7 @@ export function createInitialSnapshot(
 			transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 			eventState: createEventState(),
 			pendingNotifications: [],
+			pendingPrompts: [],
 		},
 		ledger: createLedgerState(startingCash),
 	};
@@ -152,6 +153,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			transferGroupCache: [],
 			eventState: createEventState(),
 			pendingNotifications: [],
+			pendingPrompts: [],
 		};
 	}
 

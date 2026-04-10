@@ -12,7 +12,11 @@ import {
 
 const BOMB_DEADLINE_TICKS = 0x4b0; // 1200
 /** Ransom amounts indexed by star count (2, 3, 4). Stars 1 and 5 cannot trigger. */
-// const BOMB_RANSOM: Record<number, number> = { 2: 200_000, 3: 300_000, 4: 1_000_000 };
+const BOMB_RANSOM: Record<number, number> = {
+	2: 200_000,
+	3: 300_000,
+	4: 1_000_000,
+};
 /** Blast rectangle dimensions. */
 const BLAST_HALF_TILES = 20;
 
@@ -125,14 +129,18 @@ export function tryTriggerBombEvent(
 	const selectedTile =
 		bounds.left + (tileRange > 0 ? sampleLcg15(es) % (tileRange + 1) : 0);
 
-	// ransom = BOMB_RANSOM[time.starCount] ?? 0
-	// For now, the player always refuses (no UI prompt system yet).
-	// In a full implementation, this would emit a modal ransom prompt.
-	// Auto-refuse: arm the bomb.
 	es.bombFloor = selectedFloor;
 	es.bombTile = selectedTile;
 	es.gameStateFlags |= 1; // bomb active
 	es.bombDeadline = time.dayTick + BOMB_DEADLINE_TICKS;
+
+	const ransom = BOMB_RANSOM[time.starCount] ?? 0;
+	world.pendingPrompts.push({
+		promptId: `bomb_${time.dayCounter}`,
+		promptKind: "bomb_ransom",
+		message: `A bomb threat has been received! Pay $${ransom.toLocaleString()} ransom to avoid detonation?`,
+		cost: ransom,
+	});
 }
 
 /**
@@ -280,7 +288,7 @@ export function tryTriggerFireEvent(
  */
 export function tickFireEvent(
 	world: WorldState,
-	ledger: LedgerState,
+	_ledger: LedgerState,
 	time: TimeState,
 ): void {
 	const es = world.eventState;
@@ -305,15 +313,12 @@ export function tickFireEvent(
 		es.helicopterExtinguishPos === 0 &&
 		time.dayTick === es.fireStartTick + HELICOPTER_PROMPT_DELAY
 	) {
-		// Auto-accept helicopter rescue (no UI prompt system yet)
-		const bounds = floorTileBoundsForFloor(world, es.fireFloor);
-		if (bounds) {
-			ledger.cashBalance = Math.max(
-				0,
-				ledger.cashBalance - HELICOPTER_RESCUE_COST,
-			);
-			es.helicopterExtinguishPos = bounds.right - 12;
-		}
+		world.pendingPrompts.push({
+			promptId: `fire_${time.dayCounter}`,
+			promptKind: "fire_rescue",
+			message: `Fire is spreading! Call helicopter rescue for $${HELICOPTER_RESCUE_COST.toLocaleString()}?`,
+			cost: HELICOPTER_RESCUE_COST,
+		});
 	}
 
 	// Check resolution
@@ -491,4 +496,49 @@ export function checkDailyEvents(
 	if (time.dayCounter % 84 === 83) {
 		tryTriggerFireEvent(world, ledger, time);
 	}
+}
+
+/**
+ * Handle a player's response to a prompt.
+ * Returns true if the prompt was recognized and handled.
+ */
+export function handlePromptResponse(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	promptId: string,
+	accepted: boolean,
+): boolean {
+	if (promptId.startsWith("bomb_")) {
+		if (!accepted) return true; // refused — bomb stays armed (default behavior)
+		// Pay ransom: deactivate bomb
+		const ransom = BOMB_RANSOM[time.starCount] ?? 0;
+		if (ransom > 0 && ledger.cashBalance >= ransom) {
+			ledger.cashBalance -= ransom;
+			bombCleanup(world, time);
+			world.pendingNotifications.push({
+				kind: "event",
+				message: "Ransom paid. The bomb threat has been resolved.",
+			});
+		}
+		return true;
+	}
+
+	if (promptId.startsWith("fire_")) {
+		if (!accepted) return true; // declined helicopter — fire spreads naturally
+		const es = world.eventState;
+		if ((es.gameStateFlags & 8) === 0) return true; // fire already resolved
+		const bounds = floorTileBoundsForFloor(world, es.fireFloor);
+		if (bounds && ledger.cashBalance >= HELICOPTER_RESCUE_COST) {
+			ledger.cashBalance -= HELICOPTER_RESCUE_COST;
+			es.helicopterExtinguishPos = bounds.right - 12;
+			world.pendingNotifications.push({
+				kind: "event",
+				message: "Helicopter dispatched to fight the fire!",
+			});
+		}
+		return true;
+	}
+
+	return false;
 }

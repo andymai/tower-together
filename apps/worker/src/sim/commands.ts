@@ -43,7 +43,8 @@ export interface CommandResult {
 
 export type SimCommand =
 	| { type: "place_tile"; x: number; y: number; tileType: string }
-	| { type: "remove_tile"; x: number; y: number };
+	| { type: "remove_tile"; x: number; y: number }
+	| { type: "prompt_response"; promptId: string; accepted: boolean };
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 

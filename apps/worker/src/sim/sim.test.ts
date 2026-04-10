@@ -93,6 +93,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 		eventState: createEventState(),
 		pendingNotifications: [],
+		pendingPrompts: [],
 	};
 }
 
