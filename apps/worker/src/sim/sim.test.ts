@@ -860,6 +860,8 @@ describe("handle_place_tile", () => {
 		expect(r.patch?.[0]).toMatchObject({ isOverlay: true });
 		expect(world.overlays[`0,${GROUND_Y}`]).toBe("stairs");
 		expect(world.overlayToAnchor[`7,${GROUND_Y}`]).toBe(`0,${GROUND_Y}`);
+		expect(world.specialLinks.some((segment) => segment.active)).toBe(true);
+		expect(world.floorWalkabilityFlags[10] & 1).toBe(1);
 	});
 
 	it("stairs rejected when base tile missing", () => {
@@ -1083,6 +1085,8 @@ describe("handle_remove_tile", () => {
 		expect(r1.patch?.[0]).toMatchObject({ tileType: "empty", isOverlay: true });
 		expect(world.overlays[`0,${GROUND_Y}`]).toBeUndefined();
 		expect(world.overlayToAnchor[`7,${GROUND_Y}`]).toBeUndefined();
+		expect(world.specialLinks.some((segment) => segment.active)).toBe(false);
+		expect(world.floorWalkabilityFlags[10] & 1).toBe(0);
 		// Underlying tile still there
 		expect(world.cells[`0,${GROUND_Y}`]).toBe("floor");
 	});

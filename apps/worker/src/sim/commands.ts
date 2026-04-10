@@ -356,6 +356,7 @@ export function handle_place_tile(
 		for (let dx = 1; dx < overlayWidth; dx++) {
 			world.overlayToAnchor[`${x + dx},${y}`] = `${x},${y}`;
 		}
+		run_global_rebuilds(world, ledger);
 		return {
 			accepted: true,
 			patch: [{ x, y, tileType: "stairs", isAnchor: true, isOverlay: true }],
@@ -476,7 +477,8 @@ export function handle_remove_tile(
 			overlayType === "elevator" ||
 			overlayType === "elevatorExpress" ||
 			overlayType === "elevatorService" ||
-			overlayType === "escalator"
+			overlayType === "escalator" ||
+			overlayType === "stairs"
 		) {
 			run_global_rebuilds(world, ledger);
 		}
