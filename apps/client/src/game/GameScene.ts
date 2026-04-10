@@ -8,107 +8,41 @@ import {
 	UNDERGROUND_FLOORS,
 	UNDERGROUND_Y,
 } from "../types";
+import {
+	CAR_COLOR,
+	COLOR_GRID_LINE,
+	COLOR_HOVER,
+	COLOR_SKY,
+	COLOR_UNDERGROUND,
+	DEFAULT_TICK_INTERVAL_MS,
+	ENTITY_STRESS_COLORS,
+	LABEL_PANEL_WIDTH,
+	MAX_ZOOM,
+	MIN_ZOOM,
+	TILE_COLORS,
+	TILE_HEIGHT,
+	TILE_LABEL_COLORS,
+	TILE_LABELS,
+	TILE_WIDTH,
+} from "./gameSceneConstants";
+import {
+	computeShiftFill,
+	getHoverBounds,
+	type PlacementAnchor,
+} from "./gameScenePlacement";
+import {
+	collectElevatorColumnsByFloor,
+	getCarBounds,
+	getDisplayedCars,
+	getQueuedEntityLayout,
+	getQueuedEntityQueueKey,
+	type PresentationClock,
+	type TimedSnapshot,
+} from "./gameSceneTransport";
 import { buildOccupancyByCar, isQueuedEntity } from "./transportSelectors";
-
-const TILE_WIDTH = 4;
-const TILE_HEIGHT = TILE_WIDTH * 4;
-
-const TILE_LABELS: Partial<Record<string, string>> = {
-	hotelSingle: "R",
-	hotelTwin: "T",
-	hotelSuite: "S",
-	restaurant: "R",
-	fastFood: "F",
-	retail: "$",
-	office: "O",
-	condo: "C",
-	cinema: "M",
-	security: "X",
-	housekeeping: "H",
-	metro: "U",
-	fireSuppressor: "F",
-};
-
-const TILE_LABEL_COLORS: Partial<Record<string, string>> = {
-	hotelSingle: "#ffffff",
-	hotelTwin: "#ffffff",
-	hotelSuite: "#ffffff",
-	restaurant: "#4a2707",
-	fastFood: "#4a2707",
-	retail: "#233000",
-	office: "#23313d",
-	condo: "#4a4108",
-	cinema: "#ffffff",
-	security: "#ffffff",
-	housekeeping: "#1f3945",
-	metro: "#124040",
-	fireSuppressor: "#ffffff",
-};
-
-// Tile fill colors
-const TILE_COLORS: Record<string, number> = {
-	floor: 0x555555,
-	lobby: 0xc9a77a,
-	hotelSingle: 0xf28b82,
-	hotelTwin: 0xe35d5b,
-	hotelSuite: 0xb63c3c,
-	restaurant: 0xe58a3a,
-	fastFood: 0xf2b24d,
-	retail: 0xa0c040,
-	office: 0xa8b7c4,
-	condo: 0xe7cf6b,
-	cinema: 0xc040a0,
-	entertainment: 0xa040c0,
-	security: 0xc04040,
-	housekeeping: 0x8cb0c0,
-	parking: 0x707080,
-	metro: 0x60c0c0,
-	fireSuppressor: 0xe06060,
-	elevator: 0xb0a070,
-	escalator: 0xa0b070,
-};
-
-const COLOR_SKY = 0x5ba8d4; // blue sky (above ground)
-const COLOR_UNDERGROUND = 0x3d2010; // dark brown soil (underground)
-const COLOR_GRID_LINE = 0x333333;
-const COLOR_HOVER = 0xffff00;
-const ENTITY_STRESS_COLORS: Record<EntityStateData["stressLevel"], number> = {
-	low: 0x111111,
-	medium: 0xff5fa2,
-	high: 0xd81919,
-};
-const CAR_COLOR = 0xf6d463;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 4;
-const DEFAULT_TICK_INTERVAL_MS = 50;
-const LOCAL_TICKS_PER_FLOOR = 8;
-const EXPRESS_TICKS_PER_FLOOR = 4;
-
-const FAMILY_WIDTHS: Record<number, number> = {
-	3: TILE_WIDTHS.hotelSingle,
-	4: TILE_WIDTHS.hotelTwin,
-	5: TILE_WIDTHS.hotelSuite,
-	7: TILE_WIDTHS.office,
-	9: TILE_WIDTHS.condo,
-};
-
-const FAMILY_POPULATION: Record<number, number> = {
-	3: 1,
-	4: 2,
-	5: 3,
-	7: 6,
-	9: 3,
-};
-
-interface TimedSnapshot<T> {
-	simTime: number;
-	items: T[];
-}
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
-
-const LABEL_PANEL_WIDTH = 24;
 
 export class GameScene extends Phaser.Scene {
 	private cellGraphics!: Phaser.GameObjects.Graphics;
@@ -133,7 +67,7 @@ export class GameScene extends Phaser.Scene {
 		null;
 	private currentCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
 		null;
-	private presentationClock = {
+	private presentationClock: PresentationClock = {
 		simTime: 0,
 		receivedAtMs: 0,
 		tickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
@@ -159,8 +93,7 @@ export class GameScene extends Phaser.Scene {
 	private draggedCells = new Set<string>();
 
 	// Last non-shift placement anchor (for shift-fill)
-	private lastPlacedAnchor: { x: number; y: number; tileType: string } | null =
-		null;
+	private lastPlacedAnchor: PlacementAnchor | null = null;
 
 	// Shift key state (for preview)
 	private isShiftHeld = false;
@@ -194,113 +127,13 @@ export class GameScene extends Phaser.Scene {
 		clickX: number,
 		clickY: number,
 	): Array<{ x: number; y: number }> {
-		if (!this.lastPlacedAnchor || this.selectedTool === "empty") return [];
-		const { x: lx, y: ly, tileType: lastType } = this.lastPlacedAnchor;
-
-		// Only fill if we're placing the same tile type as the anchor
-		if (lastType !== this.selectedTool) return [];
-
-		const tileWidth = TILE_WIDTHS[this.selectedTool] ?? 1;
-		const lastTileWidth = TILE_WIDTHS[lastType] ?? 1;
-		const yMin = Math.min(ly, clickY);
-		const yMax = Math.max(ly, clickY);
-		const results: Array<{ x: number; y: number }> = [];
-
-		if (lx < clickX) {
-			// Last placed is to the LEFT → pack left on every row.
-			// On the anchor's own row start after the tile; other rows include its columns.
-			const fillEnd = clickX;
-			for (let y = yMin; y <= yMax; y++) {
-				const fillStart = y === ly ? lx + lastTileWidth : lx;
-				if (fillStart > fillEnd) continue;
-				results.push(...this.packLeft(fillStart, fillEnd, y, tileWidth));
-			}
-		} else if (lx > clickX) {
-			// Last placed is to the RIGHT → pack right on every row.
-			// On the anchor's own row end before the tile; other rows include its columns.
-			const fillStart = clickX;
-			for (let y = yMin; y <= yMax; y++) {
-				const fillEnd = y === ly ? lx - 1 : lx + lastTileWidth - 1;
-				if (fillStart > fillEnd) continue;
-				results.push(...this.packRight(fillStart, fillEnd, y, tileWidth));
-			}
-		}
-		return results;
-	}
-
-	private packLeft(
-		fillStart: number,
-		fillEnd: number,
-		y: number,
-		tileWidth: number,
-	): Array<{ x: number; y: number }> {
-		const placements: Array<{ x: number; y: number }> = [];
-		const tentative = new Set<string>();
-		let x = fillStart;
-		while (x <= fillEnd && x + tileWidth - 1 < GRID_WIDTH) {
-			if (this.cellsAvailable(x, y, tileWidth, tentative)) {
-				placements.push({ x, y });
-				for (let dx = 0; dx < tileWidth; dx++) tentative.add(`${x + dx},${y}`);
-				x += tileWidth;
-			} else {
-				x += 1;
-			}
-		}
-		return placements;
-	}
-
-	private packRight(
-		fillStart: number,
-		fillEnd: number,
-		y: number,
-		tileWidth: number,
-	): Array<{ x: number; y: number }> {
-		const placements: Array<{ x: number; y: number }> = [];
-		const tentative = new Set<string>();
-		// Start from rightmost anchor that keeps tile within both fillEnd and grid bounds
-		let x = Math.min(fillEnd, GRID_WIDTH - tileWidth);
-		while (x >= fillStart) {
-			if (this.cellsAvailable(x, y, tileWidth, tentative)) {
-				placements.unshift({ x, y }); // prepend to keep left-to-right order
-				for (let dx = 0; dx < tileWidth; dx++) tentative.add(`${x + dx},${y}`);
-				x -= tileWidth;
-			} else {
-				x -= 1;
-			}
-		}
-		return placements;
-	}
-
-	private cellsAvailable(
-		x: number,
-		y: number,
-		tileWidth: number,
-		tentative: Set<string>,
-	): boolean {
-		// Stairs sit on top of existing tiles — not shift-fillable via this path.
-		if (this.selectedTool === "stairs") return false;
-		if (this.selectedTool === "lobby") {
-			const floorsAboveGround = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y;
-			if (floorsAboveGround < 0 || floorsAboveGround % 15 !== 0) return false;
-		}
-		const needsSupport = this.selectedTool !== "lobby";
-		const canReplaceFloor = this.selectedTool !== "floor";
-		for (let dx = 0; dx < tileWidth; dx++) {
-			const key = `${x + dx},${y}`;
-			if (tentative.has(key)) return false;
-			if (this.grid.has(key)) {
-				if (canReplaceFloor && this.grid.get(key) === "floor") {
-					// floor will be replaced — allowed
-				} else {
-					return false;
-				}
-			}
-			if (needsSupport) {
-				if (y + 1 >= GRID_HEIGHT || !this.grid.has(`${x + dx},${y + 1}`))
-					return false;
-			}
-		}
-		return true;
+		return computeShiftFill(
+			clickX,
+			clickY,
+			this.selectedTool,
+			this.lastPlacedAnchor,
+			this.grid,
+		);
 	}
 
 	applyInitState(
@@ -685,26 +518,22 @@ export class GameScene extends Phaser.Scene {
 		const g = this.entityGraphics;
 		g.clear();
 		const queueIndices = new Map<string, number>();
-		const elevatorColumnsByFloor = this.collectElevatorColumnsByFloor();
+		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
+			this.overlayGrid,
+		);
 		const entitySnapshot = this.currentEntitySnapshot ??
 			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
 
 		for (const entity of entitySnapshot.items) {
 			if (!isQueuedEntity(entity)) continue;
 			const color = ENTITY_STRESS_COLORS[entity.stressLevel] ?? 0x111111;
-			const spanWidth = FAMILY_WIDTHS[entity.familyCode] ?? 1;
-			const population = FAMILY_POPULATION[entity.familyCode] ?? 1;
-			const slotFraction = (entity.baseOffset + 0.5) / population;
-			const defaultGridX = entity.subtypeIndex + slotFraction * spanWidth;
-			const gridY = GRID_HEIGHT - 1 - entity.selectedFloor + 0.5;
-			const queueKey = `${entity.selectedFloor}:${this.pickElevatorColumn(entity, elevatorColumnsByFloor)}`;
+			const queueKey = getQueuedEntityQueueKey(entity, elevatorColumnsByFloor);
 			const queueIndex = queueIndices.get(queueKey) ?? 0;
 			queueIndices.set(queueKey, queueIndex + 1);
-			const gridX = this.computeElevatorQueueX(
+			const { gridX, gridY } = getQueuedEntityLayout(
 				entity,
 				elevatorColumnsByFloor,
 				queueIndex,
-				defaultGridX,
 			);
 			const width = Math.max(2, TILE_WIDTH - 1);
 			const height = Math.max(4, Math.floor(TILE_HEIGHT * 0.35));
@@ -724,8 +553,12 @@ export class GameScene extends Phaser.Scene {
 			this.previousEntitySnapshot ?? { simTime: 0, items: [] };
 		const occupancyByCar = buildOccupancyByCar(entitySnapshot.items);
 
-		for (const car of this.getDisplayedCars()) {
-			const { x, y, width, height } = this.getCarBounds(car);
+		for (const car of getDisplayedCars(
+			this.currentCarrierSnapshot,
+			this.previousCarrierSnapshot,
+			this.presentationClock,
+		)) {
+			const { x, y, width, height } = getCarBounds(car);
 			const occupancy =
 				occupancyByCar.get(`${car.carrierId}:${car.carIndex}`) ?? 0;
 
@@ -761,167 +594,6 @@ export class GameScene extends Phaser.Scene {
 		this.carLabels.push(label);
 	}
 
-	private getCarBounds(car: CarrierCarStateData): {
-		x: number;
-		y: number;
-		width: number;
-		height: number;
-	} {
-		const shaftWidthCells = TILE_WIDTHS.elevator ?? 4;
-		const slotCount = Math.max(1, car.carCount);
-		const shaftPixelWidth = shaftWidthCells * TILE_WIDTH;
-		const gutter = 1;
-		const usableWidth = shaftPixelWidth - gutter * (slotCount + 1);
-		const width = Math.max(3, Math.floor(usableWidth / slotCount));
-		const height = Math.max(8, Math.floor(TILE_HEIGHT * 0.55));
-		const x =
-			car.column * TILE_WIDTH + gutter + car.carIndex * (width + gutter);
-		const y = this.carWorldY(car) - height / 2;
-		return { x, y, width, height };
-	}
-
-	private carWorldY(car: CarrierCarStateData): number {
-		return (GRID_HEIGHT - 1 - this.predictCarFloor(car) + 0.5) * TILE_HEIGHT;
-	}
-
-	private getDisplayedCars(): CarrierCarStateData[] {
-		const current = this.currentCarrierSnapshot;
-		if (!current) return [];
-
-		const presentationTime = this.getPresentationTime();
-		const previous = this.previousCarrierSnapshot;
-		if (
-			previous &&
-			presentationTime >= previous.simTime &&
-			presentationTime <= current.simTime
-		) {
-			const progress =
-				(presentationTime - previous.simTime) /
-				Math.max(1, current.simTime - previous.simTime);
-			const previousByKey = new Map(
-				previous.items.map((car) => [this.carKey(car), car]),
-			);
-			return current.items.map((car) => {
-				const from = previousByKey.get(this.carKey(car));
-				if (!from) return car;
-				const interpolatedFloor = Phaser.Math.Linear(
-					this.predictCarFloor(from, 0),
-					this.predictCarFloor(car, 0),
-					progress,
-				);
-				return {
-					...car,
-					currentFloor: interpolatedFloor,
-				};
-			});
-		}
-
-		return current.items.map((car) => ({
-			...car,
-			currentFloor: this.predictCarFloor(
-				car,
-				Math.max(0, presentationTime - current.simTime),
-			),
-		}));
-	}
-
-	private carKey(car: CarrierCarStateData): string {
-		return `${car.carrierId}:${car.carIndex}`;
-	}
-
-	private predictCarFloor(
-		car: CarrierCarStateData,
-		additionalTicks = 0,
-	): number {
-		if (car.currentFloor === car.targetFloor || car.speedCounter <= 0) {
-			return car.currentFloor;
-		}
-
-		const ticksPerFloor =
-			car.carrierMode === 2 ? EXPRESS_TICKS_PER_FLOOR : LOCAL_TICKS_PER_FLOOR;
-		const travelledTicks = Math.max(
-			0,
-			ticksPerFloor - car.speedCounter + additionalTicks,
-		);
-		const travelledFloors = travelledTicks / ticksPerFloor;
-		const maxTravel = Math.abs(car.targetFloor - car.currentFloor);
-		const clampedTravel = Math.min(maxTravel, travelledFloors);
-		const direction = car.targetFloor > car.currentFloor ? 1 : -1;
-		return car.currentFloor + direction * clampedTravel;
-	}
-
-	private getPresentationTime(): number {
-		const elapsedMs = Math.max(
-			0,
-			performance.now() - this.presentationClock.receivedAtMs,
-		);
-		const tickIntervalMs = Math.max(1, this.presentationClock.tickIntervalMs);
-		return (
-			this.presentationClock.simTime + Math.min(1, elapsedMs / tickIntervalMs)
-		);
-	}
-
-	private collectElevatorColumnsByFloor(): Map<number, number[]> {
-		const result = new Map<number, number[]>();
-		for (const [key, type] of this.overlayGrid) {
-			if (type !== "elevator") continue;
-			const [x, y] = key.split(",").map(Number);
-			const floor = GRID_HEIGHT - 1 - y;
-			const columns = result.get(floor);
-			if (columns) {
-				if (!columns.includes(x)) columns.push(x);
-			} else {
-				result.set(floor, [x]);
-			}
-		}
-
-		for (const columns of result.values()) columns.sort((a, b) => a - b);
-		return result;
-	}
-
-	private pickElevatorColumn(
-		entity: EntityStateData,
-		elevatorColumnsByFloor: Map<number, number[]>,
-	): number {
-		const columns = elevatorColumnsByFloor.get(entity.floorAnchor);
-		const selectedColumns = elevatorColumnsByFloor.get(entity.selectedFloor);
-		const availableColumns = selectedColumns ?? columns;
-		if (!availableColumns || availableColumns.length === 0)
-			return entity.subtypeIndex;
-
-		let best = availableColumns[0] ?? entity.subtypeIndex;
-		let bestDistance = Math.abs(best - entity.subtypeIndex);
-		for (const column of availableColumns) {
-			const distance = Math.abs(column - entity.subtypeIndex);
-			if (distance < bestDistance) {
-				best = column;
-				bestDistance = distance;
-			}
-		}
-		return best;
-	}
-
-	private computeElevatorQueueX(
-		entity: EntityStateData,
-		elevatorColumnsByFloor: Map<number, number[]>,
-		queueIndex: number,
-		fallbackX: number,
-	): number {
-		const elevatorColumn = this.pickElevatorColumn(
-			entity,
-			elevatorColumnsByFloor,
-		);
-		if (
-			elevatorColumn === entity.subtypeIndex &&
-			!elevatorColumnsByFloor.has(entity.selectedFloor)
-		) {
-			return fallbackX;
-		}
-
-		const shaftCenter = elevatorColumn + (TILE_WIDTHS.elevator ?? 4) / 2;
-		return shaftCenter + 0.35 + queueIndex * 0.9;
-	}
-
 	/** Draw stairs bridging the floor at (gx,gy) and the floor above (gy-1). */
 	private drawStairs(
 		g: Phaser.GameObjects.Graphics,
@@ -950,7 +622,6 @@ export class GameScene extends Phaser.Scene {
 		g.clear();
 		if (!this.hoveredCell) return;
 
-		// While shift is held and a fill is possible, show the fill outline preview
 		if (
 			this.isShiftHeld &&
 			this.lastPlacedAnchor &&
@@ -961,34 +632,23 @@ export class GameScene extends Phaser.Scene {
 		}
 
 		const { x, y } = this.hoveredCell;
-		if (y < 0 || y >= GRID_HEIGHT) return;
-
-		// Lobby is only placeable on ground floor and every 15 floors above
-		if (this.selectedTool === "lobby") {
-			const floorsAboveGround = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y;
-			if (floorsAboveGround < 0 || floorsAboveGround % 15 !== 0) return;
-		}
-
-		const width =
-			this.selectedTool !== "empty" ? (TILE_WIDTHS[this.selectedTool] ?? 1) : 1;
-		// Stairs also span the floor above
-		const heightCells = this.selectedTool === "stairs" ? 2 : 1;
-
-		// Clamp to grid
-		const startX = Math.max(0, x);
-		const endX = Math.min(GRID_WIDTH - 1, x + width - 1);
-		const startY = Math.max(0, y - heightCells + 1);
-		if (startX > endX) return;
-
-		const previewX = startX * TILE_WIDTH + 1;
-		const previewY = startY * TILE_HEIGHT + 1;
-		const previewWidth = (endX - startX + 1) * TILE_WIDTH - 1;
-		const previewHeight = (y - startY + 1) * TILE_HEIGHT - 1;
+		const hoverBounds = getHoverBounds(x, y, this.selectedTool);
+		if (!hoverBounds) return;
 
 		g.fillStyle(COLOR_HOVER, 0.2);
 		g.lineStyle(1, COLOR_HOVER, 0.9);
-		g.fillRect(previewX, previewY, previewWidth, previewHeight);
-		g.strokeRect(previewX, previewY, previewWidth, previewHeight);
+		g.fillRect(
+			hoverBounds.x,
+			hoverBounds.y,
+			hoverBounds.width,
+			hoverBounds.height,
+		);
+		g.strokeRect(
+			hoverBounds.x,
+			hoverBounds.y,
+			hoverBounds.width,
+			hoverBounds.height,
+		);
 	}
 
 	private drawShiftPreview(): void {
