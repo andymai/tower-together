@@ -907,6 +907,15 @@ export function populate_carrier_requests(
 
 	const activeDemandIds = new Set<string>();
 	for (const entity of world.entities) {
+		// Entities already in-transit on a carrier or segment are active demand —
+		// their pending routes must not be pruned.
+		if (
+			entity.routeMode === ROUTE_MODE_CARRIER ||
+			entity.routeMode === ROUTE_MODE_SEGMENT
+		) {
+			activeDemandIds.add(entityKey(entity));
+			continue;
+		}
 		if (!shouldSeedElevatorDemand(entity)) continue;
 		const demand = getElevatorDemand(entity);
 		if (!demand) continue;
