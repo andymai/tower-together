@@ -99,6 +99,13 @@ export interface CarrierRecord {
 	 * byte at `serviceScheduleFlags` (+0x2e + phase*7 + daypart). Default = 1.
 	 */
 	dwellMultiplierFlags: number[];
+	/**
+	 * 14 entries: 7 dayparts × 2 calendar phases. Controls alternate-direction
+	 * queue drain behavior per daypart. 0 = normal (both directions),
+	 * 1 = express to top (prefer upward, skip alternate downward drain),
+	 * 2 = express to bottom (prefer downward, skip alternate upward drain).
+	 */
+	expressDirectionFlags: number[];
 	waitingCarResponseThreshold: number;
 	assignmentCapacity: number;
 	floorQueues: CarrierFloorQueue[];

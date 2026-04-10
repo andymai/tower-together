@@ -1,3 +1,4 @@
+import { resolve_transfer_floor } from "./routing";
 import type { TimeState } from "./time";
 import {
 	type CarrierCar,
@@ -228,18 +229,21 @@ function compute_car_motion_mode(
 ): 0 | 1 | 2 | 3 {
 	const distToTarget = Math.abs(car.currentFloor - car.targetFloor);
 	const distFromPrev = Math.abs(car.currentFloor - car.prevFloor);
+	// First leg: prevFloor === currentFloor, car needs to depart
 	const firstLeg = distFromPrev === 0 && distToTarget > 0;
 
-	if (carrier.carrierMode !== 0) {
-		if (firstLeg) return 2;
-		if (distToTarget < 2 || distFromPrev < 2) return 0;
-		if (distToTarget < 4 || distFromPrev < 4) return 1;
+	// Express carriers (mode 0): stop within 1 floor, +/-3 when far, +/-1 otherwise
+	if (carrier.carrierMode === 0) {
+		if (firstLeg) return distToTarget > 3 ? 3 : 2;
+		if (distToTarget <= 1 || distFromPrev <= 1) return 0;
+		if (distToTarget > 3 && distFromPrev > 3) return 3;
 		return 2;
 	}
 
-	if (firstLeg) return distToTarget > 4 ? 3 : 2;
-	if (distToTarget < 2 || distFromPrev < 2) return 0;
-	if (distToTarget > 4 && distFromPrev > 4) return 3;
+	// Standard (1) and Service (2): stop within 1 floor, slow-stop within 3, +/-1 otherwise
+	if (firstLeg) return 2;
+	if (distToTarget <= 1 || distFromPrev <= 1) return 0;
+	if (distToTarget <= 3 || distFromPrev <= 3) return 1;
 	return 2;
 }
 
@@ -346,6 +350,7 @@ export function make_carrier(
 		secondaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		serviceScheduleFlags: new Array(14).fill(1),
 		dwellMultiplierFlags: new Array(14).fill(1),
+		expressDirectionFlags: new Array(14).fill(0),
 		waitingCarResponseThreshold: 4,
 		assignmentCapacity: mode === 0 ? 0x2a : 0x15,
 		floorQueues: Array.from({ length: numSlots }, () => create_floor_queue()),
@@ -456,15 +461,19 @@ function find_best_available_car_for_floor(
 	floor: number,
 	directionFlag: number,
 ): number {
-	let bestIndex = -1;
-	let bestIdleHomeScore = Number.POSITIVE_INFINITY;
-	let bestMovingScore = Number.POSITIVE_INFINITY;
-	let bestMovingIndex = -1;
+	let bestIdleHomeCost = Number.POSITIVE_INFINITY;
+	let bestIdleHomeIndex = -1;
+	let bestForwardCost = Number.POSITIVE_INFINITY;
+	let bestForwardIndex = -1;
+	let bestWrapCost = Number.POSITIVE_INFINITY;
+	let bestWrapIndex = -1;
 
 	for (const [carIndex, car] of carrier.cars.entries()) {
 		if (!car.active) continue;
 		if (car.assignedCount >= get_car_capacity(carrier)) continue;
 
+		// Immediate early-accept: car at floor with doors closed and either
+		// schedule byte nonzero or direction already matches
 		if (
 			car.currentFloor === floor &&
 			car.doorWaitCounter === 0 &&
@@ -474,41 +483,129 @@ function find_best_available_car_for_floor(
 		}
 
 		const distance = Math.abs(car.currentFloor - floor);
-		const idleHome =
+
+		// Idle-home candidate: at home, no assignments, doors closed
+		const isIdleHome =
 			car.pendingAssignmentCount === 0 &&
 			car.nonemptyDestinationCount === 0 &&
 			car.doorWaitCounter === 0 &&
 			car.currentFloor === car.homeFloor;
-		const sameDirectionForward =
+
+		if (isIdleHome) {
+			const cost = distance;
+			if (cost < bestIdleHomeCost) {
+				bestIdleHomeCost = cost;
+				bestIdleHomeIndex = carIndex;
+			}
+		}
+
+		// Same-direction forward candidate: moving in requested direction
+		// and request lies ahead
+		const isSameDirectionForward =
 			car.directionFlag === directionFlag &&
 			(directionFlag === 0
-				? floor >= car.currentFloor
-				: floor <= car.currentFloor);
-		const movingScore =
-			distance +
-			car.pendingAssignmentCount * 8 +
-			(sameDirectionForward ? 0 : 8);
+				? floor > car.currentFloor
+				: floor < car.currentFloor);
 
-		if (idleHome && distance < bestIdleHomeScore) {
-			bestIdleHomeScore = distance;
-			bestIndex = carIndex;
-		}
-		if (movingScore < bestMovingScore) {
-			bestMovingScore = movingScore;
-			bestMovingIndex = carIndex;
+		if (isSameDirectionForward) {
+			const cost =
+				directionFlag === 0
+					? floor - car.currentFloor
+					: car.currentFloor - floor;
+			if (cost < bestForwardCost) {
+				bestForwardCost = cost;
+				bestForwardIndex = carIndex;
+			}
+		} else {
+			// Wrap/reversal candidate
+			let cost: number;
+			if (car.directionFlag === directionFlag) {
+				// Same direction but request is behind the sweep
+				if (directionFlag === 0) {
+					cost = car.targetFloor - car.currentFloor + (car.targetFloor - floor);
+				} else {
+					cost = car.currentFloor - car.targetFloor + (floor - car.targetFloor);
+				}
+			} else {
+				// Opposite direction: distance via next turn floor
+				if (directionFlag === 0) {
+					// Request is upward, car is going down
+					const turnFloor = car.targetFloor;
+					if (floor <= car.currentFloor) {
+						cost = Math.abs(car.currentFloor - floor);
+					} else {
+						cost = car.currentFloor - turnFloor + (floor - turnFloor);
+					}
+				} else {
+					// Request is downward, car is going up
+					const turnFloor = car.targetFloor;
+					if (floor >= car.currentFloor) {
+						cost = Math.abs(floor - car.currentFloor);
+					} else {
+						cost = turnFloor - car.currentFloor + (turnFloor - floor);
+					}
+				}
+			}
+			if (cost < bestWrapCost) {
+				bestWrapCost = cost;
+				bestWrapIndex = carIndex;
+			}
 		}
 	}
 
-	if (bestIndex >= 0 && bestMovingIndex >= 0) {
+	// Select best moving candidate: prefer forward over wrap/reversal
+	let bestMovingCost: number;
+	let bestMovingIndex: number;
+	if (bestForwardIndex >= 0) {
+		bestMovingCost = bestForwardCost;
+		bestMovingIndex = bestForwardIndex;
+	} else {
+		bestMovingCost = bestWrapCost;
+		bestMovingIndex = bestWrapIndex;
+	}
+
+	// Threshold tie-break between moving and idle-home
+	if (bestIdleHomeIndex >= 0 && bestMovingIndex >= 0) {
 		if (
-			bestMovingScore - bestIdleHomeScore <
+			bestMovingCost - bestIdleHomeCost <
 			carrier.waitingCarResponseThreshold
 		) {
 			return bestMovingIndex;
 		}
-		return bestIndex;
+		return bestIdleHomeIndex;
 	}
-	return bestIndex >= 0 ? bestIndex : bestMovingIndex;
+	if (bestIdleHomeIndex >= 0) return bestIdleHomeIndex;
+	if (bestMovingIndex >= 0) return bestMovingIndex;
+
+	// Degenerate fallback: write car index 0 (binary quirk)
+	return 0;
+}
+
+function clear_entity_route_by_id(world: WorldState, entityId: string): void {
+	for (const entity of world.entities) {
+		const key = `${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`;
+		if (key !== entityId) continue;
+		entity.routeMode = 0;
+		entity.routeSourceFloor = 0xff;
+		entity.routeCarrierOrSegment = 0xff;
+		entity.routeRetryDelay = 0;
+		return;
+	}
+}
+
+function clear_stale_floor_assignments(
+	carrier: CarrierRecord,
+	floor: number,
+	carIndex: number,
+): void {
+	const slot = floor_to_slot(carrier, floor);
+	if (slot < 0) return;
+	if (carrier.primaryRouteStatusByFloor[slot] === carIndex + 1) {
+		carrier.primaryRouteStatusByFloor[slot] = 0;
+	}
+	if (carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1) {
+		carrier.secondaryRouteStatusByFloor[slot] = 0;
+	}
 }
 
 function assign_car_to_floor_request(
@@ -550,9 +647,11 @@ function assign_pending_floor_requests(carrier: CarrierRecord): void {
 }
 
 function process_unit_travel_queue(
+	world: WorldState,
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
+	time: TimeState,
 ): void {
 	let remainingSlots = Math.max(
 		0,
@@ -598,10 +697,36 @@ function process_unit_travel_queue(
 
 	for (const route of assignedRoutes.slice(0, remainingSlots)) {
 		pop_route_from_floor_queue(carrier, car.currentFloor, primaryDirection);
+		// Resolve transfer floor if carrier doesn't directly serve destination
+		const resolvedFloor = resolve_transfer_floor(
+			world,
+			carrier.carrierId,
+			car.currentFloor,
+			route.destinationFloor,
+		);
+		if (resolvedFloor < 0) {
+			// Transfer resolution failed — remove from pending and clear entity
+			// route state so it re-enters family dispatch with requeue-failure delay
+			carrier.pendingRoutes = carrier.pendingRoutes.filter(
+				(candidate) => candidate.entityId !== route.entityId,
+			);
+			clear_entity_route_by_id(world, route.entityId);
+			continue;
+		}
+		route.destinationFloor = resolvedFloor;
 		if (add_route_slot(carrier, car, route)) remainingSlots -= 1;
 	}
 
-	if (remainingSlots > 0) {
+	// Gate alternate-direction drain on expressDirectionFlags:
+	// 0 = normal (both), 1 = express-to-top (up only), 2 = express-to-bottom (down only)
+	const expressDir =
+		carrier.expressDirectionFlags[get_schedule_index(time)] ?? 0;
+	const allowAlternate =
+		expressDir === 0 ||
+		(expressDir === 1 && primaryDirection === 0) ||
+		(expressDir === 2 && primaryDirection === 1);
+
+	if (remainingSlots > 0 && allowAlternate) {
 		const alternateDirection = primaryDirection === 0 ? 1 : 0;
 		const alternateRoutes = peek_queue_route_ids(
 			carrier,
@@ -618,6 +743,20 @@ function process_unit_travel_queue(
 			);
 		for (const route of alternateRoutes.slice(0, remainingSlots)) {
 			pop_route_from_floor_queue(carrier, car.currentFloor, alternateDirection);
+			const resolvedFloor = resolve_transfer_floor(
+				world,
+				carrier.carrierId,
+				car.currentFloor,
+				route.destinationFloor,
+			);
+			if (resolvedFloor < 0) {
+				carrier.pendingRoutes = carrier.pendingRoutes.filter(
+					(candidate) => candidate.entityId !== route.entityId,
+				);
+				clear_entity_route_by_id(world, route.entityId);
+				continue;
+			}
+			route.destinationFloor = resolvedFloor;
 			if (add_route_slot(carrier, car, route)) remainingSlots -= 1;
 		}
 	}
@@ -630,14 +769,19 @@ function select_next_target(
 	carrier: CarrierRecord,
 	carIndex: number,
 ): number {
-	const dir = car.directionFlag === 0 ? 1 : -1;
-	const targets: number[] = [];
+	// No pending work: return to home floor
+	if (car.pendingAssignmentCount === 0 && car.nonemptyDestinationCount === 0) {
+		return car.homeFloor;
+	}
+
+	// Build target set from active route slots and floor-assignment tables
+	const targetSet = new Set<number>();
 	const limit = active_slot_limit(carrier);
 
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
 		if (!slot?.active) continue;
-		targets.push(slot.boarded ? slot.destinationFloor : slot.sourceFloor);
+		targetSet.add(slot.boarded ? slot.destinationFloor : slot.sourceFloor);
 	}
 
 	for (
@@ -647,41 +791,41 @@ function select_next_target(
 	) {
 		const slot = floor_to_slot(carrier, floor);
 		if (slot < 0) continue;
-		if ((car.destinationCountByFloor[slot] ?? 0) > 0) targets.push(floor);
+		if ((car.destinationCountByFloor[slot] ?? 0) > 0) targetSet.add(floor);
 		if (
 			carrier.primaryRouteStatusByFloor[slot] === carIndex + 1 ||
 			carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1
 		) {
-			targets.push(floor);
+			targetSet.add(floor);
 		}
 	}
 
-	if (car.pendingAssignmentCount === 0 && car.nonemptyDestinationCount === 0) {
-		return car.homeFloor;
-	}
-
+	// Scan in current travel direction
+	const dir = car.directionFlag === 0 ? 1 : -1;
 	for (
 		let floor = car.currentFloor + dir;
 		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
 		floor += dir
 	) {
-		if (targets.includes(floor)) return floor;
+		if (targetSet.has(floor)) return floor;
 	}
 
+	// At terminal floors, allow reversal when schedule flag permits
 	if (
 		(car.currentFloor === carrier.topServedFloor ||
 			car.currentFloor === carrier.bottomServedFloor) &&
-		car.scheduleFlag === 1
+		car.scheduleFlag !== 0
 	) {
 		car.directionFlag = car.directionFlag === 0 ? 1 : 0;
 	}
 
+	// Scan in reverse direction
 	for (
 		let floor = car.currentFloor - dir;
 		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
 		floor -= dir
 	) {
-		if (targets.includes(floor)) return floor;
+		if (targetSet.has(floor)) return floor;
 	}
 
 	return car.currentFloor;
@@ -698,7 +842,8 @@ function load_schedule_flag(
 	) {
 		return;
 	}
-	car.scheduleFlag = carrier.servedFloorFlags[get_schedule_index(time)] ?? 1;
+	car.scheduleFlag =
+		carrier.dwellMultiplierFlags[get_schedule_index(time)] ?? 1;
 }
 
 function should_car_depart(
@@ -711,11 +856,9 @@ function should_car_depart(
 	if ((carrier.serviceScheduleFlags[scheduleIndex] ?? 1) === 0) {
 		return true;
 	}
-	const isLobbyOrExpressFloor =
-		car.currentFloor === 10 || (car.currentFloor - 10) % 15 === 14;
-	if (car.currentFloor !== car.homeFloor && !isLobbyOrExpressFloor) return true;
-	const dwellMultiplier = carrier.dwellMultiplierFlags[scheduleIndex] ?? 1;
-	return Math.abs(time.dayTick - car.departureTimestamp) > dwellMultiplier * 30;
+	return (
+		Math.abs(time.dayTick - car.departureTimestamp) > car.scheduleFlag * 30
+	);
 }
 
 function board_and_unload_routes(
@@ -799,6 +942,7 @@ function board_and_unload_routes(
 }
 
 function step_carrier_car(
+	world: WorldState,
 	car: CarrierCar,
 	carrier: CarrierRecord,
 	carIndex: number,
@@ -838,7 +982,7 @@ function step_carrier_car(
 		return;
 	}
 
-	process_unit_travel_queue(carrier, car, carIndex);
+	process_unit_travel_queue(world, carrier, car, carIndex, time);
 	if (board_and_unload_routes(carrier, car, carIndex, onArrival)) {
 		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 		return;
@@ -846,27 +990,32 @@ function step_carrier_car(
 
 	load_schedule_flag(carrier, car, time);
 	const next = select_next_target(car, carrier, carIndex);
+
 	if (next === car.currentFloor) {
+		// At target floor with no further targets: check if passengers waiting
 		const currentSlot = floor_to_slot(carrier, car.currentFloor);
 		const waitingHere =
 			currentSlot >= 0 ? (car.waitingCount[currentSlot] ?? 0) > 0 : false;
 		if (waitingHere) {
-			if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
+			// Passengers waiting: begin departure/boarding sequence
+			clear_stale_floor_assignments(carrier, car.currentFloor, carIndex);
 			car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
+			if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
 			car.departureFlag = 1;
 			return;
 		}
-		if (
-			car.pendingRouteIds.length > 0 &&
-			should_car_depart(carrier, car, time)
-		) {
+		// Car has boarded passengers and should depart
+		if (car.assignedCount > 0 && should_car_depart(carrier, car, time)) {
 			car.speedCounter = 1;
 		}
 		return;
 	}
 
+	// Move toward next target
 	car.targetFloor = next;
 	car.directionFlag = next > car.currentFloor ? 0 : 1;
+	// Clear stale assignments at current floor before departing
+	clear_stale_floor_assignments(carrier, car.currentFloor, carIndex);
 	car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
 	if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
 	car.departureFlag = 1;
@@ -882,7 +1031,7 @@ export function tick_all_carriers(
 		assign_pending_floor_requests(carrier);
 		sync_assignment_status(carrier);
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			step_carrier_car(car, carrier, carIndex, time, onArrival);
+			step_carrier_car(world, car, carrier, carIndex, time, onArrival);
 		}
 	}
 }
@@ -941,6 +1090,12 @@ export function rebuild_carrier_list(world: WorldState): void {
 				existing.dwellMultiplierFlags.length !== 14
 			) {
 				existing.dwellMultiplierFlags = new Array(14).fill(1);
+			}
+			if (
+				!Array.isArray(existing.expressDirectionFlags) ||
+				existing.expressDirectionFlags.length !== 14
+			) {
+				existing.expressDirectionFlags = new Array(14).fill(0);
 			}
 			existing.completedRouteIds ??= [];
 			if (existing.primaryRouteStatusByFloor.length !== numSlots) {

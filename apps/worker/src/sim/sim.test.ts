@@ -1396,7 +1396,7 @@ describe("rebuild_carrier_list", () => {
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
 		expect(active[0].heightMetric).toBe(2); // floors 10 and 11 inclusive
-		expect(active[0].flags & 1).toBe(1); // escalator-mode flag
+		expect(active[0].flags & 1).toBe(0); // escalator = local-branch (bit 0 = 0)
 	});
 
 	it("preserves car position when carrier range extends", () => {
@@ -1437,12 +1437,12 @@ describe("rebuild_specialLinks", () => {
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
 		expect(active[0].heightMetric).toBe(11);
-		expect(active[0].flags & 1).toBe(0); // local = not express
+		expect(active[0].flags & 1).toBe(1); // stairs = express-branch (bit 0 = 1)
 	});
 });
 
 describe("rebuild_walkability_flags", () => {
-	it("sets bit 0 for floors covered by a stairs span", () => {
+	it("sets bit 1 (express) for floors covered by a stairs span", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		for (let floor = 10; floor <= 15; floor++) {
@@ -1451,10 +1451,10 @@ describe("rebuild_walkability_flags", () => {
 		}
 		run_global_rebuilds(world, ledger);
 		for (let f = 10; f <= 15; f++) {
-			expect(world.floorWalkabilityFlags[f] & 1).toBe(1);
+			expect(world.floorWalkabilityFlags[f] & 2).toBe(2);
 		}
-		expect(world.floorWalkabilityFlags[9] & 1).toBe(0);
-		expect(world.floorWalkabilityFlags[16] & 1).toBe(0);
+		expect(world.floorWalkabilityFlags[9] & 2).toBe(0);
+		expect(world.floorWalkabilityFlags[16] & 2).toBe(0);
 	});
 });
 
@@ -1497,7 +1497,7 @@ describe("select_best_route_candidate", () => {
 		const ledger = makeLedger();
 		for (let floor = 10; floor <= 20; floor++) {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
-			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
+			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "escalator";
 		}
 		run_global_rebuilds(world, ledger);
 		const route = select_best_route_candidate(world, 10, 15);
@@ -1692,7 +1692,7 @@ describe("select_best_route_candidate", () => {
 		const route = select_best_route_candidate(world, 12, 2);
 		expect(route?.kind).toBe("carrier");
 		expect(route?.id).toBe(0);
-		expect(route?.cost).toBe(3000 + 10 * 8);
+		expect(route?.cost).toBe(3000 + 10 * 8 + 0x1e); // +0x1e medium distance penalty
 	});
 
 	it("does not score transfer routes from derived floor cache without a tagged entry", () => {
@@ -2266,12 +2266,10 @@ describe("Phase 4 runtime entities", () => {
 		});
 		const entity = world.entities[0];
 		if (!entity) throw new Error("expected entity");
-		expect(entity.selectedFloor).toBe(10);
-		expect(entity.routeMode).toBe(0);
-		expect(entity.routeCarrierOrSegment).toBe(0xff);
-		expect(entity.stateCode).toBe(0x01);
-		expect(entity.encodedRouteTarget).toBe(-1);
-		expect(entity.queueTick).toBe(321);
+		// Entity is now in-transit on the segment route with per-stop delay
+		// 4 floors × 16 ticks (local branch, flag bit 0 = 0) = 64; one tick decremented = 63
+		expect(entity.routeMode).toBe(1);
+		expect(entity.auxCounter).toBe(63);
 	});
 
 	it("does not finalize segment routes for entities outside transport transit states", () => {

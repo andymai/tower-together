@@ -64,7 +64,7 @@ export function rebuild_special_links(world: WorldState): void {
 		const span = topFloor - entryFloor + 1;
 		world.specialLinks[segmentIndex++] = {
 			active: true,
-			flags: (span << 1) | (group.type === "escalator" ? 1 : 0),
+			flags: (span << 1) | (group.type === "stairs" ? 1 : 0),
 			heightMetric: span,
 			entryFloor,
 			reservedByte: 0,
@@ -261,36 +261,41 @@ export function select_best_route_candidate(
 				if (cost >= 0x7fff) continue;
 				bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 			}
+			// Immediately accept a cheap direct local segment
 			if (bestSegment && bestSegment.cost < 0x280) return bestSegment;
 		}
 
-		for (const record of world.specialLinkRecords) {
-			if (!record.active) continue;
-			if (fromFloor < record.lowerFloor || fromFloor > record.upperFloor)
-				continue;
-			if (!derived_record_reaches_floor(record, toFloor)) continue;
-			const candidateEntryFloors = get_derived_record_entry_floors(
-				record,
-				toFloor,
-			);
-			for (const adjacentFloor of candidateEntryFloors) {
-				for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-					const cost = score_local_route_segment(
-						segment,
-						fromFloor,
-						adjacentFloor,
-					);
-					if (cost >= 0x280) continue;
-					bestSegment = tryCandidate(
-						bestSegment,
-						"segment",
-						segmentIndex,
-						cost,
-					);
+		// Scan derived transfer zones only when no cheap direct segment exists
+		if (!bestSegment || bestSegment.cost >= 0x280) {
+			for (const record of world.specialLinkRecords) {
+				if (!record.active) continue;
+				if (fromFloor < record.lowerFloor || fromFloor > record.upperFloor)
+					continue;
+				if (!derived_record_reaches_floor(record, toFloor)) continue;
+				const candidateEntryFloors = get_derived_record_entry_floors(
+					record,
+					toFloor,
+				);
+				for (const adjacentFloor of candidateEntryFloors) {
+					for (const [segmentIndex, segment] of world.specialLinks.entries()) {
+						const cost = score_local_route_segment(
+							segment,
+							fromFloor,
+							adjacentFloor,
+						);
+						if (cost >= 0x280) continue;
+						bestSegment = tryCandidate(
+							bestSegment,
+							"segment",
+							segmentIndex,
+							cost,
+						);
+					}
 				}
 			}
+			// If a transfer zone produced a cheap segment, accept it
+			if (bestSegment && bestSegment.cost < 0x280) return bestSegment;
 		}
-		if (bestSegment) return bestSegment;
 	} else if (
 		delta === 1 ||
 		is_floor_span_walkable_for_express_route(world, fromFloor, toFloor)
@@ -303,6 +308,7 @@ export function select_best_route_candidate(
 		if (bestSegment) return bestSegment;
 	}
 
+	// Carrier fallback: scan all eligible carriers
 	for (const carrier of world.carriers) {
 		if (
 			preferLocalMode ? carrier.carrierMode === 2 : carrier.carrierMode !== 2
@@ -341,7 +347,11 @@ export function select_best_route_candidate(
 		}
 	}
 
-	return bestCarrier;
+	// Compare preserved segment candidate against best carrier
+	if (bestSegment && bestCarrier) {
+		return bestSegment.cost < bestCarrier.cost ? bestSegment : bestCarrier;
+	}
+	return bestSegment ?? bestCarrier;
 }
 
 function score_local_route_segment(
@@ -370,6 +380,12 @@ function score_express_route_segment(
 	return Math.abs(toFloor - fromFloor) * 8 + 0x280;
 }
 
+function distance_mismatch_penalty(delta: number): number {
+	if (delta >= 20) return 0x3c;
+	if (delta >= 10) return 0x1e;
+	return 0;
+}
+
 function score_carrier_direct_route(
 	world: WorldState,
 	carrierId: number,
@@ -388,7 +404,10 @@ function score_carrier_direct_route(
 		toFloor > fromFloor ? 0 : 1,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
-	return status === 0x28 ? 1000 + delta * 8 : delta * 8 + 0x280;
+	const penalty = distance_mismatch_penalty(delta);
+	return status === 0x28
+		? 1000 + delta * 8 + penalty
+		: delta * 8 + 0x280 + penalty;
 }
 
 function score_carrier_transfer_route(
@@ -420,7 +439,57 @@ function score_carrier_transfer_route(
 		toFloor > fromFloor ? 0 : 1,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
-	return status === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000;
+	const penalty = distance_mismatch_penalty(delta);
+	return status === 0x28
+		? 6000 + delta * 8 + penalty
+		: delta * 8 + 3000 + penalty;
+}
+
+/**
+ * Resolve a transfer floor for a carrier route where the carrier doesn't
+ * directly serve the target floor. Scans transfer-group entries 0..15 to find
+ * the first valid transfer floor in the travel direction.
+ *
+ * Returns the transfer floor, or -1 if no valid transfer found.
+ */
+export function resolve_transfer_floor(
+	world: WorldState,
+	carrierId: number,
+	currentFloor: number,
+	targetFloor: number,
+): number {
+	const carrier = world.carriers.find(
+		(candidate) => candidate.carrierId === carrierId,
+	);
+	if (!carrier) return -1;
+
+	// If the carrier directly serves the target floor, use it directly
+	if (carrier_serves_floor(carrier, targetFloor)) return targetFloor;
+
+	// Find the special-link record whose reachability covers this carrier
+	for (const record of world.specialLinkRecords) {
+		if (!record.active) continue;
+		const mask = record.reachabilityMasksByFloor[targetFloor] ?? 0;
+		if (mask === 0) continue;
+
+		// Scan transfer-group entries in ascending order
+		for (const entry of world.transferGroupEntries) {
+			if (!entry.active) continue;
+			// Skip same floor
+			if (entry.taggedFloor === currentFloor) continue;
+			// Check carrier mask overlap with target-floor reachability
+			if ((entry.carrierMask & (1 << carrierId)) === 0) continue;
+			if ((entry.carrierMask & mask) === 0) continue;
+			// Direction check: transfer floor must lie in travel direction
+			if (targetFloor > currentFloor && entry.taggedFloor <= currentFloor)
+				continue;
+			if (targetFloor < currentFloor && entry.taggedFloor >= currentFloor)
+				continue;
+			return entry.taggedFloor;
+		}
+	}
+
+	return -1;
 }
 
 function scan_special_link_span_bound(

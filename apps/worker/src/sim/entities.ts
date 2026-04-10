@@ -768,6 +768,11 @@ function resolve_entity_route_between_floors(
 		entity.routeCarrierOrSegment = route.id;
 		entity.queueTick = time?.dayTick ?? entity.queueTick;
 		entity.encodedRouteTarget = destinationFloor;
+		// Per-stop transit delay: local-branch = 16 ticks/floor, express-branch = 35
+		const segment = world.specialLinks[route.id];
+		const isExpressBranch = segment ? (segment.flags & 1) !== 0 : false;
+		const perStopDelay = isExpressBranch ? 35 : 16;
+		entity.auxCounter = Math.abs(destinationFloor - sourceFloor) * perStopDelay;
 		return 1;
 	}
 
@@ -823,6 +828,10 @@ function should_finalize_segment_trip(entity: EntityRecord): boolean {
 function finalize_pending_route_leg(entity: EntityRecord): void {
 	if (entity.routeMode !== ROUTE_MODE_SEGMENT) return;
 	if (entity.routeSourceFloor === 0xff) return;
+	if (entity.auxCounter > 0) {
+		entity.auxCounter -= 1;
+		return;
+	}
 	entity.selectedFloor = entity.routeSourceFloor;
 	clear_entity_route(entity);
 }
@@ -979,6 +988,10 @@ export function reconcile_entity_transport(
 		if (entity.routeMode !== ROUTE_MODE_SEGMENT) continue;
 		if (entity.routeSourceFloor === 0xff) continue;
 		if (!should_finalize_segment_trip(entity)) continue;
+		if (entity.auxCounter > 0) {
+			entity.auxCounter -= 1;
+			continue;
+		}
 		dispatch_entity_arrival(
 			world,
 			ledger,
