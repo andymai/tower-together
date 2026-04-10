@@ -1019,20 +1019,24 @@ export class GameScene extends Phaser.Scene {
 			) => {
 				const wheelEvent = p.event as WheelEvent;
 				if (wheelEvent.ctrlKey || wheelEvent.shiftKey) {
-					// Pinch or shift-modified trackpad scroll -> zoom around mouse position
+					// Pinch or shift-modified trackpad scroll -> zoom around mouse position.
+					// Use Phaser's camera transform helpers instead of duplicating the math,
+					// so the anchor remains stable with RESIZE scaling and centered cameras.
 					const oldZoom = cam.zoom;
 					const newZoom = Phaser.Math.Clamp(
 						oldZoom * (deltaY > 0 ? 0.9 : 1.1),
 						MIN_ZOOM,
 						MAX_ZOOM,
 					);
-					// World position under the pointer before zoom
-					const worldX = cam.scrollX + p.x / oldZoom;
-					const worldY = cam.scrollY + p.y / oldZoom;
+					if (newZoom === oldZoom) return;
+					cam.preRender();
+					const worldPointBefore = cam.getWorldPoint(p.x, p.y);
 					cam.setZoom(newZoom);
-					// Adjust scroll so the same world point stays under the pointer
-					cam.scrollX = worldX - p.x / newZoom;
-					cam.scrollY = worldY - p.y / newZoom;
+					cam.preRender();
+					const worldPointAfter = cam.getWorldPoint(p.x, p.y);
+					cam.scrollX += worldPointBefore.x - worldPointAfter.x;
+					cam.scrollY += worldPointBefore.y - worldPointAfter.y;
+					cam.preRender();
 				} else {
 					// Two-finger scroll -> pan
 					cam.scrollX += deltaX / cam.zoom;
