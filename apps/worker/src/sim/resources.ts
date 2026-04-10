@@ -63,27 +63,47 @@ export const TILE_COSTS: Record<string, number> = {
 
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
 
+// ─── Family codes (object-type codes from the spec) ─────────────────────────
+
+export const FAMILY_ELEVATOR = 1;
+export const FAMILY_ESCALATOR = 2;
+export const FAMILY_HOTEL_SINGLE = 3;
+export const FAMILY_HOTEL_TWIN = 4;
+export const FAMILY_HOTEL_SUITE = 5;
+export const FAMILY_RESTAURANT = 6;
+export const FAMILY_OFFICE = 7;
+export const FAMILY_CONDO = 9;
+export const FAMILY_FAST_FOOD = 10;
+export const FAMILY_RETAIL = 12;
+export const FAMILY_METRO = 14;
+export const FAMILY_CINEMA = 18;
+export const FAMILY_SECURITY = 20;
+export const FAMILY_HOUSEKEEPING = 21;
+export const FAMILY_PARKING = 24;
+export const FAMILY_ENTERTAINMENT = 29;
+export const FAMILY_FIRE_SUPPRESSOR = 40;
+
 // ─── Family code ↔ tile name mappings ────────────────────────────────────────
 
 /** Maps SimTower family/object-type codes to internal tile name strings. */
 export const FAMILY_CODE_TO_TILE: Record<number, string> = {
-	1: "elevator",
-	2: "escalator",
-	3: "hotelSingle",
-	4: "hotelTwin",
-	5: "hotelSuite",
-	6: "restaurant",
-	7: "office",
-	9: "condo",
-	10: "fastFood",
-	12: "retail",
-	14: "metro",
-	18: "cinema",
-	20: "security",
-	21: "housekeeping",
-	24: "parking",
-	29: "entertainment",
-	40: "fireSuppressor",
+	[FAMILY_ELEVATOR]: "elevator",
+	[FAMILY_ESCALATOR]: "escalator",
+	[FAMILY_HOTEL_SINGLE]: "hotelSingle",
+	[FAMILY_HOTEL_TWIN]: "hotelTwin",
+	[FAMILY_HOTEL_SUITE]: "hotelSuite",
+	[FAMILY_RESTAURANT]: "restaurant",
+	[FAMILY_OFFICE]: "office",
+	[FAMILY_CONDO]: "condo",
+	[FAMILY_FAST_FOOD]: "fastFood",
+	[FAMILY_RETAIL]: "retail",
+	[FAMILY_METRO]: "metro",
+	[FAMILY_CINEMA]: "cinema",
+	[FAMILY_SECURITY]: "security",
+	[FAMILY_HOUSEKEEPING]: "housekeeping",
+	[FAMILY_PARKING]: "parking",
+	[FAMILY_ENTERTAINMENT]: "entertainment",
+	[FAMILY_FIRE_SUPPRESSOR]: "fireSuppressor",
 };
 
 export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {

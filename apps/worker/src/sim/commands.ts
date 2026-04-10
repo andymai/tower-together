@@ -2,6 +2,10 @@ import { rebuild_carrier_list } from "./carriers";
 import { rebuild_runtime_entities } from "./entities";
 import { type LedgerState, rebuild_facility_ledger } from "./ledger";
 import {
+	FAMILY_CONDO,
+	FAMILY_METRO,
+	FAMILY_OFFICE,
+	FAMILY_SECURITY,
 	LEGACY_VIP_TILE_TO_STANDARD,
 	TILE_COSTS,
 	TILE_TO_FAMILY_CODE,
@@ -223,13 +227,15 @@ export function run_global_rebuilds(
 	world.gateFlags.vipSuiteFloor = 0xffff;
 	world.gateFlags.securityLedgerScale = 0;
 	for (const [key, object] of Object.entries(world.placedObjects)) {
-		if (object.objectTypeCode === 7) world.gateFlags.officePlaced = 1;
-		if (object.objectTypeCode === 14) {
+		if (object.objectTypeCode === FAMILY_OFFICE)
+			world.gateFlags.officePlaced = 1;
+		if (object.objectTypeCode === FAMILY_METRO) {
 			world.gateFlags.metroPlaced = 1;
 			const [, y] = key.split(",").map(Number);
 			world.gateFlags.vipSuiteFloor = world.height - 1 - y;
 		}
-		if (object.objectTypeCode === 20) world.gateFlags.securityLedgerScale += 1;
+		if (object.objectTypeCode === FAMILY_SECURITY)
+			world.gateFlags.securityLedgerScale += 1;
 	}
 
 	rebuild_facility_ledger(ledger, world);
@@ -569,7 +575,7 @@ export function handle_set_rent_level(
 			reason: "This facility does not have adjustable rent",
 		};
 	}
-	if (record.objectTypeCode === 9 && record.unitStatus < 0x18) {
+	if (record.objectTypeCode === FAMILY_CONDO && record.unitStatus < 0x18) {
 		return {
 			accepted: false,
 			reason: "Sold condos cannot change rent",

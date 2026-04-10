@@ -1,5 +1,6 @@
 import { apply_remove_elevator_car } from "./commands";
 import type { LedgerState } from "./ledger";
+import { FAMILY_METRO } from "./resources";
 import type { TimeState } from "./time";
 import {
 	type EventState,
@@ -565,7 +566,7 @@ export function tickVipSpecialVisitor(
 	// Sweep metro stack objects and toggle the display-only aux word.
 	let activated = false;
 	for (const record of Object.values(world.placedObjects)) {
-		if (record.objectTypeCode !== 14) continue;
+		if (record.objectTypeCode !== FAMILY_METRO) continue;
 		if (record.auxValueOrTimer === 0) {
 			record.auxValueOrTimer = 2; // activate special visitor
 			record.needsRefreshFlag = 1;
