@@ -59,6 +59,7 @@ import {
 	pre_day_4,
 } from "./time";
 import {
+	createEventState,
 	createGateFlags,
 	GRID_HEIGHT,
 	GRID_WIDTH,
@@ -90,6 +91,8 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		floorWalkabilityFlags: new Array(GRID_HEIGHT).fill(0),
 		transferGroupEntries: [],
 		transferGroupCache: new Array(GRID_HEIGHT).fill(0),
+		eventState: createEventState(),
+		pendingNotifications: [],
 	};
 }
 

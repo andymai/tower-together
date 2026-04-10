@@ -279,6 +279,20 @@ export interface EntertainmentLinkRecord {
 	ownerSubtypeIndex: number;
 	/** 0xff = no pair yet. */
 	pairedSubtypeIndex: number;
+	/** Incremented at 0x0f0 each day; used to derive paired-link budget tier. */
+	linkAgeCounter: number;
+	/** Forward-half attendance budget (seeded at 0x0f0). */
+	forwardBudget: number;
+	/** Reverse-half attendance budget (seeded at 0x0f0). */
+	reverseBudget: number;
+	/** Forward phase: 0=idle, 1=activated, 2=first-guest-arrived, 3=ready. */
+	forwardPhase: number;
+	/** Reverse phase: 0=idle, 1=activated, 2=first-guest-arrived, 3=ready. */
+	reversePhase: number;
+	/** Cumulative attendance this cycle. */
+	attendanceCounter: number;
+	/** Active runtime attendee count (decremented on phase advance). */
+	activeRuntimeCount: number;
 }
 
 export type SidecarRecord =
@@ -378,4 +392,11 @@ export interface WorldState {
 	transferGroupCache: number[];
 	/** Bomb/fire/VIP event state. */
 	eventState: EventState;
+	/** Pending notifications emitted during the current tick (drained by the transport layer). */
+	pendingNotifications: SimNotification[];
 }
+
+export type SimNotification = {
+	kind: "morning" | "afternoon" | "end_of_day" | "route_failure" | "event";
+	message?: string;
+};

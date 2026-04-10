@@ -1473,6 +1473,225 @@ function checkEvalCompletionAndAward(
 	}
 }
 
+// ─── Entertainment phase logic (families 0x12 / 0x1d) ────────────────────────
+
+const ENTERTAINMENT_FAMILY_PAIRED = 0x12;
+const ENTERTAINMENT_FAMILY_SINGLE = 0x1d;
+
+/**
+ * Paired-link budget tiers indexed by `linkAgeCounter / 3`.
+ * Selectors 0..6 → [40, 40, 40, 20], selectors 7..13 → [60, 60, 40, 20].
+ */
+function pairedBudget(linkAgeCounter: number): number {
+	const selector = Math.trunc(linkAgeCounter / 3);
+	if (selector < 7) {
+		if (selector < 3) return 40;
+		return 20;
+	}
+	if (selector < 10) return 60;
+	if (selector < 12) return 40;
+	return 20;
+}
+
+/**
+ * Seed entertainment link budgets and increment link age.
+ * Called as part of checkpoint 0x0f0 (facility ledger rebuild).
+ */
+export function seedEntertainmentBudgets(world: WorldState): void {
+	for (const object of Object.values(world.placedObjects)) {
+		if (
+			object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED &&
+			object.objectTypeCode !== ENTERTAINMENT_FAMILY_SINGLE
+		)
+			continue;
+		if (object.linkedRecordIndex < 0) continue;
+		const sidecar = world.sidecars[object.linkedRecordIndex];
+		if (!sidecar || sidecar.kind !== "entertainment_link") continue;
+
+		sidecar.attendanceCounter = 0;
+		sidecar.activeRuntimeCount = 0;
+		sidecar.forwardPhase = 0;
+		sidecar.reversePhase = 0;
+		sidecar.linkAgeCounter++;
+
+		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
+			const budget = pairedBudget(sidecar.linkAgeCounter);
+			sidecar.forwardBudget = budget;
+			sidecar.reverseBudget = budget;
+		} else {
+			sidecar.forwardBudget = 0;
+			sidecar.reverseBudget = 50;
+		}
+	}
+}
+
+/**
+ * Activate paired-link forward-half entities (checkpoint 0x3e8).
+ * Sets forwardPhase to 1 for all paired entertainment links that are idle.
+ */
+export function activateEntertainmentForwardHalf(world: WorldState): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
+			continue;
+		if (sidecar.forwardPhase === 0) {
+			sidecar.forwardPhase = 1;
+		}
+	}
+}
+
+/**
+ * Promote paired links to ready phase; activate single-link reverse-half
+ * (checkpoint 0x4b0).
+ */
+export function promoteAndActivateSingleReverse(world: WorldState): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object) continue;
+
+		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
+			if (sidecar.forwardPhase === 2) {
+				sidecar.forwardPhase = 3;
+			}
+		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
+			if (sidecar.reversePhase === 0) {
+				sidecar.reversePhase = 1;
+			}
+		}
+	}
+}
+
+/**
+ * Activate paired-link reverse-half entities still in phase 1 (checkpoint 0x578).
+ */
+export function activateEntertainmentReverseHalf(world: WorldState): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
+			continue;
+		if (sidecar.reversePhase === 0) {
+			sidecar.reversePhase = 1;
+		}
+	}
+}
+
+/**
+ * Movie-theater (paired) attendance-tiered payout.
+ */
+function movieTheaterPayout(attendance: number): number {
+	if (attendance >= 100) return 15_000;
+	if (attendance >= 80) return 10_000;
+	if (attendance >= 40) return 2_000;
+	return 0;
+}
+
+/**
+ * Advance paired-link forward phase (checkpoint 0x5dc).
+ * Decrements active runtime count and accrues income for completed forward phases.
+ */
+export function advanceEntertainmentForwardPhase(world: WorldState): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
+			continue;
+		if (sidecar.forwardPhase < 1) continue;
+
+		sidecar.activeRuntimeCount = Math.max(
+			0,
+			sidecar.activeRuntimeCount - sidecar.forwardBudget,
+		);
+		sidecar.forwardPhase = 0;
+
+		// Park forward-half entities for this entertainment record
+		for (const entity of world.entities) {
+			if (entity.familyCode !== ENTERTAINMENT_FAMILY_PAIRED) continue;
+			if (entity.subtypeIndex !== sidecar.ownerSubtypeIndex) continue;
+			if (entity.stateCode >= 0x01 && entity.stateCode <= 0x03) {
+				entity.stateCode = 0x27; // park
+			}
+		}
+	}
+}
+
+/**
+ * Advance reverse phase for both families, accrue cash income, reset phases
+ * (checkpoint 0x640).
+ */
+export function advanceEntertainmentReversePhaseAndAccrue(
+	world: WorldState,
+	ledger: LedgerState,
+): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object) continue;
+
+		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
+			if (sidecar.reversePhase >= 1) {
+				sidecar.activeRuntimeCount = Math.max(
+					0,
+					sidecar.activeRuntimeCount - sidecar.reverseBudget,
+				);
+				const payout = movieTheaterPayout(sidecar.attendanceCounter);
+				if (payout > 0) {
+					ledger.cashBalance = Math.min(
+						99_999_999,
+						ledger.cashBalance + payout,
+					);
+					ledger.secondaryLedger[ENTERTAINMENT_FAMILY_PAIRED] =
+						(ledger.secondaryLedger[ENTERTAINMENT_FAMILY_PAIRED] ?? 0) + payout;
+				}
+			}
+		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
+			if (sidecar.reversePhase >= 1) {
+				sidecar.activeRuntimeCount = Math.max(
+					0,
+					sidecar.activeRuntimeCount - sidecar.reverseBudget,
+				);
+				const payout = 20_000;
+				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
+				ledger.secondaryLedger[ENTERTAINMENT_FAMILY_SINGLE] =
+					(ledger.secondaryLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
+			}
+		}
+
+		// Reset phases
+		sidecar.forwardPhase = 0;
+		sidecar.reversePhase = 0;
+
+		// Park all entertainment entities for this record
+		for (const entity of world.entities) {
+			if (
+				entity.familyCode !== object.objectTypeCode ||
+				entity.subtypeIndex !== sidecar.ownerSubtypeIndex
+			)
+				continue;
+			if (entity.stateCode !== 0x27) {
+				entity.stateCode = 0x27;
+			}
+		}
+	}
+}
+
+function findObjectBySidecarOwner(
+	world: WorldState,
+	sidecar: { ownerSubtypeIndex: number },
+): PlacedObjectRecord | undefined {
+	for (const object of Object.values(world.placedObjects)) {
+		if (
+			object.linkedRecordIndex >= 0 &&
+			world.sidecars[object.linkedRecordIndex] === sidecar
+		) {
+			return object;
+		}
+	}
+	return undefined;
+}
+
 function entityStressLevel(
 	entity: EntityRecord,
 	object: PlacedObjectRecord | undefined,

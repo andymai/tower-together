@@ -268,6 +268,7 @@ export class TowerSim {
 			eventState: JSON.parse(
 				JSON.stringify(this.world.eventState),
 			) as WorldState["eventState"],
+			pendingNotifications: [],
 		};
 	}
 

@@ -109,6 +109,13 @@ function alloc_sidecar(tileType: string, x: number, world: WorldState): number {
 			kind: "entertainment_link",
 			ownerSubtypeIndex: x,
 			pairedSubtypeIndex: 0xff,
+			linkAgeCounter: 0,
+			forwardBudget: 0,
+			reverseBudget: 0,
+			forwardPhase: 0,
+			reversePhase: 0,
+			attendanceCounter: 0,
+			activeRuntimeCount: 0,
 		};
 		record = r;
 	}

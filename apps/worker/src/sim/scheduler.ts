@@ -1,12 +1,19 @@
+import { flush_carriers_end_of_day } from "./carriers";
 import {
+	activateEntertainmentForwardHalf,
+	activateEntertainmentReverseHalf,
 	activateEvalEntities,
+	advanceEntertainmentForwardPhase,
+	advanceEntertainmentReversePhaseAndAccrue,
 	closeCommercialVenues,
 	dispatchEvalMiddayReturn,
+	promoteAndActivateSingleReverse,
 	refund_unhappy_condos,
 	reset_entity_runtime_state,
 	resetCommercialVenueCycle,
 	resetHousekeepingDutyTier,
 	runOfficeServiceEvaluation,
+	seedEntertainmentBudgets,
 	update_security_housekeeping_state,
 } from "./entities";
 import { checkDailyEvents } from "./events";
@@ -41,32 +48,36 @@ function checkpoint_housekeeping_reset(_s: SimState): void {
 
 function checkpoint_facility_ledger_rebuild(s: SimState): void {
 	rebuild_facility_ledger(s.ledger, s.world);
+	seedEntertainmentBudgets(s.world);
 }
 
 function checkpoint_entertainment_half1(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
+	activateEntertainmentForwardHalf(_s.world);
 }
 
 function checkpoint_hotel_sale_reset(_s: SimState): void {
-	// Dispatch midday return for cathedral evaluation entities
 	dispatchEvalMiddayReturn(_s.world);
+	promoteAndActivateSingleReverse(_s.world);
 }
 
 function checkpoint_entertainment_half2(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
+	activateEntertainmentReverseHalf(_s.world);
 }
 
 function checkpoint_entertainment_phase1(_s: SimState): void {
-	// Phase 4
+	advanceEntertainmentForwardPhase(_s.world);
 }
 
 function checkpoint_midday(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
+	advanceEntertainmentReversePhaseAndAccrue(_s.world, _s.ledger);
 	update_security_housekeeping_state(_s.world, _s.ledger, _s.time, 0);
 }
 
 function checkpoint_afternoon_notification(_s: SimState): void {
-	// Phase 4: broadcast "afternoon" notification to clients if needed
+	_s.world.pendingNotifications.push({ kind: "afternoon" });
 }
 
 function checkpoint_noop(_s: SimState): void {
@@ -103,7 +114,8 @@ function checkpoint_ledger_rollover(s: SimState): void {
 }
 
 function checkpoint_end_of_day(_s: SimState): void {
-	// Phase 3+: flush carrier departure queues
+	flush_carriers_end_of_day(_s.world);
+	_s.world.pendingNotifications.push({ kind: "end_of_day" });
 }
 
 function checkpoint_security_final(_s: SimState): void {

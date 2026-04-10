@@ -947,6 +947,30 @@ export function tick_all_carriers(
 	}
 }
 
+/**
+ * End-of-day carrier flush (checkpoint 0x9f6).
+ * Drains all floor queues, clears pending routes, and resets every car to its
+ * home floor. This prevents stale overnight passengers.
+ */
+export function flush_carriers_end_of_day(world: WorldState): void {
+	for (const carrier of world.carriers) {
+		// Drain floor queues
+		for (const queue of carrier.floorQueues.values()) {
+			queue.up.clear();
+			queue.down.clear();
+		}
+
+		// Clear pending and completed route tracking
+		carrier.pendingRoutes = [];
+		carrier.completedRouteIds = [];
+
+		// Reset every car to home floor
+		for (const car of carrier.cars) {
+			reset_car_to_home(carrier, car);
+		}
+	}
+}
+
 export function rebuild_carrier_list(world: WorldState): void {
 	const columns = new Map<number, { floors: Set<number>; mode: 0 | 1 | 2 }>();
 	const overlayKeys = new Set<string>([
