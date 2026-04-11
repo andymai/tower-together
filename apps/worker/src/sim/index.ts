@@ -1,18 +1,18 @@
-import { tick_all_carriers } from "./carriers";
+import { tickAllCarriers } from "./carriers";
 import type { CellPatch, CommandResult, SimCommand } from "./commands";
 import {
-	handle_add_elevator_car,
-	handle_place_tile,
-	handle_remove_elevator_car,
-	handle_remove_tile,
-	handle_set_rent_level,
+	handleAddElevatorCar,
+	handlePlaceTile,
+	handleRemoveElevatorCar,
+	handleRemoveTile,
+	handleSetRentLevel,
 } from "./commands";
 import {
-	advance_entity_refresh_stride,
-	create_entity_state_records,
-	on_carrier_arrival,
-	populate_carrier_requests,
-	reconcile_entity_transport,
+	advanceEntityRefreshStride,
+	createEntityStateRecords,
+	onCarrierArrival,
+	populateCarrierRequests,
+	reconcileEntityTransport,
 } from "./entities";
 import {
 	handlePromptResponse,
@@ -23,7 +23,7 @@ import {
 } from "./events";
 import type { LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
-import { run_checkpoints, type SimState } from "./scheduler";
+import { runCheckpoints, type SimState } from "./scheduler";
 import {
 	createInitialSnapshot,
 	hydrateSnapshot,
@@ -79,12 +79,12 @@ export class TowerSim {
 	// ── Factory methods ────────────────────────────────────────────────────────
 
 	static create(towerId: string, name: string): TowerSim {
-		return TowerSim.from_snapshot(
+		return TowerSim.fromSnapshot(
 			createInitialSnapshot(towerId, name, STARTING_CASH),
 		);
 	}
 
-	static from_snapshot(snap: SimSnapshot): TowerSim {
+	static fromSnapshot(snap: SimSnapshot): TowerSim {
 		const hydrated = hydrateSnapshot(snap);
 		return new TowerSim(hydrated.time, hydrated.world, hydrated.ledger);
 	}
@@ -106,16 +106,16 @@ export class TowerSim {
 		};
 		triggerRandomNewsEvent(this.world, this.time);
 		tickVipSpecialVisitor(this.world, this.time);
-		run_checkpoints(state, prevTick, currTick);
+		runCheckpoints(state, prevTick, currTick);
 
 		// Per-tick event processing
 		tickBombEvent(this.world, this.ledger, this.time);
 		tickFireEvent(this.world, this.ledger, this.time);
 
-		advance_entity_refresh_stride(this.world, this.ledger, this.time);
-		populate_carrier_requests(this.world, this.time);
-		tick_all_carriers(this.world, this.time, (routeId, arrivalFloor) => {
-			on_carrier_arrival(
+		advanceEntityRefreshStride(this.world, this.ledger, this.time);
+		populateCarrierRequests(this.world, this.time);
+		tickAllCarriers(this.world, this.time, (routeId, arrivalFloor) => {
+			onCarrierArrival(
 				this.world,
 				this.ledger,
 				this.time,
@@ -123,7 +123,7 @@ export class TowerSim {
 				arrivalFloor,
 			);
 		});
-		reconcile_entity_transport(this.world, this.ledger, this.time);
+		reconcileEntityTransport(this.world, this.ledger, this.time);
 
 		// Drain pending notifications and prompts
 		const notifications = this.world.pendingNotifications.splice(0);
@@ -142,10 +142,10 @@ export class TowerSim {
 
 	// ── Commands ──────────────────────────────────────────────────────────────
 
-	submit_command(cmd: SimCommand): CommandResult {
+	submitCommand(cmd: SimCommand): CommandResult {
 		switch (cmd.type) {
 			case "place_tile":
-				return handle_place_tile(
+				return handlePlaceTile(
 					cmd.x,
 					cmd.y,
 					cmd.tileType,
@@ -153,7 +153,7 @@ export class TowerSim {
 					this.ledger,
 				);
 			case "remove_tile":
-				return handle_remove_tile(cmd.x, cmd.y, this.world, this.ledger);
+				return handleRemoveTile(cmd.x, cmd.y, this.world, this.ledger);
 			case "prompt_response": {
 				handlePromptResponse(
 					this.world,
@@ -169,7 +169,7 @@ export class TowerSim {
 				};
 			}
 			case "set_rent_level":
-				return handle_set_rent_level(
+				return handleSetRentLevel(
 					cmd.x,
 					cmd.y,
 					cmd.rentLevel,
@@ -177,15 +177,15 @@ export class TowerSim {
 					this.time,
 				);
 			case "add_elevator_car":
-				return handle_add_elevator_car(cmd.x, this.world);
+				return handleAddElevatorCar(cmd.x, this.world);
 			case "remove_elevator_car":
-				return handle_remove_elevator_car(cmd.x, this.world);
+				return handleRemoveElevatorCar(cmd.x, this.world);
 		}
 	}
 
 	// ── Cell inspection ──────────────────────────────────────────────────────────
 
-	query_cell(
+	queryCell(
 		x: number,
 		y: number,
 	): {
@@ -268,7 +268,7 @@ export class TowerSim {
 
 	// ── Serialization ──────────────────────────────────────────────────────────
 
-	save_state(): SimSnapshot {
+	saveState(): SimSnapshot {
 		return serializeSimState(this.time, this.world, this.ledger);
 	}
 
@@ -322,7 +322,7 @@ export class TowerSim {
 	}
 
 	entitiesToArray() {
-		return create_entity_state_records(this.world);
+		return createEntityStateRecords(this.world);
 	}
 
 	carriersToArray(): CarrierCarStateRecord[] {

@@ -1,4 +1,4 @@
-import { carrier_serves_floor } from "./carriers";
+import { carrierServesFloor } from "./carriers";
 import { FAMILY_PARKING } from "./resources";
 import {
 	GRID_HEIGHT,
@@ -14,7 +14,7 @@ const EXPRESS_ROUTE_BASE_COST = 0x280; // 640
 
 const DERIVED_RECORD_CENTERS = [10, 24, 39, 54, 69, 84, 99];
 
-export function rebuild_special_links(world: WorldState): void {
+export function rebuildSpecialLinks(world: WorldState): void {
 	world.specialLinks = Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
 		active: false,
 		flags: 0,
@@ -79,8 +79,8 @@ export function rebuild_special_links(world: WorldState): void {
 
 	for (const [recordIndex, center] of DERIVED_RECORD_CENTERS.entries()) {
 		if (recordIndex >= MAX_SPECIAL_LINK_RECORDS) break;
-		const lowerFloor = scan_special_link_span_bound(world, center, 0);
-		const upperFloor = scan_special_link_span_bound(world, center, 1);
+		const lowerFloor = scanSpecialLinkSpanBound(world, center, 0);
+		const upperFloor = scanSpecialLinkSpanBound(world, center, 1);
 		if (lowerFloor >= upperFloor) continue;
 		world.specialLinkRecords[recordIndex] = {
 			active: true,
@@ -91,13 +91,13 @@ export function rebuild_special_links(world: WorldState): void {
 	}
 }
 
-export function rebuild_walkability_flags(world: WorldState): void {
+export function rebuildWalkabilityFlags(world: WorldState): void {
 	world.floorWalkabilityFlags = new Array(GRID_HEIGHT).fill(0);
 
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
 		const bit = (segment.flags & 1) !== 0 ? 2 : 1;
-		const topFloor = get_segment_top_floor(segment);
+		const topFloor = getSegmentTopFloor(segment);
 		for (let floor = segment.entryFloor; floor <= topFloor; floor++) {
 			if (floor >= 0 && floor < GRID_HEIGHT) {
 				world.floorWalkabilityFlags[floor] |= bit;
@@ -106,7 +106,7 @@ export function rebuild_walkability_flags(world: WorldState): void {
 	}
 }
 
-export function rebuild_transfer_group_cache(world: WorldState): void {
+export function rebuildTransferGroupCache(world: WorldState): void {
 	world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
 	world.transferGroupEntries = Array.from(
 		{ length: MAX_TRANSFER_GROUPS },
@@ -134,7 +134,7 @@ export function rebuild_transfer_group_cache(world: WorldState): void {
 				) {
 					continue;
 				}
-				if (!carrier_reaches_transfer_floor(carrier, floor)) continue;
+				if (!carrierReachesTransferFloor(carrier, floor)) continue;
 				membershipMask |= 1 << carrier.carrierId;
 			}
 			return {
@@ -189,11 +189,11 @@ export function rebuild_transfer_group_cache(world: WorldState): void {
 
 	for (const [recordIndex, record] of world.specialLinkRecords.entries()) {
 		if (!record.active) continue;
-		rebuild_special_link_record_reachability(world, recordIndex, record);
+		rebuildSpecialLinkRecordReachability(world, recordIndex, record);
 	}
 }
 
-export function is_floor_span_walkable_for_local_route(
+export function isFloorSpanWalkableForLocalRoute(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
@@ -213,7 +213,7 @@ export function is_floor_span_walkable_for_local_route(
 	return true;
 }
 
-export function is_floor_span_walkable_for_express_route(
+export function isFloorSpanWalkableForExpressRoute(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
@@ -233,7 +233,7 @@ export interface RouteCandidate {
 	cost: number;
 }
 
-export function select_best_route_candidate(
+export function selectBestRouteCandidate(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
@@ -258,10 +258,10 @@ export function select_best_route_candidate(
 	if (preferLocalMode) {
 		if (
 			delta === 1 ||
-			is_floor_span_walkable_for_local_route(world, fromFloor, toFloor)
+			isFloorSpanWalkableForLocalRoute(world, fromFloor, toFloor)
 		) {
 			for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-				const cost = score_local_route_segment(segment, fromFloor, toFloor);
+				const cost = scoreLocalRouteSegment(segment, fromFloor, toFloor);
 				if (cost >= ROUTE_COST_INFINITE) continue;
 				bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 			}
@@ -276,14 +276,14 @@ export function select_best_route_candidate(
 				if (!record.active) continue;
 				if (fromFloor < record.lowerFloor || fromFloor > record.upperFloor)
 					continue;
-				if (!derived_record_reaches_floor(record, toFloor)) continue;
-				const candidateEntryFloors = get_derived_record_entry_floors(
+				if (!derivedRecordReachesFloor(record, toFloor)) continue;
+				const candidateEntryFloors = getDerivedRecordEntryFloors(
 					record,
 					toFloor,
 				);
 				for (const adjacentFloor of candidateEntryFloors) {
 					for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-						const cost = score_local_route_segment(
+						const cost = scoreLocalRouteSegment(
 							segment,
 							fromFloor,
 							adjacentFloor,
@@ -304,10 +304,10 @@ export function select_best_route_candidate(
 		}
 	} else if (
 		delta === 1 ||
-		is_floor_span_walkable_for_express_route(world, fromFloor, toFloor)
+		isFloorSpanWalkableForExpressRoute(world, fromFloor, toFloor)
 	) {
 		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-			const cost = score_express_route_segment(segment, fromFloor, toFloor);
+			const cost = scoreExpressRouteSegment(segment, fromFloor, toFloor);
 			if (cost >= ROUTE_COST_INFINITE) continue;
 			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 		}
@@ -321,7 +321,7 @@ export function select_best_route_candidate(
 		) {
 			continue;
 		}
-		const directCost = score_carrier_direct_route(
+		const directCost = scoreCarrierDirectRoute(
 			world,
 			carrier.carrierId,
 			fromFloor,
@@ -336,7 +336,7 @@ export function select_best_route_candidate(
 			);
 		}
 
-		const transferCost = score_carrier_transfer_route(
+		const transferCost = scoreCarrierTransferRoute(
 			world,
 			carrier.carrierId,
 			fromFloor,
@@ -360,42 +360,42 @@ export function select_best_route_candidate(
 	return bestSegment ?? bestCarrier;
 }
 
-function score_local_route_segment(
+function scoreLocalRouteSegment(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
-	if (!segment_covers_floor(segment, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!segment_covers_floor(segment, toFloor)) return ROUTE_COST_INFINITE;
-	if (!can_enter_segment_from_floor(segment, fromFloor, toFloor))
+	if (!segmentCoversFloor(segment, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
+	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
 	const delta = Math.abs(toFloor - fromFloor);
 	return (segment.flags & 1) !== 0 ? ROUTE_COST_INFINITE : delta * 8;
 }
 
-function score_express_route_segment(
+function scoreExpressRouteSegment(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
 	if ((segment.flags & 1) === 0) return ROUTE_COST_INFINITE;
-	if (!segment_covers_floor(segment, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!segment_covers_floor(segment, toFloor)) return ROUTE_COST_INFINITE;
-	if (!can_enter_segment_from_floor(segment, fromFloor, toFloor))
+	if (!segmentCoversFloor(segment, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
+	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
 	return Math.abs(toFloor - fromFloor) * 8 + EXPRESS_ROUTE_BASE_COST;
 }
 
-function distance_mismatch_penalty(heightMetricDelta: number): number {
+function distanceMismatchPenalty(heightMetricDelta: number): number {
 	const absDelta = Math.abs(heightMetricDelta);
 	if (absDelta >= 125) return 0x3c;
 	if (absDelta > 79) return 0x1e;
 	return 0;
 }
 
-function score_carrier_direct_route(
+function scoreCarrierDirectRoute(
 	world: WorldState,
 	carrierId: number,
 	fromFloor: number,
@@ -405,9 +405,9 @@ function score_carrier_direct_route(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrier_serves_floor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!carrier_serves_floor(carrier, toFloor)) return ROUTE_COST_INFINITE;
-	const status = get_floor_slot_status(
+	if (!carrierServesFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierServesFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
+	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 0 : 1,
@@ -415,13 +415,13 @@ function score_carrier_direct_route(
 	const delta = Math.abs(toFloor - fromFloor);
 	// Distance penalty only applies to standard/service carriers (mode != 0)
 	const penalty =
-		carrier.carrierMode !== 0 ? distance_mismatch_penalty(delta) : 0;
+		carrier.carrierMode !== 0 ? distanceMismatchPenalty(delta) : 0;
 	return status === 0x28
 		? 1000 + delta * 8 + penalty
 		: delta * 8 + EXPRESS_ROUTE_BASE_COST + penalty;
 }
 
-function score_carrier_transfer_route(
+function scoreCarrierTransferRoute(
 	world: WorldState,
 	carrierId: number,
 	fromFloor: number,
@@ -432,19 +432,14 @@ function score_carrier_transfer_route(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrier_serves_floor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierServesFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
 	const reachable = world.transferGroupEntries.some((entry) => {
 		if (!entry.active) return false;
 		if ((entry.carrierMask & (1 << carrierId)) === 0) return false;
-		return entry_reaches_destination_floor(
-			world,
-			entry,
-			toFloor,
-			preferLocalMode,
-		);
+		return entryReachesDestinationFloor(world, entry, toFloor, preferLocalMode);
 	});
 	if (!reachable) return ROUTE_COST_INFINITE;
-	const status = get_floor_slot_status(
+	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 0 : 1,
@@ -452,7 +447,7 @@ function score_carrier_transfer_route(
 	const delta = Math.abs(toFloor - fromFloor);
 	// Distance penalty only applies to standard/service carriers (mode != 0)
 	const penalty =
-		carrier.carrierMode !== 0 ? distance_mismatch_penalty(delta) : 0;
+		carrier.carrierMode !== 0 ? distanceMismatchPenalty(delta) : 0;
 	return status === 0x28
 		? 6000 + delta * 8 + penalty
 		: delta * 8 + 3000 + penalty;
@@ -465,7 +460,7 @@ function score_carrier_transfer_route(
  *
  * Returns the transfer floor, or -1 if no valid transfer found.
  */
-export function resolve_transfer_floor(
+export function resolveTransferFloor(
 	world: WorldState,
 	carrierId: number,
 	currentFloor: number,
@@ -477,7 +472,7 @@ export function resolve_transfer_floor(
 	if (!carrier) return -1;
 
 	// If the carrier directly serves the target floor, use it directly
-	if (carrier_serves_floor(carrier, targetFloor)) return targetFloor;
+	if (carrierServesFloor(carrier, targetFloor)) return targetFloor;
 
 	// Find the special-link record whose reachability covers this carrier
 	for (const record of world.specialLinkRecords) {
@@ -505,7 +500,7 @@ export function resolve_transfer_floor(
 	return -1;
 }
 
-function scan_special_link_span_bound(
+function scanSpecialLinkSpanBound(
 	world: WorldState,
 	centerFloor: number,
 	dir: 0 | 1,
@@ -531,7 +526,7 @@ function scan_special_link_span_bound(
 	return centerFloor - 6;
 }
 
-function rebuild_special_link_record_reachability(
+function rebuildSpecialLinkRecordReachability(
 	world: WorldState,
 	recordIndex: number,
 	record: WorldState["specialLinkRecords"][number],
@@ -565,7 +560,7 @@ function rebuild_special_link_record_reachability(
 				(candidate) => candidate.carrierId === carrierIndex,
 			);
 			if (!carrier) continue;
-			if (carrier_serves_floor(carrier, floor)) {
+			if (carrierServesFloor(carrier, floor)) {
 				projectedMask |= 1 << carrierIndex;
 			}
 		}
@@ -581,7 +576,7 @@ function rebuild_special_link_record_reachability(
 	}
 }
 
-function derived_record_reaches_floor(
+function derivedRecordReachesFloor(
 	record: WorldState["specialLinkRecords"][number],
 	targetFloor: number,
 ): boolean {
@@ -590,7 +585,7 @@ function derived_record_reaches_floor(
 	return (record.reachabilityMasksByFloor[targetFloor] ?? 0) !== 0;
 }
 
-function get_derived_record_entry_floors(
+function getDerivedRecordEntryFloors(
 	record: WorldState["specialLinkRecords"][number],
 	targetFloor: number,
 ): number[] {
@@ -621,7 +616,7 @@ function get_derived_record_entry_floors(
 	];
 }
 
-function entry_reaches_destination_floor(
+function entryReachesDestinationFloor(
 	world: WorldState,
 	entry: WorldState["transferGroupEntries"][number],
 	toFloor: number,
@@ -638,7 +633,7 @@ function entry_reaches_destination_floor(
 		) {
 			continue;
 		}
-		if (carrier_serves_floor(carrier, toFloor)) return true;
+		if (carrierServesFloor(carrier, toFloor)) return true;
 	}
 	for (
 		let recordIndex = 0;
@@ -648,42 +643,42 @@ function entry_reaches_destination_floor(
 		if ((entry.carrierMask & (1 << (24 + recordIndex))) === 0) continue;
 		const record = world.specialLinkRecords[recordIndex];
 		if (!record?.active) continue;
-		if (derived_record_reaches_floor(record, toFloor)) return true;
+		if (derivedRecordReachesFloor(record, toFloor)) return true;
 	}
 	return false;
 }
 
-function get_segment_span(segment: WorldState["specialLinks"][number]): number {
+function getSegmentSpan(segment: WorldState["specialLinks"][number]): number {
 	return segment.flags >> 1;
 }
 
-function get_segment_top_floor(
+function getSegmentTopFloor(
 	segment: WorldState["specialLinks"][number],
 ): number {
-	return segment.entryFloor + get_segment_span(segment) - 1;
+	return segment.entryFloor + getSegmentSpan(segment) - 1;
 }
 
-function segment_covers_floor(
+function segmentCoversFloor(
 	segment: WorldState["specialLinks"][number],
 	floor: number,
 ): boolean {
-	return floor >= segment.entryFloor && floor <= get_segment_top_floor(segment);
+	return floor >= segment.entryFloor && floor <= getSegmentTopFloor(segment);
 }
 
-function can_enter_segment_from_floor(
+function canEnterSegmentFromFloor(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
 ): boolean {
 	if (toFloor > fromFloor) return fromFloor === segment.entryFloor;
-	return fromFloor === get_segment_top_floor(segment);
+	return fromFloor === getSegmentTopFloor(segment);
 }
 
-function carrier_reaches_transfer_floor(
+function carrierReachesTransferFloor(
 	carrier: WorldState["carriers"][number],
 	floor: number,
 ): boolean {
-	if (carrier_covers_floor(carrier, floor)) return true;
+	if (carrierCoversFloor(carrier, floor)) return true;
 	const distance =
 		floor < carrier.bottomServedFloor
 			? carrier.bottomServedFloor - floor
@@ -691,7 +686,7 @@ function carrier_reaches_transfer_floor(
 	return distance <= (carrier.carrierMode === 2 ? 4 : 6);
 }
 
-function get_floor_slot_status(
+function getFloorSlotStatus(
 	carrier: WorldState["carriers"][number],
 	floor: number,
 	directionFlag: number,
@@ -705,7 +700,7 @@ function get_floor_slot_status(
 	return table[slot] ?? 0;
 }
 
-function carrier_covers_floor(
+function carrierCoversFloor(
 	carrier: WorldState["carriers"][number],
 	floor: number,
 ): boolean {

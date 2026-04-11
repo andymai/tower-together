@@ -1,10 +1,10 @@
-import { rebuild_carrier_list } from "./carriers";
+import { rebuildCarrierList } from "./carriers";
 import {
-	cleanup_entities_for_removed_tile,
-	rebuild_parking_demand_log,
-	rebuild_runtime_entities,
+	cleanupEntitiesForRemovedTile,
+	rebuildParkingDemandLog,
+	rebuildRuntimeEntities,
 } from "./entities";
-import { type LedgerState, rebuild_facility_ledger } from "./ledger";
+import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
@@ -21,9 +21,9 @@ import {
 	VALID_TILE_TYPES,
 } from "./resources";
 import {
-	rebuild_special_links,
-	rebuild_transfer_group_cache,
-	rebuild_walkability_flags,
+	rebuildSpecialLinks,
+	rebuildTransferGroupCache,
+	rebuildWalkabilityFlags,
 } from "./routing";
 import {
 	type CommercialVenueRecord,
@@ -71,7 +71,7 @@ const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, FAMILY_RETAIL]);
 
 // ─── PlacedObjectRecord helpers ───────────────────────────────────────────────
 
-function make_placed_object(
+function makePlacedObject(
 	x: number,
 	y: number,
 	tileType: string,
@@ -80,7 +80,7 @@ function make_placed_object(
 ): PlacedObjectRecord {
 	const width = TILE_WIDTHS[tileType] ?? 1;
 	const familyCode = TILE_TO_FAMILY_CODE[tileType] ?? 0;
-	const sidecarIndex = alloc_sidecar(tileType, x, y, world);
+	const sidecarIndex = allocSidecar(tileType, x, y, world);
 	return {
 		leftTileIndex: x,
 		rightTileIndex: x + width - 1,
@@ -98,7 +98,7 @@ function make_placed_object(
 }
 
 /** Allocate a sidecar for tiles that need one. Returns index or −1. */
-function alloc_sidecar(
+function allocSidecar(
 	tileType: string,
 	x: number,
 	y: number,
@@ -157,12 +157,12 @@ function alloc_sidecar(
 }
 
 /** Mark a sidecar as invalid (demolished). */
-function free_sidecar(index: number, world: WorldState): void {
+function freeSidecar(index: number, world: WorldState): void {
 	const rec = world.sidecars[index];
 	if (rec) rec.ownerSubtypeIndex = 0xff;
 }
 
-function get_overlay_anchor_key(
+function getOverlayAnchorKey(
 	world: WorldState,
 	x: number,
 	y: number,
@@ -171,7 +171,7 @@ function get_overlay_anchor_key(
 	return world.overlayToAnchor[key] ?? (world.overlays[key] ? key : null);
 }
 
-function elevator_mode_for_overlay(
+function elevatorModeForOverlay(
 	type: string,
 ): "standard" | "express" | "service" | null {
 	if (type === "elevator") return "standard";
@@ -180,7 +180,7 @@ function elevator_mode_for_overlay(
 	return null;
 }
 
-function has_misaligned_adjacent_overlay(
+function hasMisalignedAdjacentOverlay(
 	world: WorldState,
 	x: number,
 	y: number,
@@ -191,7 +191,7 @@ function has_misaligned_adjacent_overlay(
 		if (adjacentY < 0 || adjacentY >= world.height) continue;
 		const adjacentAnchors = new Set<string>();
 		for (let dx = 0; dx < width; dx++) {
-			const anchorKey = get_overlay_anchor_key(world, x + dx, adjacentY);
+			const anchorKey = getOverlayAnchorKey(world, x + dx, adjacentY);
 			if (!anchorKey) continue;
 			if (world.overlays[anchorKey] !== type) continue;
 			adjacentAnchors.add(anchorKey);
@@ -206,24 +206,24 @@ function has_misaligned_adjacent_overlay(
 	return false;
 }
 
-function has_adjacent_elevator_mode_conflict(
+function hasAdjacentElevatorModeConflict(
 	world: WorldState,
 	x: number,
 	y: number,
 	type: string,
 	width: number,
 ): boolean {
-	const mode = elevator_mode_for_overlay(type);
+	const mode = elevatorModeForOverlay(type);
 	if (!mode) return false;
 
 	for (const adjacentY of [y - 1, y + 1]) {
 		if (adjacentY < 0 || adjacentY >= world.height) continue;
 		for (let dx = 0; dx < width; dx++) {
-			const anchorKey = get_overlay_anchor_key(world, x + dx, adjacentY);
+			const anchorKey = getOverlayAnchorKey(world, x + dx, adjacentY);
 			if (!anchorKey) continue;
 			const adjacentType = world.overlays[anchorKey];
 			const adjacentMode = adjacentType
-				? elevator_mode_for_overlay(adjacentType)
+				? elevatorModeForOverlay(adjacentType)
 				: null;
 			if (!adjacentMode) continue;
 			if (adjacentMode !== mode) return true;
@@ -239,7 +239,7 @@ function has_adjacent_elevator_mode_conflict(
  * Run all post-build / post-demolish global rebuilds.
  * Order matters: carriers → special_links → walkability → transfer_cache.
  */
-export function run_global_rebuilds(
+export function runGlobalRebuilds(
 	world: WorldState,
 	ledger: LedgerState,
 ): void {
@@ -259,18 +259,18 @@ export function run_global_rebuilds(
 			world.gateFlags.recyclingCenterCount += 1;
 	}
 
-	rebuild_facility_ledger(ledger, world);
-	rebuild_runtime_entities(world);
-	rebuild_parking_demand_log(world);
-	rebuild_carrier_list(world);
-	rebuild_special_links(world);
-	rebuild_walkability_flags(world);
-	rebuild_transfer_group_cache(world);
+	rebuildFacilityLedger(ledger, world);
+	rebuildRuntimeEntities(world);
+	rebuildParkingDemandLog(world);
+	rebuildCarrierList(world);
+	rebuildSpecialLinks(world);
+	rebuildWalkabilityFlags(world);
+	rebuildTransferGroupCache(world);
 }
 
 // ─── Place tile ───────────────────────────────────────────────────────────────
 
-export function handle_place_tile(
+export function handlePlaceTile(
 	x: number,
 	y: number,
 	tileType: string,
@@ -312,7 +312,7 @@ export function handle_place_tile(
 			(normalizedTileType === "elevator" ||
 				normalizedTileType === "elevatorExpress" ||
 				normalizedTileType === "elevatorService") &&
-			has_misaligned_adjacent_overlay(world, x, y, "elevator", overlayWidth)
+			hasMisalignedAdjacentOverlay(world, x, y, "elevator", overlayWidth)
 		) {
 			return {
 				accepted: false,
@@ -320,7 +320,7 @@ export function handle_place_tile(
 			};
 		}
 		if (
-			has_adjacent_elevator_mode_conflict(
+			hasAdjacentElevatorModeConflict(
 				world,
 				x,
 				y,
@@ -364,7 +364,7 @@ export function handle_place_tile(
 			isAnchor: true,
 			isOverlay: true,
 		});
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		return { accepted: true, patch };
 	}
 
@@ -387,7 +387,7 @@ export function handle_place_tile(
 		for (let dx = 1; dx < overlayWidth; dx++) {
 			world.overlayToAnchor[`${x + dx},${y}`] = `${x},${y}`;
 		}
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		return {
 			accepted: true,
 			patch: [{ x, y, tileType: "stairs", isAnchor: true, isOverlay: true }],
@@ -492,7 +492,7 @@ export function handle_place_tile(
 
 	// PlacedObjectRecord
 	if (!INFRASTRUCTURE_TILES.has(normalizedTileType)) {
-		world.placedObjects[`${x},${y}`] = make_placed_object(
+		world.placedObjects[`${x},${y}`] = makePlacedObject(
 			x,
 			y,
 			normalizedTileType,
@@ -508,16 +508,16 @@ export function handle_place_tile(
 		isAnchor: dx === 0,
 	}));
 
-	fill_row_gaps(y, world, patch);
+	fillRowGaps(y, world, patch);
 
-	run_global_rebuilds(world, ledger);
+	runGlobalRebuilds(world, ledger);
 
 	return { accepted: true, patch, economyChanged: cost > 0 };
 }
 
 // ─── Remove tile ──────────────────────────────────────────────────────────────
 
-export function handle_remove_tile(
+export function handleRemoveTile(
 	x: number,
 	y: number,
 	world: WorldState,
@@ -549,7 +549,7 @@ export function handle_remove_tile(
 			overlayType === "escalator" ||
 			overlayType === "stairs"
 		) {
-			run_global_rebuilds(world, ledger);
+			runGlobalRebuilds(world, ledger);
 		}
 		return {
 			accepted: true,
@@ -593,12 +593,12 @@ export function handle_remove_tile(
 	const rec = world.placedObjects[anchorKey];
 	if (rec) {
 		if (rec.linkedRecordIndex >= 0) {
-			free_sidecar(rec.linkedRecordIndex, world);
+			freeSidecar(rec.linkedRecordIndex, world);
 		}
 		delete world.placedObjects[anchorKey];
 	}
 
-	cleanup_entities_for_removed_tile(world, ax, ay);
+	cleanupEntitiesForRemovedTile(world, ax, ay);
 
 	const patch: CellPatch[] = [];
 	for (let dx = 0; dx < tileWidth; dx++) {
@@ -607,7 +607,7 @@ export function handle_remove_tile(
 		patch.push({ x: ax + dx, y: ay, tileType: resultType, isAnchor: true });
 	}
 
-	run_global_rebuilds(world, ledger);
+	runGlobalRebuilds(world, ledger);
 
 	return { accepted: true, patch };
 }
@@ -628,7 +628,7 @@ const RENT_ADJUSTABLE_FAMILIES = new Set([
 	FAMILY_FAST_FOOD,
 ]);
 
-export function handle_set_rent_level(
+export function handleSetRentLevel(
 	x: number,
 	y: number,
 	rentLevel: number,
@@ -664,7 +664,7 @@ export function handle_set_rent_level(
 
 // ─── Elevator car management ─────────────────────────────────────────────────
 
-export function handle_add_elevator_car(
+export function handleAddElevatorCar(
 	x: number,
 	world: WorldState,
 ): CommandResult {
@@ -690,7 +690,7 @@ export function handle_add_elevator_car(
 	return { accepted: false, reason: "No car slots available" };
 }
 
-export function handle_remove_elevator_car(
+export function handleRemoveElevatorCar(
 	x: number,
 	world: WorldState,
 ): CommandResult {
@@ -720,10 +720,10 @@ export function handle_remove_elevator_car(
 		});
 		return { accepted: true, patch: [] };
 	}
-	return apply_remove_elevator_car(world, x);
+	return applyRemoveElevatorCar(world, x);
 }
 
-export function apply_remove_elevator_car(
+export function applyRemoveElevatorCar(
 	world: WorldState,
 	x: number,
 ): CommandResult {
@@ -746,7 +746,7 @@ export function apply_remove_elevator_car(
 // ─── Gap-fill helper ──────────────────────────────────────────────────────────
 
 /** After a placement on row y, fill supported horizontal gaps with free floor tiles. */
-export function fill_row_gaps(
+export function fillRowGaps(
 	y: number,
 	world: WorldState,
 	patch: CellPatch[],

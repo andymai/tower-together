@@ -92,6 +92,6 @@ export function advanceOneTick(t: TimeState): {
 	};
 }
 
-export function pre_day_4(t: TimeState): boolean {
+export function preDay4(t: TimeState): boolean {
 	return t.daypartIndex < 4;
 }

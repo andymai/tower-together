@@ -1,11 +1,11 @@
 import {
 	CATHEDRAL_FAMILIES,
-	clear_entity_route,
+	clearEntityRoute,
 	EVAL_ZONE_FLOOR,
 	findObjectForEntity,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
-	resolve_entity_route_between_floors,
+	resolveEntityRouteBetweenFloors,
 	STATE_ARRIVED,
 	STATE_DEPARTURE,
 	STATE_EVAL_OUTBOUND,
@@ -38,7 +38,7 @@ export function activateEvalEntities(world: WorldState, time: TimeState): void {
 		entity.stateCode = STATE_MORNING_GATE;
 		entity.selectedFloor = LOBBY_FLOOR;
 		entity.originFloor = entity.floorAnchor;
-		clear_entity_route(entity);
+		clearEntityRoute(entity);
 		entity.destinationFloor = -1;
 		entity.venueReturnState = 0;
 	}
@@ -89,7 +89,7 @@ export function processCathedralEntity(
 			// Dispatch: route from lobby to eval zone
 			entity.selectedFloor = LOBBY_FLOOR;
 			entity.destinationFloor = EVAL_ZONE_FLOOR;
-			const result = resolve_entity_route_between_floors(
+			const result = resolveEntityRouteBetweenFloors(
 				world,
 				entity,
 				LOBBY_FLOOR,
@@ -109,7 +109,7 @@ export function processCathedralEntity(
 		}
 
 		case STATE_EVAL_OUTBOUND:
-			// In transit to eval zone; arrival handled by dispatch_entity_arrival
+			// In transit to eval zone; arrival handled by dispatchEntityArrival
 			return;
 
 		case STATE_ARRIVED:
@@ -121,7 +121,7 @@ export function processCathedralEntity(
 			if (entity.route.mode !== "idle") return; // already routed
 			entity.selectedFloor = EVAL_ZONE_FLOOR;
 			entity.destinationFloor = LOBBY_FLOOR;
-			const returnResult = resolve_entity_route_between_floors(
+			const returnResult = resolveEntityRouteBetweenFloors(
 				world,
 				entity,
 				EVAL_ZONE_FLOOR,
@@ -140,7 +140,7 @@ export function processCathedralEntity(
 		}
 
 		case STATE_EVAL_RETURN:
-			// In transit back to lobby; arrival handled by dispatch_entity_arrival
+			// In transit back to lobby; arrival handled by dispatchEntityArrival
 			return;
 
 		case STATE_PARKED:

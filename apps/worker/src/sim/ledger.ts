@@ -43,7 +43,7 @@ export function createLedgerState(startingCash: number): LedgerState {
  * Called by entity checkout handlers (Phase 4). tileName is the canonical
  * string key (e.g. "hotelSingle", "office").
  */
-export function add_cashflow_from_family_resource(
+export function addCashflowFromFamilyResource(
 	ledger: LedgerState,
 	tileName: string,
 	rentLevel: number,
@@ -58,7 +58,7 @@ export function add_cashflow_from_family_resource(
 	}
 }
 
-export function remove_cashflow_from_family_resource(
+export function removeCashflowFromFamilyResource(
 	ledger: LedgerState,
 	tileName: string,
 	rentLevel: number,
@@ -82,7 +82,7 @@ export function remove_cashflow_from_family_resource(
  * Charge operating expenses for all placed tiles (YEN #1002).
  * Called at checkpoint 0x09e5 every 3 days.
  */
-export function do_expense_sweep(
+export function doExpenseSweep(
 	ledger: LedgerState,
 	world: WorldState,
 	starCount = 1,
@@ -166,7 +166,7 @@ export function do_expense_sweep(
  * Rebuild populationLedger count by sweeping all placedObjects.
  * Called at checkpoint 0x00f0 (start of day).
  */
-export function rebuild_facility_ledger(
+export function rebuildFacilityLedger(
 	ledger: LedgerState,
 	world: WorldState,
 ): void {
@@ -186,7 +186,7 @@ export function rebuild_facility_ledger(
  * If this is a 3-day boundary (dayCounter % 3 === 0), run the full expense
  * sweep, save the cycle base, and reset rolling ledgers.
  */
-export function do_ledger_rollover(
+export function doLedgerRollover(
 	ledger: LedgerState,
 	world: WorldState,
 	dayCounter: number,
@@ -196,7 +196,7 @@ export function do_ledger_rollover(
 	ledger.cashBalanceCycleBase = ledger.cashBalance;
 	ledger.incomeLedger.fill(0);
 	ledger.expenseLedger.fill(0);
-	do_expense_sweep(ledger, world, starCount);
+	doExpenseSweep(ledger, world, starCount);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

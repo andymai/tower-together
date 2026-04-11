@@ -12,46 +12,46 @@
 
 import { describe, expect, it } from "vitest";
 import {
-	enqueue_carrier_route,
-	floor_to_slot,
-	make_carrier,
-	rebuild_carrier_list,
-	tick_all_carriers,
+	enqueueCarrierRoute,
+	floorToSlot,
+	makeCarrier,
+	rebuildCarrierList,
+	tickAllCarriers,
 } from "./carriers";
 import {
-	fill_row_gaps,
-	handle_place_tile,
-	handle_remove_elevator_car,
-	handle_remove_tile,
-	run_global_rebuilds,
+	fillRowGaps,
+	handlePlaceTile,
+	handleRemoveElevatorCar,
+	handleRemoveTile,
+	runGlobalRebuilds,
 } from "./commands";
 import {
-	advance_entity_refresh_stride,
-	create_entity_state_records,
-	populate_carrier_requests,
-	rebuild_runtime_entities,
-	reconcile_entity_transport,
+	advanceEntityRefreshStride,
+	createEntityStateRecords,
+	populateCarrierRequests,
+	rebuildRuntimeEntities,
+	reconcileEntityTransport,
 	resetCommercialVenueCycle,
-	update_recycling_center_state,
+	updateRecyclingCenterState,
 } from "./entities";
 import { handlePromptResponse, tickBombEvent } from "./events";
 import { TowerSim } from "./index";
 import {
-	add_cashflow_from_family_resource,
+	addCashflowFromFamilyResource,
 	createLedgerState,
-	do_expense_sweep,
-	do_ledger_rollover,
+	doExpenseSweep,
+	doLedgerRollover,
 	type LedgerState,
-	rebuild_facility_ledger,
+	rebuildFacilityLedger,
 } from "./ledger";
 import { TILE_COSTS, YEN_1001, YEN_1002 } from "./resources";
 import {
-	is_floor_span_walkable_for_express_route,
-	is_floor_span_walkable_for_local_route,
-	rebuild_transfer_group_cache,
-	select_best_route_candidate,
+	isFloorSpanWalkableForExpressRoute,
+	isFloorSpanWalkableForLocalRoute,
+	rebuildTransferGroupCache,
+	selectBestRouteCandidate,
 } from "./routing";
-import { run_checkpoints, type SimState } from "./scheduler";
+import { runCheckpoints, type SimState } from "./scheduler";
 import {
 	advanceOneTick,
 	createNewGameTimeState,
@@ -59,7 +59,7 @@ import {
 	DAY_TICK_INCOME,
 	DAY_TICK_MAX,
 	NEW_GAME_DAY_TICK,
-	pre_day_4,
+	preDay4,
 } from "./time";
 import {
 	createEventState,
@@ -226,12 +226,12 @@ describe("time model", () => {
 		expect(t.starCount).toBe(1);
 	});
 
-	it("pre_day_4 returns true for daypart < 4, false otherwise", () => {
+	it("preDay4 returns true for daypart < 4, false otherwise", () => {
 		const t = createTimeState();
-		expect(pre_day_4({ ...t, daypartIndex: 0 })).toBe(true);
-		expect(pre_day_4({ ...t, daypartIndex: 3 })).toBe(true);
-		expect(pre_day_4({ ...t, daypartIndex: 4 })).toBe(false);
-		expect(pre_day_4({ ...t, daypartIndex: 6 })).toBe(false);
+		expect(preDay4({ ...t, daypartIndex: 0 })).toBe(true);
+		expect(preDay4({ ...t, daypartIndex: 3 })).toBe(true);
+		expect(preDay4({ ...t, daypartIndex: 4 })).toBe(false);
+		expect(preDay4({ ...t, daypartIndex: 6 })).toBe(false);
 	});
 });
 
@@ -246,7 +246,7 @@ describe("PlacedObjectRecord", () => {
 		placeSupportRow(GROUND_Y, world, ledger);
 		const y = GROUND_Y - 1;
 		world.cells[`0,${y + 1}`] = "floor"; // ensure support
-		const result = handle_place_tile(0, y, "hotelSingle", world, ledger);
+		const result = handlePlaceTile(0, y, "hotelSingle", world, ledger);
 		expect(result.accepted).toBe(true);
 		const rec = world.placedObjects[`0,${y}`];
 		expect(rec).toBeDefined();
@@ -269,7 +269,7 @@ describe("PlacedObjectRecord", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		const result = handle_place_tile(0, y, "hotelTwin", world, ledger);
+		const result = handlePlaceTile(0, y, "hotelTwin", world, ledger);
 		expect(result.accepted).toBe(true);
 		const rec = world.placedObjects[`0,${y}`];
 		expect(rec.leftTileIndex).toBe(0);
@@ -282,7 +282,7 @@ describe("PlacedObjectRecord", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelSuite", world, ledger);
+		handlePlaceTile(0, y, "hotelSuite", world, ledger);
 		expect(world.placedObjects[`0,${y}`]).toBeDefined();
 		// extension cells don't get their own record
 		expect(world.placedObjects[`1,${y}`]).toBeUndefined();
@@ -292,7 +292,7 @@ describe("PlacedObjectRecord", () => {
 	it("infrastructure tiles do not create PlacedObjectRecord", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		handle_place_tile(0, GROUND_Y, "lobby", world, ledger);
+		handlePlaceTile(0, GROUND_Y, "lobby", world, ledger);
 		expect(Object.keys(world.placedObjects)).toHaveLength(0);
 	});
 });
@@ -309,7 +309,7 @@ describe("sidecar allocation", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "restaurant", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "restaurant", world, ledger);
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		expect(rec.linkedRecordIndex).toBeGreaterThanOrEqual(0);
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
@@ -324,7 +324,7 @@ describe("sidecar allocation", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "fastFood", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "fastFood", world, ledger);
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
@@ -335,7 +335,7 @@ describe("sidecar allocation", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "retail", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "retail", world, ledger);
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
@@ -346,7 +346,7 @@ describe("sidecar allocation", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("service_request");
@@ -356,7 +356,7 @@ describe("sidecar allocation", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handle_place_tile(0, GROUND_Y - 1, "cinema", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "cinema", world, ledger);
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("entertainment_link");
@@ -370,10 +370,10 @@ describe("sidecar allocation", () => {
 		const ledger = makeLedger();
 		setupSupport(world);
 		const y = GROUND_Y - 1;
-		handle_place_tile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "restaurant", world, ledger);
 		const rec = world.placedObjects[`0,${y}`];
 		const sidecarIdx = rec.linkedRecordIndex;
-		handle_remove_tile(0, y, world, ledger);
+		handleRemoveTile(0, y, world, ledger);
 		expect(world.sidecars[sidecarIdx].ownerSubtypeIndex).toBe(0xff);
 		expect(world.placedObjects[`0,${y}`]).toBeUndefined();
 	});
@@ -389,23 +389,23 @@ describe("checkpoint dispatcher", () => {
 
 	it("defines exactly 18 checkpoints at the correct ticks", () => {
 		// We can't inspect the CHECKPOINTS array directly, but we can verify
-		// that run_checkpoints fires the facility-ledger rebuild at 0x0f0 and
+		// that runCheckpoints fires the facility-ledger rebuild at 0x0f0 and
 		// the ledger rollover at 0x9e5 — as proxies for the table being correct.
 		expect(ALL_CHECKPOINTS).toHaveLength(18);
 	});
 
-	it("fires checkpoint_facility_ledger_rebuild at tick 0x0f0", () => {
+	it("fires checkpointFacilityLedgerRebuild at tick 0x0f0", () => {
 		const state = makeState();
 		// Place a tile so populationLedger has something to count
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelSingle", state.world, state.ledger);
-		// populationLedger is zeroed after rebuild_facility_ledger from handle_place_tile
+		handlePlaceTile(0, y, "hotelSingle", state.world, state.ledger);
+		// populationLedger is zeroed after rebuildFacilityLedger from handlePlaceTile
 		// Now manually zero populationLedger to simulate it being dirty
 		state.ledger.populationLedger.fill(0);
 		// Run checkpoints from prev=0x0ef to curr=0x0f0 — should fire rebuild
-		run_checkpoints(state, 0x0ef, 0x0f0);
+		runCheckpoints(state, 0x0ef, 0x0f0);
 		expect(state.ledger.populationLedger[3]).toBe(1); // family code 3 = hotelSingle
 	});
 
@@ -413,20 +413,14 @@ describe("checkpoint dispatcher", () => {
 		const state = makeState();
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(
-			0,
-			GROUND_Y - 1,
-			"hotelSingle",
-			state.world,
-			state.ledger,
-		);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", state.world, state.ledger);
 		state.ledger.populationLedger.fill(0);
 		// Range 0x0f1..0x0f2 should not include 0x0f0
-		run_checkpoints(state, 0x0f1, 0x0f2);
+		runCheckpoints(state, 0x0f1, 0x0f2);
 		expect(state.ledger.populationLedger[3]).toBe(0);
 	});
 
-	it("fires checkpoint_ledger_rollover at tick 0x9e5 on a 3-day boundary", () => {
+	it("fires checkpointLedgerRollover at tick 0x9e5 on a 3-day boundary", () => {
 		const state = makeState();
 		// Set dayCounter to a multiple of 3 so rollover runs
 		state.time = { ...state.time, dayCounter: 3 };
@@ -434,11 +428,11 @@ describe("checkpoint dispatcher", () => {
 		// Place a restaurant to generate an expense
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
 		const cashAfterBuild = state.ledger.cashBalance;
 		state.ledger.incomeLedger.fill(5);
 		state.ledger.expenseLedger.fill(5);
-		run_checkpoints(state, 0x9e4, 0x9e5);
+		runCheckpoints(state, 0x9e4, 0x9e5);
 		// Expense sweep should have fired → cash decreased
 		expect(state.ledger.cashBalance).toBeLessThan(cashAfterBuild);
 		// Rolling ledgers should be zeroed
@@ -453,9 +447,9 @@ describe("checkpoint dispatcher", () => {
 		state.time = { ...state.time, dayCounter: 1 }; // not a multiple of 3
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
 		const cashAfterBuild = state.ledger.cashBalance;
-		run_checkpoints(state, 0x9e4, 0x9e5);
+		runCheckpoints(state, 0x9e4, 0x9e5);
 		expect(state.ledger.cashBalance).toBe(cashAfterBuild);
 	});
 
@@ -464,17 +458,11 @@ describe("checkpoint dispatcher", () => {
 		const state = makeState();
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(
-			0,
-			GROUND_Y - 1,
-			"hotelSingle",
-			state.world,
-			state.ledger,
-		);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", state.world, state.ledger);
 
 		// Zero then run over 0x0f0
 		state.ledger.populationLedger.fill(0);
-		run_checkpoints(state, 0x0ef, 0x0f1); // 0x0f0 in range once
+		runCheckpoints(state, 0x0ef, 0x0f1); // 0x0f0 in range once
 		expect(state.ledger.populationLedger[3]).toBe(1);
 	});
 
@@ -501,85 +489,79 @@ describe("checkpoint dispatcher", () => {
 		};
 		state.ledger.populationLedger.fill(0);
 		// curr < prev ⟹ wrapped; 0x0f0 > 0x0ef so it qualifies via "tick > prev_tick"
-		run_checkpoints(state, 0x0ef, 0x0ee); // wrapped; 0x0f0 > 0x0ef → fires
+		runCheckpoints(state, 0x0ef, 0x0ee); // wrapped; 0x0f0 > 0x0ef → fires
 		expect(state.ledger.populationLedger[3]).toBe(1);
 	});
 
 	it("does not fire checkpoint in future tick when not wrapped and tick not in range", () => {
 		const state = makeState();
 		state.world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(
-			0,
-			GROUND_Y - 1,
-			"hotelSingle",
-			state.world,
-			state.ledger,
-		);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", state.world, state.ledger);
 		state.ledger.populationLedger.fill(0);
 		// 0x0f0 is NOT in (0x100, 0x101]
-		run_checkpoints(state, 0x100, 0x101);
+		runCheckpoints(state, 0x100, 0x101);
 		expect(state.ledger.populationLedger[3]).toBe(0);
 	});
 });
 
 // ─── Phase 2.3: Three-ledger money model ─────────────────────────────────────
 
-describe("ledger: add_cashflow_from_family_resource", () => {
+describe("ledger: addCashflowFromFamilyResource", () => {
 	it("credits cashBalance by payout * YEN_UNIT for known tile", () => {
 		const ledger = makeLedger(0);
 		// hotelSingle variant 0 → YEN_1001.hotelSingle[0] = 30 → ¥30,000
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, 3);
 		expect(ledger.cashBalance).toBe(30_000);
 	});
 
 	it("uses correct variant index into YEN_1001", () => {
 		const ledger = makeLedger(0);
 		// hotelSingle variant 2 → 15 → ¥15,000
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 2, 3);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 2, 3);
 		expect(ledger.cashBalance).toBe(15_000);
 	});
 
 	it("clamps variant index to max 3", () => {
 		const ledger = makeLedger(0);
 		// variant 99 → clamps to index 3 → 5 → ¥5,000
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 99, 3);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 99, 3);
 		expect(ledger.cashBalance).toBe(5_000);
 	});
 
 	it("is a no-op for unknown tile_name", () => {
 		const ledger = makeLedger(1000);
-		add_cashflow_from_family_resource(ledger, "unknown_tile", 0, 0);
+		addCashflowFromFamilyResource(ledger, "unknown_tile", 0, 0);
 		expect(ledger.cashBalance).toBe(1000);
 	});
 
 	it("does not exceed CASH_CAP (99,999,999)", () => {
 		const ledger = makeLedger(99_999_990);
 		// condo variant 0 → 2000 → ¥2,000,000 — would exceed cap
-		add_cashflow_from_family_resource(ledger, "condo", 0, 9);
+		addCashflowFromFamilyResource(ledger, "condo", 0, 9);
 		expect(ledger.cashBalance).toBe(99_999_999);
 	});
 
 	it("updates incomeLedger[family_code]", () => {
 		const ledger = makeLedger(0);
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, 3);
 		expect(ledger.incomeLedger[3]).toBe(30_000);
 	});
 
 	it("updates populationLedger[family_code]", () => {
 		const ledger = makeLedger(0);
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, 3);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, 3);
 		expect(ledger.populationLedger[3]).toBe(0);
 	});
 
 	it("ignores family_code out of [0,255]", () => {
 		const ledger = makeLedger(0);
 		// family_code = -1 should not throw but won't write to ledger arrays
-		add_cashflow_from_family_resource(ledger, "hotelSingle", 0, -1);
+		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, -1);
 		expect(ledger.cashBalance).toBe(30_000); // cash still credited
 	});
 });
 
-describe("ledger: rebuild_facility_ledger", () => {
+describe("ledger: rebuildFacilityLedger", () => {
 	it("counts placedObjects by objectTypeCode", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -605,7 +587,7 @@ describe("ledger: rebuild_facility_ledger", () => {
 			leftTileIndex: 1,
 			rightTileIndex: 1,
 		};
-		rebuild_facility_ledger(ledger, world);
+		rebuildFacilityLedger(ledger, world);
 		expect(ledger.populationLedger[3]).toBe(2);
 	});
 
@@ -613,21 +595,21 @@ describe("ledger: rebuild_facility_ledger", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		ledger.populationLedger[3] = 99;
-		rebuild_facility_ledger(ledger, world);
+		rebuildFacilityLedger(ledger, world);
 		expect(ledger.populationLedger[3]).toBe(0);
 	});
 });
 
-describe("ledger: do_expense_sweep", () => {
+describe("ledger: doExpenseSweep", () => {
 	it("charges YEN_1002 * 1000 per restaurant per sweep", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "restaurant", world, ledger);
 		const cashAfterBuild = ledger.cashBalance;
-		do_expense_sweep(ledger, world);
+		doExpenseSweep(ledger, world);
 		// restaurant expense = 500 * 1000 = 500,000
 		expect(cashAfterBuild - ledger.cashBalance).toBe(500_000);
 	});
@@ -638,9 +620,9 @@ describe("ledger: do_expense_sweep", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "restaurant", world, ledger);
 		const rec = world.placedObjects[`0,${y}`];
-		do_expense_sweep(ledger, world);
+		doExpenseSweep(ledger, world);
 		expect(ledger.expenseLedger[rec.objectTypeCode]).toBeGreaterThan(0);
 	});
 
@@ -663,19 +645,19 @@ describe("ledger: do_expense_sweep", () => {
 			activationTickCount: 0,
 			rentLevel: 4, // family 6 (restaurant) → init = 4
 		};
-		do_expense_sweep(ledger, world);
+		doExpenseSweep(ledger, world);
 		expect(ledger.cashBalance).toBe(0);
 	});
 
 	it("charges carrier operating expenses by mode and car count", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20, 2));
-		world.carriers.push(make_carrier(1, 8, 0, 10, 20, 1));
-		world.carriers.push(make_carrier(2, 16, 2, 10, 20, 3));
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20, 2));
+		world.carriers.push(makeCarrier(1, 8, 0, 10, 20, 1));
+		world.carriers.push(makeCarrier(2, 16, 2, 10, 20, 3));
 
 		const cashBefore = ledger.cashBalance;
-		do_expense_sweep(ledger, world);
+		doExpenseSweep(ledger, world);
 
 		expect(cashBefore - ledger.cashBalance).toBe(
 			(2 * 100 + 1 * 200 + 3 * 100) * 1000,
@@ -683,18 +665,18 @@ describe("ledger: do_expense_sweep", () => {
 	});
 });
 
-describe("ledger: do_ledger_rollover", () => {
+describe("ledger: doLedgerRollover", () => {
 	it("runs expense sweep and resets rolling ledgers on a 3-day boundary", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "restaurant", world, ledger);
 		ledger.incomeLedger[6] = 1000;
 		ledger.expenseLedger[6] = 500;
 		const cashBefore = ledger.cashBalance;
-		do_ledger_rollover(ledger, world, 3); // day 3 → 3 % 3 === 0
+		doLedgerRollover(ledger, world, 3); // day 3 → 3 % 3 === 0
 		expect(ledger.cashBalance).toBeLessThan(cashBefore); // expense fired
 		expect(ledger.incomeLedger[6]).toBe(0);
 		expect(ledger.expenseLedger[6]).toBeGreaterThan(0);
@@ -706,7 +688,7 @@ describe("ledger: do_ledger_rollover", () => {
 		const ledger = makeLedger(10_000_000);
 		const cashBefore = ledger.cashBalance;
 		ledger.incomeLedger[6] = 1000;
-		do_ledger_rollover(ledger, world, 1);
+		doLedgerRollover(ledger, world, 1);
 		expect(ledger.cashBalance).toBe(cashBefore);
 		expect(ledger.incomeLedger[6]).toBe(1000);
 	});
@@ -715,7 +697,7 @@ describe("ledger: do_ledger_rollover", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const cashBefore = ledger.cashBalance;
-		do_ledger_rollover(ledger, world, 0); // 0 % 3 === 0 → fires but no objects
+		doLedgerRollover(ledger, world, 0); // 0 % 3 === 0 → fires but no objects
 		// No objects → no expense, but secondary/tertiary are reset and cycle_base set
 		expect(ledger.cashBalanceCycleBase).toBe(cashBefore);
 	});
@@ -723,11 +705,11 @@ describe("ledger: do_ledger_rollover", () => {
 
 // ─── Phase 2.4: Build command ─────────────────────────────────────────────────
 
-describe("handle_place_tile", () => {
+describe("handlePlaceTile", () => {
 	it("rejects unknown tile type", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_place_tile(0, GROUND_Y, "ufo", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "ufo", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/invalid tile type/i);
 	});
@@ -735,14 +717,14 @@ describe("handle_place_tile", () => {
 	it("rejects placement out of bounds (x)", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_place_tile(-1, GROUND_Y, "lobby", world, ledger);
+		const r = handlePlaceTile(-1, GROUND_Y, "lobby", world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
 	it("rejects placement out of bounds (y)", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_place_tile(0, -1, "lobby", world, ledger);
+		const r = handlePlaceTile(0, -1, "lobby", world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
@@ -750,7 +732,7 @@ describe("handle_place_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		// office is 9 wide — place it at the last valid anchor + 1 so it spills past the edge
-		const r = handle_place_tile(
+		const r = handlePlaceTile(
 			GRID_WIDTH - 8,
 			GROUND_Y - 1,
 			"office",
@@ -763,7 +745,7 @@ describe("handle_place_tile", () => {
 	it("rejects lobby on non-lobby row", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_place_tile(0, GROUND_Y - 1, "lobby", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y - 1, "lobby", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/lobby/i);
 	});
@@ -771,15 +753,15 @@ describe("handle_place_tile", () => {
 	it("accepts lobby on the ground floor row", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_place_tile(0, GROUND_Y, "lobby", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "lobby", world, ledger);
 		expect(r.accepted).toBe(true);
 	});
 
 	it("rejects placement on already-occupied cell", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		handle_place_tile(0, GROUND_Y, "lobby", world, ledger);
-		const r = handle_place_tile(0, GROUND_Y, "lobby", world, ledger);
+		handlePlaceTile(0, GROUND_Y, "lobby", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "lobby", world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
@@ -787,7 +769,7 @@ describe("handle_place_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		// No floor tile at y+1 → no support
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/support/i);
 	});
@@ -797,7 +779,7 @@ describe("handle_place_tile", () => {
 		const ledger = makeLedger(0);
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		const r = handle_place_tile(0, GROUND_Y - 1, "office", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/insufficient funds/i);
 	});
@@ -807,7 +789,7 @@ describe("handle_place_tile", () => {
 		const ledger = makeLedger(1_000_000);
 		for (let x = 0; x < 4; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
 		const cost = TILE_COSTS.hotelSingle;
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(ledger.cashBalance).toBe(1_000_000 - cost);
 	});
@@ -817,7 +799,7 @@ describe("handle_place_tile", () => {
 		const ledger = makeLedger();
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		const r = handle_place_tile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(r.patch).toHaveLength(8);
 		expect(r.patch?.[0]).toMatchObject({ x: 0, isAnchor: true });
@@ -830,7 +812,7 @@ describe("handle_place_tile", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelSuite", world, ledger);
+		handlePlaceTile(0, y, "hotelSuite", world, ledger);
 		expect(world.cellToAnchor[`1,${y}`]).toBe(`0,${y}`);
 		expect(world.cellToAnchor[`2,${y}`]).toBe(`0,${y}`);
 		expect(world.cellToAnchor[`11,${y}`]).toBe(`0,${y}`);
@@ -845,7 +827,7 @@ describe("handle_place_tile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 			world.cells[`${x},${y}`] = "floor";
 		}
-		handle_place_tile(0, y, "hotelSuite", world, ledger);
+		handlePlaceTile(0, y, "hotelSuite", world, ledger);
 		// Anchor cell holds the tile type
 		expect(world.cells[`0,${y}`]).toBe("hotelSuite");
 	});
@@ -856,7 +838,7 @@ describe("handle_place_tile", () => {
 		for (let x = 0; x < 8; x++) {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		}
-		const r = handle_place_tile(0, GROUND_Y, "stairs", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "stairs", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(r.patch?.[0]).toMatchObject({ isOverlay: true });
 		expect(world.overlays[`0,${GROUND_Y}`]).toBe("stairs");
@@ -871,7 +853,7 @@ describe("handle_place_tile", () => {
 		for (let x = 0; x < 7; x++) {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		}
-		const r = handle_place_tile(0, GROUND_Y, "stairs", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "stairs", world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
@@ -881,7 +863,7 @@ describe("handle_place_tile", () => {
 		for (let x = 0; x < 4; x++) {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		}
-		const r = handle_place_tile(0, GROUND_Y, "elevator", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "elevator", world, ledger);
 		expect(r.accepted).toBe(true);
 		expect(world.overlays[`0,${GROUND_Y}`]).toBe("elevator");
 		expect(world.overlayToAnchor[`3,${GROUND_Y}`]).toBe(`0,${GROUND_Y}`);
@@ -893,7 +875,7 @@ describe("handle_place_tile", () => {
 		for (let x = 0; x < 4; x++) {
 			world.cells[`${x},${GROUND_Y + 1}`] = "floor";
 		}
-		const r = handle_place_tile(0, GROUND_Y, "elevator", world, ledger);
+		const r = handlePlaceTile(0, GROUND_Y, "elevator", world, ledger);
 		expect(r.accepted).toBe(true);
 		for (let x = 0; x < 4; x++) {
 			expect(world.cells[`${x},${GROUND_Y}`]).toBe("floor");
@@ -910,10 +892,10 @@ describe("handle_place_tile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 			world.cells[`${x},${GROUND_Y + 1}`] = "floor";
 		}
-		const initial = handle_place_tile(0, GROUND_Y, "elevator", world, ledger);
+		const initial = handlePlaceTile(0, GROUND_Y, "elevator", world, ledger);
 		expect(initial.accepted).toBe(true);
 
-		const misaligned = handle_place_tile(
+		const misaligned = handlePlaceTile(
 			1,
 			GROUND_Y - 1,
 			"elevator",
@@ -933,16 +915,10 @@ describe("handle_place_tile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 			world.cells[`${x},${GROUND_Y + 1}`] = "floor";
 		}
-		const initial = handle_place_tile(0, GROUND_Y, "elevator", world, ledger);
+		const initial = handlePlaceTile(0, GROUND_Y, "elevator", world, ledger);
 		expect(initial.accepted).toBe(true);
 
-		const aligned = handle_place_tile(
-			0,
-			GROUND_Y - 1,
-			"elevator",
-			world,
-			ledger,
-		);
+		const aligned = handlePlaceTile(0, GROUND_Y - 1, "elevator", world, ledger);
 		expect(aligned.accepted).toBe(true);
 		expect(world.overlays[`0,${GROUND_Y - 1}`]).toBe("elevator");
 		expect(world.overlayToAnchor[`3,${GROUND_Y - 1}`]).toBe(
@@ -957,7 +933,7 @@ describe("handle_place_tile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 			world.cells[`${x},${GROUND_Y + 1}`] = "floor";
 		}
-		const initial = handle_place_tile(
+		const initial = handlePlaceTile(
 			0,
 			GROUND_Y,
 			"elevatorExpress",
@@ -966,7 +942,7 @@ describe("handle_place_tile", () => {
 		);
 		expect(initial.accepted).toBe(true);
 
-		const conflict = handle_place_tile(
+		const conflict = handlePlaceTile(
 			0,
 			GROUND_Y - 1,
 			"elevator",
@@ -984,26 +960,26 @@ describe("handle_place_tile", () => {
 		const ledger = makeLedger();
 		ledger.populationLedger.fill(99);
 		for (let x = 0; x < 4; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
-		// rebuild_facility_ledger zeroes then counts → should be 1 hotelSingle
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		// rebuildFacilityLedger zeroes then counts → should be 1 hotelSingle
 		expect(ledger.populationLedger[3]).toBe(1);
 	});
 });
 
 // ─── Phase 2.4: Demolish command ─────────────────────────────────────────────
 
-describe("handle_remove_tile", () => {
+describe("handleRemoveTile", () => {
 	it("rejects empty cell", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_remove_tile(0, GROUND_Y, world, ledger);
+		const r = handleRemoveTile(0, GROUND_Y, world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
 	it("rejects out-of-bounds", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const r = handle_remove_tile(-1, GROUND_Y, world, ledger);
+		const r = handleRemoveTile(-1, GROUND_Y, world, ledger);
 		expect(r.accepted).toBe(false);
 	});
 
@@ -1013,8 +989,8 @@ describe("handle_remove_tile", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelTwin", world, ledger);
-		handle_remove_tile(0, y, world, ledger);
+		handlePlaceTile(0, y, "hotelTwin", world, ledger);
+		handleRemoveTile(0, y, world, ledger);
 		expect(world.cells[`0,${y}`]).toBeUndefined();
 		expect(world.cells[`7,${y}`]).toBeUndefined();
 		expect(world.cellToAnchor[`7,${y}`]).toBeUndefined();
@@ -1026,9 +1002,9 @@ describe("handle_remove_tile", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelTwin", world, ledger);
+		handlePlaceTile(0, y, "hotelTwin", world, ledger);
 		// Click extension cell
-		handle_remove_tile(7, y, world, ledger);
+		handleRemoveTile(7, y, world, ledger);
 		expect(world.cells[`0,${y}`]).toBeUndefined();
 	});
 
@@ -1037,8 +1013,8 @@ describe("handle_remove_tile", () => {
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
 		world.cells[`0,${GROUND_Y}`] = "floor";
-		handle_place_tile(0, y, "hotelSingle", world, ledger);
-		handle_remove_tile(0, y, world, ledger);
+		handlePlaceTile(0, y, "hotelSingle", world, ledger);
+		handleRemoveTile(0, y, world, ledger);
 		expect(world.placedObjects[`0,${y}`]).toBeUndefined();
 	});
 
@@ -1068,7 +1044,7 @@ describe("handle_remove_tile", () => {
 		};
 		// Place a floor tile directly above
 		world.cells[`0,${y - 1}`] = "floor";
-		handle_remove_tile(0, y, world, ledger);
+		handleRemoveTile(0, y, world, ledger);
 		// Should turn to floor, not empty
 		expect(world.cells[`0,${y}`]).toBe("floor");
 	});
@@ -1079,9 +1055,9 @@ describe("handle_remove_tile", () => {
 		for (let x = 0; x < 8; x++) {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		}
-		handle_place_tile(0, GROUND_Y, "stairs", world, ledger);
+		handlePlaceTile(0, GROUND_Y, "stairs", world, ledger);
 		// First remove should strip the overlay
-		const r1 = handle_remove_tile(7, GROUND_Y, world, ledger);
+		const r1 = handleRemoveTile(7, GROUND_Y, world, ledger);
 		expect(r1.accepted).toBe(true);
 		expect(r1.patch?.[0]).toMatchObject({ tileType: "empty", isOverlay: true });
 		expect(world.overlays[`0,${GROUND_Y}`]).toBeUndefined();
@@ -1096,10 +1072,10 @@ describe("handle_remove_tile", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		for (let x = 0; x < 4; x++) world.cells[`${x},${GROUND_Y}`] = "floor";
-		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		// Now rebuild populationLedger artificially
 		ledger.populationLedger[3] = 99;
-		handle_remove_tile(0, GROUND_Y - 1, world, ledger);
+		handleRemoveTile(0, GROUND_Y - 1, world, ledger);
 		// After demolish, rebuild runs → populationLedger[3] = 0
 		expect(ledger.populationLedger[3]).toBe(0);
 	});
@@ -1221,9 +1197,9 @@ describe("YEN tables", () => {
 	});
 });
 
-// ─── fill_row_gaps helper ─────────────────────────────────────────────────────
+// ─── fillRowGaps helper ─────────────────────────────────────────────────────
 
-describe("fill_row_gaps", () => {
+describe("fillRowGaps", () => {
 	it("fills unsupported gap between two tiles with a floor tile", () => {
 		const world = makeWorld();
 		const _ledger = makeLedger();
@@ -1239,7 +1215,7 @@ describe("fill_row_gaps", () => {
 			tileType: string;
 			isAnchor: boolean;
 		}[] = [];
-		fill_row_gaps(y, world, patch);
+		fillRowGaps(y, world, patch);
 		// x=1 and x=2 should be filled
 		expect(world.cells[`1,${y}`]).toBe("floor");
 		expect(world.cells[`2,${y}`]).toBe("floor");
@@ -1260,7 +1236,7 @@ describe("fill_row_gaps", () => {
 			tileType: string;
 			isAnchor: boolean;
 		}[] = [];
-		fill_row_gaps(y, world, patch);
+		fillRowGaps(y, world, patch);
 		expect(world.cells[`1,${y}`]).toBeUndefined();
 	});
 });
@@ -1283,46 +1259,46 @@ function placeElevatorShaft(
 		world.cells[`${x},${y}`] = "floor"; // base tile (elevator is an overlay)
 		world.overlays[`${x},${y}`] = overlayType;
 	}
-	run_global_rebuilds(world, ledger);
+	runGlobalRebuilds(world, ledger);
 }
 
-describe("floor_to_slot", () => {
+describe("floorToSlot", () => {
 	it("returns direct floor offset for mode-2 (Service/express) carrier", () => {
 		// mode 2 = Service Elevator (express-mode routing): direct offset
-		const carrier = make_carrier(0, 5, 2, 10, 30);
-		expect(floor_to_slot(carrier, 10)).toBe(0);
-		expect(floor_to_slot(carrier, 15)).toBe(5);
-		expect(floor_to_slot(carrier, 30)).toBe(20);
+		const carrier = makeCarrier(0, 5, 2, 10, 30);
+		expect(floorToSlot(carrier, 10)).toBe(0);
+		expect(floorToSlot(carrier, 15)).toBe(5);
+		expect(floorToSlot(carrier, 30)).toBe(20);
 	});
 
 	it("returns -1 for floors outside served range", () => {
-		const carrier = make_carrier(0, 5, 0, 10, 20);
-		expect(floor_to_slot(carrier, 9)).toBe(-1);
-		expect(floor_to_slot(carrier, 21)).toBe(-1);
+		const carrier = makeCarrier(0, 5, 0, 10, 20);
+		expect(floorToSlot(carrier, 9)).toBe(-1);
+		expect(floorToSlot(carrier, 21)).toBe(-1);
 	});
 
 	it("mode-0 (express sky-lobby) uses sparse slot mapping: lobby floors + sky-lobby stops only", () => {
 		// Mode 0 = Express Elevator: floors 1–10 → slots 0–9, sky-lobby floors → slots 10+
-		const carrier = make_carrier(0, 3, 0, 10, 20);
-		expect(floor_to_slot(carrier, 10)).toBe(0); // lobby band slot 0
-		expect(floor_to_slot(carrier, 14)).toBe(4); // lobby band slot 4
-		expect(floor_to_slot(carrier, 19)).toBe(9); // lobby band slot 9
+		const carrier = makeCarrier(0, 3, 0, 10, 20);
+		expect(floorToSlot(carrier, 10)).toBe(0); // lobby band slot 0
+		expect(floorToSlot(carrier, 14)).toBe(4); // lobby band slot 4
+		expect(floorToSlot(carrier, 19)).toBe(9); // lobby band slot 9
 		// Non-sky-lobby floor above the lobby band returns -1 for mode-0 carriers
-		expect(floor_to_slot(carrier, 20)).toBe(-1);
+		expect(floorToSlot(carrier, 20)).toBe(-1);
 	});
 
 	it("mode-1 (standard elevator) uses linear slot mapping across its full range", () => {
 		// Mode 1 = Standard Elevator: all floors in [bottom, top] are valid slots
-		const carrier = make_carrier(0, 3, 1, 10, 25);
-		expect(floor_to_slot(carrier, 10)).toBe(0);
-		expect(floor_to_slot(carrier, 19)).toBe(9);
-		expect(floor_to_slot(carrier, 20)).toBe(10); // beyond lobby band, still valid
-		expect(floor_to_slot(carrier, 25)).toBe(15);
-		expect(floor_to_slot(carrier, 26)).toBe(-1); // above top served floor
+		const carrier = makeCarrier(0, 3, 1, 10, 25);
+		expect(floorToSlot(carrier, 10)).toBe(0);
+		expect(floorToSlot(carrier, 19)).toBe(9);
+		expect(floorToSlot(carrier, 20)).toBe(10); // beyond lobby band, still valid
+		expect(floorToSlot(carrier, 25)).toBe(15);
+		expect(floorToSlot(carrier, 26)).toBe(-1); // above top served floor
 	});
 });
 
-describe("rebuild_carrier_list", () => {
+describe("rebuildCarrierList", () => {
 	it("creates one carrier per elevator column", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -1343,10 +1319,10 @@ describe("rebuild_carrier_list", () => {
 		}
 
 		expect(
-			handle_place_tile(0, GROUND_Y, "elevator", world, ledger).accepted,
+			handlePlaceTile(0, GROUND_Y, "elevator", world, ledger).accepted,
 		).toBe(true);
 		expect(
-			handle_place_tile(0, GROUND_Y - 1, "elevator", world, ledger).accepted,
+			handlePlaceTile(0, GROUND_Y - 1, "elevator", world, ledger).accepted,
 		).toBe(true);
 
 		expect(world.carriers).toHaveLength(1);
@@ -1366,7 +1342,7 @@ describe("rebuild_carrier_list", () => {
 		world.overlayToAnchor[`3,${GROUND_Y - 1}`] = `1,${GROUND_Y - 1}`;
 		world.overlayToAnchor[`4,${GROUND_Y - 1}`] = `1,${GROUND_Y - 1}`;
 
-		rebuild_carrier_list(world);
+		rebuildCarrierList(world);
 
 		expect(world.carriers).toHaveLength(2);
 		expect(world.carriers[0]?.column).toBe(0);
@@ -1399,7 +1375,7 @@ describe("rebuild_carrier_list", () => {
 		world.cells[`2,${GRID_HEIGHT - 1 - 11}`] = "floor";
 		world.overlays[`2,${GRID_HEIGHT - 1 - 10}`] = "escalator";
 		world.overlays[`2,${GRID_HEIGHT - 1 - 11}`] = "escalator";
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		// No carrier record for escalators
 		expect(world.carriers).toHaveLength(0);
 		// But a special-link segment covers floors 10–11
@@ -1418,7 +1394,7 @@ describe("rebuild_carrier_list", () => {
 		// Extend shaft upward
 		world.cells[`0,${GRID_HEIGHT - 1 - 16}`] = "floor";
 		world.overlays[`0,${GRID_HEIGHT - 1 - 16}`] = "elevator";
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		expect(world.carriers[0].cars[0].currentFloor).toBe(12);
 		expect(world.carriers[0].topServedFloor).toBe(16);
 	});
@@ -1430,7 +1406,7 @@ describe("rebuild_carrier_list", () => {
 		for (let f = 10; f <= 12; f++) {
 			delete world.overlays[`0,${GRID_HEIGHT - 1 - f}`];
 		}
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		expect(world.carriers).toHaveLength(0);
 	});
 });
@@ -1443,7 +1419,7 @@ describe("rebuild_specialLinks", () => {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
@@ -1452,7 +1428,7 @@ describe("rebuild_specialLinks", () => {
 	});
 });
 
-describe("rebuild_walkability_flags", () => {
+describe("rebuildWalkabilityFlags", () => {
 	it("sets bit 0 (local) for floors covered by a stairs span", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -1460,7 +1436,7 @@ describe("rebuild_walkability_flags", () => {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
-		run_global_rebuilds(world, ledger);
+		runGlobalRebuilds(world, ledger);
 		for (let f = 10; f <= 15; f++) {
 			expect(world.floorWalkabilityFlags[f] & 1).toBe(1);
 		}
@@ -1474,7 +1450,7 @@ describe("is_floor_span_walkable", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 25);
-		expect(is_floor_span_walkable_for_local_route(world, 10, 20)).toBe(false);
+		expect(isFloorSpanWalkableForLocalRoute(world, 10, 20)).toBe(false);
 	});
 
 	it("local route: false when gap in coverage", () => {
@@ -1483,24 +1459,24 @@ describe("is_floor_span_walkable", () => {
 		// Two separate shafts with a gap
 		placeElevatorShaft(world, ledger, 0, 10, 15);
 		placeElevatorShaft(world, ledger, 5, 18, 25);
-		expect(is_floor_span_walkable_for_local_route(world, 10, 25)).toBe(false);
+		expect(isFloorSpanWalkableForLocalRoute(world, 10, 25)).toBe(false);
 	});
 
 	it("express route: false when only local elevator present", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
-		expect(is_floor_span_walkable_for_express_route(world, 10, 20)).toBe(false);
+		expect(isFloorSpanWalkableForExpressRoute(world, 10, 20)).toBe(false);
 	});
 });
 
-describe("select_best_route_candidate", () => {
+describe("selectBestRouteCandidate", () => {
 	it("returns null when from == to", () => {
 		const world = makeWorld();
 		world.floorWalkabilityFlags = new Array(GRID_HEIGHT).fill(0);
 		world.specialLinks = [];
 		world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
-		expect(select_best_route_candidate(world, 10, 10)).toBeNull();
+		expect(selectBestRouteCandidate(world, 10, 10)).toBeNull();
 	});
 
 	it("finds local route via special link with cost |Δ|*8", () => {
@@ -1510,8 +1486,8 @@ describe("select_best_route_candidate", () => {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
-		run_global_rebuilds(world, ledger);
-		const route = select_best_route_candidate(world, 10, 15);
+		runGlobalRebuilds(world, ledger);
+		const route = selectBestRouteCandidate(world, 10, 15);
 		expect(route).not.toBeNull();
 		expect(route?.cost).toBe(5 * 8); // |15-10| * 8 = 40
 	});
@@ -1523,8 +1499,8 @@ describe("select_best_route_candidate", () => {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
-		run_global_rebuilds(world, ledger);
-		const route = select_best_route_candidate(world, 12, 15);
+		runGlobalRebuilds(world, ledger);
+		const route = selectBestRouteCandidate(world, 12, 15);
 		expect(route).toBeNull();
 	});
 
@@ -1532,7 +1508,7 @@ describe("select_best_route_candidate", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 14); // doesn't reach floor 15
-		const route = select_best_route_candidate(world, 10, 15);
+		const route = selectBestRouteCandidate(world, 10, 15);
 		expect(route).toBeNull();
 	});
 
@@ -1541,7 +1517,7 @@ describe("select_best_route_candidate", () => {
 		const ledger = makeLedger();
 		// Standard local elevator: first ten floors above bottom are queueable.
 		placeElevatorShaft(world, ledger, 0, 10, 25);
-		const direct = select_best_route_candidate(world, 10, 19);
+		const direct = selectBestRouteCandidate(world, 10, 19);
 		expect(direct?.cost).toBe(0x280 + 9 * 8);
 	});
 
@@ -1551,9 +1527,9 @@ describe("select_best_route_candidate", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 25);
 
 		// Floor 20 is within the served range (10–25) and is now reachable
-		expect(select_best_route_candidate(world, 10, 20)?.kind).toBe("carrier");
+		expect(selectBestRouteCandidate(world, 10, 20)?.kind).toBe("carrier");
 		// Floor 26 is above the top served floor — no route
-		expect(select_best_route_candidate(world, 10, 26)).toBeNull();
+		expect(selectBestRouteCandidate(world, 10, 26)).toBeNull();
 	});
 
 	it("chooses a local leg to an in-span transfer floor for viable derived records", () => {
@@ -1576,7 +1552,7 @@ describe("select_best_route_candidate", () => {
 		world.specialLinkRecords[0].reachabilityMasksByFloor[12] = 1;
 		world.specialLinkRecords[0].reachabilityMasksByFloor[20] = 1 << 0;
 
-		const route = select_best_route_candidate(world, 10, 20);
+		const route = selectBestRouteCandidate(world, 10, 20);
 		expect(route?.kind).toBe("segment");
 		expect(route?.id).toBe(0);
 		expect(route?.cost).toBe(2 * 8);
@@ -1603,7 +1579,7 @@ describe("select_best_route_candidate", () => {
 		world.specialLinkRecords[0].reachabilityMasksByFloor[14] = 2;
 		world.specialLinkRecords[0].reachabilityMasksByFloor[20] = 1 << 0;
 
-		const route = select_best_route_candidate(world, 10, 20);
+		const route = selectBestRouteCandidate(world, 10, 20);
 		expect(route?.kind).toBe("segment");
 		expect(route?.id).toBe(0);
 		expect(route?.cost).toBe(4 * 8);
@@ -1611,11 +1587,11 @@ describe("select_best_route_candidate", () => {
 
 	it("does not expose transfer reachability without an explicit concourse floor", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 4, 1, 25, 35));
-		rebuild_transfer_group_cache(world);
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 4, 1, 25, 35));
+		rebuildTransferGroupCache(world);
 
-		const route = select_best_route_candidate(world, 12, 30);
+		const route = selectBestRouteCandidate(world, 12, 30);
 		expect(route).toBeNull();
 	});
 
@@ -1634,9 +1610,9 @@ describe("select_best_route_candidate", () => {
 			rentLevel: 4,
 			activationTickCount: 0,
 		};
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 4, 1, 0, 4));
-		rebuild_transfer_group_cache(world);
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 4, 1, 0, 4));
+		rebuildTransferGroupCache(world);
 
 		expect(world.transferGroupEntries[0]?.active).toBe(true);
 		expect(world.transferGroupEntries[0]?.taggedFloor).toBe(10);
@@ -1676,9 +1652,9 @@ describe("select_best_route_candidate", () => {
 			rentLevel: 4,
 			activationTickCount: 0,
 		};
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 20, 1, 0, 10));
-		rebuild_transfer_group_cache(world);
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 20, 1, 0, 10));
+		rebuildTransferGroupCache(world);
 
 		const activeEntries = world.transferGroupEntries.filter(
 			(entry) => entry.active,
@@ -1691,8 +1667,8 @@ describe("select_best_route_candidate", () => {
 
 	it("allows transfer routing through a shared concourse mask", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 4, 1, 0, 4));
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 4, 1, 0, 4));
 		world.transferGroupEntries[0] = {
 			active: true,
 			taggedFloor: 10,
@@ -1700,7 +1676,7 @@ describe("select_best_route_candidate", () => {
 		};
 		world.transferGroupCache[10] = (1 << 0) | (1 << 1);
 
-		const route = select_best_route_candidate(world, 12, 2);
+		const route = selectBestRouteCandidate(world, 12, 2);
 		expect(route?.kind).toBe("carrier");
 		expect(route?.id).toBe(0);
 		expect(route?.cost).toBe(3000 + 10 * 8); // no distance penalty (delta 10 < threshold 80)
@@ -1708,11 +1684,11 @@ describe("select_best_route_candidate", () => {
 
 	it("does not score transfer routes from derived floor cache without a tagged entry", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 4, 1, 0, 4));
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 4, 1, 0, 4));
 		world.transferGroupCache[10] = (1 << 0) | (1 << 1);
 
-		const route = select_best_route_candidate(world, 12, 2);
+		const route = selectBestRouteCandidate(world, 12, 2);
 		expect(route).toBeNull();
 	});
 });
@@ -1732,7 +1708,7 @@ describe("car state machine", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
-		for (let i = 0; i < 100; i++) tick_all_carriers(world, createTimeState());
+		for (let i = 0; i < 100; i++) tickAllCarriers(world, createTimeState());
 		const car = world.carriers[0].cars[0];
 		expect(car.currentFloor).toBe(10);
 		expect(car.targetFloor).toBe(10);
@@ -1746,11 +1722,11 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
-		enqueue_carrier_route(carrier, "r1", 15, 10, 1);
+		enqueueCarrierRoute(carrier, "r1", 15, 10, 1);
 		// Tick enough for the car to service the request at least once.
 		let reachedTarget = false;
 		for (let i = 0; i < 200; i++) {
-			tick_all_carriers(world, createTimeState());
+			tickAllCarriers(world, createTimeState());
 			if (car.currentFloor === 15) {
 				reachedTarget = true;
 				break;
@@ -1789,18 +1765,18 @@ describe("car state machine", () => {
 			});
 		}
 		const time = createTimeState();
-		populate_carrier_requests(world, time);
+		populateCarrierRequests(world, time);
 		expect(carrier.pendingRoutes.length).toBe(4);
 
 		// Tick until car boards at least one entity
 		let boarded = false;
 		for (let i = 0; i < 300; i++) {
-			tick_all_carriers(world, time);
+			tickAllCarriers(world, time);
 			if (car.assignedCount > 0) {
 				boarded = true;
 				break;
 			}
-			populate_carrier_requests(world, time);
+			populateCarrierRequests(world, time);
 		}
 		expect(boarded).toBe(true);
 		// Car should not be stuck at home floor
@@ -1839,13 +1815,13 @@ describe("car state machine", () => {
 			});
 		}
 		const time = createTimeState();
-		populate_carrier_requests(world, time);
+		populateCarrierRequests(world, time);
 
 		// Tick: car should eventually move off home floor
 		let moved = false;
 		for (let i = 0; i < 300; i++) {
-			tick_all_carriers(world, time);
-			populate_carrier_requests(world, time);
+			tickAllCarriers(world, time);
+			populateCarrierRequests(world, time);
 			if (car.currentFloor !== 10) {
 				moved = true;
 				break;
@@ -1860,7 +1836,7 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const car = world.carriers[0].cars[0];
 		car.currentFloor = 99; // force out of range
-		tick_all_carriers(world, createTimeState());
+		tickAllCarriers(world, createTimeState());
 		expect(car.currentFloor).toBe(10);
 	});
 
@@ -1870,11 +1846,11 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
-		enqueue_carrier_route(carrier, "r1", 15, 10, 1);
+		enqueueCarrierRoute(carrier, "r1", 15, 10, 1);
 		// Run until car arrives and opens doors
 		let doors_opened = false;
 		for (let i = 0; i < 200; i++) {
-			tick_all_carriers(world, createTimeState());
+			tickAllCarriers(world, createTimeState());
 			if (car.currentFloor === 15 && car.doorWaitCounter > 0) {
 				doors_opened = true;
 				break;
@@ -1889,19 +1865,19 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		world.specialLinks = [];
-		const slot = floor_to_slot(carrier, 10);
+		const slot = floorToSlot(carrier, 10);
 		carrier.primaryRouteStatusByFloor[slot] = 0x28;
 
-		const route = select_best_route_candidate(world, 10, 15);
+		const route = selectBestRouteCandidate(world, 10, 15);
 		expect(route?.cost).toBe(1000 + 5 * 8);
 	});
 
 	it("uses service-elevator-only scoring for express-mode requests", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20));
-		world.carriers.push(make_carrier(1, 4, 2, 10, 20));
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
+		world.carriers.push(makeCarrier(1, 4, 2, 10, 20));
 
-		const route = select_best_route_candidate(world, 10, 18, false);
+		const route = selectBestRouteCandidate(world, 10, 18, false);
 		expect(route?.kind).toBe("carrier");
 		expect(route?.id).toBe(1);
 	});
@@ -1923,22 +1899,22 @@ describe("car state machine", () => {
 		});
 		carrier.serviceScheduleFlags[0] = 0;
 
-		tick_all_carriers(world, createTimeState());
+		tickAllCarriers(world, createTimeState());
 		expect(car.speedCounter).toBe(5);
 	});
 
 	it("assigns floor requests across multiple cars in the same shaft", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 2, 10, 30, 2));
+		world.carriers.push(makeCarrier(0, 0, 2, 10, 30, 2));
 		const carrier = world.carriers[0];
 		const lowerCar = carrier.cars[0];
 		const upperCar = carrier.cars[1];
 		if (!lowerCar || !upperCar) throw new Error("expected two cars");
 
-		enqueue_carrier_route(carrier, "low", 11, 20, 0);
-		enqueue_carrier_route(carrier, "high", 29, 12, 1);
+		enqueueCarrierRoute(carrier, "low", 11, 20, 0);
+		enqueueCarrierRoute(carrier, "high", 29, 12, 1);
 
-		tick_all_carriers(world, createTimeState());
+		tickAllCarriers(world, createTimeState());
 		expect(
 			carrier.pendingRoutes.find((route) => route.entityId === "low")
 				?.assignedCarIndex,
@@ -1951,7 +1927,7 @@ describe("car state machine", () => {
 
 	it("tracks boarded destinations with per-floor counters", () => {
 		const world = makeWorld();
-		world.carriers.push(make_carrier(0, 0, 2, 10, 20, 1));
+		world.carriers.push(makeCarrier(0, 0, 2, 10, 20, 1));
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
 		if (!car) throw new Error("expected car");
@@ -1966,8 +1942,8 @@ describe("car state machine", () => {
 			assignedCarIndex: 0,
 		});
 
-		tick_all_carriers(world, createTimeState());
-		const destinationSlot = floor_to_slot(carrier, 18);
+		tickAllCarriers(world, createTimeState());
+		const destinationSlot = floorToSlot(carrier, 18);
 		expect(car.destinationCountByFloor[destinationSlot]).toBeGreaterThan(0);
 	});
 
@@ -1978,9 +1954,9 @@ describe("car state machine", () => {
 		for (let x = 0; x < GRID_WIDTH; x++) {
 			world.cells[`${x},${hotelY + 1}`] = "floor";
 		}
-		handle_place_tile(0, hotelY, "hotelSingle", world, ledger);
-		rebuild_runtime_entities(world);
-		world.carriers.push(make_carrier(0, 0, 1, 10, 20, 1));
+		handlePlaceTile(0, hotelY, "hotelSingle", world, ledger);
+		rebuildRuntimeEntities(world);
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20, 1));
 		const carrier = world.carriers[0];
 		const entity = world.entities[0];
 		const hotel = world.placedObjects[`0,${hotelY}`];
@@ -2005,13 +1981,13 @@ describe("car state machine", () => {
 			directionFlag: 1,
 			assignedCarIndex: 0,
 		});
-		reconcile_entity_transport(world, ledger, createTimeState());
+		reconcileEntityTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(15);
 
 		carrier.pendingRoutes = [];
 		carrier.completedRouteIds.push("15:0:3:0");
 		const cashBefore = ledger.cashBalance;
-		reconcile_entity_transport(world, ledger, createTimeState());
+		reconcileEntityTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(10);
 		expect(world.entities[0]?.stateCode).toBe(0x24);
 		expect(world.entities[0]?.route.mode).toBe("idle");
@@ -2034,16 +2010,16 @@ describe("Phase 4 runtime entities", () => {
 		setupOccupiedFloor(world, ledger);
 
 		expect(
-			handle_place_tile(0, GROUND_Y - 1, "hotelTwin", world, ledger).accepted,
+			handlePlaceTile(0, GROUND_Y - 1, "hotelTwin", world, ledger).accepted,
 		).toBe(true);
 		expect(
-			handle_place_tile(10, GROUND_Y - 1, "office", world, ledger).accepted,
+			handlePlaceTile(10, GROUND_Y - 1, "office", world, ledger).accepted,
 		).toBe(true);
 		expect(
-			handle_place_tile(24, GROUND_Y - 1, "condo", world, ledger).accepted,
+			handlePlaceTile(24, GROUND_Y - 1, "condo", world, ledger).accepted,
 		).toBe(true);
 
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 		expect(
 			world.entities.filter((entity) => entity.familyCode === 4),
 		).toHaveLength(2);
@@ -2060,7 +2036,7 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "restaurant", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "restaurant", world, ledger);
 		const venueObject = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const venue = world.sidecars[
 			venueObject.linkedRecordIndex
@@ -2085,9 +2061,9 @@ describe("Phase 4 runtime entities", () => {
 		const time = createTimeState();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
 		ledger.populationLedger[7] = 300;
-		update_recycling_center_state(world, ledger, { ...time, starCount: 4 }, 5);
+		updateRecyclingCenterState(world, ledger, { ...time, starCount: 4 }, 5);
 
 		expect(world.gateFlags.recyclingAdequate).toBe(1);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`].unitStatus).toBe(1);
@@ -2098,30 +2074,30 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "restaurant", world, ledger);
-		handle_place_tile(24, GROUND_Y - 1, "condo", world, ledger);
-		handle_place_tile(40, GROUND_Y - 1, "hotelSingle", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "restaurant", world, ledger);
+		handlePlaceTile(24, GROUND_Y - 1, "condo", world, ledger);
+		handlePlaceTile(40, GROUND_Y - 1, "hotelSingle", world, ledger);
 		placeElevatorShaft(world, ledger, 0, 10, 15);
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 
 		const condoBefore = ledger.cashBalance;
 		for (let tick = 0; tick < 64; tick++) {
-			advance_entity_refresh_stride(world, ledger, {
+			advanceEntityRefreshStride(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
 				dayCounter: 3,
 				starCount: 4,
 			});
-			populate_carrier_requests(world);
-			tick_all_carriers(world, {
+			populateCarrierRequests(world);
+			tickAllCarriers(world, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
 				dayCounter: 3,
 				starCount: 4,
 			});
-			reconcile_entity_transport(world, ledger, {
+			reconcileEntityTransport(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
@@ -2140,8 +2116,8 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
-		rebuild_runtime_entities(world);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
+		rebuildRuntimeEntities(world);
 		const firstEntity = world.entities[0];
 		const secondEntity = world.entities[1];
 		const hotel = world.placedObjects[`0,${GROUND_Y - 1}`];
@@ -2151,7 +2127,7 @@ describe("Phase 4 runtime entities", () => {
 		secondEntity.stressCounter = 140;
 		hotel.evalLevel = 1;
 
-		const state = create_entity_state_records(world);
+		const state = createEntityStateRecords(world);
 		expect(state).toHaveLength(2);
 		expect(state[0]?.stressLevel).toBe("medium");
 		expect(state[1]?.stressLevel).toBe("high");
@@ -2165,12 +2141,12 @@ describe("Phase 4 runtime entities", () => {
 		setupOccupiedFloor(world, ledger);
 
 		expect(
-			handle_place_tile(0, GROUND_Y - 1, "office", world, ledger).accepted,
+			handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger).accepted,
 		).toBe(true);
 		expect(
-			handle_place_tile(12, GROUND_Y - 1, "restaurant", world, ledger).accepted,
+			handlePlaceTile(12, GROUND_Y - 1, "restaurant", world, ledger).accepted,
 		).toBe(true);
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 
 		const officeEntity = world.entities.find(
 			(entity) => entity.familyCode === 7,
@@ -2190,7 +2166,7 @@ describe("Phase 4 runtime entities", () => {
 			throw new Error("expected commercial venue sidecar");
 		}
 
-		advance_entity_refresh_stride(world, ledger, {
+		advanceEntityRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
@@ -2202,7 +2178,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(officeEntity.destinationFloor).toBe(-1);
 		expect(venue.todayVisitCount).toBe(1);
 
-		advance_entity_refresh_stride(world, ledger, {
+		advanceEntityRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 64,
 			dayCounter: 3,
@@ -2217,18 +2193,18 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		placeElevatorShaft(world, ledger, 0, 10, 15);
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 
 		const entity = world.entities[0];
 		if (!entity) throw new Error("expected hotel entity");
 		entity.stateCode = 0x05;
 
-		populate_carrier_requests(world, { ...createTimeState(), dayTick: 123 });
+		populateCarrierRequests(world, { ...createTimeState(), dayTick: 123 });
 		const carrier = world.carriers[0];
 		if (!carrier) throw new Error("expected carrier");
-		const requestSlot = floor_to_slot(carrier, entity.floorAnchor);
+		const requestSlot = floorToSlot(carrier, entity.floorAnchor);
 		expect(requestSlot).toBeGreaterThanOrEqual(0);
 		expect(carrier.secondaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
 		expect(entity.route.mode).toBe("carrier");
@@ -2244,9 +2220,9 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
 		placeElevatorShaft(world, ledger, 0, 10, 15);
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 
 		const entity = world.entities[0];
 		if (!entity) throw new Error("expected hotel entity");
@@ -2256,16 +2232,16 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 2400,
 			daypartIndex: 6,
 		};
-		advance_entity_refresh_stride(world, ledger, newGameTime);
+		advanceEntityRefreshStride(world, ledger, newGameTime);
 		expect(entity.stateCode).toBe(0x01);
 
-		advance_entity_refresh_stride(world, ledger, newGameTime);
+		advanceEntityRefreshStride(world, ledger, newGameTime);
 		expect(entity.stateCode).toBe(0x05);
 
-		populate_carrier_requests(world, newGameTime);
+		populateCarrierRequests(world, newGameTime);
 		const carrier = world.carriers[0];
 		if (!carrier) throw new Error("expected carrier");
-		const requestSlot = floor_to_slot(carrier, entity.floorAnchor);
+		const requestSlot = floorToSlot(carrier, entity.floorAnchor);
 		expect(requestSlot).toBeGreaterThanOrEqual(0);
 		expect(carrier.secondaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
 	});
@@ -2275,9 +2251,9 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(0, GROUND_Y - 1, "office", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
 		placeElevatorShaft(world, ledger, 0, 10, 15);
-		rebuild_runtime_entities(world);
+		rebuildRuntimeEntities(world);
 
 		const entity = world.entities.find(
 			(candidate) => candidate.familyCode === 7,
@@ -2291,15 +2267,15 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 0,
 			starCount: 4,
 		};
-		advance_entity_refresh_stride(world, ledger, activeTime);
+		advanceEntityRefreshStride(world, ledger, activeTime);
 		expect(entity.stateCode).toBe(0x00); // commuting to office
 		expect(entity.selectedFloor).toBe(10);
 		expect(entity.destinationFloor).toBe(entity.floorAnchor);
 
-		populate_carrier_requests(world, activeTime);
+		populateCarrierRequests(world, activeTime);
 		const carrier = world.carriers[0];
 		if (!carrier) throw new Error("expected carrier");
-		const requestSlot = floor_to_slot(carrier, 10);
+		const requestSlot = floorToSlot(carrier, 10);
 		expect(requestSlot).toBeGreaterThanOrEqual(0);
 		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
 	});
@@ -2309,9 +2285,9 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handle_place_tile(24, GROUND_Y - 1, "restaurant", world, ledger);
-		handle_place_tile(0, GROUND_Y - 1, "condo", world, ledger);
-		rebuild_runtime_entities(world);
+		handlePlaceTile(24, GROUND_Y - 1, "restaurant", world, ledger);
+		handlePlaceTile(0, GROUND_Y - 1, "condo", world, ledger);
+		rebuildRuntimeEntities(world);
 
 		const entity = world.entities.find(
 			(candidate) => candidate.familyCode === 9,
@@ -2326,7 +2302,7 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 0,
 			starCount: 4,
 		};
-		advance_entity_refresh_stride(world, ledger, activeTime);
+		advanceEntityRefreshStride(world, ledger, activeTime);
 		expect(ledger.cashBalance).toBeGreaterThan(cashBefore);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`].unitStatus).toBe(0x08);
 		expect(entity.stateCode).toBe(0x62);
@@ -2368,8 +2344,8 @@ describe("Phase 4 runtime entities", () => {
 			visitCounter: 0,
 		});
 
-		populate_carrier_requests(world, { ...createTimeState(), dayTick: 321 });
-		reconcile_entity_transport(world, ledger, {
+		populateCarrierRequests(world, { ...createTimeState(), dayTick: 321 });
+		reconcileEntityTransport(world, ledger, {
 			...createTimeState(),
 			dayTick: 321,
 		});
@@ -2405,7 +2381,7 @@ describe("Phase 4 runtime entities", () => {
 			visitCounter: 0,
 		});
 
-		reconcile_entity_transport(world, ledger, createTimeState());
+		reconcileEntityTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(10);
 		expect(world.entities[0]?.route.mode).toBe("segment");
 		const route0 = world.entities[0]?.route;
@@ -2417,7 +2393,7 @@ describe("Phase 4 runtime entities", () => {
 	it("prompts before removing an elevator car with active traffic", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const carrier = make_carrier(0, 0, 1, 10, 15, 2);
+		const carrier = makeCarrier(0, 0, 1, 10, 15, 2);
 		world.carriers.push(carrier);
 		if (!carrier) throw new Error("expected carrier");
 		carrier.pendingRoutes.push({
@@ -2429,7 +2405,7 @@ describe("Phase 4 runtime entities", () => {
 			assignedCarIndex: 0,
 		});
 
-		const result = handle_remove_elevator_car(0, world);
+		const result = handleRemoveElevatorCar(0, world);
 		expect(result.accepted).toBe(true);
 		expect(world.pendingPrompts[0]?.promptKind).toBe(
 			"carrier_edit_confirmation",
@@ -2446,10 +2422,10 @@ describe("Phase 4 runtime entities", () => {
 		expect(carrier.cars.filter((car) => car.active)).toHaveLength(1);
 	});
 
-	it("exposes command-generated prompts immediately after submit_command", () => {
+	it("exposes command-generated prompts immediately after submitCommand", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const carrier = make_carrier(0, 0, 1, 10, 15, 2);
+		const carrier = makeCarrier(0, 0, 1, 10, 15, 2);
 		world.carriers.push(carrier);
 		carrier.pendingRoutes.push({
 			entityId: "test",
@@ -2460,13 +2436,13 @@ describe("Phase 4 runtime entities", () => {
 			assignedCarIndex: 0,
 		});
 
-		const sim = TowerSim.from_snapshot({
+		const sim = TowerSim.fromSnapshot({
 			time: createTimeState(),
 			world,
 			ledger,
 		});
 
-		const result = sim.submit_command({ type: "remove_elevator_car", x: 0 });
+		const result = sim.submitCommand({ type: "remove_elevator_car", x: 0 });
 		expect(result.accepted).toBe(true);
 		expect(sim.drainPrompts()).toMatchObject([
 			{
@@ -2515,8 +2491,8 @@ describe("Phase 4 runtime entities", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
-		handle_place_tile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
-		rebuild_runtime_entities(world);
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		rebuildRuntimeEntities(world);
 		for (const entity of world.entities) {
 			entity.stateCode = 0x05;
 			entity.selectedFloor = 10;
@@ -2525,7 +2501,7 @@ describe("Phase 4 runtime entities", () => {
 		if (!hotel) throw new Error("expected hotel");
 
 		const startCash = ledger.cashBalance;
-		advance_entity_refresh_stride(world, ledger, {
+		advanceEntityRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 0,
 			daypartIndex: 4,
@@ -2534,7 +2510,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(hotel.unitStatus).toBe(0x10);
 		expect(ledger.cashBalance).toBe(startCash);
 
-		advance_entity_refresh_stride(world, ledger, {
+		advanceEntityRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 16,
 			daypartIndex: 4,
@@ -2542,7 +2518,7 @@ describe("Phase 4 runtime entities", () => {
 		});
 		expect(hotel.unitStatus).toBe(1);
 
-		advance_entity_refresh_stride(world, ledger, {
+		advanceEntityRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 32,
 			daypartIndex: 4,

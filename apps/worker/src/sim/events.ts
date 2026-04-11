@@ -1,4 +1,4 @@
-import { apply_remove_elevator_car } from "./commands";
+import { applyRemoveElevatorCar } from "./commands";
 import type { LedgerState } from "./ledger";
 import { FAMILY_METRO } from "./resources";
 import type { TimeState } from "./time";
@@ -613,7 +613,7 @@ export function triggerRandomNewsEvent(
 // ─── Daily event checkpoint dispatcher ───────────────────────────────────────
 
 /**
- * Called from run_checkpoints at the daily event check timing.
+ * Called from runCheckpoints at the daily event check timing.
  * Dispatches bomb/fire triggers based on day_counter modular conditions.
  */
 export function checkDailyEvents(
@@ -675,7 +675,7 @@ export function handlePromptResponse(
 		const column = world.eventState.pendingCarrierEditColumn;
 		world.eventState.pendingCarrierEditColumn = -1;
 		if (!accepted || column < 0) return true;
-		apply_remove_elevator_car(world, column);
+		applyRemoveElevatorCar(world, column);
 		return true;
 	}
 

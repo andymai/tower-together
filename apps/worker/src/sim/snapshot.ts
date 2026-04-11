@@ -1,13 +1,13 @@
-import { init_carrier_state } from "./carriers";
-import { rebuild_runtime_entities } from "./entities";
+import { initCarrierState } from "./carriers";
+import { rebuildRuntimeEntities } from "./entities";
 import type { LedgerState } from "./ledger";
 import { createLedgerState } from "./ledger";
 import { LEGACY_TILE_ALIASES, LEGACY_VIP_TILE_TO_STANDARD } from "./resources";
 import { RingBuffer } from "./ring-buffer";
 import {
-	rebuild_special_links,
-	rebuild_transfer_group_cache,
-	rebuild_walkability_flags,
+	rebuildSpecialLinks,
+	rebuildTransferGroupCache,
+	rebuildWalkabilityFlags,
 } from "./routing";
 import { createNewGameTimeState, type TimeState } from "./time";
 import {
@@ -349,7 +349,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 		delete (snapshot.world as unknown as Record<string, unknown>).cash;
 	}
 
-	init_carrier_state(snapshot.world);
+	initCarrierState(snapshot.world);
 	for (const carrier of snapshot.world.carriers) {
 		carrier.completedRouteIds ??= [];
 		if (
@@ -381,10 +381,10 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	}
 	snapshot.world.eventState ??= createEventState();
 
-	rebuild_special_links(snapshot.world);
-	rebuild_walkability_flags(snapshot.world);
-	rebuild_transfer_group_cache(snapshot.world);
-	rebuild_runtime_entities(snapshot.world);
+	rebuildSpecialLinks(snapshot.world);
+	rebuildWalkabilityFlags(snapshot.world);
+	rebuildTransferGroupCache(snapshot.world);
+	rebuildRuntimeEntities(snapshot.world);
 
 	return snapshot;
 }

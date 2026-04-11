@@ -1,12 +1,12 @@
-import { enqueue_carrier_route } from "./carriers";
+import { enqueueCarrierRoute } from "./carriers";
 import {
 	checkEvalCompletionAndAward,
 	processCathedralEntity,
 } from "./cathedral";
 import {
-	add_cashflow_from_family_resource,
+	addCashflowFromFamilyResource,
 	type LedgerState,
-	remove_cashflow_from_family_resource,
+	removeCashflowFromFamilyResource,
 } from "./ledger";
 import {
 	FAMILY_CINEMA,
@@ -24,7 +24,7 @@ import {
 	FAMILY_RETAIL,
 	OP_SCORE_THRESHOLDS,
 } from "./resources";
-import { type RouteCandidate, select_best_route_candidate } from "./routing";
+import { type RouteCandidate, selectBestRouteCandidate } from "./routing";
 import type { TimeState } from "./time";
 import {
 	type CommercialVenueRecord,
@@ -218,7 +218,7 @@ function hasViableRouteBetweenFloors(
 ): boolean {
 	return (
 		fromFloor === toFloor ||
-		select_best_route_candidate(world, fromFloor, toFloor) !== null
+		selectBestRouteCandidate(world, fromFloor, toFloor) !== null
 	);
 }
 
@@ -483,7 +483,7 @@ function beginCommercialVenueDwell(
 ): void {
 	entity.destinationFloor = -1;
 	entity.selectedFloor = arrivalFloor;
-	clear_entity_route(entity);
+	clearEntityRoute(entity);
 	entity.venueReturnState = returnState;
 	entity.stateCode = COMMERCIAL_DWELL_STATE;
 }
@@ -617,7 +617,7 @@ function checkoutHotelStay(
 			: object.objectTypeCode === FAMILY_HOTEL_TWIN
 				? "hotelTwin"
 				: "hotelSuite";
-	add_cashflow_from_family_resource(
+	addCashflowFromFamilyResource(
 		ledger,
 		tileName,
 		object.rentLevel,
@@ -756,7 +756,7 @@ function processOfficeEntity(
 			time.dayCounter % 3 === 0
 		) {
 			object.auxValueOrTimer = time.dayCounter + 1;
-			add_cashflow_from_family_resource(
+			addCashflowFromFamilyResource(
 				ledger,
 				"office",
 				object.rentLevel,
@@ -792,7 +792,7 @@ function processOfficeEntity(
 
 	// --- Commuting to office — in transit, handled by carrier system ---
 	if (state === STATE_COMMUTE) {
-		// Waiting for carrier pickup / in transit; arrival handled by dispatch_entity_arrival
+		// Waiting for carrier pickup / in transit; arrival handled by dispatchEntityArrival
 		return;
 	}
 
@@ -843,14 +843,14 @@ function processOfficeEntity(
 		return;
 	}
 
-	// --- In transit to venue — arrival handled by dispatch_entity_arrival ---
+	// --- In transit to venue — arrival handled by dispatchEntityArrival ---
 	if (state === STATE_VENUE_TRIP) {
 		return;
 	}
 
 	// --- Evening departure — in transit to lobby, handled by carrier system ---
 	if (state === STATE_DEPARTURE) {
-		// Waiting for carrier pickup / in transit; arrival handled by dispatch_entity_arrival
+		// Waiting for carrier pickup / in transit; arrival handled by dispatchEntityArrival
 		return;
 	}
 
@@ -882,7 +882,7 @@ function processCondoEntity(
 				object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
 				object.needsRefreshFlag = 1;
 				if (entity.baseOffset !== 0) return;
-				add_cashflow_from_family_resource(
+				addCashflowFromFamilyResource(
 					ledger,
 					"condo",
 					object.rentLevel,
@@ -897,7 +897,7 @@ function processCondoEntity(
 	recomputeObjectOperationalStatus(world, time, entity, object);
 }
 
-export function rebuild_runtime_entities(world: WorldState): void {
+export function rebuildRuntimeEntities(world: WorldState): void {
 	const previous = new Map(
 		world.entities.map((entity) => [entityKey(entity), entity] as const),
 	);
@@ -933,7 +933,7 @@ export function rebuild_runtime_entities(world: WorldState): void {
 	world.entities = next;
 }
 
-export function cleanup_entities_for_removed_tile(
+export function cleanupEntitiesForRemovedTile(
 	world: WorldState,
 	anchorX: number,
 	y: number,
@@ -945,7 +945,7 @@ export function cleanup_entities_for_removed_tile(
 		if (entity.subtypeIndex !== anchorX || entity.floorAnchor !== floorAnchor) {
 			continue;
 		}
-		clear_entity_route(entity);
+		clearEntityRoute(entity);
 		entity.destinationFloor = -1;
 		removedIds.add(entityKey(entity));
 	}
@@ -975,7 +975,7 @@ export function cleanup_entities_for_removed_tile(
 
 // ─── Parking demand ──────────────────────────────────────────────────────────
 
-export function rebuild_parking_demand_log(world: WorldState): void {
+export function rebuildParkingDemandLog(world: WorldState): void {
 	world.parkingDemandLog = [];
 	for (let i = 0; i < world.sidecars.length; i++) {
 		const rec = world.sidecars[i];
@@ -1016,7 +1016,7 @@ function tryAssignParkingService(
 	return true;
 }
 
-export function reset_entity_runtime_state(world: WorldState): void {
+export function resetEntityRuntimeState(world: WorldState): void {
 	for (const entity of world.entities) {
 		const object = findObjectForEntity(world, entity);
 		if (!object) continue;
@@ -1043,7 +1043,7 @@ export function reset_entity_runtime_state(world: WorldState): void {
 	}
 }
 
-export function advance_entity_refresh_stride(
+export function advanceEntityRefreshStride(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -1054,7 +1054,7 @@ export function advance_entity_refresh_stride(
 	for (let index = 0; index < world.entities.length; index++) {
 		if (index % ENTITY_REFRESH_STRIDE !== stride) continue;
 		const entity = world.entities[index];
-		finalize_pending_route_leg(entity);
+		finalizePendingRouteLeg(entity);
 		switch (entity.familyCode) {
 			case FAMILY_HOTEL_SINGLE:
 			case FAMILY_HOTEL_TWIN:
@@ -1173,7 +1173,7 @@ const CUSTOM_ROUTE_SELECTOR_FAMILIES = new Set<number>([
 	0x0f, 0x12, 0x1d, 0x21, 0x24, 0x25, 0x26, 0x27, 0x28,
 ]);
 
-function select_route_for_family(
+function selectRouteForFamily(
 	world: WorldState,
 	familyCode: number,
 	fromFloor: number,
@@ -1184,18 +1184,13 @@ function select_route_for_family(
 		SHARED_ROUTE_SELECTOR_FAMILIES.has(familyCode) ||
 		CUSTOM_ROUTE_SELECTOR_FAMILIES.has(familyCode)
 	) {
-		return select_best_route_candidate(
-			world,
-			fromFloor,
-			toFloor,
-			preferLocalMode,
-		);
+		return selectBestRouteCandidate(world, fromFloor, toFloor, preferLocalMode);
 	}
 	return null;
 }
 
 /**
- * Return codes mirror `resolve_entity_route_between_floors` from
+ * Return codes mirror `resolveEntityRouteBetweenFloors` from
  * ROUTING.md / SPEC.md:
  *
  *  -1 = no viable route (entity remains unrouted)
@@ -1209,7 +1204,7 @@ function select_route_for_family(
  */
 export type RouteResolution = -1 | 0 | 1 | 2 | 3;
 
-export function resolve_entity_route_between_floors(
+export function resolveEntityRouteBetweenFloors(
 	world: WorldState,
 	entity: EntityRecord,
 	sourceFloor: number,
@@ -1226,7 +1221,7 @@ export function resolve_entity_route_between_floors(
 	// remain unresolved so we hard-code the local-mode branch.
 	const preferLocalMode = true;
 
-	const route = select_route_for_family(
+	const route = selectRouteForFamily(
 		world,
 		entity.familyCode,
 		sourceFloor,
@@ -1234,7 +1229,7 @@ export function resolve_entity_route_between_floors(
 		preferLocalMode,
 	);
 	if (!route) {
-		clear_entity_route(entity);
+		clearEntityRoute(entity);
 		entity.routeRetryDelay = 300;
 		return -1;
 	}
@@ -1261,11 +1256,11 @@ export function resolve_entity_route_between_floors(
 		(candidate) => candidate.carrierId === route.id,
 	);
 	if (!carrier) {
-		clear_entity_route(entity);
+		clearEntityRoute(entity);
 		return -1;
 	}
 
-	const queued = enqueue_carrier_route(
+	const queued = enqueueCarrierRoute(
 		carrier,
 		entityKey(entity),
 		sourceFloor,
@@ -1291,11 +1286,11 @@ export function resolve_entity_route_between_floors(
 	return 2;
 }
 
-export function clear_entity_route(entity: EntityRecord): void {
+export function clearEntityRoute(entity: EntityRecord): void {
 	entity.route = ROUTE_IDLE;
 }
 
-function should_finalize_segment_trip(entity: EntityRecord): boolean {
+function shouldFinalizeSegmentTrip(entity: EntityRecord): boolean {
 	return (
 		entity.stateCode === STATE_COMMUTE ||
 		entity.stateCode === STATE_VENUE_TRIP ||
@@ -1304,17 +1299,17 @@ function should_finalize_segment_trip(entity: EntityRecord): boolean {
 	);
 }
 
-function finalize_pending_route_leg(entity: EntityRecord): void {
+function finalizePendingRouteLeg(entity: EntityRecord): void {
 	if (entity.route.mode !== "segment") return;
 	if (entity.transitTicksRemaining > 0) {
 		entity.transitTicksRemaining -= 1;
 		return;
 	}
 	entity.selectedFloor = entity.route.destination;
-	clear_entity_route(entity);
+	clearEntityRoute(entity);
 }
 
-function dispatch_entity_arrival(
+function dispatchEntityArrival(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -1322,7 +1317,7 @@ function dispatch_entity_arrival(
 	arrivalFloor: number,
 ): void {
 	entity.selectedFloor = arrivalFloor;
-	clear_entity_route(entity);
+	clearEntityRoute(entity);
 
 	const object = findObjectForEntity(world, entity);
 	switch (entity.familyCode) {
@@ -1393,7 +1388,7 @@ function dispatch_entity_arrival(
 	}
 }
 
-export function populate_carrier_requests(
+export function populateCarrierRequests(
 	world: WorldState,
 	time?: TimeState,
 ): void {
@@ -1416,7 +1411,7 @@ export function populate_carrier_requests(
 		// Returns -1/0/1/2/3 per ROUTING.md. We don't need to branch here yet
 		// because each return code already leaves the entity in the correct
 		// in-transit / wait / unrouted state.
-		resolve_entity_route_between_floors(
+		resolveEntityRouteBetweenFloors(
 			world,
 			entity,
 			demand.sourceFloor,
@@ -1459,15 +1454,15 @@ export function populate_carrier_requests(
 }
 
 /**
- * Invoked synchronously by `tick_all_carriers` (via the `onArrival` callback)
+ * Invoked synchronously by `tickAllCarriers` (via the `onArrival` callback)
  * when a carrier unloads an entity at its destination, mirroring the binary's
  * `dispatch_destination_queue_entries` path which calls the family state
  * handler directly inside the carrier tick. The post-tick
- * `reconcile_entity_transport` sweep is still consulted for any arrivals that
+ * `reconcileEntityTransport` sweep is still consulted for any arrivals that
  * were not delivered through this callback (e.g. tests that drive the
  * carrier state by hand).
  */
-export function on_carrier_arrival(
+export function onCarrierArrival(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -1478,22 +1473,22 @@ export function on_carrier_arrival(
 		(candidate) => entityKey(candidate) === routeId,
 	);
 	if (!entity) return;
-	dispatch_entity_arrival(world, ledger, time, entity, arrivalFloor);
+	dispatchEntityArrival(world, ledger, time, entity, arrivalFloor);
 }
 
-export function reconcile_entity_transport(
+export function reconcileEntityTransport(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
 ): void {
 	for (const entity of world.entities) {
 		if (entity.route.mode !== "segment") continue;
-		if (!should_finalize_segment_trip(entity)) continue;
+		if (!shouldFinalizeSegmentTrip(entity)) continue;
 		if (entity.transitTicksRemaining > 0) {
 			entity.transitTicksRemaining -= 1;
 			continue;
 		}
-		dispatch_entity_arrival(
+		dispatchEntityArrival(
 			world,
 			ledger,
 			time,
@@ -1511,13 +1506,7 @@ export function reconcile_entity_transport(
 	for (const entity of world.entities) {
 		if (entity.destinationFloor < 0) continue;
 		if (!completed.has(entityKey(entity))) continue;
-		dispatch_entity_arrival(
-			world,
-			ledger,
-			time,
-			entity,
-			entity.destinationFloor,
-		);
+		dispatchEntityArrival(world, ledger, time, entity, entity.destinationFloor);
 	}
 }
 
@@ -1550,7 +1539,7 @@ export function resetRecyclingCenterDutyTier(world: WorldState): void {
 	}
 }
 
-export function update_recycling_center_state(
+export function updateRecyclingCenterState(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -1637,7 +1626,7 @@ export function runOfficeServiceEvaluation(
 	world.gateFlags.officeServiceOk = 1;
 }
 
-export function refund_unhappy_condos(
+export function refundUnhappyCondos(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -1646,7 +1635,7 @@ export function refund_unhappy_condos(
 		if (object.objectTypeCode !== FAMILY_CONDO) continue;
 		if (object.evalLevel !== 0) continue;
 		if (object.unitStatus >= UNIT_STATUS_CONDO_VACANT) continue;
-		remove_cashflow_from_family_resource(
+		removeCashflowFromFamilyResource(
 			ledger,
 			"condo",
 			object.rentLevel,
@@ -1666,7 +1655,7 @@ export function refund_unhappy_condos(
 				entity.selectedFloor = entity.floorAnchor;
 				entity.destinationFloor = -1;
 				entity.venueReturnState = 0;
-				clear_entity_route(entity);
+				clearEntityRoute(entity);
 			}
 		}
 	}
@@ -1685,7 +1674,7 @@ function entityStressLevel(
 	return "low";
 }
 
-export function create_entity_state_records(
+export function createEntityStateRecords(
 	world: WorldState,
 ): EntityStateRecord[] {
 	return world.entities

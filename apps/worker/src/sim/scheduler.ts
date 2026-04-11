@@ -1,4 +1,4 @@
-import { flush_carriers_end_of_day } from "./carriers";
+import { flushCarriersEndOfDay } from "./carriers";
 import { activateEvalEntities, dispatchEvalMiddayReturn } from "./cathedral";
 import {
 	activateEntertainmentForwardHalf,
@@ -10,17 +10,17 @@ import {
 } from "./entertainment";
 import {
 	closeCommercialVenues,
-	refund_unhappy_condos,
-	reset_entity_runtime_state,
+	refundUnhappyCondos,
 	resetCommercialVenueCycle,
+	resetEntityRuntimeState,
 	resetRecyclingCenterDutyTier,
-	update_recycling_center_state,
+	updateRecyclingCenterState,
 } from "./entities";
 import { checkDailyEvents } from "./events";
 import {
-	do_ledger_rollover,
+	doLedgerRollover,
 	type LedgerState,
-	rebuild_facility_ledger,
+	rebuildFacilityLedger,
 } from "./ledger";
 import type { TimeState } from "./time";
 import type { WorldState } from "./world";
@@ -35,115 +35,115 @@ export interface SimState {
 
 // ─── Checkpoint bodies ────────────────────────────────────────────────────────
 
-function checkpoint_start_of_day(_s: SimState): void {
+function checkpointStartOfDay(_s: SimState): void {
 	// Activate cathedral evaluation entities
 	activateEvalEntities(_s.world, _s.time);
 }
 
-function checkpoint_recycling_reset(_s: SimState): void {
+function checkpointRecyclingReset(_s: SimState): void {
 	resetRecyclingCenterDutyTier(_s.world);
 }
 
-function checkpoint_facility_ledger_rebuild(s: SimState): void {
+function checkpointFacilityLedgerRebuild(s: SimState): void {
 	checkDailyEvents(s.world, s.ledger, s.time);
-	rebuild_facility_ledger(s.ledger, s.world);
+	rebuildFacilityLedger(s.ledger, s.world);
 	seedEntertainmentBudgets(s.world);
 }
 
-function checkpoint_entertainment_half1(_s: SimState): void {
+function checkpointEntertainmentHalf1(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
 	activateEntertainmentForwardHalf(_s.world);
 }
 
-function checkpoint_hotel_sale_reset(_s: SimState): void {
+function checkpointHotelSaleReset(_s: SimState): void {
 	_s.world.gateFlags.family345SaleCount = 0;
 	dispatchEvalMiddayReturn(_s.world);
 	promoteAndActivateSingleReverse(_s.world);
 }
 
-function checkpoint_entertainment_half2(_s: SimState): void {
+function checkpointEntertainmentHalf2(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
 	activateEntertainmentReverseHalf(_s.world);
 }
 
-function checkpoint_entertainment_phase1(_s: SimState): void {
+function checkpointEntertainmentPhase1(_s: SimState): void {
 	advanceEntertainmentForwardPhase(_s.world);
 }
 
-function checkpoint_midday(_s: SimState): void {
+function checkpointMidday(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
 	advanceEntertainmentReversePhaseAndAccrue(_s.world, _s.ledger);
-	update_recycling_center_state(_s.world, _s.ledger, _s.time, 0);
+	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 0);
 }
 
-function checkpoint_afternoon_notification(_s: SimState): void {
+function checkpointAfternoonNotification(_s: SimState): void {
 	_s.world.pendingNotifications.push({ kind: "afternoon" });
 }
 
-function checkpoint_noop(_s: SimState): void {
+function checkpointNoop(_s: SimState): void {
 	// Intentional no-op (previously mislabeled in the spec)
 }
 
-function checkpoint_entertainment_phase2(_s: SimState): void {
+function checkpointEntertainmentPhase2(_s: SimState): void {
 	closeCommercialVenues(_s.world);
 }
 
-function checkpoint_late_facility(_s: SimState): void {
-	update_recycling_center_state(_s.world, _s.ledger, _s.time, 2);
+function checkpointLateFacility(_s: SimState): void {
+	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 2);
 }
 
-function checkpoint_type6_advance(_s: SimState): void {
+function checkpointType6Advance(_s: SimState): void {
 	closeCommercialVenues(_s.world);
 }
 
-function checkpoint_day_counter(s: SimState): void {
+function checkpointDayCounter(s: SimState): void {
 	// Increment dayCounter and recompute calendarPhaseFlag.
 	// (time.ts already does this via advanceOneTick; this body is a no-op here
-	//  because time state is mutated in advanceOneTick before run_checkpoints.)
+	//  because time state is mutated in advanceOneTick before runCheckpoints.)
 	void s;
 }
 
-function checkpoint_runtime_refresh(_s: SimState): void {
-	reset_entity_runtime_state(_s.world);
+function checkpointRuntimeRefresh(_s: SimState): void {
+	resetEntityRuntimeState(_s.world);
 }
 
-function checkpoint_ledger_rollover(s: SimState): void {
-	do_ledger_rollover(s.ledger, s.world, s.time.dayCounter, s.time.starCount);
+function checkpointLedgerRollover(s: SimState): void {
+	doLedgerRollover(s.ledger, s.world, s.time.dayCounter, s.time.starCount);
 	if (s.time.dayCounter % 3 === 0) {
-		refund_unhappy_condos(s.world, s.ledger, s.time);
+		refundUnhappyCondos(s.world, s.ledger, s.time);
 	}
 }
 
-function checkpoint_end_of_day(_s: SimState): void {
-	flush_carriers_end_of_day(_s.world);
+function checkpointEndOfDay(_s: SimState): void {
+	flushCarriersEndOfDay(_s.world);
 	_s.world.pendingNotifications.push({ kind: "end_of_day" });
 }
 
-function checkpoint_recycling_final(_s: SimState): void {
-	update_recycling_center_state(_s.world, _s.ledger, _s.time, 5);
+function checkpointRecyclingFinal(_s: SimState): void {
+	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 5);
 }
 
 // ─── Checkpoint table ─────────────────────────────────────────────────────────
 
 const CHECKPOINTS: Array<[number, (s: SimState) => void]> = [
-	[0x000, checkpoint_start_of_day],
-	[0x020, checkpoint_recycling_reset],
-	[0x0f0, checkpoint_facility_ledger_rebuild],
-	[0x3e8, checkpoint_entertainment_half1],
-	[0x4b0, checkpoint_hotel_sale_reset],
-	[0x578, checkpoint_entertainment_half2],
-	[0x5dc, checkpoint_entertainment_phase1],
-	[0x640, checkpoint_midday],
-	[0x6a4, checkpoint_afternoon_notification],
-	[0x708, checkpoint_noop],
-	[0x76c, checkpoint_entertainment_phase2],
-	[0x7d0, checkpoint_late_facility],
-	[0x898, checkpoint_type6_advance],
-	[0x8fc, checkpoint_day_counter],
-	[0x9c4, checkpoint_runtime_refresh],
-	[0x9e5, checkpoint_ledger_rollover],
-	[0x9f6, checkpoint_end_of_day],
-	[0x0a06, checkpoint_recycling_final],
+	[0x000, checkpointStartOfDay],
+	[0x020, checkpointRecyclingReset],
+	[0x0f0, checkpointFacilityLedgerRebuild],
+	[0x3e8, checkpointEntertainmentHalf1],
+	[0x4b0, checkpointHotelSaleReset],
+	[0x578, checkpointEntertainmentHalf2],
+	[0x5dc, checkpointEntertainmentPhase1],
+	[0x640, checkpointMidday],
+	[0x6a4, checkpointAfternoonNotification],
+	[0x708, checkpointNoop],
+	[0x76c, checkpointEntertainmentPhase2],
+	[0x7d0, checkpointLateFacility],
+	[0x898, checkpointType6Advance],
+	[0x8fc, checkpointDayCounter],
+	[0x9c4, checkpointRuntimeRefresh],
+	[0x9e5, checkpointLedgerRollover],
+	[0x9f6, checkpointEndOfDay],
+	[0x0a06, checkpointRecyclingFinal],
 ];
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ const CHECKPOINTS: Array<[number, (s: SimState) => void]> = [
  * (prev_tick, curr_tick].  Handles day wraparound: when curr_tick < prev_tick
  * the tick counter crossed zero, so checkpoints at tick 0 are included.
  */
-export function run_checkpoints(
+export function runCheckpoints(
 	state: SimState,
 	prev_tick: number,
 	curr_tick: number,

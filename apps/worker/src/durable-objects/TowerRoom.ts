@@ -36,17 +36,17 @@ export class TowerRoom extends DurableObject<Env> {
 	private async initializeTower(towerId: string, name: string): Promise<void> {
 		const snapshot = createInitialSnapshot(towerId, name, STARTING_CASH);
 		this.repository.initialize(snapshot);
-		this.sim = TowerSim.from_snapshot(snapshot);
+		this.sim = TowerSim.fromSnapshot(snapshot);
 	}
 
 	private loadSim(): TowerSim | null {
 		const snapshot = this.repository.load();
-		return snapshot ? TowerSim.from_snapshot(snapshot) : null;
+		return snapshot ? TowerSim.fromSnapshot(snapshot) : null;
 	}
 
 	private persistSim(): void {
 		if (!this.sim) return;
-		this.repository.save(this.sim.save_state());
+		this.repository.save(this.sim.saveState());
 	}
 
 	// ─── HTTP fetch handler ──────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ export class TowerRoom extends DurableObject<Env> {
 		}
 
 		if (msg.type === "query_cell") {
-			const info = this.sim.query_cell(msg.x, msg.y);
+			const info = this.sim.queryCell(msg.x, msg.y);
 			this.sessions.send(ws, {
 				type: "cell_info",
 				x: msg.x,
@@ -174,7 +174,7 @@ export class TowerRoom extends DurableObject<Env> {
 		const command = toSimCommand(msg);
 		if (!command) return;
 
-		const result = this.sim.submit_command(command);
+		const result = this.sim.submitCommand(command);
 		if (!result.accepted) {
 			this.sessions.send(ws, {
 				type: "command_result",

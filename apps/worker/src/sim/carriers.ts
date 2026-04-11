@@ -1,5 +1,5 @@
 import { RingBuffer } from "./ring-buffer";
-import { resolve_transfer_floor } from "./routing";
+import { resolveTransferFloor } from "./routing";
 import type { TimeState } from "./time";
 import {
 	type CarrierCar,
@@ -28,56 +28,56 @@ const DEPARTURE_SEQUENCE_TICKS = 5;
 const QUEUE_CAPACITY = 40;
 const ACTIVE_SLOT_CAPACITY = 42;
 
-function get_schedule_index(time: TimeState): number {
+function getScheduleIndex(time: TimeState): number {
 	return time.calendarPhaseFlag * 7 + time.daypartIndex;
 }
 
-function speed_ticks(mode: 0 | 1 | 2): number {
+function speedTicks(mode: 0 | 1 | 2): number {
 	return mode === 2 ? EXPRESS_TICKS_PER_FLOOR : LOCAL_TICKS_PER_FLOOR;
 }
 
-function create_floor_queue(): CarrierFloorQueue {
+function createFloorQueue(): CarrierFloorQueue {
 	return {
 		up: new RingBuffer<string>(QUEUE_CAPACITY, ""),
 		down: new RingBuffer<string>(QUEUE_CAPACITY, ""),
 	};
 }
 
-function get_car_capacity(carrier: CarrierRecord): number {
+function getCarCapacity(carrier: CarrierRecord): number {
 	return carrier.assignmentCapacity;
 }
 
-function find_route(carrier: CarrierRecord, routeId: string) {
+function findRoute(carrier: CarrierRecord, routeId: string) {
 	return carrier.pendingRoutes.find((route) => route.entityId === routeId);
 }
 
-function get_queue_state(carrier: CarrierRecord, floor: number) {
-	const slot = floor_to_slot(carrier, floor);
+function getQueueState(carrier: CarrierRecord, floor: number) {
+	const slot = floorToSlot(carrier, floor);
 	if (slot < 0 || slot >= carrier.floorQueues.length) return null;
 	return carrier.floorQueues[slot] ?? null;
 }
 
-function get_direction_queue(
+function getDirectionQueue(
 	queue: CarrierFloorQueue,
 	directionFlag: number,
 ): RingBuffer<string> {
 	return directionFlag === 0 ? queue.up : queue.down;
 }
 
-function active_slot_limit(carrier: CarrierRecord): number {
+function activeSlotLimit(carrier: CarrierRecord): number {
 	return Math.min(ACTIVE_SLOT_CAPACITY, carrier.assignmentCapacity);
 }
 
-function sync_pending_route_ids(car: CarrierCar): void {
+function syncPendingRouteIds(car: CarrierCar): void {
 	car.pendingRouteIds = car.activeRouteSlots
 		.filter((slot) => slot.active)
 		.map((slot) => slot.routeId);
 }
 
-function sync_route_slots(carrier: CarrierRecord, car: CarrierCar): void {
+function syncRouteSlots(carrier: CarrierRecord, car: CarrierCar): void {
 	car.activeRouteSlots = car.activeRouteSlots.filter((slot) => {
 		if (!slot.active) return false;
-		const route = find_route(carrier, slot.routeId);
+		const route = findRoute(carrier, slot.routeId);
 		if (!route) return false;
 		slot.sourceFloor = route.sourceFloor;
 		slot.destinationFloor = route.destinationFloor;
@@ -93,22 +93,22 @@ function sync_route_slots(carrier: CarrierRecord, car: CarrierCar): void {
 			active: false,
 		});
 	}
-	sync_pending_route_ids(car);
+	syncPendingRouteIds(car);
 }
 
-function has_active_slot(car: CarrierCar, routeId: string): boolean {
+function hasActiveSlot(car: CarrierCar, routeId: string): boolean {
 	return car.activeRouteSlots.some(
 		(slot) => slot.active && slot.routeId === routeId,
 	);
 }
 
-function add_route_slot(
+function addRouteSlot(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	route: CarrierRecord["pendingRoutes"][number],
 ): boolean {
-	if (has_active_slot(car, route.entityId)) return true;
-	const limit = active_slot_limit(carrier);
+	if (hasActiveSlot(car, route.entityId)) return true;
+	const limit = activeSlotLimit(carrier);
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
 		if (!slot || slot.active) continue;
@@ -117,13 +117,13 @@ function add_route_slot(
 		slot.destinationFloor = route.destinationFloor;
 		slot.boarded = route.boarded;
 		slot.active = true;
-		sync_pending_route_ids(car);
+		syncPendingRouteIds(car);
 		return true;
 	}
 	return false;
 }
 
-function reset_car_to_home(carrier: CarrierRecord, car: CarrierCar): void {
+function resetCarToHome(carrier: CarrierRecord, car: CarrierCar): void {
 	const homeFloor = Math.min(
 		carrier.topServedFloor,
 		Math.max(carrier.bottomServedFloor, car.homeFloor),
@@ -148,7 +148,7 @@ function reset_car_to_home(carrier: CarrierRecord, car: CarrierCar): void {
 	car.pendingRouteIds = [];
 }
 
-function compute_car_motion_mode(
+function computeCarMotionMode(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 ): 0 | 1 | 2 | 3 {
@@ -172,11 +172,11 @@ function compute_car_motion_mode(
 	return 2;
 }
 
-function advance_car_position_one_step(
+function advanceCarPositionOneStep(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 ): void {
-	const motionMode = compute_car_motion_mode(carrier, car);
+	const motionMode = computeCarMotionMode(carrier, car);
 	if (motionMode === 0) {
 		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 		return;
@@ -196,7 +196,7 @@ function advance_car_position_one_step(
 	}
 }
 
-export function floor_to_slot(carrier: CarrierRecord, floor: number): number {
+export function floorToSlot(carrier: CarrierRecord, floor: number): number {
 	if (floor < carrier.bottomServedFloor || floor > carrier.topServedFloor) {
 		return -1;
 	}
@@ -209,14 +209,14 @@ export function floor_to_slot(carrier: CarrierRecord, floor: number): number {
 	return floor - carrier.bottomServedFloor;
 }
 
-export function carrier_serves_floor(
+export function carrierServesFloor(
 	carrier: CarrierRecord,
 	floor: number,
 ): boolean {
-	return floor_to_slot(carrier, floor) >= 0;
+	return floorToSlot(carrier, floor) >= 0;
 }
 
-function make_carrier_car(numSlots: number, homeFloor: number): CarrierCar {
+function makeCarrierCar(numSlots: number, homeFloor: number): CarrierCar {
 	return {
 		active: true,
 		currentFloor: homeFloor,
@@ -245,7 +245,7 @@ function make_carrier_car(numSlots: number, homeFloor: number): CarrierCar {
 	};
 }
 
-export function make_carrier(
+export function makeCarrier(
 	id: number,
 	col: number,
 	mode: 0 | 1 | 2,
@@ -261,7 +261,7 @@ export function make_carrier(
 			clampedCars === 1
 				? bottom
 				: bottom + Math.floor((span * index) / (clampedCars - 1));
-		return make_carrier_car(numSlots, Math.min(top, homeFloor));
+		return makeCarrierCar(numSlots, Math.min(top, homeFloor));
 	});
 
 	return {
@@ -278,14 +278,14 @@ export function make_carrier(
 		expressDirectionFlags: new Array(14).fill(0),
 		waitingCarResponseThreshold: 4,
 		assignmentCapacity: mode === 0 ? 0x2a : 0x15,
-		floorQueues: Array.from({ length: numSlots }, () => create_floor_queue()),
+		floorQueues: Array.from({ length: numSlots }, () => createFloorQueue()),
 		pendingRoutes: [],
 		completedRouteIds: [],
 		cars,
 	};
 }
 
-function sync_waiting_count(
+function syncWaitingCount(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
@@ -300,11 +300,11 @@ function sync_waiting_count(
 		car.waitingCount[slot] = queue.up.size + queue.down.size;
 	}
 
-	const limit = active_slot_limit(carrier);
+	const limit = activeSlotLimit(carrier);
 	for (let index = 0; index < limit; index++) {
 		const slotRef = car.activeRouteSlots[index];
 		if (!slotRef?.active || !slotRef.boarded) continue;
-		const slot = floor_to_slot(carrier, slotRef.destinationFloor);
+		const slot = floorToSlot(carrier, slotRef.destinationFloor);
 		if (slot < 0 || slot >= car.destinationCountByFloor.length) continue;
 		const prev = car.destinationCountByFloor[slot] ?? 0;
 		car.destinationCountByFloor[slot] = prev + 1;
@@ -313,7 +313,7 @@ function sync_waiting_count(
 
 	for (const route of carrier.pendingRoutes) {
 		if (!route.boarded || route.assignedCarIndex !== carIndex) continue;
-		const slot = floor_to_slot(carrier, route.destinationFloor);
+		const slot = floorToSlot(carrier, route.destinationFloor);
 		if (slot < 0 || slot >= car.destinationCountByFloor.length) continue;
 		const prev = car.destinationCountByFloor[slot] ?? 0;
 		if (prev === 0) car.nonemptyDestinationCount += 1;
@@ -321,7 +321,7 @@ function sync_waiting_count(
 	}
 }
 
-function sync_assignment_status(carrier: CarrierRecord): void {
+function syncAssignmentStatus(carrier: CarrierRecord): void {
 	carrier.primaryRouteStatusByFloor.fill(0);
 	carrier.secondaryRouteStatusByFloor.fill(0);
 
@@ -330,8 +330,8 @@ function sync_assignment_status(carrier: CarrierRecord): void {
 	}
 
 	for (const [carIndex, car] of carrier.cars.entries()) {
-		sync_route_slots(carrier, car);
-		sync_waiting_count(carrier, car, carIndex);
+		syncRouteSlots(carrier, car);
+		syncWaitingCount(carrier, car, carIndex);
 	}
 
 	for (let slot = 0; slot < carrier.primaryRouteStatusByFloor.length; slot++) {
@@ -347,7 +347,7 @@ function sync_assignment_status(carrier: CarrierRecord): void {
 
 	for (const route of carrier.pendingRoutes) {
 		if (route.boarded || route.assignedCarIndex < 0) continue;
-		const slot = floor_to_slot(carrier, route.sourceFloor);
+		const slot = floorToSlot(carrier, route.sourceFloor);
 		if (slot < 0) continue;
 		const table =
 			route.directionFlag === 0
@@ -360,12 +360,12 @@ function sync_assignment_status(carrier: CarrierRecord): void {
 	}
 }
 
-function pending_targets_in_direction(
+function pendingTargetsInDirection(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	directionFlag: number,
 ): boolean {
-	const limit = active_slot_limit(carrier);
+	const limit = activeSlotLimit(carrier);
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
 		if (!slot?.active) continue;
@@ -381,7 +381,7 @@ function pending_targets_in_direction(
 	return false;
 }
 
-function find_best_available_car_for_floor(
+function findBestAvailableCarForFloor(
 	carrier: CarrierRecord,
 	floor: number,
 	directionFlag: number,
@@ -395,7 +395,7 @@ function find_best_available_car_for_floor(
 
 	for (const [carIndex, car] of carrier.cars.entries()) {
 		if (!car.active) continue;
-		if (car.assignedCount >= get_car_capacity(carrier)) continue;
+		if (car.assignedCount >= getCarCapacity(carrier)) continue;
 
 		// Immediate early-accept: car at floor with doors closed and either
 		// schedule byte nonzero or direction already matches
@@ -506,7 +506,7 @@ function find_best_available_car_for_floor(
 	return 0;
 }
 
-function clear_entity_route_by_id(world: WorldState, entityId: string): void {
+function clearEntityRouteById(world: WorldState, entityId: string): void {
 	for (const entity of world.entities) {
 		const key = `${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`;
 		if (key !== entityId) continue;
@@ -516,12 +516,12 @@ function clear_entity_route_by_id(world: WorldState, entityId: string): void {
 	}
 }
 
-function clear_stale_floor_assignments(
+function clearStaleFloorAssignments(
 	carrier: CarrierRecord,
 	floor: number,
 	carIndex: number,
 ): void {
-	const slot = floor_to_slot(carrier, floor);
+	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
 	if (carrier.primaryRouteStatusByFloor[slot] === carIndex + 1) {
 		carrier.primaryRouteStatusByFloor[slot] = 0;
@@ -531,12 +531,12 @@ function clear_stale_floor_assignments(
 	}
 }
 
-function assign_car_to_floor_request(
+function assignCarToFloorRequest(
 	carrier: CarrierRecord,
 	floor: number,
 	directionFlag: number,
 ): void {
-	const slot = floor_to_slot(carrier, floor);
+	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
 	const table =
 		directionFlag === 0
@@ -552,7 +552,7 @@ function assign_car_to_floor_request(
 	} else if (existing === 0x28) {
 		return; // queue-full sentinel — skip
 	} else {
-		carIndex = find_best_available_car_for_floor(carrier, floor, directionFlag);
+		carIndex = findBestAvailableCarForFloor(carrier, floor, directionFlag);
 		if (carIndex < 0) return;
 	}
 
@@ -563,20 +563,20 @@ function assign_car_to_floor_request(
 		if (route.assignedCarIndex >= 0) continue; // already assigned
 		route.assignedCarIndex = carIndex;
 	}
-	sync_assignment_status(carrier);
+	syncAssignmentStatus(carrier);
 }
 
-function assign_pending_floor_requests(carrier: CarrierRecord): void {
+function assignPendingFloorRequests(carrier: CarrierRecord): void {
 	for (let slot = 0; slot < carrier.floorQueues.length; slot++) {
 		const floor = carrier.bottomServedFloor + slot;
 		const queue = carrier.floorQueues[slot];
 		if (!queue) continue;
-		if (!queue.up.isEmpty) assign_car_to_floor_request(carrier, floor, 0);
-		if (!queue.down.isEmpty) assign_car_to_floor_request(carrier, floor, 1);
+		if (!queue.up.isEmpty) assignCarToFloorRequest(carrier, floor, 0);
+		if (!queue.down.isEmpty) assignCarToFloorRequest(carrier, floor, 1);
 	}
 }
 
-function process_unit_travel_queue(
+function processUnitTravelQueue(
 	world: WorldState,
 	carrier: CarrierRecord,
 	car: CarrierCar,
@@ -584,33 +584,30 @@ function process_unit_travel_queue(
 	time: TimeState,
 ): void {
 	// When schedule is disabled, car does not pick up passengers
-	const scheduleIndex = get_schedule_index(time);
+	const scheduleIndex = getScheduleIndex(time);
 	if ((carrier.serviceScheduleFlags[scheduleIndex] ?? 1) === 0) return;
 
-	let remainingSlots = Math.max(
-		0,
-		get_car_capacity(carrier) - car.assignedCount,
-	);
+	let remainingSlots = Math.max(0, getCarCapacity(carrier) - car.assignedCount);
 	if (remainingSlots === 0) return;
 
-	const floorQueue = get_queue_state(carrier, car.currentFloor);
+	const floorQueue = getQueueState(carrier, car.currentFloor);
 
 	function drainDirection(directionFlag: number): void {
 		if (!floorQueue) return;
-		const buf = get_direction_queue(floorQueue, directionFlag);
+		const buf = getDirectionQueue(floorQueue, directionFlag);
 		const assignedRoutes = buf
 			.peekAll()
-			.map((routeId) => find_route(carrier, routeId))
+			.map((routeId) => findRoute(carrier, routeId))
 			.filter(
 				(route): route is NonNullable<typeof route> =>
 					route !== undefined &&
 					!route.boarded &&
 					route.assignedCarIndex === carIndex &&
-					!has_active_slot(car, route.entityId),
+					!hasActiveSlot(car, route.entityId),
 			);
 		for (const route of assignedRoutes.slice(0, remainingSlots)) {
 			buf.pop();
-			const resolvedFloor = resolve_transfer_floor(
+			const resolvedFloor = resolveTransferFloor(
 				world,
 				carrier.carrierId,
 				car.currentFloor,
@@ -620,11 +617,11 @@ function process_unit_travel_queue(
 				carrier.pendingRoutes = carrier.pendingRoutes.filter(
 					(candidate) => candidate.entityId !== route.entityId,
 				);
-				clear_entity_route_by_id(world, route.entityId);
+				clearEntityRouteById(world, route.entityId);
 				continue;
 			}
 			route.destinationFloor = resolvedFloor;
-			if (add_route_slot(carrier, car, route)) remainingSlots -= 1;
+			if (addRouteSlot(carrier, car, route)) remainingSlots -= 1;
 		}
 	}
 
@@ -633,7 +630,7 @@ function process_unit_travel_queue(
 
 	if (
 		remainingSlots > 0 &&
-		!pending_targets_in_direction(carrier, car, primaryDirection)
+		!pendingTargetsInDirection(carrier, car, primaryDirection)
 	) {
 		primaryDirection = primaryDirection === 0 ? 1 : 0;
 		car.directionFlag = primaryDirection;
@@ -642,8 +639,7 @@ function process_unit_travel_queue(
 
 	// Gate alternate-direction drain on expressDirectionFlags:
 	// 0 = normal (both), 1 = express-to-top (up only), 2 = express-to-bottom (down only)
-	const expressDir =
-		carrier.expressDirectionFlags[get_schedule_index(time)] ?? 0;
+	const expressDir = carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
 	const allowAlternate =
 		expressDir === 0 ||
 		(expressDir === 1 && primaryDirection === 0) ||
@@ -653,10 +649,10 @@ function process_unit_travel_queue(
 		drainDirection(primaryDirection === 0 ? 1 : 0);
 	}
 
-	sync_assignment_status(carrier);
+	syncAssignmentStatus(carrier);
 }
 
-function select_next_target(
+function selectNextTarget(
 	car: CarrierCar,
 	carrier: CarrierRecord,
 	carIndex: number,
@@ -668,7 +664,7 @@ function select_next_target(
 
 	// Build target set from active route slots and floor-assignment tables
 	const targetSet = new Set<number>();
-	const limit = active_slot_limit(carrier);
+	const limit = activeSlotLimit(carrier);
 
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
@@ -681,7 +677,7 @@ function select_next_target(
 		floor <= carrier.topServedFloor;
 		floor++
 	) {
-		const slot = floor_to_slot(carrier, floor);
+		const slot = floorToSlot(carrier, floor);
 		if (slot < 0) continue;
 		if ((car.destinationCountByFloor[slot] ?? 0) > 0) targetSet.add(floor);
 		if (
@@ -740,7 +736,7 @@ function select_next_target(
 	return -1;
 }
 
-function load_schedule_flag(
+function loadScheduleFlag(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	time: TimeState,
@@ -751,17 +747,16 @@ function load_schedule_flag(
 	) {
 		return;
 	}
-	car.scheduleFlag =
-		carrier.dwellMultiplierFlags[get_schedule_index(time)] ?? 1;
+	car.scheduleFlag = carrier.dwellMultiplierFlags[getScheduleIndex(time)] ?? 1;
 }
 
-function should_car_depart(
+function shouldCarDepart(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	time: TimeState,
 ): boolean {
-	if (car.assignedCount >= get_car_capacity(carrier)) return true;
-	const scheduleIndex = get_schedule_index(time);
+	if (car.assignedCount >= getCarCapacity(carrier)) return true;
+	const scheduleIndex = getScheduleIndex(time);
 	if ((carrier.serviceScheduleFlags[scheduleIndex] ?? 1) === 0) {
 		return true;
 	}
@@ -770,14 +765,14 @@ function should_car_depart(
 	);
 }
 
-function board_and_unload_routes(
+function boardAndUnloadRoutes(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
 	onArrival?: CarrierArrivalCallback,
 ): boolean {
 	let changed = false;
-	const limit = active_slot_limit(carrier);
+	const limit = activeSlotLimit(carrier);
 	const arrivals: Array<{ routeId: string; floor: number }> = [];
 
 	for (let index = 0; index < limit; index++) {
@@ -787,7 +782,7 @@ function board_and_unload_routes(
 		const arrivedRouteId = slot.routeId;
 		const arrivedFloor = slot.destinationFloor;
 		car.assignedCount = Math.max(0, car.assignedCount - 1);
-		const destinationSlot = floor_to_slot(carrier, slot.destinationFloor);
+		const destinationSlot = floorToSlot(carrier, slot.destinationFloor);
 		if (destinationSlot >= 0) {
 			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
 			car.destinationCountByFloor[destinationSlot] = Math.max(0, prev - 1);
@@ -817,16 +812,16 @@ function board_and_unload_routes(
 
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
-		if (car.assignedCount >= get_car_capacity(carrier)) break;
+		if (car.assignedCount >= getCarCapacity(carrier)) break;
 		if (!slot?.active || slot.boarded) continue;
-		const route = find_route(carrier, slot.routeId);
+		const route = findRoute(carrier, slot.routeId);
 		if (!route || route.boarded) continue;
 		if (route.assignedCarIndex !== carIndex) continue;
 		if (route.sourceFloor !== car.currentFloor) continue;
 		route.boarded = true;
 		slot.boarded = true;
 		car.assignedCount += 1;
-		const destinationSlot = floor_to_slot(carrier, route.destinationFloor);
+		const destinationSlot = floorToSlot(carrier, route.destinationFloor);
 		if (destinationSlot >= 0) {
 			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
 			car.destinationCountByFloor[destinationSlot] = prev + 1;
@@ -844,13 +839,13 @@ function board_and_unload_routes(
 				slot.boarded = false;
 			}
 		}
-		sync_pending_route_ids(car);
-		sync_assignment_status(carrier);
+		syncPendingRouteIds(car);
+		syncAssignmentStatus(carrier);
 	}
 	return changed;
 }
 
-function step_carrier_car(
+function stepCarrierCar(
 	world: WorldState,
 	car: CarrierCar,
 	carrier: CarrierRecord,
@@ -864,12 +859,12 @@ function step_carrier_car(
 		car.currentFloor < carrier.bottomServedFloor ||
 		car.currentFloor > carrier.topServedFloor
 	) {
-		reset_car_to_home(carrier, car);
+		resetCarToHome(carrier, car);
 		return;
 	}
 
 	if (car.doorWaitCounter > 0) {
-		if (compute_car_motion_mode(carrier, car) === 0) car.doorWaitCounter--;
+		if (computeCarMotionMode(carrier, car) === 0) car.doorWaitCounter--;
 		else car.doorWaitCounter = 0;
 		return;
 	}
@@ -878,43 +873,43 @@ function step_carrier_car(
 		car.speedCounter--;
 		if (car.speedCounter === 0) {
 			car.prevFloor = car.currentFloor;
-			advance_car_position_one_step(carrier, car);
+			advanceCarPositionOneStep(carrier, car);
 			if (car.currentFloor === car.targetFloor) {
 				if (car.doorWaitCounter === 0)
 					car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 				car.departureFlag = 0;
 			}
 			if (car.doorWaitCounter === 0 && car.currentFloor !== car.targetFloor) {
-				car.speedCounter = speed_ticks(carrier.carrierMode);
+				car.speedCounter = speedTicks(carrier.carrierMode);
 			}
 		}
 		return;
 	}
 
-	process_unit_travel_queue(world, carrier, car, carIndex, time);
-	if (board_and_unload_routes(carrier, car, carIndex, onArrival)) {
+	processUnitTravelQueue(world, carrier, car, carIndex, time);
+	if (boardAndUnloadRoutes(carrier, car, carIndex, onArrival)) {
 		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
 		return;
 	}
 
-	load_schedule_flag(carrier, car, time);
-	const next = select_next_target(car, carrier, carIndex);
+	loadScheduleFlag(carrier, car, time);
+	const next = selectNextTarget(car, carrier, carIndex);
 
 	if (next < 0 || next === car.currentFloor) {
 		// At target floor with no further targets: check if passengers waiting
-		const currentSlot = floor_to_slot(carrier, car.currentFloor);
+		const currentSlot = floorToSlot(carrier, car.currentFloor);
 		const waitingHere =
 			currentSlot >= 0 ? (car.waitingCount[currentSlot] ?? 0) > 0 : false;
 		if (waitingHere) {
 			// Passengers waiting: begin departure/boarding sequence
-			clear_stale_floor_assignments(carrier, car.currentFloor, carIndex);
+			clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
 			car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
 			if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
 			car.departureFlag = 1;
 			return;
 		}
 		// Car has boarded passengers and should depart
-		if (car.assignedCount > 0 && should_car_depart(carrier, car, time)) {
+		if (car.assignedCount > 0 && shouldCarDepart(carrier, car, time)) {
 			car.speedCounter = 1;
 		}
 		return;
@@ -924,23 +919,23 @@ function step_carrier_car(
 	car.targetFloor = next;
 	car.directionFlag = next > car.currentFloor ? 0 : 1;
 	// Clear stale assignments at current floor before departing
-	clear_stale_floor_assignments(carrier, car.currentFloor, carIndex);
+	clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
 	car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
 	if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
 	car.departureFlag = 1;
 }
 
-export function tick_all_carriers(
+export function tickAllCarriers(
 	world: WorldState,
 	time: TimeState,
 	onArrival?: CarrierArrivalCallback,
 ): void {
 	for (const carrier of world.carriers) {
 		carrier.completedRouteIds = [];
-		assign_pending_floor_requests(carrier);
-		sync_assignment_status(carrier);
+		assignPendingFloorRequests(carrier);
+		syncAssignmentStatus(carrier);
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			step_carrier_car(world, car, carrier, carIndex, time, onArrival);
+			stepCarrierCar(world, car, carrier, carIndex, time, onArrival);
 		}
 	}
 }
@@ -950,7 +945,7 @@ export function tick_all_carriers(
  * Drains all floor queues, clears pending routes, and resets every car to its
  * home floor. This prevents stale overnight passengers.
  */
-export function flush_carriers_end_of_day(world: WorldState): void {
+export function flushCarriersEndOfDay(world: WorldState): void {
 	for (const carrier of world.carriers) {
 		// Drain floor queues
 		for (const queue of carrier.floorQueues.values()) {
@@ -966,12 +961,12 @@ export function flush_carriers_end_of_day(world: WorldState): void {
 
 		// Reset every car to home floor
 		for (const car of carrier.cars) {
-			reset_car_to_home(carrier, car);
+			resetCarToHome(carrier, car);
 		}
 	}
 }
 
-export function rebuild_carrier_list(world: WorldState): void {
+export function rebuildCarrierList(world: WorldState): void {
 	const columns = new Map<number, { floors: Set<number>; mode: 0 | 1 | 2 }>();
 	const overlayKeys = new Set<string>([
 		...Object.keys(world.overlays),
@@ -1039,7 +1034,7 @@ export function rebuild_carrier_list(world: WorldState): void {
 			}
 			if (existing.floorQueues.length !== numSlots) {
 				existing.floorQueues = Array.from({ length: numSlots }, () =>
-					create_floor_queue(),
+					createFloorQueue(),
 				);
 			}
 			for (const car of existing.cars) {
@@ -1062,29 +1057,29 @@ export function rebuild_carrier_list(world: WorldState): void {
 				);
 				car.homeFloor = Math.min(top, Math.max(bottom, car.homeFloor));
 				if (car.currentFloor < bottom || car.currentFloor > top) {
-					reset_car_to_home(existing, car);
+					resetCarToHome(existing, car);
 				}
-				sync_route_slots(existing, car);
+				syncRouteSlots(existing, car);
 			}
 			newCarriers.push(existing);
 		} else {
-			newCarriers.push(make_carrier(id++, col, mode, bottom, top));
+			newCarriers.push(makeCarrier(id++, col, mode, bottom, top));
 		}
 	}
 
 	world.carriers = newCarriers;
 	for (const carrier of world.carriers) {
-		sync_assignment_status(carrier);
+		syncAssignmentStatus(carrier);
 	}
 }
 
-export function init_carrier_state(world: WorldState): void {
+export function initCarrierState(world: WorldState): void {
 	world.carriers ??= [];
 	world.floorWalkabilityFlags ??= new Array(GRID_HEIGHT).fill(0);
 	world.transferGroupCache ??= new Array(GRID_HEIGHT).fill(0);
 }
 
-export function enqueue_carrier_route(
+export function enqueueCarrierRoute(
 	carrier: CarrierRecord,
 	entityId: string,
 	sourceFloor: number,
@@ -1093,12 +1088,12 @@ export function enqueue_carrier_route(
 ): boolean {
 	if (carrier.pendingRoutes.some((route) => route.entityId === entityId))
 		return true;
-	const floorQueue = get_queue_state(carrier, sourceFloor);
+	const floorQueue = getQueueState(carrier, sourceFloor);
 	if (
 		!floorQueue ||
-		!get_direction_queue(floorQueue, directionFlag).push(entityId)
+		!getDirectionQueue(floorQueue, directionFlag).push(entityId)
 	) {
-		const slot = floor_to_slot(carrier, sourceFloor);
+		const slot = floorToSlot(carrier, sourceFloor);
 		if (slot >= 0) {
 			const table =
 				directionFlag === 0
@@ -1117,7 +1112,7 @@ export function enqueue_carrier_route(
 		assignedCarIndex: -1,
 	};
 	carrier.pendingRoutes.push(route);
-	assign_pending_floor_requests(carrier);
-	sync_assignment_status(carrier);
+	assignPendingFloorRequests(carrier);
+	syncAssignmentStatus(carrier);
 	return true;
 }
