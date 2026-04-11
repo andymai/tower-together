@@ -44,9 +44,12 @@ export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
 
 export class GameScene extends Phaser.Scene {
+	private static readonly UNDERGROUND_TEXTURE_KEY = "underground";
+
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private entityGraphics!: Phaser.GameObjects.Graphics;
 	private carGraphics!: Phaser.GameObjects.Graphics;
+	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
 
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
 	private cloudManager!: CloudManager;
@@ -279,6 +282,8 @@ export class GameScene extends Phaser.Scene {
 			this.input.keyboard?.createCursorKeys() as Phaser.Types.Input.Keyboard.CursorKeys;
 
 		this.drawSky();
+		this.loadUndergroundTexture();
+		this.drawUndergroundBackground();
 		this.drawAllCells();
 
 		this.cloudManager = new CloudManager(this, 1);
@@ -389,6 +394,50 @@ export class GameScene extends Phaser.Scene {
 		sky.setDepth(0);
 	}
 
+	private loadUndergroundTexture(): void {
+		if (this.textures.exists(GameScene.UNDERGROUND_TEXTURE_KEY)) return;
+		this.load.image(GameScene.UNDERGROUND_TEXTURE_KEY, "/underground.png");
+		this.load.once("complete", () => {
+			this.drawUndergroundBackground();
+			this.drawAllCells();
+		});
+		this.load.start();
+	}
+
+	private drawUndergroundBackground(): void {
+		const backgroundWidth = GRID_WIDTH * TILE_WIDTH;
+		const backgroundHeight = (GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT;
+		const backgroundY = UNDERGROUND_Y * TILE_HEIGHT;
+
+		if (!this.textures.exists(GameScene.UNDERGROUND_TEXTURE_KEY)) {
+			this.undergroundBackground?.destroy();
+			this.undergroundBackground = null;
+			return;
+		}
+
+		const frame = this.textures.getFrame(GameScene.UNDERGROUND_TEXTURE_KEY);
+		if (!frame) return;
+		const tileScale = backgroundHeight / frame.height;
+		const tileWidth = (frame.width / frame.height) * backgroundHeight;
+		const tileScaleX = tileWidth / frame.width;
+
+		if (!this.undergroundBackground) {
+			this.undergroundBackground = this.add.tileSprite(
+				0,
+				backgroundY,
+				backgroundWidth,
+				backgroundHeight,
+				GameScene.UNDERGROUND_TEXTURE_KEY,
+			);
+			this.undergroundBackground.setOrigin(0, 0);
+			this.undergroundBackground.setDepth(1);
+		} else {
+			this.undergroundBackground.setPosition(0, backgroundY);
+			this.undergroundBackground.setSize(backgroundWidth, backgroundHeight);
+		}
+		this.undergroundBackground.setTileScale(tileScaleX, tileScale);
+	}
+
 	private static readonly ROOM_SVG_SCALE = 16;
 
 	/** Tile types that use the for-sale banner instead of for-rent. */
@@ -433,14 +482,15 @@ export class GameScene extends Phaser.Scene {
 		this.clearTileLabels();
 		this.clearRoomSprites();
 
-		// Underground background
-		g.fillStyle(COLOR_UNDERGROUND, 1);
-		g.fillRect(
-			0,
-			UNDERGROUND_Y * TILE_HEIGHT,
-			GRID_WIDTH * TILE_WIDTH,
-			(GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT,
-		);
+		if (!this.undergroundBackground) {
+			g.fillStyle(COLOR_UNDERGROUND, 1);
+			g.fillRect(
+				0,
+				UNDERGROUND_Y * TILE_HEIGHT,
+				GRID_WIDTH * TILE_WIDTH,
+				(GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT,
+			);
+		}
 
 		// Tile types that should be merged into contiguous runs per row.
 		const MERGE_TYPES = new Set(["floor", "lobby"]);
