@@ -222,7 +222,7 @@ function hasViableRouteBetweenFloors(
 	);
 }
 
-function supportsFamily(
+function isNoiseSource(
 	originFamilyCode: number,
 	targetFamilyCode: number,
 ): boolean {
@@ -265,7 +265,7 @@ function supportsFamily(
 	return COMMERCIAL_FAMILIES.has(targetFamilyCode);
 }
 
-function hasNearbySupport(
+function hasNearbyNoise(
 	world: WorldState,
 	object: PlacedObjectRecord,
 	floorAnchor: number,
@@ -275,7 +275,7 @@ function hasNearbySupport(
 		if (candidate === object) continue;
 		const [_x, y] = key.split(",").map(Number);
 		if (yToFloor(y) !== floorAnchor) continue;
-		if (!supportsFamily(object.objectTypeCode, candidate.objectTypeCode))
+		if (!isNoiseSource(object.objectTypeCode, candidate.objectTypeCode))
 			continue;
 		const leftDelta = Math.abs(candidate.leftTileIndex - object.rightTileIndex);
 		const rightDelta = Math.abs(
@@ -359,13 +359,13 @@ function recomputeObjectOperationalStatus(
 			break;
 	}
 
-	const supportRadius =
+	const noiseRadius =
 		object.objectTypeCode === FAMILY_OFFICE
 			? 10
 			: object.objectTypeCode === FAMILY_CONDO
 				? 30
 				: 20;
-	if (hasNearbySupport(world, object, entity.floorAnchor, supportRadius)) {
+	if (hasNearbyNoise(world, object, entity.floorAnchor, noiseRadius)) {
 		score += 60;
 	}
 

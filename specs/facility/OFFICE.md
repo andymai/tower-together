@@ -59,7 +59,7 @@ Office readiness is computed from:
 
 - per-sim activity average across the office's population
 - rent-tier modifier
-- support-search penalty when nearby support is missing
+- noise penalty when a commercial/entertainment neighbor is within 10 tiles
 
 The result maps into the shared readiness grades `2`, `1`, or `0`.
 

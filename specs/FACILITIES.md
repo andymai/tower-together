@@ -4,10 +4,10 @@ This document covers shared facility logic. Family-specific state machines are i
 
 ## Facility Evaluation Model
 
-Facilities that depend on nearby support compute an operational score and map it into a
-readiness grade (`eval_level`):
+Facilities compute an operational score (a stress/noise metric where higher = worse)
+and map it into a readiness grade (`eval_level`):
 
-- `2`: excellent — well-serviced, income active
+- `2`: excellent — low stress/noise, income active
 - `1`: acceptable — marginal
 - `0`: poor — deactivation-eligible or refund-eligible
 - `0xff`: not yet scorable (early lifecycle or transitional guard)
@@ -42,10 +42,11 @@ The shared scoring pipeline is:
    - tier `1` (default): `+0`
    - tier `2` (lower price): `-30`
    - tier `3` (lowest price): force score to `0` (always passes)
-4. if qualifying support **is** found on either side within the family's search
-   radius, add `+60`. (Support missing → no adjustment.) This raises the performance
-   bar for well-serviced locations: facilities near support must sustain higher
-   visitor throughput to maintain the same readiness grade.
+4. if a qualifying **noise source** is found on either side within the family's
+   search radius, add `+60`. (No noise source → no adjustment.) This is a
+   proximity penalty: nearby commercial/entertainment facilities generate noise
+   that raises the stress score, making it harder for the facility to achieve a
+   good evaluation. Higher score = worse = noisier.
 5. clamp the result to `>= 0`
 6. map the score into `eval_level`
 
@@ -56,38 +57,44 @@ The per-sim metric used here is `accumulated_elapsed / trip_count` — the avera
 elapsed ticks per service visit. The 300-tick clamp on each sample prevents any single
 long transit from dominating the running average.
 
-## Support Search
+## Noise Search
 
-Support search is local and tile-based. Different families use different support radii:
+The noise search scans placed-object slots on the **same floor** in both
+directions from the evaluated facility. It walks adjacent slots, comparing
+tile positions against a per-family radius, and returns the first qualifying
+noise-source family found (short-circuits). Either direction succeeding is
+enough to trigger the `+60` penalty.
 
-| Requester family | Radius |
+Different families have different noise sensitivity radii:
+
+| Evaluated family | Radius |
 |---|---|
 | hotel rooms (`3/4/5`) | 20 tiles |
 | office (`7`) | 10 tiles |
 | condo (`9`) | 30 tiles |
 
-## Support Matching
+## Noise Source Matching
 
-`map_neighbor_family_to_support_match` normalizes a neighbor's family
-code into a support-match code, or returns 0 when the neighbor does not qualify.
-Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → party hall (`0x12`), `0x1d/0x1e` → cinema (`0x1d`).
+`map_neighbor_family_to_noise_match` normalizes a neighbor's family
+code into a noise-match code, or returns 0 when the neighbor is not a noise
+source. Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → party hall (`0x12`), `0x1d/0x1e` → cinema (`0x1d`).
 
-Accepted support families:
+Families that count as noise sources:
 
-| Requester | Accepts support from |
+| Evaluated family | Noise sources |
 |---|---|
 | hotel rooms (3/4/5) | restaurant (6), office (7), retail (10), fast food (12), entertainment |
 | office (7) | restaurant (6), retail (10), fast food (12), entertainment |
 | condo (9) | hotel rooms (3/4/5), restaurant (6), office (7), retail (10), fast food (12), entertainment |
 
-Note: the commercial families as support providers are restaurant (6), retail (10),
+Note: the commercial families are restaurant (6), retail (10),
 and fast food (12). See `facility/COMMERCIAL.md` for the authoritative family-to-name
 mapping.
 
-Notable exclusions: hotels do **not** accept condos or other hotels as support. Offices
-do **not** accept hotels or other offices. Commercial families (6, 10, 12) do not
-participate in the support scoring pipeline — they use a separate commercial readiness
-system with `apply_service_variant_modifier_to_score`.
+Notable exclusions: hotels do **not** count other hotels or condos as noise.
+Offices do **not** count hotels or other offices as noise. Commercial families
+(6, 10, 12) do not participate in the noise scoring pipeline at all — they use a
+separate commercial readiness system with `apply_rent_modifier_to_score`.
 
 ## Thresholds By Star Rating
 
@@ -132,7 +139,7 @@ forward-only.
 Commercial families (restaurant 6, retail 10, fast food 12) use a separate readiness
 model based on customer count from the commercial-venue sidecar record. Thresholds are stored in per-family threshold slots.
 
-Retail (family 10) thresholds are adjusted by `apply_service_variant_modifier_to_score`,
+Retail (family 10) thresholds are adjusted by `apply_rent_modifier_to_score`,
 which applies a smaller rent_level-based modifier:
 
 - rent_level `0`: `+5`

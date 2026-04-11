@@ -183,8 +183,8 @@ Higher values = more stressed = worse evaluation.
 
 `compute_object_operational_score` averages this metric across the facility's
 population count (family 3: 1 sim, family 4/5: 2 sims, family 7: 6 sims,
-family 9: 3 sims), then passes through `apply_variant_and_support_bonus_to_score`
-for rent-level and nearby-support adjustments (see FACILITIES.md).
+family 9: 3 sims), then passes through `apply_rent_and_noise_penalty_to_score`
+for rent-level and noise-proximity adjustments (see FACILITIES.md).
 
 ### Stress Color Bands (Manual)
 
