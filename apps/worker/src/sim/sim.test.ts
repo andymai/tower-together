@@ -28,6 +28,7 @@ import {
 import {
 	advanceEntityRefreshStride,
 	createEntityStateRecords,
+	onCarrierArrival,
 	populateCarrierRequests,
 	rebuildRuntimeEntities,
 	reconcileEntityTransport,
@@ -95,6 +96,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		transferGroupEntries: [],
 		transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 		eventState: createEventState(),
+		parkingDemandLog: [],
 		pendingNotifications: [],
 		pendingPrompts: [],
 	};
@@ -274,6 +276,20 @@ describe("PlacedObjectRecord", () => {
 		const rec = world.placedObjects[`0,${y}`];
 		expect(rec.leftTileIndex).toBe(0);
 		expect(rec.rightTileIndex).toBe(7); // width 8
+	});
+
+	it("initializes office vacancy from unit status rather than eval latch", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		const y = GROUND_Y - 1;
+		for (let x = 0; x < GRID_WIDTH; x++) {
+			world.cells[`${x},${GROUND_Y}`] = "floor";
+		}
+		const result = handlePlaceTile(0, y, "office", world, ledger);
+		expect(result.accepted).toBe(true);
+		const rec = world.placedObjects[`0,${y}`];
+		expect(rec.unitStatus).toBe(0x10);
+		expect(rec.evalActiveFlag).toBe(1);
 	});
 
 	it("stores placedObjects keyed by anchor position", () => {
@@ -1947,6 +1963,20 @@ describe("car state machine", () => {
 		expect(car.destinationCountByFloor[destinationSlot]).toBeGreaterThan(0);
 	});
 
+	it("does not treat the default dwell multiplier as express-to-top mode", () => {
+		const world = makeWorld();
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 20, 1));
+		const carrier = world.carriers[0];
+		const car = carrier.cars[0];
+		if (!car) throw new Error("expected car");
+
+		enqueueCarrierRoute(carrier, "down", 12, 10, 1);
+		tickAllCarriers(world, createTimeState());
+
+		expect(car.scheduleFlag).toBe(1);
+		expect(car.targetFloor).toBe(12);
+	});
+
 	it("reconciles entity arrival only from explicit completed carrier routes", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -2124,15 +2154,30 @@ describe("Phase 4 runtime entities", () => {
 		if (!firstEntity || !secondEntity || !hotel)
 			throw new Error("expected hotel runtime state");
 		firstEntity.stressCounter = 10;
-		secondEntity.stressCounter = 140;
-		hotel.evalLevel = 1;
+		secondEntity.stressCounter = 90;
+		hotel.evalLevel = 0;
 
 		const state = createEntityStateRecords(world);
 		expect(state).toHaveLength(2);
-		expect(state[0]?.stressLevel).toBe("medium");
-		expect(state[1]?.stressLevel).toBe("high");
+		expect(state[0]?.stressLevel).toBe("low");
+		expect(state[1]?.stressLevel).toBe("medium");
 		expect(state[0]?.subtypeIndex).toBe(0);
 		expect(state[0]?.floorAnchor).toBe(GRID_HEIGHT - 1 - (GROUND_Y - 1));
+	});
+
+	it("marks queued sims red only after the high stress threshold", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "hotelSingle", world, ledger);
+		rebuildRuntimeEntities(world);
+		const entity = world.entities[0];
+		if (!entity) throw new Error("expected hotel entity");
+		entity.stressCounter = 120;
+
+		const state = createEntityStateRecords(world);
+		expect(state[0]?.stressLevel).toBe("high");
 	});
 
 	it("treats same-floor venue visits as immediate arrivals", () => {
@@ -2271,6 +2316,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(entity.stateCode).toBe(0x00); // commuting to office
 		expect(entity.selectedFloor).toBe(10);
 		expect(entity.destinationFloor).toBe(entity.floorAnchor);
+		expect(world.placedObjects[`0,${GROUND_Y - 1}`]?.unitStatus).toBe(0);
 
 		populateCarrierRequests(world, activeTime);
 		const carrier = world.carriers[0];
@@ -2278,6 +2324,156 @@ describe("Phase 4 runtime entities", () => {
 		const requestSlot = floorToSlot(carrier, 10);
 		expect(requestSlot).toBeGreaterThanOrEqual(0);
 		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
+	});
+
+	it("keeps office rented when the first worker arrives with a sparse sample", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 7,
+		);
+		if (!office || !entity) throw new Error("expected office runtime state");
+		office.evalActiveFlag = 1;
+		entity.stateCode = 0x00;
+		entity.selectedFloor = 10;
+		entity.destinationFloor = entity.floorAnchor;
+		entity.route = {
+			mode: "carrier",
+			carrierId: 0,
+			direction: "up",
+			source: 10,
+		};
+		entity.visitCounter = 1;
+
+		onCarrierArrival(
+			world,
+			ledger,
+			{
+				...createTimeState(),
+				dayCounter: 3,
+				daypartIndex: 1,
+				starCount: 4,
+			},
+			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			entity.floorAnchor,
+		);
+
+		expect(entity.stateCode).toBe(0x21);
+		expect(office.evalLevel).toBe(0xff);
+		expect(office.evalActiveFlag).toBe(1);
+	});
+
+	it("keeps disconnected offices for rent instead of spawning commuters", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!office) throw new Error("expected office object");
+
+		for (let dayTick = 0; dayTick < 16; dayTick++) {
+			advanceEntityRefreshStride(world, ledger, {
+				...createTimeState(),
+				dayCounter: 3,
+				daypartIndex: 1,
+				dayTick,
+				starCount: 4,
+			});
+		}
+		populateCarrierRequests(world, {
+			...createTimeState(),
+			dayCounter: 3,
+			daypartIndex: 1,
+			dayTick: 16,
+			starCount: 4,
+		});
+
+		expect(office.evalActiveFlag).toBe(1);
+		expect(office.unitStatus).toBe(0x10);
+		expect(world.carriers).toHaveLength(0);
+		expect(world.entities.every((entity) => entity.route.mode === "idle")).toBe(
+			true,
+		);
+	});
+
+	it("does not create late-day office departure queues on fresh placement", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		rebuildRuntimeEntities(world);
+
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!office) throw new Error("expected office object");
+		const newGameTime = createNewGameTimeState();
+
+		for (let offset = 0; offset < 16; offset++) {
+			advanceEntityRefreshStride(world, ledger, {
+				...newGameTime,
+				dayTick: newGameTime.dayTick + offset,
+			});
+		}
+		populateCarrierRequests(world, newGameTime);
+
+		const carrier = world.carriers[0];
+		if (!carrier) throw new Error("expected carrier");
+		expect(office.evalActiveFlag).toBe(1);
+		expect(office.unitStatus).toBe(0x10);
+		expect(carrier.pendingRoutes).toHaveLength(0);
+		expect(world.entities.every((entity) => entity.route.mode === "idle")).toBe(
+			true,
+		);
+	});
+
+	it("queues office workers downward from the office floor at end of day", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		rebuildRuntimeEntities(world);
+
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 7,
+		);
+		if (!entity) throw new Error("expected office entity");
+		entity.stateCode = 0x21;
+		entity.selectedFloor = entity.floorAnchor;
+		entity.destinationFloor = -1;
+		entity.route = { mode: "idle" };
+
+		const endOfDayTime = {
+			...createTimeState(),
+			dayCounter: 3,
+			daypartIndex: 4,
+			dayTick: 0,
+			starCount: 4,
+		};
+		advanceEntityRefreshStride(world, ledger, endOfDayTime);
+		expect(entity.stateCode).toBe(0x05);
+		expect(entity.selectedFloor).toBe(entity.floorAnchor);
+		expect(entity.destinationFloor).toBe(10);
+
+		populateCarrierRequests(world, endOfDayTime);
+		const carrier = world.carriers[0];
+		if (!carrier) throw new Error("expected carrier");
+		const requestSlot = floorToSlot(carrier, entity.floorAnchor);
+		expect(requestSlot).toBeGreaterThanOrEqual(0);
+		expect(carrier.secondaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
+		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBe(0);
+		expect(entity.route.mode).toBe("carrier");
 	});
 
 	it("sells a condo only after a commercial trip is reserved", () => {

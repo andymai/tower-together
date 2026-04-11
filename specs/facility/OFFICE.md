@@ -18,6 +18,41 @@ Office payout per activation is determined by `rent_level`:
 
 Default placement tier is `1`.
 
+## Placement And Stored State
+
+When an office is placed, the simulation initializes separate fields for:
+
+- rental / occupancy status
+- visual variant seed
+- dirty / refresh state
+- operational-evaluation active latch
+- operational score
+- rent tier
+- activation age / cumulative uptime
+
+The initial office values are:
+
+- rental status = open-band value `0`
+- visual variant = the next value from the rotating office variant counter
+- dirty / refresh state = dirty
+- operational-evaluation active latch = active
+- operational score = unsampled / unset
+- rent tier = `1`
+- activation age = `0`
+
+The important parity point is that the operational-evaluation active latch is not the
+vacancy/rental flag. A newly placed, not-yet-rented office already has that latch enabled,
+so "For Rent" cannot be derived from it.
+
+Office rental/open state and office operational score are stored as separate concepts. The
+selected-object status text treats rental-status values above `0x0f` as vacant/"For Rent"
+and values `<= 0x0f` as occupied/open. The clone does not need to copy the original byte
+layout, but it should preserve that semantic split.
+
+Normal office placement also creates the six worker runtime entities immediately. They are
+not created lazily at rental time. Each worker starts with family `7`, `occupant_index`
+`0..5`, state `0x20`, no active route token, no saved route floor, and zeroed timing state.
+
 ## Readiness Scoring
 
 Office readiness is computed from:
@@ -68,13 +103,36 @@ Activation cadence:
 
 Deactivation trigger:
 
-- if `eval_level == 0` and the office is still in the active band, deactivation clears `eval_active_flag`
+- if `eval_level == 0` and the office is still in the active band, deactivation writes the
+  office back into a vacant band: `unit_status = 0x10` in the early-day regime, or
+  `unit_status = 0x18` in the late-day regime
+- deactivation clears `eval_active_flag`
 - deactivation resets `activation_tick_count`
 - deactivation subtracts the office's recurring contribution from cash and removes `6` from the population ledger
+- deactivation sets the dirty / visual refresh byte, so the next object-status draw sees the
+  "For Rent" band through `unit_status > 0x0f`
 - after a deactivation, the same-floor scan (`attempt_pairing_with_floor_neighbor`) may immediately re-pair it with a same-floor, same-family slot whose `pairing_state == 2`
 - a successful match promotes both offices to `pairing_state == 1`, sets `pairing_active_flag`, and refreshes the office span
 - if `pairing_state >= 1` when the pairing helper runs, the helper does not search; it just asserts `pairing_active_flag` and refreshes
 - this pairing logic is shared with families `9` and `10`, but for offices it affects the recurring activation/deactivation economy path, not the worker trip-state routing
+
+Low evaluation is therefore split by severity. A low but nonzero `eval_level` changes the
+operational score and keeps the office open. A zero `eval_level` closes an occupied office
+back into the vacant/"For Rent" band and clears the evaluation latch.
+
+Worker arrival does not run the shared readiness/evaluation recompute. Arrival helpers for
+families `3/4/5/7` only adjust the office stay/rental-status countdown and mark the room
+dirty for redraw. Satisfaction and support readiness are recomputed on the shared daily
+evaluation cadence, not on every carrier arrival. A sparse first worker arrival therefore
+must not immediately lower the operational score or flip the visible rental banner through
+evaluation scoring.
+
+Visible status changes are driven by the status-and-dirty path. Activation sets the office
+to the occupied/open status, marks it dirty, and refreshes the office span. Deactivation
+writes the vacant status band, clears the operational-evaluation active latch, clears
+activation age, and marks the room dirty. The selected-object "For Rent" text reads the
+rental-status band, not the operational score. The binary does not show a separate debounce
+layer beyond the ordinary dirty-byte refresh path.
 
 ## Worker Loop
 
@@ -93,6 +151,10 @@ Worker-cycle timing:
 - support-trip states stop dispatching once late-day cutoff handling begins
 - venue dwell uses a fixed 16-tick hold before the return leg can start
 - workers use the shared route queue / commercial-slot pipeline, with `0x4x` as in-transit aliases and `0x6x` as at-work aliases
+- late-day placement leaves fresh state-`0x20` workers parked until the next morning gate;
+  daypart `>= 3` does not depart them or convert them to another state
+- end-of-day reset parks family-7 workers in hidden state `0x27` with route fields cleared;
+  the next morning loop moves parked states back to `0x20` only after `day_tick > 2300`
 
 Gate table (see `DEMAND.md` for full binary-verified details):
 
@@ -106,13 +168,24 @@ Gate table (see `DEMAND.md` for full binary-verified details):
 
 Dispatch table:
 
-- `0x00` / `0x40`: route from lobby floor `0` to the assigned office floor; queued or en-route results stay in `0x40`, same-floor arrival becomes `0x21`, and failure becomes `0x26`
+- `0x00` / `0x40`: route from lobby floor `0` (EXE raw floor `10`) to the assigned office floor; queued or en-route results stay in `0x40`, same-floor arrival becomes `0x21`, and failure becomes `0x26` plus service-request release
 - `0x01` / `0x41`: route from office to a commercial venue; failure returns to `0x26` and releases the service request
 - `0x02` / `0x42`: continue commercial transit toward the saved floor-zone index; same-floor arrival tries to claim the office slot and either enters `0x23` or keeps waiting
-- `0x05` / `0x45`: route from the office floor back to lobby floor `0`; queued and en-route results stay in `0x45`, failure becomes `0x26`
-- `0x20` / `0x60`: assign a service request destination on first entry, then route to the assigned floor; queued or en-route results continue through `0x40`, same-floor arrival becomes `0x21`
-- `0x21` / `0x61`: route either to lobby or the saved floor, then advance the worker trip counter on same-floor arrival
+- `0x05` / `0x45`: route from the office floor back to lobby floor `0` (EXE raw floor `10`); queued and en-route results stay in `0x45`, same-floor arrival becomes `0x27` and releases the service request
+- `0x20` / `0x60`: assign a service request destination on first entry, then route from lobby floor `0` / EXE raw floor `10` to the assigned office floor. If route resolution fails while the office is still vacant, the worker is returned to `0x20` and its route fields are cleared. If route resolution succeeds with return code `0`, `1`, or `2`, a vacant office is activated by `activate_office_cashflow`, which writes `unit_status = 0`, and the worker enters `0x60`. Same-floor success (`3`) also activates a vacant office and then proceeds through the immediate-arrival path.
+- `0x21` / `0x61`: route either to lobby or the saved floor; queued or en-route results enter `0x61`, same-floor arrival advances to `0x05`
 - `0x22` / `0x62`: release the commercial slot, route home, and advance the trip counter on same-floor arrival
 - `0x23` / `0x63`: enforce the 16-tick dwell, then route to the saved target; on same-floor arrival the next state is `0x00` for `occupant_index == 1`, otherwise `0x05`
 
-The office workers use the same shared service-request entry mechanism as hotel guests.
+The rental condition is a real route-resolution success, not a purely structural
+connectivity flag. Offices require a route from the lobby to the office floor through the
+shared resolver. The resolver mutates state when it succeeds: elevator paths create real
+queue entries and direct paths write a route token. When no valid route exists, no elevator
+queue entry is created, no worker reaches the office, and the vacant office remains in the
+for-rent band until a later retry succeeds.
+
+Workers are staggered by the gate table, not by a bulk "queue all six workers" scheduler.
+Occupant `0` is the early-morning special case in state `0x00`; occupants `1..5` wait until
+the daypart-3 random gate. In the fresh-rental `0x20` path, each of the six existing worker
+entities is still checked independently on its stride tick, so successful rental can create
+multiple queued workers over time but not as one atomic six-worker enqueue.

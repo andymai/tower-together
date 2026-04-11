@@ -32,7 +32,7 @@ The route resolver returns:
 - waiting state because the source-floor queue is full
 - failure because no route exists
 
-`resolve_entity_route_between_floors` writeback behavior:
+`resolve_entity_route_between_floors` returns these concrete codes:
 
 - same-floor success returns `3`
 - direct stairs/escalator leg returns `1`
@@ -40,20 +40,35 @@ The route resolver returns:
 - queue-full waiting state returns `0`
 - no-route failure returns `-1`
 
-Resolver field writes:
+This resolver is the office-worker route-validity decision. There is no separate
+non-mutating "can route?" probe for office rental: the family-7 dispatcher calls the same
+resolver that queues elevator rides and writes runtime route tokens. For offices,
+lobby-to-office route acceptance is therefore also the condition that can convert a vacant
+office into an open/rented office.
+
+Resolver side effects:
 
 - direct stairs/escalator leg:
-  - `entity[+7] = source_floor +/- ((span >> 1) + 1)` for the completed hop target
-  - `entity[+8] = stairs/escalator segment index`
+  - stores the next hop floor as the actor's immediate route destination
+  - stores a local-segment route token identifying the chosen stairs/escalator segment
 - elevator queue assignment:
-  - `entity[+7] = source_floor`
-  - `entity[+8] = carrier code`
-    - `0x40 + carrier_index` for upward queueing
-    - `0x58 + carrier_index` for downward queueing
-  - `entity[+0xa] = current day_tick`
+  - stores the current source floor as the actor's waiting floor
+  - stores a carrier route token encoding direction and carrier id
+  - stores the current `day_tick` as the route-start / wait-start timestamp
 - queue-full waiting state:
-  - `entity[+7] = source_floor`
-  - `entity[+8] = 0xff`
+  - stores the current source floor as the waiting floor
+  - stores a distinguished "waiting, not yet queued" route marker
+
+Mutation by result:
+
+- result `-1` does not enqueue; in passenger mode it can emit the once-per-source-floor
+  route failure notice, applies the 300-tick no-route delay, and lets the family dispatcher
+  write its failure state
+- result `0` is a queue-full wait; it applies the 5-tick waiting delay, but does not
+  insert a queue-ring entry
+- result `1` writes a local route token and per-stop delay
+- result `2` inserts a real elevator queue entry and writes the carrier queue token
+- result `3` is immediate same-floor success and creates no queue entry
 
 ## Candidate Priority
 
@@ -277,6 +292,15 @@ Queue behavior:
 - enqueue writes to `(head + count) % 40`
 - dequeue reads from `head`, then advances `head = (head + 1) % 40`
 - the queue-full sentinel is the literal count `40`, not a separate state code
+- the queued value is the 4-byte request/entity reference; queue entries are not keyed only
+  by floor request and are not keyed by a separate route-slot id
+
+Elevator queue creation is mutating. On a successful elevator route probe, the resolver
+calls the enqueue helper immediately, stores the request reference in the appropriate
+floor/carrier/direction ring, assigns a car to the floor request if this was the first
+entry for that queue, and stamps the entity with the carrier token and current day tick.
+Family-level demand staggering determines how many office workers probe in one tick; the
+queue layer does not bulk-enqueue all occupants for a newly rented office.
 
 ## Path State
 
@@ -292,8 +316,19 @@ These are simulation state.
 Route execution remains single-leg:
 
 - queue drain assigns only the current carrier leg, not a full multi-leg itinerary
-- on elevator arrival, `dispatch_destination_queue_entries` stamps `entity[+7] = arrival_floor` and immediately hands control back to the family-specific dispatcher
+- on elevator arrival, `dispatch_destination_queue_entries` records the actor's arrival
+  floor and immediately hands control back to the family-specific dispatcher
 - if the actor still needs another leg after that arrival, the family handler calls `resolve_entity_route_between_floors` again from the new floor
+
+Invalidation and cleanup:
+
+- queued or boarded actors are tracked by their request reference in either a queue ring or
+  a per-car active route slot
+- when a route becomes invalid or a family dispatcher releases a service request, the
+  cancellation path searches active route slots and queue rings for that request reference,
+  removes it, updates the floor/carrier counters, and marks visible carrier/floor state dirty
+- `finalize_runtime_route_state` distinguishes carrier route tokens from local direct-route
+  tokens and cancels the correct backend state for each kind
 
 Separately, the executable keeps a visible route-failure suppression cache for notifications:
 

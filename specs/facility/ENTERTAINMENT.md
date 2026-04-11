@@ -1,44 +1,99 @@
 # Entertainment
 
-Party hall (`0x12`) and cinema (`0x1d`) are the entertainment families.
+Movie theater (`0x12`) and party hall (`0x1d`) are the entertainment families.
 
 ## High-Level Summary
 
 Entertainment runs as a checkpoint-driven venue-cycle system built on a 16-slot sidecar table.
 
-- Each entertainment placement allocates one venue record that points at one or two placed-object halves.
+- Each entertainment placement allocates one venue record that points at an upper and lower placed-object half.
 - At the daily checkpoint 240 rebuild, the game reseeds each record's per-half runtime budgets, increments venue age, and clears the active/attendance counters.
-- Midday checkpoints activate one half of each venue by pushing the linked runtime actors into the entertainment family state machine.
+- Midday checkpoints activate one half of each venue by pushing people into the entertainment family state machine.
 - Successful arrivals increment both the active-attendee count and the total attendance count for that venue.
-- Later checkpoints promote the venue into a ready phase, then drain the currently active attendees back out of the venue.
-- When the reverse half completes, the game converts attendance into cash income, records the ledger effect, and resets the venue back to idle for the next day.
+- Later checkpoints promote the venue into a ready phase, then drain the current attendees back out of the venue.
+- When the final half completes, the game converts attendance into cash income, records the ledger effect, and resets the venue back to idle for the next day.
 
-The two entertainment families share that same loop but differ in how they seed budgets and pay income:
+The two entertainment families share that same loop but differ in placement, budget seeding, activation order, and payout:
 
-- party hall (`0x12`) uses paired venues with age- and selector-based runtime budgets and attendance-tiered payouts
-- cinema (`0x1d`) uses a single-venue record with a fixed runtime budget and a fixed nonzero-attendance payout
+- movie theater (`0x12`) uses paired venues with age- and selector-based runtime budgets and attendance-tiered payouts; both halves activate separately across the day
+- party hall (`0x1d`) uses single-venue records with a fixed runtime budget of 50 and a fixed nonzero-attendance payout; only the lower half activates
 
-## Role
+## Placed-Object Types
 
-Entertainment facilities use a 16-slot sidecar table of entertainment venue records rather than simple per-object cashflow.
+Each entertainment facility spans two floors. Adjacent type codes denote upper and lower halves, following the standard convention (base type = upper, base+1 = lower):
 
-Venue records represent either a paired venue with forward/reverse halves, or a single-venue entry with only the reverse half populated.
+| Family | Build type | Upper floor | Lower floor |
+|--------|:-:|:-:|:-:|
+| Movie theater | `0x12` | `0x12` | `0x13` |
+| Party hall | `0x1d` | `0x1d` | `0x1e` |
 
-## Shared Behavior
+### Movie theater internal stairway split
 
-- attendees are runtime actors
-- attendance is counted per venue record across a cycle
-- paired and single-link variants share the same checkpoint-driven phase machine
-- the sidecar record stores:
-  - two anchor floors and subtype slots
-  - two half-cycle runtime budgets
-  - a shared `link_phase_state`
-  - a random selector bucket for paired venues
-  - an age counter, active-runtime counter, and attendance counter
+During `process_next_pending_object_rebuild`, each movie theater sub-object (type `0x12` or `0x13`) is passed through `split_entertainment_object_into_link_pair` (at `0x11880352`). This function carves a narrow stairway sub-object off the left side of the theater:
+
+1. Shrinks the existing object to 7 tiles wide and adds `0x10` to its type code (`0x12` → `0x22`, `0x13` → `0x23`) — this becomes the internal stairway connecting the two floors
+2. Creates a new 24-tile sub-object to the right with the original type code (`0x12` / `0x13`) — this is the main theater/screen area
+
+After the split, each floor has two sub-objects:
+
+```
+Upper floor: [0x22 stairway, 7 tiles] [0x12 theater, 24 tiles]
+Lower floor: [0x23 stairway, 7 tiles] [0x13 theater, 24 tiles]
+```
+
+The stairway sub-objects (`0x22`/`0x23`) are what register into the entertainment link table. The theater sub-objects (`0x12`/`0x13`) inherit the `link_index` from the adjacent stairway on the same floor.
+
+Party halls have no internal stairway — each floor keeps a single sub-object (`0x1d` upper, `0x1e` lower) that registers directly.
+
+### Link registration
+
+`recompute_object_runtime_links_by_type` (at `0x12300103`) dispatches on placed-object type via a jump table:
+
+- Types `0x22`/`0x23` → primary entertainment registration path: `0x22` calls `register_forward` (upper), `0x23` calls `register_reverse` (lower)
+- Types `0x1d`/`0x1e` → primary entertainment registration path: `0x1d` calls `register_forward` (upper), `0x1e` calls `register_reverse` (lower)
+- Types `0x12`/`0x13` → secondary inheritance path: reads `link_index` from the preceding sub-object on the same floor (the `0x22`/`0x23` primary)
+
+## Link Record Structure
+
+The `EntertainmentLinkRecord` is a 12-byte struct in a 16-slot sidecar table:
+
+| Offset | Field | Meaning |
+|--------|-------|---------|
+| 0 | `upper_floor_index` | Floor index of the upper half (legacy: `forward_floor_index`) |
+| 1 | `lower_floor_index` | Floor index of the lower half (legacy: `reverse_floor_index`) |
+| 2 | `upper_subtype_index` | Subtype index on the upper floor (legacy: `forward_subtype_index`) |
+| 3 | `lower_subtype_index` | Subtype index on the lower floor (legacy: `reverse_subtype_index`) |
+| 4 | `upper_runtime_phase` | Runtime budget byte for upper half attendees (legacy: `forward_runtime_phase`) |
+| 5 | `lower_runtime_phase` | Runtime budget byte for lower half attendees (legacy: `reverse_runtime_phase`) |
+| 6 | `link_phase_state` | Shared phase: 0=idle, 1=activated, 2=attending, 3=ready |
+| 7 | `venue_selector` | Signed byte: negative (0xff) = party hall single-link; 0..13 = movie theater selector bucket |
+| 8 | `pending_transition_flag` | Pending state transition flag |
+| 9 | `link_age_counter` | Age counter, saturates at 127 |
+| 10 | `active_runtime_count` | Currently-present attendee count |
+| 11 | `attendance_counter` | Total arrivals this cycle |
+
+## Phase Budget Mapping
+
+Which runtime budget byte is consumed depends on the attendee's placed-object type code (where they are on the map), **not** the physical floor:
+
+| Entity type | Floor | Budget consumed |
+|-------------|-------|----------------|
+| `0x1d` (party hall primary) | upper | `upper_runtime_phase` — seeded to 0, never consumed |
+| `0x1e` (party hall primary) | lower | `lower_runtime_phase` — seeded to 50 |
+| `0x22` (movie theater primary) | upper | `upper_runtime_phase` — seeded from age/selector table |
+| `0x12` (movie theater secondary) | upper | `upper_runtime_phase` — seeded from age/selector table |
+| `0x23` (movie theater primary) | lower | `lower_runtime_phase` — seeded from age/selector table |
+| `0x13` (movie theater secondary) | lower | `lower_runtime_phase` — seeded from age/selector table |
+
+The rule in `try_consume_entertainment_phase_budget`: types `0x1d`, `0x12`, `0x22` select offset 4 (`upper_runtime_phase`); all other types (`0x1e`, `0x13`, `0x23`) select offset 5 (`lower_runtime_phase`).
+
+For movie theaters, upper-floor attendees (on `0x22`/`0x12` sub-objects) share `upper_runtime_phase` and lower-floor attendees (on `0x23`/`0x13` sub-objects) share `lower_runtime_phase`. Both budgets are seeded independently from the age/selector table.
+
+For party halls, only the lower floor (`0x1e`) is ever activated, consuming `lower_runtime_phase` (= 50). The upper floor (`0x1d`) has `upper_runtime_phase` = 0 and is never activated.
 
 ## Cash Payouts
 
-Movie-theater-family payout is attendance-tiered at phase completion:
+Movie theater (`0x12`) payout is attendance-tiered at phase completion:
 
 | Attendance | Cash payout |
 |---|---:|
@@ -47,101 +102,102 @@ Movie-theater-family payout is attendance-tiered at phase completion:
 | `80..99` | `$10,000` |
 | `>= 100` | `$15,000` |
 
-Single-link entertainment uses a fixed payout of `$20,000` per completed phase.
+Party hall (`0x1d`) uses a fixed payout of `$20,000` per completed phase if attendance is nonzero.
 
 Population-ledger contribution is tracked separately from realized cash payout.
 
-## Paired vs Single-Venue
+## Checkpoint-Driven Cycle
 
-- one entertainment family uses paired venue records
-- the other uses a single-venue record
+The daily cycle is driven by `g_day_tick` comparisons in `run_simulation_day_scheduler`:
 
-Both participate in the same broad phase-driven attendance and payout cycle.
+| Tick | Decimal | Action |
+|------|---------|--------|
+| `0x0F0` | 240 | Rebuild: reseed budgets, increment venue age, clear counters |
+| `0x3E8` | 1000 | Activate upper (forward) half of movie theater links |
+| `0x4B0` | 1200 | Promote movie theater links to ready; activate lower (reverse) half of party hall links |
+| `0x578` | 1400 | Activate lower (reverse) half of movie theater links still in phase 1 |
+| `0x5DC` | 1500 | Advance upper (forward) half of movie theater links |
+| `0x640` | 1600 | Promote movie theater links to ready; advance lower half of party hall links and accrue income |
+| `0x76C` | 1900 | Advance lower (reverse) half of movie theater links and accrue income |
 
-Link roles:
+Key observations:
+- Movie theaters have a two-phase day: upper half runs 1000→1500, lower half runs 1400→1900
+- Party halls have a single-phase day: lower half runs 1200→1600
+- Income is accrued only when the final active half of a link completes (checkpoint 1600 for party halls, checkpoint 1900 for movie theaters)
 
-- party hall (`0x12`): paired venue records, with upper and lower halves both active each day
-- cinema (`0x1d`): single-venue records, with `forward_runtime_phase = 0` (upper) and `reverse_runtime_phase = 50` (lower)
+### Activation function
 
-## Cycle
+`activate_entertainment_link_half_runtime_phase(half_index, paired_filter)`:
+- `half_index`: 0 = upper (forward), 1 = lower (reverse)
+- `paired_filter`: 0 = single-link only (party hall), 1 = paired only (movie theater)
+- Sets matching people to state `0x20` (phase consumption)
+- Promotes `link_phase_state` from 0 to 1 if idle
 
-1. runtime actors are activated in half-runtime passes
-2. attendees route to the venue
-3. attendance accumulates
-4. facility phases advance during scheduled checkpoints
-5. income rate is recomputed from the cycle state
+### Advance function
 
-Checkpoint-driven flow:
-
-- checkpoint 240: rebuild family ledger, reseed upper/lower runtime budgets, increment venue age, clear pending/active/attendance counters
-- checkpoint 1000: activate paired-link upper-half entities
-- checkpoint 1200: promote paired links to ready phase and activate single-link lower-half entities
-- checkpoint 1400: activate paired-link lower-half entities that are still in phase `1`
-- checkpoint 1500: advance paired-link upper phase
-- checkpoint 1600: advance lower phase for both families, accrue cash income, then reset the link phase back to `0`
+`advance_entertainment_facility_phase(half_index, paired_filter)`:
+- When `half_index == 1` (lower/reverse) completing: resets `link_phase_state` to 0, accrues income
+- When `half_index == 0` (upper/forward) completing: sets `link_phase_state` to 1 if drained, 2 if attendees remain
 
 ## Record Initialization
 
 Fresh allocation zeroes the live cycle fields:
 
 - `link_phase_state = 0`
-- `forward_runtime_phase = 0`
-- `reverse_runtime_phase = 0`
+- `upper_runtime_phase = 0`
+- `lower_runtime_phase = 0`
 - `pending_transition_flag = 0`
 - `link_age_counter = 0`
 - `active_runtime_count = 0`
 - `attendance_counter = 0`
 
-Paired venues also roll a selector bucket at placement:
+Movie theaters roll a selector bucket at placement:
 
-- if the placed object subtype is family `0x22` or `0x23`, `venue_selector = rand() % 14`
-- otherwise `venue_selector` is set to a sentinel value treated as negative at runtime
+- if the placed object type is `0x22` or `0x23`, `venue_selector = rand() % 14`
+- otherwise `venue_selector = 0xff` (sentinel treated as negative at runtime)
 
-Single-venue records store `venue_selector` as that same sentinel, which the runtime treats as negative.
+Party hall records always store `venue_selector = 0xff`.
 
 ## Runtime Budget Rules
 
-Party hall (`0x12`) does not use a 14-step age table. The runtime applies two selectors:
+Movie theater (`0x12`) budget seeding uses two selectors:
 
-- first, the paired-venue selector bucket:
+- first, the venue selector bucket:
   - `venue_selector < 7`: use the low-selector table `40, 40, 40, 20`
   - `venue_selector >= 7`: use the high-selector table `60, 60, 40, 20`
-- second, the age tier:
-  - `link_age_counter / 3 == 0`: use tier 0
-  - `link_age_counter / 3 == 1`: use tier 1
-  - `link_age_counter / 3 == 2`: use tier 2
-  - `link_age_counter / 3 >= 3`: clamp to tier 3
+- second, the age tier from `link_age_counter / 3`:
+  - tier 0 (ages 0..2)
+  - tier 1 (ages 3..5)
+  - tier 2 (ages 6..8)
+  - tier 3 (ages >= 9)
 
-This yields:
+Both `upper_runtime_phase` and `lower_runtime_phase` are seeded independently by calling the budget function twice.
 
-- ages `0..2`: tier 0
-- ages `3..5`: tier 1
-- ages `6..8`: tier 2
-- ages `>= 9`: tier 3
+Party hall (`0x1d`) always rebuilds to:
 
-Cinema (`0x1d`) always rebuilds to:
+- `upper_runtime_phase = 0`
+- `lower_runtime_phase = 50`
 
-- `forward_runtime_phase = 0`
-- `reverse_runtime_phase = 50`
+`link_age_counter` starts at 0 and increments once per checkpoint 240 rebuild while `< 127`. It saturates at 127; it does not wrap.
 
-`link_age_counter` starts at `0` on allocation and increments once per checkpoint 240 rebuild while `< 127`. It saturates at 127; it does not wrap.
+## Link Phase State
 
-`link_phase_state` meanings:
-
-- `0`: idle
-- `1`: half activated, no arrival yet
-- `2`: at least one attendee arrived or the departure pass still has active attendees
-- `3`: ready/completion phase
+| Value | Meaning |
+|-------|---------|
+| 0 | Idle — no half is active |
+| 1 | Half activated, no arrival yet |
+| 2 | At least one attendee has arrived, or departure pass still has active attendees |
+| 3 | Ready/completion phase |
 
 ## Attendance And Income
 
 Attendance is tracked directly on the venue record:
 
 - each successful arrival into the entertainment destination increments both `active_runtime_count` and `attendance_counter`
-- the first arrival also promotes `link_phase_state` from `1` to `2`
-- the daily checkpoint 240 rebuild clears both counters back to `0`
+- the first arrival also promotes `link_phase_state` from 1 to 2
+- the daily checkpoint 240 rebuild clears both counters back to 0
 
-Party hall (`0x12`) cash income uses attendance thresholds:
+Movie theater (`0x12`) cash income uses attendance thresholds:
 
 | Attendance | Income rate | Cash payout |
 |---|---:|---:|
@@ -150,17 +206,30 @@ Party hall (`0x12`) cash income uses attendance thresholds:
 | `80..99` | `100` | `$10,000` |
 | `>= 100` | `150` | `$15,000` |
 
-Cinema (`0x1d`) ignores the attendance threshold table for actual payout:
+Party hall (`0x1d`) ignores the attendance threshold table for actual payout:
 
 - if `attendance_counter == 0`, payout is `$0`
 - otherwise payout is fixed at `200` units = `$20,000`
 
-The selected-object inspector still renders the party hall (`0x12`) attendance-derived rate via the shared threshold table.
+## Entity State Machine
 
-## Phase Consequences
+People visiting entertainment flow through 8 states dispatched by the gate/dispatch handlers:
 
-- first arrival increments both `active_runtime_count` and `attendance_counter`
-- link phase promotes from `1` to `2` on first arrival, then to `3` on the scheduled ready-phase checkpoint
-- the departure pass decrements `active_runtime_count` once per departing attendee whose runtime state is still `3`
-- forward-half completion leaves `link_phase_state = 1` if all active attendees drained, otherwise `2`
-- reverse-half completion resets `link_phase_state = 0`, accrues income for the family, and marks both halves dirty
+| State | Retry | Handler | Description |
+|-------|-------|---------|-------------|
+| `0x01` | `0x41` | service acquisition | Select random commercial venue, route to it, acquire slot |
+| `0x05` | `0x45` | linked-half routing | Route sim to the lower (reverse) floor of the link |
+| `0x20` | `0x60` | phase consumption | Consume budget, route to entertainment destination |
+| `0x22` | `0x62` | service release/return | Release venue slot, route back to origin floor |
+
+State `0x20` calls `try_consume_entertainment_phase_budget` before routing. If no budget remains, the sim stays idle in state `0x20`. On route failure, the consumed budget unit is refunded via `increment_entertainment_half_phase`.
+
+The gate handler (`0x12285231`) applies a daypart gate for states < `0x40`: sims only dispatch when `g_day_state` is in range [0, 4) and `g_day_tick > 240`.
+
+## Venue Floor
+
+`get_entertainment_link_venue_floor` returns:
+- Movie theater: `upper_floor_index` (forward)
+- Party hall: `lower_floor_index` (reverse)
+
+This is the floor used as the routing destination for commercial venue service acquisition.

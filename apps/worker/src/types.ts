@@ -22,6 +22,7 @@ export type CellData = {
 	isAnchor: boolean;
 	isOverlay?: boolean;
 	evalActiveFlag?: number;
+	unitStatus?: number;
 };
 
 export type EntityStateData = {

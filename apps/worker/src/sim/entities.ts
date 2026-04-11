@@ -375,7 +375,6 @@ function recomputeObjectOperationalStatus(
 		if (object.evalLevel >= 1) {
 			object.evalActiveFlag = 1;
 		} else {
-			object.evalActiveFlag = 0;
 			attemptPairingWithFloorNeighbor(world, entity, object);
 		}
 	} else if (object.evalActiveFlag === 0 && object.evalLevel > 0) {
@@ -731,7 +730,6 @@ function processOfficeEntity(
 	if (state === STATE_MORNING_GATE) {
 		// Spec 0x20 gate: calendar_phase_flag must be 0
 		if (time.calendarPhaseFlag !== 0) return;
-		// Spec 0x20 gate: requires operational pairing
 		if (object.evalActiveFlag === 0) return;
 
 		// Spec 0x20 daypart gate: daypart 0 → 1/12 chance; dayparts 1–2 → dispatch;
@@ -771,13 +769,7 @@ function processOfficeEntity(
 			}
 		}
 
-		// Spec state 0x00 gate: daypart >= 4 → force state 0x05 (departure)
-		if (time.daypartIndex >= 4) {
-			entity.stateCode = STATE_DEPARTURE;
-			entity.destinationFloor = LOBBY_FLOOR;
-			entity.selectedFloor = entity.floorAnchor;
-			return;
-		}
+		if (time.daypartIndex >= 3) return;
 
 		// Spec state 0x00 commute gate with occupant stagger:
 		// Occupant 0: daypart 0 → 1/12 chance; dayparts 1–3 → dispatch
@@ -792,11 +784,24 @@ function processOfficeEntity(
 		}
 
 		if (entity.floorAnchor !== LOBBY_FLOOR) {
+			if (
+				!hasViableRouteBetweenFloors(world, LOBBY_FLOOR, entity.floorAnchor)
+			) {
+				return;
+			}
+			if (object.unitStatus > 0x0f) {
+				object.unitStatus = 0;
+				object.needsRefreshFlag = 1;
+			}
 			entity.destinationFloor = entity.floorAnchor;
 			entity.selectedFloor = LOBBY_FLOOR;
 			entity.stateCode = STATE_COMMUTE;
 		} else {
 			// Office is on lobby floor — skip commute
+			if (object.unitStatus > 0x0f) {
+				object.unitStatus = 0;
+				object.needsRefreshFlag = 1;
+			}
 			entity.stateCode = STATE_AT_WORK;
 		}
 		return;
@@ -810,9 +815,12 @@ function processOfficeEntity(
 
 	// --- At office, ready for venue visits (spec state 0x21) ---
 	if (state === STATE_AT_WORK) {
-		// Gate: daypart >= 4 → force state 0x27 + release service request (park)
+		// Gate: daypart >= 4 → depart from office back to the lobby.
 		if (time.daypartIndex >= 4) {
-			entity.stateCode = STATE_PARKED;
+			entity.stateCode = STATE_DEPARTURE;
+			entity.destinationFloor = LOBBY_FLOOR;
+			entity.selectedFloor = entity.floorAnchor;
+			clearEntityRoute(entity);
 			return;
 		}
 		// Gate: daypart 3 → 1/12 chance; dayparts 0–2 → no dispatch
@@ -1672,12 +1680,12 @@ export function refundUnhappyCondos(
 
 function entityStressLevel(
 	entity: EntityRecord,
-	object: PlacedObjectRecord | undefined,
+	_object: PlacedObjectRecord | undefined,
 ): "low" | "medium" | "high" {
-	if (object?.evalLevel === 0 || entity.stressCounter >= 120) {
+	if (entity.stressCounter >= 120) {
 		return "high";
 	}
-	if (object?.evalLevel === 1 || entity.stressCounter >= 40) {
+	if (entity.stressCounter >= 80) {
 		return "medium";
 	}
 	return "low";

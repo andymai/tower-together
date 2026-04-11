@@ -657,6 +657,7 @@ function selectNextTarget(
 	car: CarrierCar,
 	carrier: CarrierRecord,
 	carIndex: number,
+	expressDirectionFlag: number,
 ): number {
 	// No pending work: return to home floor
 	if (car.pendingAssignmentCount === 0 && car.nonemptyDestinationCount === 0) {
@@ -689,8 +690,8 @@ function selectNextTarget(
 		}
 	}
 
-	// Schedule-flag-dependent scanning
-	if (car.scheduleFlag === 1) {
+	// Express-direction-dependent scanning
+	if (expressDirectionFlag === 1) {
 		// Express up: scan downward for assignments, fallback = top_served_floor
 		for (
 			let floor = car.currentFloor - 1;
@@ -702,7 +703,7 @@ function selectNextTarget(
 		return carrier.topServedFloor;
 	}
 
-	if (car.scheduleFlag === 2) {
+	if (expressDirectionFlag === 2) {
 		// Express down: scan upward for assignments, fallback = bottom_served_floor
 		for (
 			let floor = car.currentFloor + 1;
@@ -894,7 +895,12 @@ function stepCarrierCar(
 	}
 
 	loadScheduleFlag(carrier, car, time);
-	const next = selectNextTarget(car, carrier, carIndex);
+	const next = selectNextTarget(
+		car,
+		carrier,
+		carIndex,
+		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0,
+	);
 
 	if (next < 0 || next === car.currentFloor) {
 		// At target floor with no further targets: check if passengers waiting

@@ -1,6 +1,6 @@
-# Helpers
+# Housekeeping
 
-This document covers helper-style families and hotel guest behavior.
+This document covers the housekeeping helper family.
 
 ## Family `0x0f`
 
@@ -70,57 +70,3 @@ Additional recovered constraints:
 Failure/reset detail:
 
 - when the 3-tick post-claim countdown expires, the unavailable helper moves the claimant to state `0x24` and marks the selected room dirty for later refresh
-
-## Family `0x21`
-
-This family models hotel guests making venue visits.
-
-Loop:
-
-1. choose a destination venue type
-2. route there
-3. acquire a venue slot
-4. dwell for the minimum visit time
-5. route back
-6. repeat during active dayparts
-7. park at night
-
-Gate / dispatch behavior:
-
-- state `0x01` dispatches only in dayparts `0..3`, after `day_tick > 241`, on a `1/36` random chance
-- state `0x41` is the in-transit alias while routing to the selected venue
-- state `0x22` waits until the commercial venue slot release reports that the minimum stay has elapsed
-- state `0x62` is the in-transit alias for the return leg
-- state `0x27` parks for the night and resets to `0x01` once `day_tick >= 2301`
-
-Venue selection algorithm:
-
-1. pick service family uniformly: `0 = retail`, `1 = restaurant`, `2 = fast food`
-2. always sample from bucket row `0` for that family
-   - a bucket row is one entry in the 7-row per-type commercial-zone table used by random venue selection
-   - row index `0` is the lowest / default 15-floor zone bucket
-   - the generic selector falls back to row `0` when the requested row is empty, but family `0x21` already passes row `0`, so that fallback is a no-op here
-3. choose a random record uniformly from the row
-4. reject the choice if the venue record is invalid or closed
-5. if no valid record is found, park for the night instead of retrying immediately
-
-Routing / venue semantics:
-
-- outbound routing uses source floor `hotel_floor + 2`
-- queued or en-route results move to `0x41`
-- same-floor arrival immediately attempts slot acquisition
-- over-capacity waits reuse `0x41`
-- invalid or closed venues fall through to `0x22` without holding a slot
-- no-route failures park the guest in `0x27`
-
-Return behavior:
-
-- leaving the venue uses `spawn_floor` as the saved venue floor and the hotel floor as the destination
-- queued or en-route results move to `0x62`
-- same-floor arrival resets to `0x01` and starts the next daytime cycle
-- no-route failure parks the guest in `0x27`
-
-Minimum venue stay:
-
-- the commercial venue slot release compares `day_tick - visit_start_tick` against the venue service duration for the facility type
-- restaurant (`6`), fast food (`12`), and retail (`10`) all use the same recovered minimum dwell: `60` ticks

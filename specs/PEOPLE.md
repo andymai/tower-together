@@ -297,7 +297,7 @@ Visits commercial venues during the day. Not tied to hotel revenue.
 ### Families `0x24`–`0x28` — Cathedral Guests
 
 Types 0x24–0x28 are the 5 per-floor slices of the cathedral building (bottom to top).
-Each floor hosts 8 runtime entity slots → 5 floors × 8 = 40 cathedral guests.
+Each floor hosts 8 sim slots → 5 floors × 8 = 40 cathedral guests.
 
 **Daily spawn** (`activate_upper_tower_runtime_group`, checkpoint 0x000):
 when `eval_entity_index >= 0` (cathedral placed) and `star_count > 2`,
@@ -324,7 +324,7 @@ sweeps floors 100–104 for types 0x24–0x28, forces 8 entity slots each to sta
 
 ### Family `0x18` — Lobby
 
-Passive transfer infrastructure. No runtime entity behavior. Contributes to
+Passive transfer infrastructure. No sim behavior. Contributes to
 route/transfer-group cache via carrier reachability. Never dispatched in tick-stride.
 
 ### Recycling Center (Types `0x14/0x15`)

@@ -47,6 +47,7 @@ export type CellPatch = {
 	isAnchor: boolean;
 	isOverlay?: boolean;
 	evalActiveFlag?: number;
+	unitStatus?: number;
 };
 
 export interface CommandResult {
@@ -87,12 +88,12 @@ function makePlacedObject(
 		leftTileIndex: x,
 		rightTileIndex: x + width - 1,
 		objectTypeCode: familyCode,
-		unitStatus: 0,
+		unitStatus: familyCode === FAMILY_OFFICE ? 0x10 : 0,
 		linkedRecordIndex: sidecarIndex,
 		auxValueOrTimer: 0,
 		needsRefreshFlag: 1, // picked up by next refresh sweep
 		evalLevel: -1, // invalid; first scoring sweep populates
-		evalActiveFlag: 1, // first-activation latch
+		evalActiveFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
 		vipFlag,
@@ -510,7 +511,12 @@ export function handlePlaceTile(
 		y,
 		tileType: normalizedTileType,
 		isAnchor: dx === 0,
-		...(dx === 0 && record ? { evalActiveFlag: record.evalActiveFlag } : {}),
+		...(dx === 0 && record
+			? {
+					evalActiveFlag: record.evalActiveFlag,
+					unitStatus: record.unitStatus,
+				}
+			: {}),
 	}));
 
 	fillRowGaps(y, world, patch);

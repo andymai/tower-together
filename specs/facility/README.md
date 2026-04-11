@@ -11,5 +11,8 @@ These docs define family-specific behavior that sits on top of the shared rules 
 - `ENTERTAINMENT.md`: party hall (18) and cinema (29)
 - `LOBBY.md`: family `24` (Lobby)
 - `PARKING.md`: families `11` (parking space), `44` (parking ramp)
+- `RECYCLING.md`: recycling center stack, adequacy checks, and star gate
+- `METRO.md`: metro station stack, placement, display toggle, and star gate
 - `EVALUATION.md`: cathedral guests and Tower advancement
-- `HELPERS.md`: support/helper families and hotel-guest behavior
+- `HOTEL.md`: hotel room families and hotel-guest venue visits
+- `HOUSEKEEPING.md`: housekeeping helper family

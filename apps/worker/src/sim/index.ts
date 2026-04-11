@@ -97,10 +97,12 @@ export class TowerSim {
 		const prevTick = this.time.dayTick;
 		const balanceBefore = this.ledger.cashBalance;
 
-		// Snapshot evalActiveFlag before tick to detect changes
+		// Snapshot display-facing room fields before tick to detect changes.
 		const evalBefore = new Map<string, number>();
+		const unitStatusBefore = new Map<string, number>();
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
 			evalBefore.set(key, record.evalActiveFlag);
+			unitStatusBefore.set(key, record.unitStatus);
 		}
 
 		const { time } = advanceOneTick(this.time);
@@ -133,11 +135,15 @@ export class TowerSim {
 		});
 		reconcileEntityTransport(this.world, this.ledger, this.time);
 
-		// Emit cell patches for evalActiveFlag changes
+		// Emit cell patches for display-facing room state changes.
 		const cellPatches: CellPatch[] = [];
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
 			const prev = evalBefore.get(key);
-			if (prev !== undefined && prev !== record.evalActiveFlag) {
+			const prevUnitStatus = unitStatusBefore.get(key);
+			if (
+				(prev !== undefined && prev !== record.evalActiveFlag) ||
+				(prevUnitStatus !== undefined && prevUnitStatus !== record.unitStatus)
+			) {
 				const [x, y] = key.split(",").map(Number);
 				cellPatches.push({
 					x,
@@ -145,6 +151,7 @@ export class TowerSim {
 					tileType: this.world.cells[key] ?? "",
 					isAnchor: true,
 					evalActiveFlag: record.evalActiveFlag,
+					unitStatus: record.unitStatus,
 				});
 			}
 		}
@@ -345,7 +352,12 @@ export class TowerSim {
 				y,
 				tileType,
 				isAnchor,
-				...(record ? { evalActiveFlag: record.evalActiveFlag } : {}),
+				...(record
+					? {
+							evalActiveFlag: record.evalActiveFlag,
+							unitStatus: record.unitStatus,
+						}
+					: {}),
 			});
 		}
 		for (const [key, tileType] of Object.entries(this.world.overlays)) {

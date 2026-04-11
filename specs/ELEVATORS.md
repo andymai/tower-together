@@ -50,12 +50,28 @@ A carrier needs:
 
 ### Schedule Tables
 
-Each carrier has two 14-entry schedule arrays in the carrier header:
+Each carrier has several distinct 14-entry daypart/calendar tables plus a separate
+per-floor served-floor table. For parity, treat them as:
 
-| Field | Meaning |
-|-------|---------|
-| `schedule_mode_table[14]` | per-slot operational mode / dwell multiplier (reloaded into car's `schedule_flag` at terminal floors) |
-| `enable_table[14]` | per-slot enable flag (0 = disabled, nonzero = enabled) |
+| Table | Placement default | Runtime use |
+|-------|-------------------|-------------|
+| service/schedule table | `1` for every slot | scheduler/UI-facing daypart enable data |
+| dispatch-threshold table | `5` for every slot | moving-car versus idle-home-car selection threshold |
+| express-mode table | `0` for every slot | copied into a car's runtime `schedule_flag` |
+| dwell/enable table | `0` for every slot | departure dwell gate read by `should_car_depart` |
+| served-floor table | only the placed floor is served | per-floor coverage for routing and transfer logic |
+
+For a newly placed standard elevator, the clone should therefore initialize its semantic
+tables so that:
+
+- service/schedule flags default to enabled
+- dispatch-threshold values default to `5`
+- express-mode defaults to off
+- dwell/enable defaults to `0`
+- the car's runtime `schedule_flag` starts at `0`
+
+The clone does not need to mirror the EXE's field layout, only these table meanings and
+defaults.
 
 The current schedule slot index is computed as:
 
@@ -66,19 +82,21 @@ schedule_index = daypart_index + calendar_phase_flag * 7
 This produces 14 values: 7 dayparts × 2 calendar phases. `daypart_index` ranges 0–6,
 `calendar_phase_flag` is 0 or 1.
 
-The same index is also used to read the idle-home vs moving-car comparison threshold from the carrier's `dispatch_threshold` field.
+The same index is used for each 14-entry daypart table. The served-floor table is not
+indexed by daypart; it is indexed by raw floor `0..119`.
 
 ### Schedule Modes
 
-The `schedule_mode_table` value controls both the car's operational mode (in
-`select_next_target_floor`) and its dwell time (in `should_car_depart`):
+Two different values are involved:
 
-| `enable_table[slot]` | `schedule_mode_table[slot]` | Mode | Dwell | Behavior |
-|---|---|---|---|---|
-| 0 | (any) | Disabled | 0 | Car departs immediately, does not pick up passengers |
-| nonzero | 1 | Express up | 30 ticks | Scans downward for assignments; fallback target = `top_served_floor` |
-| nonzero | 2 | Express down | 60 ticks | Scans upward for assignments; fallback target = `bottom_served_floor` |
-| nonzero | other | Normal | `value * 30` ticks | Bidirectional sweep: scan current direction, wrap at endpoints |
+- the car's runtime `schedule_flag` controls target selection in `select_next_target_floor`
+- the current dwell/enable table entry controls departure timing in `should_car_depart`
+
+| `schedule_flag` | Target-selection behavior |
+|---|---|
+| `1` | Express up: scans downward for assignments; fallback target = `top_served_floor` |
+| `2` | Express down: scans upward for assignments; fallback target = `bottom_served_floor` |
+| any other value | Normal: bidirectional sweep in current direction with endpoint wrap |
 
 - **Express up** (`schedule_flag == 1`): car prioritizes ascending. When it has no
   assignments in the downward scan, it returns to `top_served_floor`. This is the
@@ -89,6 +107,13 @@ The `schedule_mode_table` value controls both the car's operational mode (in
 - **Normal** (any other value): standard bidirectional sweep. The car scans for
   assigned floors in its current direction, wraps around at endpoints, and returns
   -1 if no assignments exist.
+
+The "express to top/bottom" behavior is tied to the car's runtime `schedule_flag`, whose
+source is the per-daypart express-mode table. It is not tied to the served-floor table and
+not to the service/schedule flags. Dwell is separate: `should_car_depart` returns true
+immediately if the current dwell/enable slot is zero, otherwise it allows the car to keep
+waiting until `abs(day_tick - departure_timestamp) >
+slot_value * 30`.
 
 Assignment capacities:
 
@@ -179,7 +204,7 @@ Behavior:
 Idle-floor behavior:
 
 - at target floor, if passengers are waiting there or the car is still below assignment capacity:
-  - reload `schedule_flag` at terminal floors from the 14-entry dwell table
+  - reload `schedule_flag` at terminal floors from the 14-entry express-mode table
   - clear stale floor-request assignments for the current floor
   - set `speed_counter = 5`
   - if `departure_flag == 0`, stamp `departure_timestamp = day_tick`
@@ -226,11 +251,14 @@ A car departs immediately when any of these are true:
 
 Otherwise it can continue waiting at the floor for more passengers.
 
-At top and bottom served floors, the current dwell/schedule flag is reloaded from the carrier's 14-entry daypart/calendar schedule table.
+At top and bottom served floors, the car's runtime `schedule_flag` is reloaded from the
+carrier's per-daypart express-mode table. The dwell threshold remains the current
+dwell/enable entry for the active schedule slot.
 
 Dwell-threshold rule:
 
-- depart when `abs(day_tick - departure_timestamp) > schedule_flag * 30`
+- depart immediately when the current dwell/enable slot is zero
+- otherwise depart when `abs(day_tick - departure_timestamp) > dwell_slot * 30`
 - `departure_timestamp` is set when `departure_flag` transitions from 0 to 1 (first boarding event at a floor)
 - `departure_flag` is cleared when the car begins moving away from the floor
 - a car that arrives at a floor with no waiting passengers and no pending assignments does not set `departure_flag` — it either moves toward its next target or idles

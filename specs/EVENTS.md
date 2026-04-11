@@ -77,7 +77,6 @@ Trigger:
 - runs on eligible per-tick passes when `day_tick > 240`
 - requires `daypart_index < 4`
 - requires `metro_station_floor_index >= 0`
-- requires `vip_system_eligibility >= 0`
 - suppressed while a bomb or fire event is active
 - probability: `random() % 100 == 0`
 

@@ -30,5 +30,8 @@ This directory is the implementation-facing simulation spec. It is organized by 
 - `facility/ENTERTAINMENT.md`
 - `facility/LOBBY.md`
 - `facility/PARKING.md`
+- `facility/RECYCLING.md`
+- `facility/METRO.md`
 - `facility/EVALUATION.md`
-- `facility/HELPERS.md`
+- `facility/HOTEL.md`
+- `facility/HOUSEKEEPING.md`

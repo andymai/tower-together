@@ -38,7 +38,7 @@ evaluation system. Cathedral availability is gated to star 5 by the build menu.
 
 ## Cathedral Guests
 
-Types 0x24–0x28 each host 8 runtime entity slots → 5 floors × 8 = 40 cathedral guests total.
+Types 0x24–0x28 each host 8 sim slots → 5 floors × 8 = 40 cathedral guests total.
 
 **Daily activation** (checkpoint
 0): when `eval_entity_index >= 0` and `star_count > 2`, sweeps floors 100–104

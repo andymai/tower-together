@@ -57,6 +57,7 @@ export class GameScene extends Phaser.Scene {
 	private roomSprites: Phaser.GameObjects.Sprite[] = [];
 	private roomTexturesLoaded = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
+	private unitStatusMap: Map<string, number> = new Map();
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -147,6 +148,7 @@ export class GameScene extends Phaser.Scene {
 			isAnchor: boolean;
 			isOverlay?: boolean;
 			evalActiveFlag?: number;
+			unitStatus?: number;
 		}>,
 		simTime: number,
 		entities: EntityStateData[] = [],
@@ -156,6 +158,7 @@ export class GameScene extends Phaser.Scene {
 		this.anchorSet.clear();
 		this.overlayGrid.clear();
 		this.evalActiveFlagMap.clear();
+		this.unitStatusMap.clear();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
@@ -165,6 +168,8 @@ export class GameScene extends Phaser.Scene {
 				if (cell.isAnchor) this.anchorSet.add(key);
 				if (cell.evalActiveFlag !== undefined)
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
+				if (cell.unitStatus !== undefined)
+					this.unitStatusMap.set(key, cell.unitStatus);
 			}
 		}
 		this.previousEntitySnapshot = null;
@@ -187,6 +192,7 @@ export class GameScene extends Phaser.Scene {
 			isAnchor: boolean;
 			isOverlay?: boolean;
 			evalActiveFlag?: number;
+			unitStatus?: number;
 		}>,
 	): void {
 		for (const cell of cells) {
@@ -201,6 +207,7 @@ export class GameScene extends Phaser.Scene {
 				this.grid.delete(key);
 				this.anchorSet.delete(key);
 				this.evalActiveFlagMap.delete(key);
+				this.unitStatusMap.delete(key);
 			} else {
 				this.grid.set(key, cell.tileType);
 				if (cell.isAnchor) {
@@ -210,6 +217,8 @@ export class GameScene extends Phaser.Scene {
 				}
 				if (cell.evalActiveFlag !== undefined)
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
+				if (cell.unitStatus !== undefined)
+					this.unitStatusMap.set(key, cell.unitStatus);
 			}
 		}
 		this.drawAllCells();
@@ -469,7 +478,10 @@ export class GameScene extends Phaser.Scene {
 
 			// "For Rent" / "For Sale" banner on inactive facilities
 			const evalFlag = this.evalActiveFlagMap.get(key);
-			if (this.roomTexturesLoaded && evalFlag !== undefined && evalFlag !== 0) {
+			const unitStatus = this.unitStatusMap.get(key);
+			const showInactiveBanner =
+				tileType === "office" ? (unitStatus ?? 0) > 0x0f : evalFlag === 0;
+			if (this.roomTexturesLoaded && showInactiveBanner) {
 				const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
 					? "for_sale"
 					: "for_rent";

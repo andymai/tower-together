@@ -152,7 +152,7 @@ are listed inline; multi-step checkpoints are expanded below.
 3. **rebuild demand history table**: clear log, sweep 512-slot source table dropping invalid entries (an entry is **invalid** when its subtype byte equals `0xff` — the demolished-object tombstone), append live entries where the owning parking-space object's coverage flag is not `1`, recompute summary totals
 4. **rebuild path-seed bucket table**: clear seed list, sweep the 10 service-link (type 0x0d) tracking slots, drop invalid entries, rebuild zone bucket tables for retail/restaurant/fast-food. Zone assignment: `bucket_index = max(0, (floor - 9) / 15)`, dividing the tower into 7 fifteen-floor bands. If `star_count > 2`, set flag enabling upper-tower entity activation
 5. **refresh recycling center states**: if `star_count <= 2` → fire low-star notification. Otherwise refresh the live recycling center state (types `0x14/0x15`) for the new day, then fire the start-of-day notification
-6. **activate upper-tower runtime group**: gated on `eval_entity_index >= 0` and `star_count > 2`. Sweep floors 100–104 for types 0x24..0x28; force 8 consecutive runtime entity slots per object to state `0x20` (yielding 40 cathedral guests total)
+6. **activate upper-tower runtime group**: gated on `eval_entity_index >= 0` and `star_count > 2`. Sweep floors 100–104 for types 0x24..0x28; force 8 consecutive sim slots per object to state `0x20` (yielding 40 cathedral guests total)
 7. **update facility progress override**: if `day_counter % 8 == 4` AND `star_count < 5` → set `facility_progress_override = 1`
 
 ### 32 — Recycling Center Daily Reset
@@ -261,7 +261,7 @@ are listed inline; multi-step checkpoints are expanded below.
 ### 2500 — Runtime Refresh Sweep
 
 1. **rebuild all entity tile spans**: sweep all floors, call `update_entity_tile_span` per object
-2. **reset runtime entity state** (sweep entity table, normalize by family):
+2. **reset sim state** (sweep sim table, normalize by family):
    - 3/4/5 (hotel): state-word == 0 → `0x24`; unit_status ≤ 0x17 → `0x10`; else → `0x20`. Clear `spawn_floor`, `route_carrier`
    - 6/10/12 (commercial): → `0x20`
    - 7 (office): → `0x20`. Clear `spawn_floor`, `route_carrier`, `target_floor_packed`
@@ -292,7 +292,7 @@ the first rollover/expense pass therefore occurs when `day_counter == 3`.
    - special links: Escalator-branch links charge `$5,000` per scaled unit, while Stairs-branch links charge `$0`; both are scaled by `(unit_count >> 1) + 1`
    - `mode_and_span & 1` is the stairs cost bit: `0` means Escalator branch, `1` means Stairs branch with the routing-cost surcharge
 4. rebuild all entity tile spans (same as checkpoint 2500 step 1)
-5. reset runtime entity state (same as checkpoint 2500 step 2)
+5. reset sim state (same as checkpoint 2500 step 2)
 
 ### 2550 — End-of-Day Notification
 
@@ -306,7 +306,7 @@ the first rollover/expense pass therefore occurs when `day_counter == 3`.
 
 In addition to the checkpoints above, every tick when `day_tick > 240`:
 - if `daypart_index < 6`: `trigger_random_news_event()` runs when notifications are enabled and the bomb/fire bits in `game_state_flags` are both clear. It rolls `rand() % 16`, and on `0` samples one of six fixed screen buckets (`x = 1/4, 1/2, 3/4` of visible width; `y = half-height or lower-quarter height`) before classifying the sampled tile. Empty samples below floor `10` suppress the event; empty samples on floor `10+` enter the general tower-news fallback (`0x2712` / `0x271b` / `0x271c`); live facility samples use the per-family readiness gates and popup mapping documented in `EVENTS.md`.
-- if `daypart_index < 4` and `metro_station_floor_index >= 0` and not paused: `trigger_vip_special_visitor()` runs with extra guards that no bomb/fire event is active and `vip_system_eligibility >= 0`; on `rand() % 100 == 0`, it sweeps metro-stack types `0x1f/0x20/0x21`, toggles `special_visitor_flag` between `0` and `2`, marks each touched object dirty, and fires notification `0x271a` if any object flipped from `0` to `2`
+- if `daypart_index < 4` and `metro_station_floor_index >= 0` and not paused: `trigger_vip_special_visitor()` runs with the extra guard that no bomb/fire event is active; on `rand() % 100 == 0`, it sweeps metro-stack types `0x1f/0x20/0x21`, toggles `special_visitor_flag` between `0` and `2`, marks each touched object dirty, and fires notification `0x271a` if any object flipped from `0` to `2`
 
 Ordering note:
 

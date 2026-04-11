@@ -26,8 +26,8 @@ caller. Early-exit guards per family:
 The shared scoring pipeline is:
 
 1. compute a per-tile runtime metric as `0x1000 / sample_count`, returning `0` when
-   `sample_count == 0`. Here `sample_count` is the runtime entity field — it counts the number of times `advance_entity_demand_counters` has been
-   called for this entity (once per service-visit arrival or route-resolution event).
+   `sample_count == 0`. Here `sample_count` is a per-sim field — it counts the number of times `advance_entity_demand_counters` has been
+   called for this sim (once per service-visit arrival or route-resolution event).
    The metric is therefore **inverse visit frequency**: a tile visited 10 times scores
    `4096 / 10 = 409`; a tile visited 50 times scores `4096 / 50 = 81`. Lower score
    = more frequently visited = better.
@@ -51,7 +51,7 @@ The shared scoring pipeline is:
 
 ### Demand Pipeline (Per-Entity Runtime Counters)
 
-Each runtime entity maintains demand counters used to compute the per-tile metric:
+Each sim maintains demand counters used to compute the per-tile metric:
 
 | Field | Meaning |
 |-------|---------|
@@ -160,5 +160,8 @@ This is derived state. It should not be treated as a separate simulation authori
 - `facility/ENTERTAINMENT.md`
 - `facility/LOBBY.md`
 - `facility/PARKING.md`
+- `facility/RECYCLING.md`
+- `facility/METRO.md`
 - `facility/EVALUATION.md`
-- `facility/HELPERS.md`
+- `facility/HOTEL.md`
+- `facility/HOUSEKEEPING.md`
