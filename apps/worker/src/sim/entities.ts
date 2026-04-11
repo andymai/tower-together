@@ -107,6 +107,14 @@ const HOTEL_FAMILIES = new Set([
 	FAMILY_HOTEL_TWIN,
 	FAMILY_HOTEL_SUITE,
 ]);
+/** Families whose placed objects carry an evaluation score (rentable occupancy). */
+const EVALUATABLE_FAMILIES = new Set([
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_OFFICE,
+	FAMILY_CONDO,
+]);
 const COMMERCIAL_FAMILIES = new Set([
 	FAMILY_RESTAURANT,
 	FAMILY_FAST_FOOD,
@@ -213,13 +221,7 @@ function supportsFamily(
 		targetFamilyCode === FAMILY_CINEMA ||
 		targetFamilyCode === FAMILY_ENTERTAINMENT
 	) {
-		return (
-			originFamilyCode === FAMILY_HOTEL_SINGLE ||
-			originFamilyCode === FAMILY_HOTEL_TWIN ||
-			originFamilyCode === FAMILY_HOTEL_SUITE ||
-			originFamilyCode === FAMILY_OFFICE ||
-			originFamilyCode === FAMILY_CONDO
-		);
+		return EVALUATABLE_FAMILIES.has(originFamilyCode);
 	}
 
 	if (HOTEL_FAMILIES.has(originFamilyCode)) {
@@ -282,14 +284,7 @@ function recomputeObjectOperationalStatus(
 	entity: EntityRecord,
 	object: PlacedObjectRecord,
 ): void {
-	if (
-		object.objectTypeCode !== FAMILY_HOTEL_SINGLE &&
-		object.objectTypeCode !== FAMILY_HOTEL_TWIN &&
-		object.objectTypeCode !== FAMILY_HOTEL_SUITE &&
-		object.objectTypeCode !== FAMILY_OFFICE &&
-		object.objectTypeCode !== FAMILY_CONDO
-	)
-		return;
+	if (!EVALUATABLE_FAMILIES.has(object.objectTypeCode)) return;
 
 	if (
 		HOTEL_FAMILIES.has(object.objectTypeCode) &&
@@ -379,13 +374,7 @@ function recomputeRoutesViableFlag(world: WorldState, time: TimeState): void {
 
 	world.gateFlags.routesViable = Object.entries(world.placedObjects).some(
 		([key, object]) => {
-			if (
-				object.objectTypeCode !== FAMILY_HOTEL_SINGLE &&
-				object.objectTypeCode !== FAMILY_HOTEL_TWIN &&
-				object.objectTypeCode !== FAMILY_HOTEL_SUITE &&
-				object.objectTypeCode !== FAMILY_OFFICE &&
-				object.objectTypeCode !== FAMILY_CONDO
-			) {
+			if (!EVALUATABLE_FAMILIES.has(object.objectTypeCode)) {
 				return false;
 			}
 
@@ -964,11 +953,7 @@ function shouldSeedElevatorDemand(entity: EntityRecord): boolean {
 	if (entity.route.mode !== "idle") return false;
 	if (!ELEVATOR_DEMAND_STATES.has(entity.stateCode)) return false;
 	if (
-		entity.familyCode !== FAMILY_HOTEL_SINGLE &&
-		entity.familyCode !== FAMILY_HOTEL_TWIN &&
-		entity.familyCode !== FAMILY_HOTEL_SUITE &&
-		entity.familyCode !== FAMILY_OFFICE &&
-		entity.familyCode !== FAMILY_CONDO &&
+		!EVALUATABLE_FAMILIES.has(entity.familyCode) &&
 		!CATHEDRAL_FAMILIES.has(entity.familyCode)
 	) {
 		return false;
@@ -1106,10 +1091,9 @@ function resolve_entity_route_between_floors(
 		return 3;
 	}
 
-	// spec: route_mode comes from anchoring object[+6] (= leftTileIndex word).
-	// 0 → express/escalator mode, non-zero → local/stair mode.
-	// TODO: the exact semantics are ambiguous (spec reconciliation note for
-	// +0x06); wire up once confirmed from binary analysis.
+	// Always prefer local/stair routing for now; the original game used a
+	// per-object flag to switch to express mode, but the exact semantics
+	// remain unresolved so we hard-code the local-mode branch.
 	const preferLocalMode = true;
 
 	const route = select_route_for_family(

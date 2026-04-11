@@ -195,9 +195,7 @@ export function tryTriggerBombEvent(
 	});
 }
 
-/**
- * Per-tick bomb handler. Binary-verified from FUN_10d0_0000.
- */
+/** Per-tick bomb handler. */
 export function tickBombEvent(
 	world: WorldState,
 	_ledger: LedgerState,
@@ -390,9 +388,7 @@ export function tryTriggerFireEvent(
 	es.helicopterExtinguishPos = 0;
 }
 
-/**
- * Per-tick fire spread and resolution. Binary-verified from FUN_10f0_0306.
- */
+/** Per-tick fire spread and resolution. */
 export function tickFireEvent(
 	world: WorldState,
 	_ledger: LedgerState,
