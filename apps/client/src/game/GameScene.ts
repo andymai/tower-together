@@ -56,6 +56,7 @@ export class GameScene extends Phaser.Scene {
 	private carLabels: Phaser.GameObjects.Text[] = [];
 	private roomSprites: Phaser.GameObjects.Sprite[] = [];
 	private roomTexturesLoaded = false;
+	private evalActiveFlagMap: Map<string, number> = new Map();
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -145,6 +146,7 @@ export class GameScene extends Phaser.Scene {
 			tileType: string;
 			isAnchor: boolean;
 			isOverlay?: boolean;
+			evalActiveFlag?: number;
 		}>,
 		simTime: number,
 		entities: EntityStateData[] = [],
@@ -153,6 +155,7 @@ export class GameScene extends Phaser.Scene {
 		this.grid.clear();
 		this.anchorSet.clear();
 		this.overlayGrid.clear();
+		this.evalActiveFlagMap.clear();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
@@ -160,6 +163,8 @@ export class GameScene extends Phaser.Scene {
 			} else if (cell.tileType !== "empty") {
 				this.grid.set(key, cell.tileType);
 				if (cell.isAnchor) this.anchorSet.add(key);
+				if (cell.evalActiveFlag !== undefined)
+					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
 			}
 		}
 		this.previousEntitySnapshot = null;
@@ -181,6 +186,7 @@ export class GameScene extends Phaser.Scene {
 			tileType: string;
 			isAnchor: boolean;
 			isOverlay?: boolean;
+			evalActiveFlag?: number;
 		}>,
 	): void {
 		for (const cell of cells) {
@@ -194,6 +200,7 @@ export class GameScene extends Phaser.Scene {
 			} else if (cell.tileType === "empty") {
 				this.grid.delete(key);
 				this.anchorSet.delete(key);
+				this.evalActiveFlagMap.delete(key);
 			} else {
 				this.grid.set(key, cell.tileType);
 				if (cell.isAnchor) {
@@ -201,6 +208,8 @@ export class GameScene extends Phaser.Scene {
 				} else {
 					this.anchorSet.delete(key);
 				}
+				if (cell.evalActiveFlag !== undefined)
+					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
 			}
 		}
 		this.drawAllCells();
@@ -351,7 +360,8 @@ export class GameScene extends Phaser.Scene {
 		const canvas = document.createElement("canvas");
 		canvas.width = 1;
 		canvas.height = skyH;
-		const ctx = canvas.getContext("2d")!;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
 		const grad = ctx.createLinearGradient(0, 0, 0, skyH);
 		grad.addColorStop(0, "#1a3a6e"); // deep blue at top
 		grad.addColorStop(0.6, "#5ba8d4"); // mid sky
@@ -372,8 +382,11 @@ export class GameScene extends Phaser.Scene {
 
 	private static readonly ROOM_SVG_SCALE = 16;
 
+	/** Tile types that use the for-sale banner instead of for-rent. */
+	private static readonly FOR_SALE_TYPES = new Set(["condo"]);
+
 	private loadRoomTextures(): void {
-		const roomTypes = ["office"];
+		const roomTypes = ["office", "condo"];
 		const s = GameScene.ROOM_SVG_SCALE;
 		for (const room of roomTypes) {
 			this.load.svg(`room_${room}`, `/rooms/${room}.svg`, {
@@ -381,6 +394,18 @@ export class GameScene extends Phaser.Scene {
 				height: TILE_HEIGHT * s,
 			});
 		}
+		// Banner SVGs share the same 9:4 aspect ratio.
+		// Load at high resolution for crisp rendering when zoomed in.
+		const bannerW = 180 * 4;
+		const bannerH = 80 * 4;
+		this.load.svg("for_rent", "/rooms/for-rent.svg", {
+			width: bannerW,
+			height: bannerH,
+		});
+		this.load.svg("for_sale", "/rooms/for-sale.svg", {
+			width: bannerW,
+			height: bannerH,
+		});
 		this.load.once("complete", () => {
 			this.roomTexturesLoaded = true;
 			this.drawAllCells();
@@ -440,6 +465,40 @@ export class GameScene extends Phaser.Scene {
 					w * TILE_WIDTH - 1,
 					TILE_HEIGHT - 1,
 				);
+			}
+
+			// "For Rent" / "For Sale" banner on inactive facilities
+			const evalFlag = this.evalActiveFlagMap.get(key);
+			if (this.roomTexturesLoaded && evalFlag !== undefined && evalFlag !== 0) {
+				const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
+					? "for_sale"
+					: "for_rent";
+				if (this.textures.exists(bannerKey)) {
+					const tileW = w * TILE_WIDTH - 1;
+					const tileH = TILE_HEIGHT - 1;
+					// Fit banner inside tile without stretching (9:4 aspect ratio)
+					const bannerAspect = 9 / 4;
+					const tileAspect = tileW / tileH;
+					let bw: number;
+					let bh: number;
+					if (tileAspect > bannerAspect) {
+						bh = tileH;
+						bw = tileH * bannerAspect;
+					} else {
+						bw = tileW;
+						bh = tileW / bannerAspect;
+					}
+					const banner = this.add.sprite(
+						x * TILE_WIDTH + 1 + (tileW - bw) / 2,
+						y * TILE_HEIGHT + 1 + (tileH - bh) / 2,
+						bannerKey,
+					);
+					banner.setOrigin(0, 0);
+					banner.setDisplaySize(bw, bh);
+					banner.setDepth(1.75);
+					banner.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+					this.roomSprites.push(banner);
+				}
 			}
 		}
 

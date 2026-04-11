@@ -245,6 +245,9 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const result = this.sim.step();
 		this.broadcast({ type: "time_update", simTime: result.simTime });
+		if (result.cellPatches.length > 0) {
+			this.broadcast({ type: "state_patch", cells: result.cellPatches });
+		}
 		const now = Date.now();
 		if (
 			now - this.lastStateBroadcastAt >=

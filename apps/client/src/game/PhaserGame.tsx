@@ -28,6 +28,9 @@ export function PhaserGame({
 			type: Phaser.AUTO,
 			parent: containerRef.current,
 			backgroundColor: "#1a1a1a",
+			render: {
+				antialias: true,
+			},
 			scale: {
 				mode: Phaser.Scale.RESIZE,
 				autoCenter: Phaser.Scale.CENTER_BOTH,

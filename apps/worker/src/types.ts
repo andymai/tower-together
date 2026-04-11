@@ -21,6 +21,7 @@ export type CellData = {
 	tileType: string;
 	isAnchor: boolean;
 	isOverlay?: boolean;
+	evalActiveFlag?: number;
 };
 
 export type EntityStateData = {

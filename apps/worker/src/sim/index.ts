@@ -54,6 +54,7 @@ export interface CarrierCarStateRecord {
 export interface StepResult {
 	simTime: number;
 	economyChanged?: boolean;
+	cellPatches: CellPatch[];
 	notifications: Array<{ kind: string; message: string }>;
 	prompts: Array<{
 		promptId: string;
@@ -96,6 +97,12 @@ export class TowerSim {
 		const prevTick = this.time.dayTick;
 		const balanceBefore = this.ledger.cashBalance;
 
+		// Snapshot evalActiveFlag before tick to detect changes
+		const evalBefore = new Map<string, number>();
+		for (const [key, record] of Object.entries(this.world.placedObjects)) {
+			evalBefore.set(key, record.evalActiveFlag);
+		}
+
 		const { time } = advanceOneTick(this.time);
 		this.time = time;
 		const currTick = this.time.dayTick;
@@ -126,6 +133,22 @@ export class TowerSim {
 		});
 		reconcileEntityTransport(this.world, this.ledger, this.time);
 
+		// Emit cell patches for evalActiveFlag changes
+		const cellPatches: CellPatch[] = [];
+		for (const [key, record] of Object.entries(this.world.placedObjects)) {
+			const prev = evalBefore.get(key);
+			if (prev !== undefined && prev !== record.evalActiveFlag) {
+				const [x, y] = key.split(",").map(Number);
+				cellPatches.push({
+					x,
+					y,
+					tileType: this.world.cells[key] ?? "",
+					isAnchor: true,
+					evalActiveFlag: record.evalActiveFlag,
+				});
+			}
+		}
+
 		// Drain pending notifications and prompts
 		const notifications = this.world.pendingNotifications.splice(0);
 		const prompts = this.world.pendingPrompts.splice(0);
@@ -133,6 +156,7 @@ export class TowerSim {
 		return {
 			simTime: this.time.totalTicks,
 			economyChanged: this.ledger.cashBalance !== balanceBefore,
+			cellPatches,
 			notifications: notifications.map((n) => ({
 				kind: n.kind,
 				message: n.message ?? "",
@@ -314,7 +338,15 @@ export class TowerSim {
 		const result: CellPatch[] = [];
 		for (const [key, tileType] of Object.entries(this.world.cells)) {
 			const [x, y] = key.split(",").map(Number);
-			result.push({ x, y, tileType, isAnchor: !this.world.cellToAnchor[key] });
+			const isAnchor = !this.world.cellToAnchor[key];
+			const record = isAnchor ? this.world.placedObjects[key] : undefined;
+			result.push({
+				x,
+				y,
+				tileType,
+				isAnchor,
+				...(record ? { evalActiveFlag: record.evalActiveFlag } : {}),
+			});
 		}
 		for (const [key, tileType] of Object.entries(this.world.overlays)) {
 			const [x, y] = key.split(",").map(Number);

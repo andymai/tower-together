@@ -46,6 +46,7 @@ export type CellPatch = {
 	tileType: string;
 	isAnchor: boolean;
 	isOverlay?: boolean;
+	evalActiveFlag?: number;
 };
 
 export interface CommandResult {
@@ -503,11 +504,13 @@ export function handlePlaceTile(
 		);
 	}
 
+	const record = world.placedObjects[`${x},${y}`];
 	const patch: CellPatch[] = Array.from({ length: tileWidth }, (_, dx) => ({
 		x: x + dx,
 		y,
 		tileType: normalizedTileType,
 		isAnchor: dx === 0,
+		...(dx === 0 && record ? { evalActiveFlag: record.evalActiveFlag } : {}),
 	}));
 
 	fillRowGaps(y, world, patch);
