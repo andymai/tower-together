@@ -529,8 +529,20 @@ export class GameScene extends Phaser.Scene {
 			// "For Rent" / "For Sale" banner on inactive facilities
 			const evalFlag = this.evalActiveFlagMap.get(key);
 			const unitStatus = this.unitStatusMap.get(key);
-			const showInactiveBanner =
-				tileType === "office" ? (unitStatus ?? 0) > 0x0f : evalFlag === 0;
+			const isHotel =
+				tileType === "hotelSingle" ||
+				tileType === "hotelTwin" ||
+				tileType === "hotelSuite";
+			let showInactiveBanner: boolean;
+			if (tileType === "office") {
+				showInactiveBanner = (unitStatus ?? 0) > 0x0f;
+			} else if (isHotel) {
+				showInactiveBanner = (unitStatus ?? 0) >= 0x18;
+			} else if (tileType === "condo") {
+				showInactiveBanner = (unitStatus ?? 0) > 0x17;
+			} else {
+				showInactiveBanner = evalFlag === 0;
+			}
 			if (this.roomTexturesLoaded && showInactiveBanner) {
 				const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
 					? "for_sale"

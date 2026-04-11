@@ -255,10 +255,10 @@ describe("PlacedObjectRecord", () => {
 		expect(rec.leftTileIndex).toBe(0);
 		expect(rec.rightTileIndex).toBe(3); // width 4
 		expect(rec.objectTypeCode).toBe(3); // family code for hotelSingle
-		expect(rec.unitStatus).toBe(0); // init = 0
+		expect(rec.unitStatus).toBe(0x18); // init = vacant band (morning)
 		expect(rec.linkedRecordIndex).toBe(-1); // no sidecar for hotel
 		expect(rec.needsRefreshFlag).toBe(1); // init = 1 (dirty — picked up next sweep)
-		expect(rec.evalLevel).toBe(-1); // init = -1 (invalid; first sweep populates)
+		expect(rec.evalLevel).toBe(0xff); // init = 0xff (spec: operational score 0xff at placement)
 		expect(rec.evalActiveFlag).toBe(1); // init = 1 (first-activation latch)
 		expect(rec.activationTickCount).toBe(0);
 		expect(rec.rentLevel).toBe(1); // family 3 → init = 1
@@ -331,12 +331,12 @@ describe("sidecar allocation", () => {
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
 		if (sidecar.kind === "commercial_venue") {
-			expect(sidecar.capacity).toBe(6);
+			expect(sidecar.capacity).toBe(48);
 			expect(sidecar.ownerSubtypeIndex).toBe(0); // x=0
 		}
 	});
 
-	it("allocates CommercialVenueRecord for fastFood with capacity 4", () => {
+	it("allocates CommercialVenueRecord for fastFood with capacity 48", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
@@ -344,10 +344,10 @@ describe("sidecar allocation", () => {
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
-		if (sidecar.kind === "commercial_venue") expect(sidecar.capacity).toBe(4);
+		if (sidecar.kind === "commercial_venue") expect(sidecar.capacity).toBe(48);
 	});
 
-	it("allocates CommercialVenueRecord for retail with capacity 3", () => {
+	it("allocates CommercialVenueRecord for retail with capacity 48 and dormant state", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
@@ -355,7 +355,10 @@ describe("sidecar allocation", () => {
 		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("commercial_venue");
-		if (sidecar.kind === "commercial_venue") expect(sidecar.capacity).toBe(3);
+		if (sidecar.kind === "commercial_venue") {
+			expect(sidecar.capacity).toBe(48);
+			expect(sidecar.availabilityState).toBe(0xff); // dormant until activated
+		}
 	});
 
 	it("allocates ServiceRequestEntry for recycling center upper slice", () => {
@@ -2078,7 +2081,7 @@ describe("Phase 4 runtime entities", () => {
 		venue.visitCount = 4;
 		venue.availabilityState = 3;
 
-		resetCommercialVenueCycle(world);
+		resetCommercialVenueCycle(world, ledger);
 		expect(venue.yesterdayVisitCount).toBe(4);
 		expect(venue.todayVisitCount).toBe(0);
 		expect(venue.visitCount).toBe(0);
@@ -2277,18 +2280,23 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 2400,
 			daypartIndex: 6,
 		};
+		// First advance: hotel activates and commutes to room
 		advanceEntityRefreshStride(world, ledger, newGameTime);
-		expect(entity.stateCode).toBe(0x01);
+		expect(entity.stateCode).toBe(0x00); // STATE_COMMUTE
 
+		// Simulate carrier arrival at hotel floor
+		onCarrierArrival(
+			world,
+			ledger,
+			newGameTime,
+			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			entity.floorAnchor,
+		);
+		expect(entity.stateCode).toBe(0x01); // STATE_ACTIVE
+
+		// Next advance: daypart >= 4 triggers departure
 		advanceEntityRefreshStride(world, ledger, newGameTime);
-		expect(entity.stateCode).toBe(0x05);
-
-		populateCarrierRequests(world, newGameTime);
-		const carrier = world.carriers[0];
-		if (!carrier) throw new Error("expected carrier");
-		const requestSlot = floorToSlot(carrier, entity.floorAnchor);
-		expect(requestSlot).toBeGreaterThanOrEqual(0);
-		expect(carrier.secondaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
+		expect(entity.stateCode).toBe(0x05); // STATE_DEPARTURE
 	});
 
 	it("queues office commuters from the lobby to their office floor", () => {
@@ -2695,6 +2703,8 @@ describe("Phase 4 runtime entities", () => {
 		}
 		const hotel = world.placedObjects[`0,${GROUND_Y - 1}`];
 		if (!hotel) throw new Error("expected hotel");
+		// Simulate check-in: set occupied-band unitStatus
+		hotel.unitStatus = 0;
 
 		const startCash = ledger.cashBalance;
 		advanceEntityRefreshStride(world, ledger, {
@@ -2720,7 +2730,8 @@ describe("Phase 4 runtime entities", () => {
 			daypartIndex: 4,
 			starCount: 4,
 		});
-		expect(hotel.unitStatus).toBe(0x28);
+		// daypartIndex >= 4 → checkout moves to 0x30 (evening turnover band)
+		expect(hotel.unitStatus).toBe(0x30);
 		expect(ledger.cashBalance).toBeGreaterThan(startCash);
 		expect(world.gateFlags.family345SaleCount).toBe(1);
 	});

@@ -34,6 +34,7 @@ import {
 	type RouteState,
 	type ServiceRequestEntry,
 	VENUE_CLOSED,
+	VENUE_DORMANT,
 	VENUE_PARTIAL,
 	type WorldState,
 	yToFloor,
@@ -69,7 +70,6 @@ const UNIT_STATUS_OFFICE_OCCUPIED = 0x0f;
 const UNIT_STATUS_CONDO_OCCUPIED = 0x17;
 const UNIT_STATUS_CONDO_VACANT = 0x18;
 const UNIT_STATUS_CONDO_VACANT_EVENING = 0x20;
-const UNIT_STATUS_HOTEL_CHECKOUT = 0x28;
 const UNIT_STATUS_HOTEL_SOLD_OUT = 0x37;
 
 // ─── Route helpers ──────────────────────────────────────────────────────────
@@ -429,7 +429,11 @@ function pickAvailableVenue(
 			| undefined;
 		if (!record || record.kind !== "commercial_venue") continue;
 		if (record.ownerSubtypeIndex === INVALID_FLOOR) continue;
-		if (record.availabilityState === VENUE_CLOSED) continue;
+		if (
+			record.availabilityState === VENUE_CLOSED ||
+			record.availabilityState === VENUE_DORMANT
+		)
+			continue;
 		if (record.todayVisitCount >= record.capacity) continue;
 
 		const [, y] = key.split(",").map(Number);
@@ -536,6 +540,26 @@ function dispatchCommercialVenueVisit(
 		return false;
 	}
 
+	// Route requirement: resolve route before reserving venue.
+	if (venue.floor !== entity.floorAnchor) {
+		const dirFlag = venue.floor > entity.floorAnchor ? 0 : 1;
+		const routeResult = resolveEntityRouteBetweenFloors(
+			world,
+			entity,
+			entity.floorAnchor,
+			venue.floor,
+			dirFlag,
+			time,
+		);
+		if (routeResult === -1 || routeResult === 0) {
+			raiseStress(entity, options.failureStressDelta);
+			if (options.unavailableState !== undefined) {
+				entity.stateCode = options.unavailableState;
+			}
+			return false;
+		}
+	}
+
 	reserveVenue(venue.record);
 	recordDemandSample(entity, time);
 	options.onVenueReserved?.();
@@ -570,21 +594,43 @@ function activateHotelStay(
 ): void {
 	const object = findObjectForEntity(world, entity);
 	if (!object) return;
-	if (!hasViableRouteBetweenFloors(world, LOBBY_FLOOR, entity.floorAnchor)) {
+
+	// Route requirement: actual route must succeed, not just structural check.
+	const directionFlag = entity.floorAnchor > LOBBY_FLOOR ? 0 : 1;
+	const result = resolveEntityRouteBetweenFloors(
+		world,
+		entity,
+		LOBBY_FLOOR,
+		entity.floorAnchor,
+		directionFlag,
+		time,
+	);
+	if (result === -1 || result === 0) {
 		raiseStress(entity, 30);
 		return;
 	}
-	entity.stateCode = STATE_ACTIVE;
+
 	entity.originFloor = LOBBY_FLOOR;
-	entity.selectedFloor = entity.floorAnchor;
 	object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
 	object.needsRefreshFlag = 1;
 	lowerStress(entity, 8);
+
+	if (result === 3) {
+		// Same-floor: immediate arrival
+		entity.stateCode = STATE_ACTIVE;
+		entity.selectedFloor = entity.floorAnchor;
+	} else {
+		// In-transit: commute to room, arrival handled by dispatchEntityArrival
+		entity.stateCode = STATE_COMMUTE;
+		entity.selectedFloor = LOBBY_FLOOR;
+		entity.destinationFloor = entity.floorAnchor;
+	}
 }
 
 function checkoutHotelStay(
 	world: WorldState,
 	ledger: LedgerState,
+	time: TimeState,
 	entity: EntityRecord,
 	object: PlacedObjectRecord,
 ): void {
@@ -621,7 +667,9 @@ function checkoutHotelStay(
 		world.gateFlags.newspaperTrigger = 0;
 	}
 	for (const sibling of siblings) sibling.stateCode = STATE_HOTEL_PARKED;
-	object.unitStatus = UNIT_STATUS_HOTEL_CHECKOUT;
+	object.unitStatus = time.daypartIndex < 4 ? 0x28 : 0x30;
+	object.evalActiveFlag = 0;
+	object.activationTickCount = 0;
 	object.needsRefreshFlag = 1;
 }
 
@@ -670,6 +718,9 @@ function processHotelEntity(
 			});
 			return;
 		}
+		case STATE_COMMUTE:
+			// In transit from lobby to room; arrival handled by dispatchEntityArrival
+			return;
 		case STATE_VENUE_TRIP:
 			finishCommercialVenueTrip(entity, STATE_ACTIVE);
 			return;
@@ -692,7 +743,7 @@ function processHotelEntity(
 				object.needsRefreshFlag = 1;
 				return;
 			}
-			checkoutHotelStay(world, ledger, entity, object);
+			checkoutHotelStay(world, ledger, time, entity, object);
 			return;
 		case COMMERCIAL_DWELL_STATE:
 			finishCommercialVenueDwell(entity, time, STATE_ACTIVE);
@@ -784,9 +835,16 @@ function processOfficeEntity(
 		}
 
 		if (entity.floorAnchor !== LOBBY_FLOOR) {
-			if (
-				!hasViableRouteBetweenFloors(world, LOBBY_FLOOR, entity.floorAnchor)
-			) {
+			const dirFlag = entity.floorAnchor > LOBBY_FLOOR ? 0 : 1;
+			const routeResult = resolveEntityRouteBetweenFloors(
+				world,
+				entity,
+				LOBBY_FLOOR,
+				entity.floorAnchor,
+				dirFlag,
+				time,
+			);
+			if (routeResult === -1 || routeResult === 0) {
 				return;
 			}
 			if (object.unitStatus > 0x0f) {
@@ -926,13 +984,6 @@ export function rebuildRuntimeEntities(world: WorldState): void {
 		if (population === 0) continue;
 		const [x, y] = key.split(",").map(Number);
 		const floorAnchor = yToFloor(y);
-		if (
-			object.objectTypeCode === FAMILY_CONDO &&
-			object.activationTickCount === 0 &&
-			object.unitStatus === 0
-		) {
-			object.unitStatus = UNIT_STATUS_CONDO_VACANT;
-		}
 
 		for (let baseOffset = 0; baseOffset < population; baseOffset++) {
 			const fresh = makeEntity(
@@ -1058,6 +1109,47 @@ export function resetEntityRuntimeState(world: WorldState): void {
 		entity.queueTick = 0;
 		entity.stressCounter = 0;
 		entity.transitTicksRemaining = 0;
+	}
+}
+
+/**
+ * End-of-day object-state floor pass.
+ * Called after resetEntityRuntimeState to normalize unit status bands:
+ * - Occupied hotels (< 0x18) clamped to sync sentinel 0x10
+ * - Sold condos (< 0x18) clamped to 0x10
+ * - Non-occupied hotel bands toggle: 0x18 <-> 0x20, 0x28 <-> 0x30, 0x38 <-> 0x40
+ * - Unsold condo bands toggle: 0x18 <-> 0x20
+ */
+export function normalizeUnitStatusEndOfDay(world: WorldState): void {
+	for (const object of Object.values(world.placedObjects)) {
+		if (HOTEL_FAMILIES.has(object.objectTypeCode)) {
+			if (object.unitStatus < 0x18) {
+				// Occupied: clamp to sync sentinel
+				object.unitStatus = 0x10;
+			} else if (object.unitStatus >= 0x18 && object.unitStatus < 0x28) {
+				// Vacant band toggle: 0x18 <-> 0x20
+				object.unitStatus = object.unitStatus < 0x20 ? 0x20 : 0x18;
+			} else if (object.unitStatus >= 0x28 && object.unitStatus < 0x38) {
+				// Checkout/turnover band toggle: 0x28 <-> 0x30
+				object.unitStatus = object.unitStatus < 0x30 ? 0x30 : 0x28;
+			} else if (object.unitStatus >= 0x38 && object.unitStatus <= 0x40) {
+				// Extended band toggle: 0x38 <-> 0x40
+				object.unitStatus = object.unitStatus < 0x40 ? 0x40 : 0x38;
+			}
+			object.needsRefreshFlag = 1;
+		} else if (object.objectTypeCode === FAMILY_CONDO) {
+			if (object.unitStatus < 0x18) {
+				// Sold: clamp to sync sentinel
+				object.unitStatus = 0x10;
+			} else {
+				// Unsold band toggle: 0x18 <-> 0x20
+				object.unitStatus =
+					object.unitStatus < 0x20
+						? UNIT_STATUS_CONDO_VACANT_EVENING
+						: UNIT_STATUS_CONDO_VACANT;
+			}
+			object.needsRefreshFlag = 1;
+		}
 	}
 }
 
@@ -1341,6 +1433,16 @@ function dispatchEntityArrival(
 		case FAMILY_HOTEL_SINGLE:
 		case FAMILY_HOTEL_TWIN:
 		case FAMILY_HOTEL_SUITE:
+			// Arrived at room from check-in commute
+			if (
+				entity.stateCode === STATE_COMMUTE &&
+				arrivalFloor === entity.floorAnchor
+			) {
+				entity.destinationFloor = -1;
+				entity.selectedFloor = entity.floorAnchor;
+				entity.stateCode = STATE_ACTIVE;
+				return;
+			}
 			if (handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE)) {
 				return;
 			}
@@ -1350,7 +1452,7 @@ function dispatchEntityArrival(
 				arrivalFloor === LOBBY_FLOOR
 			) {
 				entity.destinationFloor = -1;
-				if (object) checkoutHotelStay(world, ledger, entity, object);
+				if (object) checkoutHotelStay(world, ledger, time, entity, object);
 			}
 			return;
 		case FAMILY_OFFICE:
@@ -1527,13 +1629,34 @@ export function reconcileEntityTransport(
 	}
 }
 
-export function resetCommercialVenueCycle(world: WorldState): void {
+export function resetCommercialVenueCycle(
+	world: WorldState,
+	ledger: LedgerState,
+): void {
 	for (const record of world.sidecars) {
 		if (record.kind !== "commercial_venue") continue;
 		record.yesterdayVisitCount = record.todayVisitCount;
 		record.todayVisitCount = 0;
 		record.visitCount = 0;
-		record.availabilityState = VENUE_PARTIAL;
+		// Retail dormant shops stay dormant; non-dormant reset to partial.
+		// Retail activation is triggered separately below.
+		if (record.availabilityState !== VENUE_DORMANT) {
+			record.availabilityState = VENUE_PARTIAL;
+		}
+	}
+
+	// Retail activation: if a retail object has evalActiveFlag set and its
+	// linked venue is dormant, activate the shop (first open).
+	for (const object of Object.values(world.placedObjects)) {
+		if (object.objectTypeCode !== FAMILY_RETAIL) continue;
+		if (object.evalActiveFlag === 0) continue;
+		if (object.linkedRecordIndex < 0) continue;
+		const record = world.sidecars[object.linkedRecordIndex] as
+			| CommercialVenueRecord
+			| undefined;
+		if (!record || record.kind !== "commercial_venue") continue;
+		if (record.availabilityState !== VENUE_DORMANT) continue;
+		activateRetailShop(object, record, ledger);
 	}
 }
 
@@ -1542,6 +1665,48 @@ export function closeCommercialVenues(world: WorldState): void {
 		if (record.kind !== "commercial_venue") continue;
 		record.availabilityState = VENUE_CLOSED;
 	}
+}
+
+/**
+ * Activate a retail shop: mark venue available, add recurring cashflow,
+ * and contribute +10 to the primary family ledger.
+ */
+function activateRetailShop(
+	object: PlacedObjectRecord,
+	record: CommercialVenueRecord,
+	ledger: LedgerState,
+): void {
+	record.availabilityState = VENUE_PARTIAL;
+	object.needsRefreshFlag = 1;
+	addCashflowFromFamilyResource(
+		ledger,
+		"retail",
+		object.rentLevel,
+		object.objectTypeCode,
+	);
+	ledger.populationLedger[FAMILY_RETAIL] =
+		(ledger.populationLedger[FAMILY_RETAIL] ?? 0) + 10;
+}
+
+/**
+ * Deactivate a retail shop: mark venue dormant, clear eval latch and
+ * activation age, remove recurring cashflow.
+ */
+function deactivateRetailShop(
+	object: PlacedObjectRecord,
+	record: CommercialVenueRecord,
+	ledger: LedgerState,
+): void {
+	record.availabilityState = VENUE_DORMANT;
+	object.evalActiveFlag = 0;
+	object.activationTickCount = 0;
+	object.needsRefreshFlag = 1;
+	removeCashflowFromFamilyResource(
+		ledger,
+		"retail",
+		object.rentLevel,
+		object.objectTypeCode,
+	);
 }
 
 export function resetRecyclingCenterDutyTier(world: WorldState): void {
@@ -1643,37 +1808,52 @@ export function runOfficeServiceEvaluation(
 	world.gateFlags.officeServiceOk = 1;
 }
 
-export function refundUnhappyCondos(
+export function refundUnhappyFacilities(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
 ): void {
 	for (const [key, object] of Object.entries(world.placedObjects)) {
-		if (object.objectTypeCode !== FAMILY_CONDO) continue;
-		if (object.evalLevel !== 0) continue;
-		if (object.unitStatus >= UNIT_STATUS_CONDO_VACANT) continue;
-		removeCashflowFromFamilyResource(
-			ledger,
-			"condo",
-			object.rentLevel,
-			object.objectTypeCode,
-		);
-		object.unitStatus =
-			time.daypartIndex < 4
-				? UNIT_STATUS_CONDO_VACANT
-				: UNIT_STATUS_CONDO_VACANT_EVENING;
-		object.evalActiveFlag = 0;
-		object.activationTickCount = 0;
-		object.needsRefreshFlag = 1;
-		const [x, y] = key.split(",").map(Number);
-		for (const entity of world.entities) {
-			if (entity.subtypeIndex === x && entity.floorAnchor === yToFloor(y)) {
-				entity.stateCode = STATE_PARKED;
-				entity.selectedFloor = entity.floorAnchor;
-				entity.destinationFloor = -1;
-				entity.venueReturnState = 0;
-				clearEntityRoute(entity);
+		// Condo refund: evalLevel 0 + sold → revert to unsold band
+		if (object.objectTypeCode === FAMILY_CONDO) {
+			if (object.evalLevel !== 0) continue;
+			if (object.unitStatus >= UNIT_STATUS_CONDO_VACANT) continue;
+			removeCashflowFromFamilyResource(
+				ledger,
+				"condo",
+				object.rentLevel,
+				object.objectTypeCode,
+			);
+			object.unitStatus =
+				time.daypartIndex < 4
+					? UNIT_STATUS_CONDO_VACANT
+					: UNIT_STATUS_CONDO_VACANT_EVENING;
+			object.evalActiveFlag = 0;
+			object.activationTickCount = 0;
+			object.needsRefreshFlag = 1;
+			const [x, y] = key.split(",").map(Number);
+			for (const entity of world.entities) {
+				if (entity.subtypeIndex === x && entity.floorAnchor === yToFloor(y)) {
+					entity.stateCode = STATE_PARKED;
+					entity.selectedFloor = entity.floorAnchor;
+					entity.destinationFloor = -1;
+					entity.venueReturnState = 0;
+					clearEntityRoute(entity);
+				}
 			}
+			continue;
+		}
+
+		// Retail deactivation: evalLevel 0 + active venue → mark dormant
+		if (object.objectTypeCode === FAMILY_RETAIL) {
+			if (object.evalLevel !== 0) continue;
+			if (object.linkedRecordIndex < 0) continue;
+			const record = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (!record || record.kind !== "commercial_venue") continue;
+			if (record.availabilityState === VENUE_DORMANT) continue;
+			deactivateRetailShop(object, record, ledger);
 		}
 	}
 }

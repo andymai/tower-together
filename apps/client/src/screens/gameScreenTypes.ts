@@ -21,6 +21,7 @@ export interface CellInfoData {
 		evalLevel: number;
 		unitStatus: number;
 		activationTickCount: number;
+		venueAvailability?: number;
 	};
 	carrierInfo?: {
 		carrierId: number;

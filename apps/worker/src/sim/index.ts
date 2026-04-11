@@ -184,6 +184,7 @@ export class TowerSim {
 					this.world,
 					this.ledger,
 					this.freeBuild,
+					this.time,
 				);
 			case "remove_tile":
 				return handleRemoveTile(cmd.x, cmd.y, this.world, this.ledger);
@@ -229,6 +230,7 @@ export class TowerSim {
 			evalLevel: number;
 			unitStatus: number;
 			activationTickCount: number;
+			venueAvailability?: number;
 		};
 		carrierInfo?: {
 			carrierId: number;
@@ -245,6 +247,13 @@ export class TowerSim {
 		const tileType = this.world.cells[anchorKey] ?? "empty";
 
 		const record = this.world.placedObjects[anchorKey];
+		let venueAvailability: number | undefined;
+		if (record && record.linkedRecordIndex >= 0) {
+			const sidecar = this.world.sidecars[record.linkedRecordIndex];
+			if (sidecar?.kind === "commercial_venue") {
+				venueAvailability = sidecar.availabilityState;
+			}
+		}
 		const objectInfo = record
 			? {
 					objectTypeCode: record.objectTypeCode,
@@ -252,6 +261,7 @@ export class TowerSim {
 					evalLevel: record.evalLevel,
 					unitStatus: record.unitStatus,
 					activationTickCount: record.activationTickCount,
+					venueAvailability,
 				}
 			: undefined;
 

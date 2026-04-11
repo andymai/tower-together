@@ -10,7 +10,8 @@ import {
 } from "./entertainment";
 import {
 	closeCommercialVenues,
-	refundUnhappyCondos,
+	normalizeUnitStatusEndOfDay,
+	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 	resetEntityRuntimeState,
 	resetRecyclingCenterDutyTier,
@@ -51,7 +52,7 @@ function checkpointFacilityLedgerRebuild(s: SimState): void {
 }
 
 function checkpointEntertainmentHalf1(_s: SimState): void {
-	resetCommercialVenueCycle(_s.world);
+	resetCommercialVenueCycle(_s.world, _s.ledger);
 	activateEntertainmentUpperHalf(_s.world);
 }
 
@@ -62,7 +63,7 @@ function checkpointHotelSaleReset(_s: SimState): void {
 }
 
 function checkpointEntertainmentHalf2(_s: SimState): void {
-	resetCommercialVenueCycle(_s.world);
+	resetCommercialVenueCycle(_s.world, _s.ledger);
 	activateEntertainmentLowerHalf(_s.world);
 }
 
@@ -71,7 +72,7 @@ function checkpointEntertainmentPhase1(_s: SimState): void {
 }
 
 function checkpointMidday(_s: SimState): void {
-	resetCommercialVenueCycle(_s.world);
+	resetCommercialVenueCycle(_s.world, _s.ledger);
 	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
 	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 0);
 }
@@ -105,12 +106,13 @@ function checkpointDayCounter(s: SimState): void {
 
 function checkpointRuntimeRefresh(_s: SimState): void {
 	resetEntityRuntimeState(_s.world);
+	normalizeUnitStatusEndOfDay(_s.world);
 }
 
 function checkpointLedgerRollover(s: SimState): void {
 	doLedgerRollover(s.ledger, s.world, s.time.dayCounter, s.time.starCount);
 	if (s.time.dayCounter % 3 === 0) {
-		refundUnhappyCondos(s.world, s.ledger, s.time);
+		refundUnhappyFacilities(s.world, s.ledger, s.time);
 	}
 }
 

@@ -146,6 +146,7 @@ export type ServerMessage =
 				evalLevel: number;
 				unitStatus: number;
 				activationTickCount: number;
+				venueAvailability?: number;
 			};
 			carrierInfo?: {
 				carrierId: number;

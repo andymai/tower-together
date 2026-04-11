@@ -22,6 +22,54 @@ Stay payout is determined by room family and `rent_level`:
 
 Default placement tier is `1`.
 
+## Placement And Stored State
+
+Hotel rooms track separate concepts for:
+
+- occupancy / vacancy band
+- trip countdown / stay phase
+- housekeeping occupancy latch
+- operational score and activation age
+- rent tier
+
+Generic placement seeds the room record with:
+
+- dirty/display refresh requested
+- operational-evaluation latch enabled
+- operational score `0xff`
+- rent tier `1`
+- activation age `0`
+- no runtime subtype yet
+
+The hotel-specific setup then immediately assigns a runtime subtype, allocates the room's guest /
+resident sim slots, and overwrites `unit_status` into the vacant/available band:
+
+- family `3`: 2 sim slots
+- families `4` and `5`: 3 sim slots
+- initial visible room state: `0x18` or `0x20`, depending on the current half-day branch
+
+That means hotel placement does **not** start in the checked-out band. The `0x28` / `0x30`
+turnover band appears later through checkout and daily normalization, not from the initial build.
+
+For parity, treat the room lifecycle as three visible status bands:
+
+- occupied/open: `0x00..0x17`
+- vacant/available: `0x18..0x27`
+- checked-out / needs turnover: `0x28..0x30`
+
+The housekeeping occupancy latch is not the same thing as the visible occupied/vacant band.
+Housekeeping claims and clears that latch, while the room's visible state is driven by the
+stay-phase band.
+
+The selected-object status panel distinguishes the two non-occupied hotel bands:
+
+- `unit_status` in `0x18..0x27` uses one vacant-status ordinal
+- `unit_status` above `0x27` uses a second, more fully checked-out status ordinal
+- occupied rooms use the normal occupied ordinal
+
+The clone does not need to preserve the EXE's exact byte layout, but it should preserve that
+three-band semantic split.
+
 ## Core Loop
 
 1. assign a room to a guest actor
@@ -43,7 +91,7 @@ Default placement tier is `1`.
 - routing to lobby
 - pre-night preparation
 
-Runtime-state bands:
+Sim-state bands:
 
 - `0x20` / `0x60`: route to room
 - `0x01` / `0x41`: rest in room, then route to commercial support
@@ -57,11 +105,11 @@ Runtime-state bands:
 
 Hotel `unit_status` meanings:
 
-- `0x00` / `0x08`: active occupied band, morning vs evening start
+- `0x00` / `0x08`: active occupied-band base values chosen by the current half-day branch
 - `0x01..0x0f`: trip countdown
 - `0x10`: sibling-sync sentinel
 - `0x18..0x27`: vacant / available
-- `0x28` / `0x30`: checked out, morning vs evening
+- `0x28` / `0x30`: checked-out / turnover base values chosen by the same half-day branch
 
 ## Activation And Checkout
 
@@ -73,10 +121,13 @@ The room's occupancy latch is `pairing_pending_flag`. It is set to `1` by the ho
 
 If the room is in a vacant band (`unit_status > 0x17`) when routing begins:
 
-- activation resets `unit_status` to `0x00` in morning periods or `0x08` in evening periods
+- activation resets `unit_status` to occupied-band base value `0x00` or `0x08`, depending on the
+  current half-day branch
 - the room is marked dirty
 - the room contributes back into the population ledger
 - the room remains active until checkout finishes
+- the check-in route must actually succeed; a room does not become occupied merely because it
+  was claimed structurally
 
 When the sync sentinel is consumed at state `0x10`:
 
@@ -86,11 +137,10 @@ When the sync sentinel is consumed at state `0x10`:
 
 Checkout occurs when the countdown reaches zero.
 
-Morning/evening behavior:
+Half-day branch behavior:
 
 - newly assigned rooms start with a randomized trip counter in the active band
-- morning check-in resets into the `0x00` band
-- evening check-in resets into the `0x08` band
+- check-in resets into occupied-band base value `0x00` or `0x08`
 - successful outbound trips decrement the counter
 - failures and bounces increment it
 - checkout does **not** fire directly from the initial `0x00` / `0x08` activation values
@@ -104,7 +154,7 @@ Multi-occupant rooms do not check out independently. They synchronize before the
 
 The sibling sync check fires `unit_status = 0x10` (sync sentinel) when:
 - `unit_status & 7 == 1` (one-round shortcut — no sibling scan needed), OR
-- all sibling entities are in entity state `0x10`
+- all sibling sims are in sim state `0x10`
 
 The one-round shortcut means: when the trip countdown reaches `1` in the low 3 bits, the sync sentinel is written immediately without checking other occupants. This is the fast path for the last trip.
 
@@ -146,9 +196,21 @@ Checkout effects:
 - that counter is cumulative only within the current day: checkpoint 1200 resets it to `0`
 - each checkout/sale recomputes `newspaper_trigger`: `1` on every 2nd checkout while `family345_sale_count < 20`, then on every 8th checkout thereafter, else `0`
 - the popup itself is not emitted here; the next cash-display refresh that sees both `cash_report_dirty_flag != 0` and `newspaper_trigger != 0` shows popup `0x271d`
-- morning checkout moves the room to `0x28`
-- evening checkout moves the room to `0x30`
+- checkout moves the room to turnover-band base value `0x28` or `0x30`
 - the occupancy latch and activation counter are cleared so the room can be reassigned on a later cycle
+
+End-of-day reset behavior:
+
+- there is not a single unconditional "write `0x28` at day end" helper
+- after the daily sim-reset pass, the object-state floor pass clamps any occupied hotel room
+  (`unit_status < 0x18`) to the sync sentinel `0x10`
+- the daily tier-normalization passes then toggle the non-occupied hotel bands:
+  - `0x18 <-> 0x20`
+  - `0x28 <-> 0x30`
+  - `0x38 <-> 0x40`
+- ordinary vacancy (`0x18..0x27`) and post-checkout turnover (`0x28..0x30`) are therefore
+  distinct semantic bands throughout the scheduler, even though later checkpoint passes normalize
+  them back and forth within each pair
 
 ## Family `0x21`
 
@@ -203,3 +265,11 @@ Minimum venue stay:
 
 - the commercial venue slot release compares `day_tick - visit_start_tick` against the venue service duration for the facility type
 - restaurant (`6`), fast food (`12`), and retail (`10`) all use the same recovered minimum dwell: `60` ticks
+
+Room-route requirement:
+
+- guest check-in requires an actual route from the lobby to the room floor
+- if no valid route exists, the guest does not activate the room and the room stays outside
+  the occupied band
+- checkout likewise requires the physical room-to-lobby route; the payout is tied to the
+  checkout completion path, not a purely logical end-of-day despawn

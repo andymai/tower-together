@@ -15,13 +15,37 @@ const FAMILY_LABELS: Record<number, string> = {
 	6: "Restaurant",
 	7: "Office",
 	9: "Condo",
-	10: "Fast Food",
-	12: "Retail",
+	10: "Retail",
+	12: "Fast Food",
 	18: "Cinema",
 	20: "Security",
 	21: "Housekeeping",
 	29: "Entertainment",
 };
+
+const HOTEL_FAMILIES = new Set([3, 4, 5]);
+
+function getFacilityStatus(info: {
+	objectTypeCode: number;
+	unitStatus: number;
+	venueAvailability?: number;
+}): string | null {
+	if (HOTEL_FAMILIES.has(info.objectTypeCode)) {
+		if (info.unitStatus < 0x18) return "Occupied";
+		if (info.unitStatus < 0x28) return "Vacant";
+		return "Checked Out";
+	}
+	if (info.objectTypeCode === 9) {
+		return info.unitStatus > 0x17 ? "For Sale" : "Sold";
+	}
+	if (info.objectTypeCode === 7) {
+		return info.unitStatus > 0x0f ? "For Rent" : "Occupied";
+	}
+	if (info.objectTypeCode === 10) {
+		return info.venueAvailability === 0xff ? "Unrented" : "Open";
+	}
+	return null;
+}
 
 interface Props {
 	inspectedCell: CellInfoData | null;
@@ -67,6 +91,18 @@ export function CellInspectionDialog({
 						&times;
 					</button>
 				</div>
+
+				{inspectedCell.objectInfo &&
+					getFacilityStatus(inspectedCell.objectInfo) && (
+						<div style={styles.inspectSection}>
+							<div style={styles.inspectRow}>
+								<span style={styles.inspectLabel}>Status</span>
+								<span style={styles.inspectValue}>
+									{getFacilityStatus(inspectedCell.objectInfo)}
+								</span>
+							</div>
+						</div>
+					)}
 
 				{inspectedCell.objectInfo &&
 					RENT_ADJUSTABLE_FAMILIES.has(

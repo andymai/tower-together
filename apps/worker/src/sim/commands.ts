@@ -8,6 +8,9 @@ import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_HOTEL_TWIN,
 	FAMILY_METRO,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_LOWER,
@@ -33,6 +36,7 @@ import {
 	type PlacedObjectRecord,
 	type ServiceRequestEntry,
 	UNDERGROUND_Y,
+	VENUE_DORMANT,
 	VENUE_PARTIAL,
 	type WorldState,
 	yToFloor,
@@ -74,25 +78,43 @@ const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, FAMILY_RETAIL]);
 
 // ─── PlacedObjectRecord helpers ───────────────────────────────────────────────
 
+const HOTEL_INIT_FAMILIES = new Set([
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_HOTEL_SUITE,
+]);
+
 function makePlacedObject(
 	x: number,
 	y: number,
 	tileType: string,
 	world: WorldState,
+	time: { daypartIndex: number },
 	vipFlag = false,
 ): PlacedObjectRecord {
 	const width = TILE_WIDTHS[tileType] ?? 1;
 	const familyCode = TILE_TO_FAMILY_CODE[tileType] ?? 0;
 	const sidecarIndex = allocSidecar(tileType, x, y, world);
+	// Spec: hotel/condo start in vacant/unsold band (0x18 or 0x20 by half-day branch).
+	// Office starts at 0x10 (unoccupied). Others start at 0.
+	let unitStatus = 0;
+	if (familyCode === FAMILY_OFFICE) {
+		unitStatus = 0x10;
+	} else if (
+		HOTEL_INIT_FAMILIES.has(familyCode) ||
+		familyCode === FAMILY_CONDO
+	) {
+		unitStatus = time.daypartIndex < 4 ? 0x18 : 0x20;
+	}
 	return {
 		leftTileIndex: x,
 		rightTileIndex: x + width - 1,
 		objectTypeCode: familyCode,
-		unitStatus: familyCode === FAMILY_OFFICE ? 0x10 : 0,
+		unitStatus,
 		linkedRecordIndex: sidecarIndex,
 		auxValueOrTimer: 0,
-		needsRefreshFlag: 1, // picked up by next refresh sweep
-		evalLevel: -1, // invalid; first scoring sweep populates
+		needsRefreshFlag: 1,
+		evalLevel: 0xff,
 		evalActiveFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
@@ -117,11 +139,12 @@ function allocSidecar(
 		const r: CommercialVenueRecord = {
 			kind: "commercial_venue",
 			ownerSubtypeIndex: x,
-			capacity: tileType === "restaurant" ? 6 : tileType === "fastFood" ? 4 : 3,
+			capacity: 48,
 			visitCount: 0,
 			todayVisitCount: 0,
 			yesterdayVisitCount: 0,
-			availabilityState: VENUE_PARTIAL,
+			// Retail starts dormant (unrented); restaurant/fast-food start active
+			availabilityState: tileType === "retail" ? VENUE_DORMANT : VENUE_PARTIAL,
 		};
 		record = r;
 	} else if (
@@ -280,6 +303,7 @@ export function handlePlaceTile(
 	world: WorldState,
 	ledger: LedgerState,
 	freeBuild = false,
+	time: { daypartIndex: number } = { daypartIndex: 0 },
 ): CommandResult {
 	const normalizedTileType =
 		LEGACY_TILE_ALIASES[LEGACY_VIP_TILE_TO_STANDARD[tileType] ?? tileType] ??
@@ -501,6 +525,7 @@ export function handlePlaceTile(
 			y,
 			normalizedTileType,
 			world,
+			time,
 			vipFlag,
 		);
 	}

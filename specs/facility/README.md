@@ -2,6 +2,15 @@
 
 These docs define family-specific behavior that sits on top of the shared rules in `FACILITIES.md`, `PEOPLE.md`, `ROUTING.md`, and `ECONOMY.md`.
 
+For the main occupiable / rentable families, the target level of detail is:
+
+- semantic stored state and visible status bands
+- exact activation / sale / rental / closure triggers
+- route requirements versus mere structural connectivity
+- sim creation and stagger rules
+- UI-visible status behavior
+- end-of-day and checkpoint reset behavior
+
 ## Files
 
 - `HOTEL.md`: families `3`, `4`, `5`
