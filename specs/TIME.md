@@ -152,7 +152,7 @@ are listed inline; multi-step checkpoints are expanded below.
 3. **rebuild demand history table**: clear log, sweep 512-slot source table dropping invalid entries (an entry is **invalid** when its subtype byte equals `0xff` — the demolished-object tombstone), append live entries where the owning parking-space object's coverage flag is not `1`, recompute summary totals
 4. **rebuild path-seed bucket table**: clear seed list, sweep the 10 service-link (type 0x0d) tracking slots, drop invalid entries, rebuild zone bucket tables for retail/restaurant/fast-food. Zone assignment: `bucket_index = max(0, (floor - 9) / 15)`, dividing the tower into 7 fifteen-floor bands. If `star_count > 2`, set flag enabling upper-tower entity activation
 5. **refresh recycling center states**: if `star_count <= 2` → fire low-star notification. Otherwise refresh the live recycling center state (types `0x14/0x15`) for the new day, then fire the start-of-day notification
-6. **activate upper-tower runtime group**: gated on `eval_entity_index >= 0` and `star_count > 2`. Sweep floors 100–104 for types 0x24..0x28; force 8 consecutive runtime entity slots per object to state `0x20` (yielding 40 eval entities total)
+6. **activate upper-tower runtime group**: gated on `eval_entity_index >= 0` and `star_count > 2`. Sweep floors 100–104 for types 0x24..0x28; force 8 consecutive runtime entity slots per object to state `0x20` (yielding 40 cathedral guests total)
 7. **update facility progress override**: if `day_counter % 8 == 4` AND `star_count < 5` → set `facility_progress_override = 1`
 
 ### 32 — Recycling Center Daily Reset
@@ -194,7 +194,7 @@ are listed inline; multi-step checkpoints are expanded below.
    - this is the same counter incremented by hotel-room checkout income; it is not a global lifetime statistic
 2. promote paired entertainment links with `link_phase_state >= 2` to ready phase (state 3)
 3. activate reverse-half runtime slots for single-link records with `link_phase_state == 0`: set slots to state `0x20`, advance to phase 1
-4. **evaluation midday return**: if `eval_entity_index >= 0`: sweep floors 100–104 for types 0x24–0x28; clear `special_visitor_flag` to 0, mark dirty; advance associated entities in state `0x03` to state `0x05`; if `game_state_flags bit 2` set → clear it
+4. **cathedral guest midday return**: if `eval_entity_index >= 0`: sweep floors 100–104 for types 0x24–0x28; clear `special_visitor_flag` to 0, mark dirty; advance associated entities in state `0x03` to state `0x05`; if `game_state_flags bit 2` set → clear it
 
 ### 1400 — Entertainment Half-Runtime Activation Pass 2
 

@@ -94,15 +94,15 @@ Worker-cycle timing:
 - venue dwell uses a fixed 16-tick hold before the return leg can start
 - workers use the shared route queue / commercial-slot pipeline, with `0x4x` as in-transit aliases and `0x6x` as at-work aliases
 
-Gate table:
+Gate table (see `DEMAND.md` for full binary-verified details):
 
-- `0x00`: dayparts `1..3` dispatch; daypart `0` dispatches on a `1/12` chance; daypart `>= 4` gives up and switches to `0x05`
-- `0x01` and `0x02`: dayparts `2..3` dispatch; daypart `1` dispatches on a `1/12` chance; daypart `0` waits; daypart `>= 4` switches to `0x05`
-- `0x05`: daypart `4` dispatches on a `1/6` chance; later dayparts always dispatch
-- `0x20`: blocked when `calendar_phase_flag != 0`; otherwise requires `eval_active_flag != 0`; daypart `0` dispatches on a `1/12` chance, dayparts `1..2` dispatch, and daypart `>= 3` also dispatches
-- `0x21`: daypart `3` dispatches on a `1/12` chance; daypart `>= 4` dispatches; earlier dayparts wait
-- `0x22` and `0x23`: dayparts `2..3` dispatch; daypart `>= 4` forces `0x27` and releases the service request
-- `0x25`, `0x26`, and `0x27`: remain parked until `day_tick > 2300`, then return to `0x20`
+- `0x00`: daypart `>= 4` forces state `0x05`. **Occupant 0**: daypart `0` → 1/12 chance (`rand() % 12 == 0`), dayparts `1..3` → dispatch. **Occupant != 0**: dayparts `0..2` → no dispatch, daypart `3` → 1/12 chance
+- `0x01` and `0x02`: daypart `>= 4` forces state `0x05`; daypart `0` waits; daypart `1` → 1/12 chance; dayparts `2..3` → dispatch
+- `0x05`: daypart `4` → 1/6 chance (`rand() % 6 == 0`); dayparts `5..6` → dispatch; daypart `< 4` → no dispatch
+- `0x20`: blocked when `calendar_phase_flag != 0`; requires `eval_active_flag != 0`; daypart `0` → 1/12 chance; dayparts `1..2` → dispatch; daypart `>= 3` → **no dispatch**
+- `0x21`: daypart `>= 4` → **force state 0x27 + release service request** (not dispatch); daypart `3` → 1/12 chance; dayparts `0..2` → no dispatch
+- `0x22` and `0x23`: daypart `>= 4` forces `0x27` and releases the service request; dayparts `2..3` → dispatch; dayparts `0..1` → no dispatch
+- `0x25`, `0x26`, and `0x27`: remain parked until `day_tick > 2300`, then force state `0x20`
 
 Dispatch table:
 

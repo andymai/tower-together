@@ -59,37 +59,37 @@ Family-specific floor and stack rules:
   - otherwise the proposed center must overlap an existing live `0x14/0x15` recycling center within the search band of floors `anchor - 2` through `anchor + 1`
   - matches manual: "They must be placed adjacent to one another to operate."
 - metro station placement is a 3-floor stack and is accepted only on floors `-8..-1` with the required floor-class descriptor present
-- cathedral/evaluation placement is a 5-floor stack rooted at floor `103`
-- evaluation entities occupy floors `99..109`
+- cathedral placement is a 5-floor stack rooted at floor `103`
+- cathedral guest entities occupy floors `99..109`
 - carrier shafts require `top_served_floor <= 99`
-- express and service shaft placements are capped at 31 floors of span
-- standard elevators are instead limited by the 10-slot served-floor mapping
+- standard and service shaft placements are capped at 31 floors of span
+- express elevators are instead limited by the lobby/sky-lobby slot mapping (floors 1-10 + sky lobbies at 24, 39, 54, ...)
 - parking ramps are single-tile, single-floor segments fixed to column `9`
 - stairs/escalators are multifloor special-link overlays, not shaft objects
 
-Special-link placement rules:
+Stairs/escalator placement rules:
 
 - stairs/escalators allocate from the 64-slot special-link table
-- `lobby_height` is a saved tower parameter (1, 2, or 3) that `new_game_initializer` resets to `0` on a fresh game and that the dispatcher locks in on the player's first construction click
+- `lobby_height` is a saved tower parameter (1, 2, or 3) that is reset to `0` on a fresh game and that the dispatcher locks in on the player's first construction click
 - the selector is the modifier-key state on that first click: a plain click sets `lobby_height = 1`, holding `Ctrl` sets it to `2`, holding `Ctrl + Shift` sets it to `3`; if the resource for the chosen lobby height cannot be loaded, the dispatcher snaps `lobby_height` back to `1`
 - the very first click is also gated by an empty-game guard: if it lands on floor `-10` column `0` while cash is still the starting `20000` and no objects are placed yet, the dispatcher refunds the click and skips selection so the choice is not accidentally locked in by a stray initial event
 - once selected, `lobby_height` is persisted by `archive_tower_state_compat` and is never modified again at runtime
 - if `lobby_height > 1`, and the requested top landing lies between floors `1` and `lobby_height`, placement clamps the top landing upward to `lobby_height` and increases the stored span so the lower landing stays fixed
-- both top and bottom landing validators require the overlapping underlay object to be one of: empty, restaurant, retail, fast food, party hall (forward), party hall (reverse), lobby, cinema (forward), cinema (reverse), single hotel room
+- both top and bottom landing validators for escalator require the overlapping underlay object to be one of: empty, restaurant, retail, fast food, party hall (upper), party hall (lower), lobby, cinema (upper), cinema (lower), single hotel room
 - top landing footprint requires the destination floor to exist and the requested 8-tile footprint to fit within an existing object span with a 2-tile left inset
 - bottom landing footprint requires the source floor to exist and the requested 8-tile footprint to fit within an existing object span without that extra left inset
 - the EXE `Escalator` tool creates the Escalator branch and leaves the stairs cost bit clear; the EXE `Stairs` tool creates the Stairs branch and sets the stairs cost bit
 - Stairs-branch placement skips the allowlist object-type dispatch once the raw 8-tile footprint fit checks succeed
 - narrow geometry uses a stepped 2-floor shape: one full 8-tile bounding rectangle plus two 4-tile half-rectangles, and rejects if that shape intersects carrier clearance rectangles, any active Stairs-branch special link, or either half of an existing Escalator-branch special link
-- wide geometry uses one continuous rectangle whose vertical span grows with `(stored_span >> 1)` and rejects if it intersects any carrier clearance rectangle or any existing special link
-- carrier-clearance rectangles used by these geometry checks reserve width `6` for carrier mode `0` and width `4` for other carrier modes, expanded vertically from `bottom_floor - 2` through `top_floor + 1`
-- `Escalator` links are overlays on a narrow set of commercial/public footprints, not free-standing structures; `Stairs` links use the broader Stairs-branch footprint path
-- the special-link placement behavior itself is now resolved; only UI-side drag acceptance remains outside the core sim model
+
+Elevator placement rules:
+- Elevators reserve width `6` for express elevators and width `4` for other carrier modes, expanded vertically from `bottom_floor - 1` through `top_floor + 1`.
+- Elevators must have 8 empty tiles between them.
 
 Command-dispatch limits:
 
 - metro station is a singleton
-- cathedral / evaluation entity is a singleton
+- cathedral is a singleton
 - commercial venues are capped at 200 active placements
 - sky-lobby / transit concourse objects are capped at 10 active placements
 - security offices are capped at 10 active placements
@@ -106,12 +106,12 @@ Placement constraints:
 
 Dispatch-level build errors:
 
-- metro already placed -> `0x11`
-- evaluation/cathedral already placed -> `0x13`
-- quota exhausted -> `0x1e`
-- parking-ramp wrong column -> `0x1f`
-- parking-ramp anchor/floor mismatch -> `0x20`
-- parking-space placement rejected on the selected floor -> `0x22`
+- metro already placed
+- evaluation/cathedral already placed
+- quota exhausted
+- parking-ramp wrong column
+- parking-ramp anchor/floor mismatch
+- parking-space placement rejected on the selected floor
 
 Successful build should:
 
@@ -158,7 +158,7 @@ Non-removable families:
 - connector family `0x0f`
 - parking variants `0x18..0x1a`
 - metro-station variants `0x1f..0x21`
-- evaluation-chain entities `0x24..0x28`
+- cathedral guest entities `0x24..0x28`
 - paired-connector families `0x2d..0x32`
 
 Demolition rejection behavior:

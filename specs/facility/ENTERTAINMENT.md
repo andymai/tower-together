@@ -60,8 +60,8 @@ Both participate in the same broad phase-driven attendance and payout cycle.
 
 Link roles:
 
-- party hall (`0x12`): paired venue records, with forward and reverse halves both active each day
-- cinema (`0x1d`): single-venue records, with `forward_runtime_phase = 0` and `reverse_runtime_phase = 50`
+- party hall (`0x12`): paired venue records, with upper and lower halves both active each day
+- cinema (`0x1d`): single-venue records, with `forward_runtime_phase = 0` (upper) and `reverse_runtime_phase = 50` (lower)
 
 ## Cycle
 
@@ -73,12 +73,12 @@ Link roles:
 
 Checkpoint-driven flow:
 
-- checkpoint 240: rebuild family ledger, reseed forward/reverse runtime budgets, increment venue age, clear pending/active/attendance counters
-- checkpoint 1000: activate paired-link forward-half entities
-- checkpoint 1200: promote paired links to ready phase and activate single-link reverse-half entities
-- checkpoint 1400: activate paired-link reverse-half entities that are still in phase `1`
-- checkpoint 1500: advance paired-link forward phase
-- checkpoint 1600: advance reverse phase for both families, accrue cash income, then reset the link phase back to `0`
+- checkpoint 240: rebuild family ledger, reseed upper/lower runtime budgets, increment venue age, clear pending/active/attendance counters
+- checkpoint 1000: activate paired-link upper-half entities
+- checkpoint 1200: promote paired links to ready phase and activate single-link lower-half entities
+- checkpoint 1400: activate paired-link lower-half entities that are still in phase `1`
+- checkpoint 1500: advance paired-link upper phase
+- checkpoint 1600: advance lower phase for both families, accrue cash income, then reset the link phase back to `0`
 
 ## Record Initialization
 

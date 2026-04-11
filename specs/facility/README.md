@@ -11,5 +11,5 @@ These docs define family-specific behavior that sits on top of the shared rules 
 - `ENTERTAINMENT.md`: party hall (18) and cinema (29)
 - `LOBBY.md`: family `24` (Lobby)
 - `PARKING.md`: families `11` (parking space), `44` (parking ramp)
-- `EVALUATION.md`: evaluation visitors and Tower advancement
+- `EVALUATION.md`: cathedral guests and Tower advancement
 - `HELPERS.md`: support/helper families and hotel-guest behavior

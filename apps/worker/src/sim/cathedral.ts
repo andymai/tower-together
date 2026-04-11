@@ -20,7 +20,7 @@ import type { EntityRecord, WorldState } from "./world";
 const EVAL_ENTITY_COUNT = 40;
 
 /**
- * Activate evaluation entities at the day-start checkpoint.
+ * Activate cathedral guest entities at the day-start checkpoint.
  * Forces all cathedral entity slots into the morning-gate state
  * if a cathedral is placed and the tower is above 2 stars.
  */
@@ -45,7 +45,7 @@ export function activateEvalEntities(world: WorldState, time: TimeState): void {
 }
 
 /**
- * Dispatch midday return for evaluation entities at the hotel-sale checkpoint.
+ * Dispatch midday return for cathedral guest entities at the hotel-sale checkpoint.
  * Entities in the arrived state are advanced to the return state.
  */
 export function dispatchEvalMiddayReturn(world: WorldState): void {

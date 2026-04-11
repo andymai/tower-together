@@ -107,7 +107,7 @@ const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_HOTEL_SUITE]: 3,
 	[FAMILY_OFFICE]: 6,
 	[FAMILY_CONDO]: 3,
-	// Cathedral evaluation entities: 5 floor types × 8 slots = 40 visitors
+	// Cathedral guest entities: 5 floor types × 8 slots = 40 guests
 	36: 8, // 0x24
 	37: 8, // 0x25
 	38: 8, // 0x26
@@ -727,48 +727,70 @@ function processOfficeEntity(
 		return;
 	}
 
-	// --- Morning activation ---
+	// --- Morning activation (spec state 0x20 + 0x00 commute gate) ---
 	if (state === STATE_MORNING_GATE) {
-		// Weekday-only: calendar_phase_flag must be 0
+		// Spec 0x20 gate: calendar_phase_flag must be 0
 		if (time.calendarPhaseFlag !== 0) return;
-		// Needs operational pairing
+		// Spec 0x20 gate: requires operational pairing
 		if (object.evalActiveFlag === 0) return;
 
-		// Daypart gate: daypart 0 → 1/12 stagger; daypart 1–2 → dispatch; daypart ≥ 3 → dispatch
-		if (time.daypartIndex === 0) {
-			if (Math.random() * 12 >= 1) return;
-		}
+		// Spec 0x20 daypart gate: daypart 0 → 1/12 chance; dayparts 1–2 → dispatch;
+		// daypart >= 3 → no dispatch (service evaluation is morning-only)
+		if (time.daypartIndex < 3) {
+			if (time.daypartIndex === 0) {
+				if (Math.random() * 12 >= 1) return;
+			}
 
-		// 3-day cashflow (first entity triggers income once per 3-day cycle)
-		if (
-			entity.baseOffset === 0 &&
-			object.auxValueOrTimer !== time.dayCounter + 1 &&
-			time.dayCounter % 3 === 0
-		) {
-			object.auxValueOrTimer = time.dayCounter + 1;
-			addCashflowFromFamilyResource(
-				ledger,
-				"office",
-				object.rentLevel,
-				object.objectTypeCode,
-			);
-		}
+			// 3-day cashflow (first entity triggers income once per 3-day cycle)
+			if (
+				entity.baseOffset === 0 &&
+				object.auxValueOrTimer !== time.dayCounter + 1 &&
+				time.dayCounter % 3 === 0
+			) {
+				object.auxValueOrTimer = time.dayCounter + 1;
+				addCashflowFromFamilyResource(
+					ledger,
+					"office",
+					object.rentLevel,
+					object.objectTypeCode,
+				);
+			}
 
-		// Office parking demand: (floorAnchor + subtypeIndex) % 4 === 1, unitStatus === 2
-		if (
-			time.starCount > 2 &&
-			(entity.floorAnchor + entity.subtypeIndex) % 4 === 1 &&
-			object.unitStatus === 2
-		) {
-			if (!tryAssignParkingService(world, time, entity)) {
-				world.pendingNotifications.push({
-					kind: "route_failure",
-					message: "Office workers demand Parking",
-				});
+			// Office parking demand: (floorAnchor + subtypeIndex) % 4 === 1, unitStatus === 2
+			if (
+				time.starCount > 2 &&
+				(entity.floorAnchor + entity.subtypeIndex) % 4 === 1 &&
+				object.unitStatus === 2
+			) {
+				if (!tryAssignParkingService(world, time, entity)) {
+					world.pendingNotifications.push({
+						kind: "route_failure",
+						message: "Office workers demand Parking",
+					});
+				}
 			}
 		}
 
-		// Dispatch: route from lobby to office floor
+		// Spec state 0x00 gate: daypart >= 4 → force state 0x05 (departure)
+		if (time.daypartIndex >= 4) {
+			entity.stateCode = STATE_DEPARTURE;
+			entity.destinationFloor = LOBBY_FLOOR;
+			entity.selectedFloor = entity.floorAnchor;
+			return;
+		}
+
+		// Spec state 0x00 commute gate with occupant stagger:
+		// Occupant 0: daypart 0 → 1/12 chance; dayparts 1–3 → dispatch
+		// Occupants 1–5: dayparts 0–2 → no dispatch; daypart 3 → 1/12 chance
+		if (entity.baseOffset === 0) {
+			if (time.daypartIndex === 0) {
+				if (Math.floor(Math.random() * 12) !== 0) return;
+			}
+		} else {
+			if (time.daypartIndex < 3) return;
+			if (Math.floor(Math.random() * 12) !== 0) return;
+		}
+
 		if (entity.floorAnchor !== LOBBY_FLOOR) {
 			entity.destinationFloor = entity.floorAnchor;
 			entity.selectedFloor = LOBBY_FLOOR;
@@ -786,19 +808,17 @@ function processOfficeEntity(
 		return;
 	}
 
-	// --- At office, ready for venue visits ---
+	// --- At office, ready for venue visits (spec state 0x21) ---
 	if (state === STATE_AT_WORK) {
-		// Gate: daypart ≥ 4 → evening departure
+		// Gate: daypart >= 4 → force state 0x27 + release service request (park)
 		if (time.daypartIndex >= 4) {
-			entity.stateCode = STATE_DEPARTURE;
-			entity.destinationFloor = LOBBY_FLOOR;
-			entity.selectedFloor = entity.floorAnchor;
+			entity.stateCode = STATE_PARKED;
 			return;
 		}
-		// Gate: daypart 3 → 1/12 chance; daypart < 3 → wait
+		// Gate: daypart 3 → 1/12 chance; dayparts 0–2 → no dispatch
 		if (time.daypartIndex === 3) {
-			if (Math.random() * 12 >= 1) return;
-		} else if (time.daypartIndex < 3) {
+			if (Math.floor(Math.random() * 12) !== 0) return;
+		} else {
 			return;
 		}
 
@@ -1114,7 +1134,7 @@ function getElevatorDemand(entity: EntityRecord): {
 		};
 	}
 
-	// Cathedral evaluation: outbound routes to eval zone
+	// Cathedral guest: outbound routes to eval zone
 	if (
 		CATHEDRAL_FAMILIES.has(entity.familyCode) &&
 		entity.stateCode === STATE_EVAL_OUTBOUND
@@ -1125,7 +1145,7 @@ function getElevatorDemand(entity: EntityRecord): {
 			directionFlag: 0,
 		};
 	}
-	// Cathedral evaluation: return routes to lobby
+	// Cathedral guest: return routes to lobby
 	if (
 		CATHEDRAL_FAMILIES.has(entity.familyCode) &&
 		entity.stateCode === STATE_EVAL_RETURN
@@ -1206,10 +1226,9 @@ export function resolveEntityRouteBetweenFloors(
 		return 3;
 	}
 
-	// Always prefer Escalator-branch (local) routing for now; the original
-	// game used a per-object flag to switch to express mode, but the exact
-	// semantics remain unresolved so we hard-code the local-mode branch.
-	const preferLocalMode = true;
+	// Family 0x0f (housekeeping) uses stairs-only routing (rejects escalators).
+	// All other families use local (escalator-preferred) routing.
+	const preferLocalMode = entity.familyCode !== 0x0f;
 
 	const route = selectRouteForFamily(
 		world,
@@ -1357,7 +1376,7 @@ function dispatchEntityArrival(
 			handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE);
 			return;
 		default:
-			// Cathedral evaluation entities
+			// Cathedral guest entities
 			if (CATHEDRAL_FAMILIES.has(entity.familyCode)) {
 				if (
 					entity.stateCode === STATE_EVAL_OUTBOUND &&

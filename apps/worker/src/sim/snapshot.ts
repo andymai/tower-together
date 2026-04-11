@@ -277,6 +277,16 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		sidecar.familySelectorOrSingleLinkFlag ??= 0xff;
 		sidecar.linkPhaseState ??= 0;
 		sidecar.pendingTransitionFlag ??= 0;
+		// Migrate forwardBudget/reverseBudget → upperBudget/lowerBudget
+		const legacy = sidecar as Record<string, unknown>;
+		if ("forwardBudget" in legacy) {
+			sidecar.upperBudget = legacy.forwardBudget as number;
+			delete legacy.forwardBudget;
+		}
+		if ("reverseBudget" in legacy) {
+			sidecar.lowerBudget = legacy.reverseBudget as number;
+			delete legacy.reverseBudget;
+		}
 	}
 
 	const vipAnchors = new Set<string>();

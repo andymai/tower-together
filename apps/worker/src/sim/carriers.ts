@@ -203,7 +203,8 @@ export function floorToSlot(carrier: CarrierRecord, floor: number): number {
 	if (carrier.carrierMode === 0) {
 		const rel = floor - carrier.bottomServedFloor;
 		if (rel >= 0 && rel < 10) return rel;
-		if ((floor - 10) % 15 === 14) return Math.floor((floor - 10) / 15) + 10;
+		// Lobbies: floor IDs 10, 25, 40, 55, 70, 85, 100 → slots 10+
+		if (floor >= 10 && (floor - 10) % 15 === 0) return (floor - 10) / 15 + 10;
 		return -1;
 	}
 	return floor - carrier.bottomServedFloor;

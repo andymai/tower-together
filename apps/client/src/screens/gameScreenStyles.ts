@@ -77,7 +77,6 @@ export const gameScreenStyles = {
 	toolBtn: {
 		padding: "4px 10px",
 		borderRadius: 4,
-		border: "1px solid",
 		fontSize: 12,
 		fontWeight: 500,
 		cursor: "pointer",
@@ -148,7 +147,7 @@ export const gameScreenStyles = {
 	},
 	speedButtonActive: {
 		background: "#3b82f6",
-		borderColor: "#3b82f6",
+		border: "1px solid #3b82f6",
 		color: "#fff",
 	},
 	statusBar: {
@@ -339,7 +338,7 @@ export const gameScreenStyles = {
 	},
 	rentButtonActive: {
 		background: "rgba(74, 222, 128, 0.15)",
-		borderColor: "#4ade80",
+		border: "1px solid #4ade80",
 		color: "#4ade80",
 	},
 	carButtons: {

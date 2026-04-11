@@ -143,8 +143,8 @@ function allocSidecar(
 			familySelectorOrSingleLinkFlag:
 				tileType === "entertainment" ? Math.floor(Math.random() * 14) : 0xff,
 			linkAgeCounter: 0,
-			forwardBudget: 0,
-			reverseBudget: 0,
+			upperBudget: 0,
+			lowerBudget: 0,
 			linkPhaseState: 0,
 			pendingTransitionFlag: 0,
 			attendanceCounter: 0,

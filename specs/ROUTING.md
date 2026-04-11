@@ -57,16 +57,16 @@ Resolver field writes:
 
 ## Candidate Priority
 
-Passenger/local mode:
+Passenger/local mode (all families except housekeeping):
 
 1. direct special links when viable
 2. lobby local access ranges
 3. elevator fallback
 
-Express/helper mode:
+Housekeeping mode (family 0x0f only, `is_passenger_route == 0`):
 
-1. express-capable stair/escalator links when viable
-2. express-compatible elevator fallback
+1. stairs segments only (escalators rejected)
+2. elevator fallback
 
 Selector behavior:
 
@@ -84,19 +84,12 @@ Selector behavior:
 - Escalator segment: `abs(height_delta) * 8`
 - Stairs segment: `abs(height_delta) * 8 + 640`
 
-The express-mode route scorer only accepts Stairs segments.
+The housekeeping-mode route scorer only accepts Stairs segments.
 
 Behavioral branch mapping:
 
 - low-bit `0` selects the Escalator branch
 - low-bit `1` is the stairs cost bit and selects the Stairs branch
-
-Build-label / behavior mapping:
-
-- the EXE build table labels type `0x16` as `Stairs  - $5000` and type `0x1b` as `Escalator - $20000`
-- type `0x16` (`Stairs` in resources/UI) creates the Stairs branch and sets the stairs cost bit
-- type `0x1b` (`Escalator` in resources/UI) creates the Escalator branch and leaves the stairs cost bit clear
-- the clone must preserve this routing behavior; replacement-UI labels may differ, but the EXE label-to-branch mapping is part of the compatibility reference
 
 ## Carrier Costs
 
@@ -150,10 +143,10 @@ Local walkability:
 - after the first gap, the scan continues only within the 3-floor center band (`center ± 3`); once the scan reaches 3 floors from center with a gap having been seen, it stops
 - if no gap is encountered, the scan extends to the full 6-floor range
 
-Express walkability:
+Housekeeping walkability:
 
 - maximum span checked: 6 floors in each direction from center
-- every floor in the span must have express walkability (bit 1 of walkability byte)
+- every floor in the span must have housekeeping walkability (bit 1 of walkability byte)
 - no gap tolerance
 
 ## Transfer Groups
@@ -315,7 +308,7 @@ This cache affects repeated popup emission. It does not participate in route sco
 
 `select_best_route_candidate` applies these additional rules:
 
-- express mode checks Stairs segments first and immediately accepts the best one if any exists
+- housekeeping mode checks Stairs segments first and immediately accepts the best one if any exists
 - local mode immediately accepts a direct Escalator segment only when its cost is below `640`
 - otherwise local mode continues on to carrier fallback, but still preserves the best direct-segment candidate found so far
 - lobby local access ranges return only viability (`0` or `32767`); when one succeeds, the selector computes the first one-floor leg in the chosen direction and then requires a direct Escalator segment for that first step
@@ -330,7 +323,7 @@ Branch semantics:
 - Escalator segments use the base cost
 - Stairs segments set the stairs cost bit and add the `+640` surcharge
 - local route scoring accepts both branches, but adds the `+640` surcharge to Stairs segments
-- express route scoring accepts only Stairs segments
+- housekeeping route scoring accepts only Stairs segments
 - reachability rebuild writes the route-support bit for the corresponding branch
 
 Bit layout:

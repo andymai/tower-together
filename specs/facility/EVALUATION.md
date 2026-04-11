@@ -1,6 +1,6 @@
 # Evaluation
 
-This document covers star-rating evaluation visitors and the final Tower promotion path.
+This document covers cathedral guests and the final Tower promotion path.
 
 ## Tower Activity Thresholds
 
@@ -36,9 +36,9 @@ placed there. These are per-floor slices of a single building, not separate faci
 Placement stores the cathedral floor in `eval_entity_index`, enabling the
 evaluation system. Cathedral availability is gated to star 5 by the build menu.
 
-## Evaluation Visitors
+## Cathedral Guests
 
-Types 0x24–0x28 each host 8 runtime entity slots → 5 floors × 8 = 40 visitors total.
+Types 0x24–0x28 each host 8 runtime entity slots → 5 floors × 8 = 40 cathedral guests total.
 
 **Daily activation** (checkpoint
 0): when `eval_entity_index >= 0` and `star_count > 2`, sweeps floors 100–104
@@ -78,4 +78,4 @@ the star rating upgrade, writing `star_count := 6`. Tower rank (star_count = 6) 
 Requirements:
 - cathedral placed (`eval_entity_index >= 0`)
 - `compute_tower_tier_from_ledger() > star_count` (population ledger total >= 15000 for tier 6)
-- all 40 evaluation entities in state 0x03 before `day_tick < 800`
+- all 40 cathedral guests in state 0x03 before `day_tick < 800`

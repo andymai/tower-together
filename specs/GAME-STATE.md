@@ -102,7 +102,7 @@ fires notification 3000.
 
 ### Resolution
 
-When the evaluation visitor arrives at the target office,
+When the cathedral guest arrives at the target office,
 `resolve_office_service_evaluation` fires:
 1. Validates `eval_in_progress != 0` and entity matches `eval_target_entity`
 2. Computes `compute_runtime_tile_average()` for the office

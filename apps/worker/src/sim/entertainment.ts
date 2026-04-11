@@ -60,20 +60,20 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 				sidecar.linkAgeCounter,
 				sidecar.familySelectorOrSingleLinkFlag,
 			);
-			sidecar.forwardBudget = budget;
-			sidecar.reverseBudget = budget;
+			sidecar.upperBudget = budget;
+			sidecar.lowerBudget = budget;
 		} else {
-			sidecar.forwardBudget = 0;
-			sidecar.reverseBudget = 50;
+			sidecar.upperBudget = 0;
+			sidecar.lowerBudget = 50;
 		}
 	}
 }
 
 /**
- * Activate paired-link forward-half entities.
- * Sets forwardPhase to 1 for all paired entertainment links that are idle.
+ * Activate paired-link upper-half entities.
+ * Sets upper phase to 1 for all paired entertainment links that are idle.
  */
-export function activateEntertainmentForwardHalf(world: WorldState): void {
+export function activateEntertainmentUpperHalf(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		const object = findObjectBySidecarOwner(world, sidecar);
@@ -86,9 +86,9 @@ export function activateEntertainmentForwardHalf(world: WorldState): void {
 }
 
 /**
- * Promote paired links to ready phase; activate single-link reverse-half.
+ * Promote paired links to ready phase; activate single-link lower-half.
  */
-export function promoteAndActivateSingleReverse(world: WorldState): void {
+export function promoteAndActivateSingleLower(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		const object = findObjectBySidecarOwner(world, sidecar);
@@ -107,9 +107,9 @@ export function promoteAndActivateSingleReverse(world: WorldState): void {
 }
 
 /**
- * Activate paired-link reverse-half entities still in phase 1.
+ * Activate paired-link lower-half entities still in phase 1.
  */
-export function activateEntertainmentReverseHalf(world: WorldState): void {
+export function activateEntertainmentLowerHalf(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		const object = findObjectBySidecarOwner(world, sidecar);
@@ -130,10 +130,10 @@ function movieTheaterPayout(attendance: number): number {
 }
 
 /**
- * Advance paired-link forward phase.
- * Decrements active runtime count and accrues income for completed forward phases.
+ * Advance paired-link upper phase.
+ * Decrements active runtime count and accrues income for completed upper phases.
  */
-export function advanceEntertainmentForwardPhase(world: WorldState): void {
+export function advanceEntertainmentUpperPhase(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		const object = findObjectBySidecarOwner(world, sidecar);
@@ -143,11 +143,11 @@ export function advanceEntertainmentForwardPhase(world: WorldState): void {
 
 		sidecar.activeRuntimeCount = Math.max(
 			0,
-			sidecar.activeRuntimeCount - sidecar.forwardBudget,
+			sidecar.activeRuntimeCount - sidecar.upperBudget,
 		);
 		sidecar.linkPhaseState = sidecar.activeRuntimeCount === 0 ? 1 : 2;
 
-		// Park forward-half entities for this entertainment record
+		// Park upper-half entities for this entertainment record
 		for (const entity of world.entities) {
 			if (entity.familyCode !== ENTERTAINMENT_FAMILY_PAIRED) continue;
 			if (entity.subtypeIndex !== sidecar.ownerSubtypeIndex) continue;
@@ -162,9 +162,9 @@ export function advanceEntertainmentForwardPhase(world: WorldState): void {
 }
 
 /**
- * Advance reverse phase for both families, accrue cash income, reset phases.
+ * Advance lower phase for both families, accrue cash income, reset phases.
  */
-export function advanceEntertainmentReversePhaseAndAccrue(
+export function advanceEntertainmentLowerPhaseAndAccrue(
 	world: WorldState,
 	ledger: LedgerState,
 ): void {
@@ -177,7 +177,7 @@ export function advanceEntertainmentReversePhaseAndAccrue(
 			if (sidecar.linkPhaseState >= 1) {
 				sidecar.activeRuntimeCount = Math.max(
 					0,
-					sidecar.activeRuntimeCount - sidecar.reverseBudget,
+					sidecar.activeRuntimeCount - sidecar.lowerBudget,
 				);
 				const payout = movieTheaterPayout(sidecar.attendanceCounter);
 				if (payout > 0) {
@@ -193,7 +193,7 @@ export function advanceEntertainmentReversePhaseAndAccrue(
 			if (sidecar.linkPhaseState >= 1) {
 				sidecar.activeRuntimeCount = Math.max(
 					0,
-					sidecar.activeRuntimeCount - sidecar.reverseBudget,
+					sidecar.activeRuntimeCount - sidecar.lowerBudget,
 				);
 				if (sidecar.attendanceCounter > 0) {
 					const payout = 20_000;

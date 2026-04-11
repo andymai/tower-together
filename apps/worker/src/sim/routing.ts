@@ -10,7 +10,7 @@ import {
 } from "./world";
 
 const ROUTE_COST_INFINITE = 0x7fff;
-const EXPRESS_ROUTE_BASE_COST = 0x280; // 640
+const STAIRS_ROUTE_EXTRA_COST = 0x280; // 640
 
 const DERIVED_RECORD_CENTERS = [10, 25, 40, 55, 70, 85, 100];
 
@@ -216,7 +216,7 @@ export function isFloorSpanWalkableForLocalRoute(
 	return true;
 }
 
-export function isFloorSpanWalkableForExpressRoute(
+export function isFloorSpanWalkableForHousekeepingRoute(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
@@ -269,12 +269,12 @@ export function selectBestRouteCandidate(
 				bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 			}
 			// Immediately accept a cheap direct local segment
-			if (bestSegment && bestSegment.cost < EXPRESS_ROUTE_BASE_COST)
+			if (bestSegment && bestSegment.cost < STAIRS_ROUTE_EXTRA_COST)
 				return bestSegment;
 		}
 
 		// Scan derived transfer zones only when no cheap direct segment exists
-		if (!bestSegment || bestSegment.cost >= EXPRESS_ROUTE_BASE_COST) {
+		if (!bestSegment || bestSegment.cost >= STAIRS_ROUTE_EXTRA_COST) {
 			for (const record of world.specialLinkRecords) {
 				if (!record.active) continue;
 				if (fromFloor < record.lowerFloor || fromFloor > record.upperFloor)
@@ -291,7 +291,7 @@ export function selectBestRouteCandidate(
 							fromFloor,
 							adjacentFloor,
 						);
-						if (cost >= EXPRESS_ROUTE_BASE_COST) continue;
+						if (cost >= STAIRS_ROUTE_EXTRA_COST) continue;
 						bestSegment = tryCandidate(
 							bestSegment,
 							"segment",
@@ -302,15 +302,15 @@ export function selectBestRouteCandidate(
 				}
 			}
 			// If a transfer zone produced a cheap segment, accept it
-			if (bestSegment && bestSegment.cost < EXPRESS_ROUTE_BASE_COST)
+			if (bestSegment && bestSegment.cost < STAIRS_ROUTE_EXTRA_COST)
 				return bestSegment;
 		}
 	} else if (
 		delta === 1 ||
-		isFloorSpanWalkableForExpressRoute(world, fromFloor, toFloor)
+		isFloorSpanWalkableForHousekeepingRoute(world, fromFloor, toFloor)
 	) {
 		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-			const cost = scoreExpressRouteSegment(segment, fromFloor, toFloor);
+			const cost = scoreHousekeepingRouteSegment(segment, fromFloor, toFloor);
 			if (cost >= ROUTE_COST_INFINITE) continue;
 			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 		}
@@ -377,7 +377,7 @@ function scoreLocalRouteSegment(
 	return (segment.flags & 1) !== 0 ? ROUTE_COST_INFINITE : delta * 8;
 }
 
-function scoreExpressRouteSegment(
+function scoreHousekeepingRouteSegment(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
@@ -388,7 +388,7 @@ function scoreExpressRouteSegment(
 	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
-	return Math.abs(toFloor - fromFloor) * 8 + EXPRESS_ROUTE_BASE_COST;
+	return Math.abs(toFloor - fromFloor) * 8 + STAIRS_ROUTE_EXTRA_COST;
 }
 
 function distanceMismatchPenalty(heightMetricDelta: number): number {
@@ -421,7 +421,7 @@ function scoreCarrierDirectRoute(
 		carrier.carrierMode !== 0 ? distanceMismatchPenalty(delta) : 0;
 	return status === 0x28
 		? 1000 + delta * 8 + penalty
-		: delta * 8 + EXPRESS_ROUTE_BASE_COST + penalty;
+		: delta * 8 + STAIRS_ROUTE_EXTRA_COST + penalty;
 }
 
 function scoreCarrierTransferRoute(

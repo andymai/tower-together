@@ -4,11 +4,28 @@
 
 There are three carrier modes:
 
-- Express Elevator
-- Standard Elevator
-- Service Elevator
+| Property | Express (mode 0) | Standard (mode 1) | Service (mode 2) |
+|---|---|---|---|
+| Shaft width | 6 tiles | 4 tiles | 4 tiles |
+| Served floors | basements (1–10) + sky lobbies (24, 39, 54, …) | contiguous range, max 31 floors | contiguous range, max 31 floors |
+| Assignment capacity | 42 | 21 | 21 |
+| Passenger capacity (manual) | 36 | 17 | 17 |
+| Motion fast mode | yes (3 floors/step) | no | no |
+| Motion slow band | no | yes (1 floor/step, 2-tick door wait) | yes (1 floor/step, 2-tick door wait) |
+| Cost global | DS:0xe680 | DS:0xe67e | DS:0xe682 |
 
 These labels are build identities. The router's local-vs-express selection is related but not identical.
+
+### Served-Floor Mapping
+
+Express elevators use a fixed slot mapping (`floor_to_carrier_slot_index`):
+- Floors 1–10 (basements B9–B1 + ground lobby) → slots 0–9
+- Sky lobby floors where `(floor - 10) % 15 == 14` (i.e. 24, 39, 54, 69, 84, 99) → slot `(floor - 10) / 15 + 10`
+- All other floors → not served (returns -1)
+
+Standard and service elevators use a contiguous range:
+- Any floor from `bottom_served_floor` to `top_served_floor` → slot `floor - bottom_served_floor`
+- Span is capped at 31 floors
 
 Terminology used in this spec:
 
@@ -23,7 +40,7 @@ carrier-level; motion, doors, dwell, and assignments are car-level.
 
 A carrier needs:
 
-- carrier mode (0 = express, 1 = standard/local, 2 = service)
+- carrier mode (0 = express, 1 = standard, 2 = service)
 - top and bottom served floors
 - assignment capacity
 - per-daypart schedule data

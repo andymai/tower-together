@@ -12,6 +12,7 @@ The spec covers:
 - runtime actors
 - simulation time and scheduler checkpoints
 - routing and elevator behavior
+- routing demand generation (`DEMAND.md`)
 - facility state machines
 - income, expenses, and ledgers
 - star progression

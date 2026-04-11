@@ -374,7 +374,7 @@ export function tryTriggerFireEvent(
 	if (time.daypartIndex >= 4) return;
 	// Guard: star > 2
 	if (time.starCount <= 2) return;
-	// Guard: no cathedral evaluation active
+	// Guard: no cathedral guest dispatch active
 	if (
 		world.gateFlags.evalEntityIndex >= 0 &&
 		world.gateFlags.evalEntityIndex !== 0xffff

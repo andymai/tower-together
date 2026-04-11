@@ -11,7 +11,7 @@ Runtime actors include:
 - condo residents
 - hotel guests visiting venues
 - entertainment attendees
-- evaluation visitors
+- cathedral guests
 - helper/service actors
 
 ## Shared Fields
@@ -29,11 +29,43 @@ Every actor should track:
 
 ## Shared State-Code Convention
 
-- `0x0x`: idle or waiting
-- `0x2x`: local active state
-- `0x4x`: in transit
-- `0x6x`: arrived at remote destination
-- `0x27`: parked/night state
+Bit 6 (`0x40`) is the **in-transit flag**. When set, the entity has committed
+to a route leg and the gate handler is bypassed — the refresh handler calls
+the dispatch handler directly every service tick until the leg completes.
+
+The four state bands are:
+
+| Band | Mask | Meaning |
+|------|------|---------|
+| `0x0x` | base states | idle, waiting, or ready to decide next action |
+| `0x2x` | base states | support/service cycle, venue visits, checkout |
+| `0x4x` | `0x0x \| 0x40` | in transit for the corresponding `0x0x` state |
+| `0x6x` | `0x2x \| 0x40` | in transit for the corresponding `0x2x` state |
+
+Special value: `0x27` = parked/night state (in the `0x2x` band but treated as terminal by the gate).
+
+The base state is recovered by `state & ~0x40` (equivalently `state & 0x3f`).
+Dispatch handlers are shared: state `0x00` and `0x40` hit the same handler,
+state `0x20` and `0x60` hit the same handler, etc.
+
+### Refresh handler flow
+
+For every entity serviced in the 1/16 stride:
+
+1. read `state_byte` from `entity[+5]`
+2. if `state_byte < 0x40`:
+   - scan the family's **gate jump table** for a matching entry
+   - the gate checks daypart, tick, RNG, and entity-specific fields
+   - if the gate allows: call the **dispatch handler**
+   - if the gate denies: return (entity stays in current state)
+   - some gates modify state directly (e.g. force `0x05` or `0x27`) without dispatching
+3. if `state_byte >= 0x40`:
+   - if `entity[+8] < 0x40`: call the **dispatch handler** directly (active leg)
+   - if `entity[+8] >= 0x40`: call `maybe_dispatch_queued_route_after_wait` (queued on a carrier)
+
+This means the gate is a **one-time barrier**: once an entity transitions
+to a `0x4x`/`0x6x` state, it is serviced unconditionally until the route
+leg completes and the dispatch handler drops it back to a base state.
 
 ## Shared Routing Contract
 
@@ -42,9 +74,11 @@ Family handlers own intent; the routing layer owns movement.
 Typical loop:
 
 1. family chooses destination or next action
-2. family requests one route leg
-3. actor enters traveling state or queueing state
-4. arrival hands control back to the family handler
+2. family requests one route leg (calls `resolve_entity_route_between_floors`)
+3. route result 0/1/2: entity enters `0x4x`/`0x6x` (in-transit) state
+4. route result 3: same-floor arrival, dispatch handler handles immediately
+5. route result -1: failure, family handler decides fallback
+6. arrival hands control back to the family handler (state drops to base band)
 5. family either continues the trip, begins an activity, or parks
 
 ## Shared Occupant Staggering
@@ -108,9 +142,9 @@ and a **dispatch handler** (states >= 0x40 or when gate allows) that performs ro
 and state transitions. States `0x4x` are in-transit aliases of `0x0x`; states `0x6x`
 are at-destination aliases of `0x2x`.
 
-### Family `0x0f` — Vacancy Claimant
+### Family `0x0f` — Housekeeping
 
-Transient entity that searches for and claims vacant hotel rooms. One per hotel room
+Housekeeping entity that searches for and claims vacant hotel rooms. One per hotel room
 entity slot. Not a persistent occupant.
 
 Entity fields: `route_mode` = target floor (searching sentinel when not yet assigned), `spawn_floor`
@@ -137,12 +171,12 @@ Lifecycle: check-in → venue trips → sibling sync → checkout → vacancy.
 
 | State | Gate condition |
 |-------|---------------|
-| 0x20 | if `room.pairing_pending_flag != 0`: daypart 4 → 1/12 chance; daypart > 4 and tick < 2300 → dispatch |
-| 0x01 | daypart == 4 → 1/6 chance (`day_counter % 6 == 0`); daypart > 4 → state 0x04 |
-| 0x22 | daypart > 3 → dispatch |
-| 0x04 | daypart > 4 AND (tick > 2400 OR `day_counter % 12 == 0`) → dispatch |
-| 0x10 | daypart < 5 OR (tick > 2566 AND `day_counter % 12 == 0`) → dispatch |
-| 0x05 | daypart 0 → only if `day_counter % 12 == 0`; daypart 6 → no dispatch; else → dispatch |
+| 0x20 | if `room.pairing_pending_flag != 0`: daypart 4 → 1/12 chance (`rand() % 12 == 0`); daypart > 4 and tick < 2300 → dispatch; daypart > 4 and tick >= 2300 → no dispatch |
+| 0x01 | daypart 4 → 1/6 chance (`rand() % 6 == 0`); daypart > 4 → force state 0x04; daypart <= 3 → no dispatch |
+| 0x22 | daypart >= 4 → dispatch; daypart < 4 → no dispatch |
+| 0x04 | daypart < 5 → no dispatch; daypart >= 5 AND tick > 2400 → dispatch; daypart >= 5 AND tick <= 2400 → 1/12 chance (`rand() % 12 == 0`) |
+| 0x10 | daypart < 5 → dispatch; daypart >= 5 AND tick > 2566 → 1/12 chance (`rand() % 12 == 0`); daypart >= 5 AND tick <= 2566 → no dispatch |
+| 0x05 | daypart 0 → 1/12 chance (`rand() % 12 == 0`); daypart 6 → no dispatch; dayparts 1–5 → dispatch |
 | 0x26 | tick > 2300 → state 0x24 (if `last_sample_tick == 0`) else state 0x20 |
 
 #### Dispatch Table
@@ -167,15 +201,15 @@ dirty, adds to population ledger (+1/+2/+2 for families 3/4/5).
 
 | State | Gate condition |
 |-------|---------------|
-| 0x00 | daypart ≥ 4 → state 0x05; daypart 1–3 → dispatch; daypart 0 → 1/12 chance |
-| 0x01 | daypart ≥ 4 → state 0x05; daypart 2–3 → dispatch; daypart 1 → 1/12 chance; daypart 0 → wait |
+| 0x00 | daypart ≥ 4 → force state 0x05; **occupant 0**: daypart 0 → 1/12 chance, dayparts 1–3 → dispatch; **occupant != 0**: dayparts 0–2 → no dispatch, daypart 3 → 1/12 chance |
+| 0x01 | daypart ≥ 4 → force state 0x05; daypart 0 → no dispatch; daypart 1 → 1/12 chance; dayparts 2–3 → dispatch |
 | 0x02 | (shared with 0x01) |
-| 0x05 | daypart == 4 → 1/6 chance; daypart > 4 → dispatch |
-| 0x20 | `calendar_phase_flag != 0` → skip; `eval_active_flag != 0` required; daypart 0 → 1/12; daypart 1–2 → dispatch; daypart ≥ 3 → dispatch |
-| 0x21 | daypart ≥ 4 → dispatch; daypart 3 → 1/12 chance; daypart < 3 → wait |
-| 0x22 | daypart ≥ 4 → state 0x27 + release request; daypart ≥ 2 → dispatch; daypart < 2 → wait |
+| 0x05 | daypart 4 → 1/6 chance (`rand() % 6 == 0`); dayparts 5–6 → dispatch; daypart < 4 → no dispatch |
+| 0x20 | `calendar_phase_flag != 0` → no dispatch; `eval_active_flag == 0` → no dispatch; daypart 0 → 1/12 chance; dayparts 1–2 → dispatch; daypart ≥ 3 → **no dispatch** |
+| 0x21 | daypart ≥ 4 → **force state 0x27 + release service request** (NOT dispatch); daypart 3 → 1/12 chance; dayparts 0–2 → no dispatch |
+| 0x22 | daypart ≥ 4 → force state 0x27 + release request; dayparts 2–3 → dispatch; dayparts 0–1 → no dispatch |
 | 0x23 | (shared with 0x22) |
-| 0x25 | `day_tick > 2300` → state 0x20; else wait |
+| 0x25 | `day_tick > 2300` → force state 0x20; else parked |
 | 0x26 | (shared with 0x25) |
 | 0x27 | (shared with 0x25) |
 
@@ -201,17 +235,20 @@ per-family bound is reached. Next state: `occupant_index == 1` → `0x00` (idle)
 
 #### Gate Table (states < 0x40)
 
-```
-State 0x10: daypart < 5 → dispatch; daypart >= 5 AND day_tick > 2566 → 1/12 chance
-State 0x00: daypart == 0 AND day_tick > 240 → 1/12 chance; daypart 6 → no-op; else → dispatch
-State 0x01: the outbound service selector is based on `resident_index`, not `floor_local_object_id`: selector `1` when `resident_index % 4 == 0`, otherwise selector `2`
-State 0x04: resident_index == 2 → daypart >= 5 → dispatch; else daypart >= 5, day_tick > 2400 OR 1/12 chance
-```
+| State | Gate condition |
+|-------|---------------|
+| 0x10 | daypart < 5 → dispatch; daypart >= 5 AND tick > 2566 → 1/12 chance (`rand() % 12 == 0`); daypart >= 5 AND tick <= 2566 → no dispatch |
+| 0x00 | daypart 0 → 1/12 chance (`rand() % 12 == 0`); daypart 6 → no dispatch; dayparts 1–5 → dispatch |
+| 0x01 | **standard path**: daypart 0 AND tick > 240 → 1/12 chance; daypart 0 AND tick <= 240 → no dispatch; daypart 6 → no dispatch; dayparts 1–5 → dispatch |
+| 0x01 | **calendar path** (`calendar_phase_flag == 1` AND `subtype_index % 4 == 0`): daypart < 4 → no dispatch; daypart 4 → 1/6 chance (`rand() % 6 == 0`); daypart > 4 → force state 0x04 |
+| 0x04 | `resident_index == 2`: daypart >= 5 → dispatch; daypart < 5 → no dispatch |
+| 0x04 | `resident_index != 2`: daypart < 5 → no dispatch; daypart >= 5 AND tick > 2400 → dispatch; daypart >= 5 AND tick <= 2400 → 1/12 chance (`rand() % 12 == 0`) |
+| 0x20 | `pairing_pending_flag == 0` → no dispatch; daypart >= 5 → no dispatch; daypart < 5 → dispatch |
+| 0x21 | `resident_index != 2`: daypart 4 → 1/12 chance; daypart > 4 → dispatch; daypart <= 3 → no dispatch |
+| 0x21 | `resident_index == 2`: daypart 3 → 1/12 chance; daypart > 3 → dispatch; daypart < 3 → no dispatch |
+| 0x22 | daypart >= 3 → dispatch; daypart < 3 → no dispatch |
 
-**State 0x01 SPECIAL PATH** (`calendar_phase_flag == 1` AND `subtype_index % 4 == 0`):
-- daypart < 4 → no action (wait)
-- daypart == 4 → `rand() % 6 == 0` → normal dispatch; else wait
-- daypart > 4 → force state 0x04 (skip trip cycle)
+The outbound service selector is based on `resident_index`, not `floor_local_object_id`: selector `1` when `resident_index % 4 == 0`, otherwise selector `2`.
 
 #### Dispatch Table
 
@@ -257,10 +294,10 @@ Visits commercial venues during the day. Not tied to hotel revenue.
 | 0x62 | (in-transit back) | Delegates to family 0x12/0x1d dispatch |
 | 0x27 | `day_tick >= 2301` → state 0x01 | (parked) |
 
-### Families `0x24`–`0x28` — Cathedral Evaluation Visitors
+### Families `0x24`–`0x28` — Cathedral Guests
 
 Types 0x24–0x28 are the 5 per-floor slices of the cathedral building (bottom to top).
-Each floor hosts 8 runtime entity slots → 5 floors × 8 = 40 evaluation visitors.
+Each floor hosts 8 runtime entity slots → 5 floors × 8 = 40 cathedral guests.
 
 **Daily spawn** (`activate_upper_tower_runtime_group`, checkpoint 0x000):
 when `eval_entity_index >= 0` (cathedral placed) and `star_count > 2`,
@@ -304,6 +341,6 @@ Bomb and fire response use transient helper entities seeded from the shared 10-s
 service-response pool rather than separate always-running placed-object actors.
 These are part of the Security Office (`0x0e`) system, not the recycling center.
 
-Note: family code `0x0f` is also used for the vacancy claimant entity (see above).
+Note: family code `0x0f` is also used for the housekeeping entity (see above).
 The type code and family code namespaces are independent — context determines which
 is meant.

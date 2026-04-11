@@ -230,7 +230,7 @@ export interface GateFlags {
 	routesViable: number;
 	/** Floor index of placed VIP suite; 0xffff = none. */
 	vipSuiteFloor: number;
-	/** Runtime index of evaluation entity; 0xffff = none. */
+	/** Runtime index of cathedral entity; 0xffff = none. */
 	evalEntityIndex: number;
 	/** Number of placed recycling-center upper slices. */
 	recyclingCenterCount: number;
@@ -251,7 +251,7 @@ export function createGateFlags(): GateFlags {
 		recyclingAdequate: 0,
 		routesViable: 0,
 		vipSuiteFloor: 0xffff, // −1: no VIP suite
-		evalEntityIndex: 0xffff, // −1: no evaluation in progress
+		evalEntityIndex: 0xffff, // −1: no cathedral placed
 		recyclingCenterCount: 0,
 		facilityProgressOverride: 0,
 		family345SaleCount: 0,
@@ -297,10 +297,10 @@ export interface EntertainmentLinkRecord {
 	familySelectorOrSingleLinkFlag: number;
 	/** Incremented at 0x0f0 each day; saturates at 0x7f. */
 	linkAgeCounter: number;
-	/** Forward-half attendance budget (seeded at 0x0f0). */
-	forwardBudget: number;
-	/** Reverse-half attendance budget (seeded at 0x0f0). */
-	reverseBudget: number;
+	/** Upper-half attendance budget (seeded at 0x0f0). */
+	upperBudget: number;
+	/** Lower-half attendance budget (seeded at 0x0f0). */
+	lowerBudget: number;
 	/** 0=idle, 1=activated, 2=attendance started, 3=ready. */
 	linkPhaseState: number;
 	/** Reserved flag used by the placement/runtime pipeline. */

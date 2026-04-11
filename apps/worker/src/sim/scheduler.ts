@@ -1,11 +1,11 @@
 import { flushCarriersEndOfDay } from "./carriers";
 import { activateEvalEntities, dispatchEvalMiddayReturn } from "./cathedral";
 import {
-	activateEntertainmentForwardHalf,
-	activateEntertainmentReverseHalf,
-	advanceEntertainmentForwardPhase,
-	advanceEntertainmentReversePhaseAndAccrue,
-	promoteAndActivateSingleReverse,
+	activateEntertainmentLowerHalf,
+	activateEntertainmentUpperHalf,
+	advanceEntertainmentLowerPhaseAndAccrue,
+	advanceEntertainmentUpperPhase,
+	promoteAndActivateSingleLower,
 	seedEntertainmentBudgets,
 } from "./entertainment";
 import {
@@ -36,7 +36,7 @@ export interface SimState {
 // ─── Checkpoint bodies ────────────────────────────────────────────────────────
 
 function checkpointStartOfDay(_s: SimState): void {
-	// Activate cathedral evaluation entities
+	// Activate cathedral guest entities
 	activateEvalEntities(_s.world, _s.time);
 }
 
@@ -52,27 +52,27 @@ function checkpointFacilityLedgerRebuild(s: SimState): void {
 
 function checkpointEntertainmentHalf1(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
-	activateEntertainmentForwardHalf(_s.world);
+	activateEntertainmentUpperHalf(_s.world);
 }
 
 function checkpointHotelSaleReset(_s: SimState): void {
 	_s.world.gateFlags.family345SaleCount = 0;
 	dispatchEvalMiddayReturn(_s.world);
-	promoteAndActivateSingleReverse(_s.world);
+	promoteAndActivateSingleLower(_s.world);
 }
 
 function checkpointEntertainmentHalf2(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
-	activateEntertainmentReverseHalf(_s.world);
+	activateEntertainmentLowerHalf(_s.world);
 }
 
 function checkpointEntertainmentPhase1(_s: SimState): void {
-	advanceEntertainmentForwardPhase(_s.world);
+	advanceEntertainmentUpperPhase(_s.world);
 }
 
 function checkpointMidday(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world);
-	advanceEntertainmentReversePhaseAndAccrue(_s.world, _s.ledger);
+	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
 	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 0);
 }
 

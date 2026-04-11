@@ -101,7 +101,7 @@ export function GameToolbar({
 							title={tool.cost > 0 ? `$${tool.cost.toLocaleString()}` : ""}
 							style={{
 								...styles.toolBtn,
-								borderColor: selectedTool === tool.id ? tool.color : "#444",
+								border: `1px solid ${selectedTool === tool.id ? tool.color : "#444"}`,
 								background:
 									selectedTool === tool.id ? `${tool.color}33` : "transparent",
 								color: selectedTool === tool.id ? tool.color : "#999",

@@ -70,15 +70,17 @@ Runtime actors are not cosmetic. They drive occupancy, commercial visits, entert
 
 ## State Code Convention
 
-Many families follow this pattern:
+Bit 6 (`0x40`) is the in-transit flag. The four bands are:
 
-- `0x0x`: idle or waiting
-- `0x2x`: active local action
-- `0x4x`: traveling
-- `0x6x`: arrived at remote destination
-- `0x27`: parked/night state
+- `0x0x`: idle or waiting (base states)
+- `0x2x`: support/service cycle (base states)
+- `0x4x`: in transit for `0x0x` states (`state | 0x40`)
+- `0x6x`: in transit for `0x2x` states (`state | 0x40`)
+- `0x27`: parked/night state (special terminal)
 
-Not every family uses every value, but this convention is useful across the spec.
+When `state >= 0x40`, the gate handler is bypassed and the dispatch handler
+runs directly. Base state is `state & 0x3f`. See PEOPLE.md for the full
+refresh handler flow.
 
 ## `unit_status`
 

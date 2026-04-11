@@ -46,7 +46,7 @@ import {
 } from "./ledger";
 import { TILE_COSTS, YEN_1001, YEN_1002 } from "./resources";
 import {
-	isFloorSpanWalkableForExpressRoute,
+	isFloorSpanWalkableForHousekeepingRoute,
 	isFloorSpanWalkableForLocalRoute,
 	rebuildTransferGroupCache,
 	selectBestRouteCandidate,
@@ -1466,7 +1466,7 @@ describe("is_floor_span_walkable", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
-		expect(isFloorSpanWalkableForExpressRoute(world, 10, 20)).toBe(false);
+		expect(isFloorSpanWalkableForHousekeepingRoute(world, 10, 20)).toBe(false);
 	});
 });
 
