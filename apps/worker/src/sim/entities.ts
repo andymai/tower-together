@@ -34,6 +34,7 @@ import {
 
 // ─── Floor constants ─────────────────────────────────────────────────────────
 
+/** Internal floor-slot index for the lobby (world floor 0 + UNDERGROUND_FLOORS). */
 export const LOBBY_FLOOR = 10;
 export const EVAL_ZONE_FLOOR = 109; // floor 0x6d
 
@@ -138,10 +139,8 @@ const ELEVATOR_DEMAND_STATES = new Set([
 const INVALID_FLOOR = 0xff;
 const COMMERCIAL_VENUE_DWELL_TICKS = 60;
 const COMMERCIAL_DWELL_STATE = 0x62;
-const CONDO_COMMERCIAL_FAMILIES = new Set([
-	FAMILY_RESTAURANT,
-	FAMILY_FAST_FOOD,
-]);
+const CONDO_SELECTOR_RESTAURANT = new Set([FAMILY_RESTAURANT]);
+const CONDO_SELECTOR_FAST_FOOD = new Set([FAMILY_FAST_FOOD]);
 
 function makeEntity(
 	floorAnchor: number,
@@ -364,10 +363,39 @@ function recomputeObjectOperationalStatus(
 		80, 200,
 	];
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
-	if (object.evalActiveFlag === 0 && object.evalLevel > 0) {
+	if (object.objectTypeCode === FAMILY_OFFICE) {
+		if (object.evalLevel >= 1) {
+			object.evalActiveFlag = 1;
+		} else {
+			object.evalActiveFlag = 0;
+			attemptPairingWithFloorNeighbor(world, entity, object);
+		}
+	} else if (object.evalActiveFlag === 0 && object.evalLevel > 0) {
 		object.evalActiveFlag = 1;
 	}
 	object.needsRefreshFlag = 1;
+}
+
+function attemptPairingWithFloorNeighbor(
+	world: WorldState,
+	entity: EntityRecord,
+	object: PlacedObjectRecord,
+): void {
+	const y = GRID_HEIGHT - 1 - entity.floorAnchor;
+	for (const [key, candidate] of Object.entries(world.placedObjects)) {
+		if (candidate === object) continue;
+		if (candidate.objectTypeCode !== object.objectTypeCode) continue;
+		const [, cy] = key.split(",").map(Number);
+		if (cy !== y) continue;
+		if (candidate.evalLevel !== 2) continue;
+		object.evalLevel = 1;
+		object.evalActiveFlag = 1;
+		candidate.evalLevel = 1;
+		candidate.evalActiveFlag = 1;
+		object.needsRefreshFlag = 1;
+		candidate.needsRefreshFlag = 1;
+		return;
+	}
 }
 
 function recomputeRoutesViableFlag(world: WorldState, time: TimeState): void {
@@ -842,7 +870,10 @@ function processCondoEntity(
 	if (finishCommercialVenueDwell(entity, time, STATE_ACTIVE)) return;
 	if (entity.stateCode === STATE_ACTIVE) {
 		dispatchCommercialVenueVisit(world, time, entity, {
-			venueFamilies: CONDO_COMMERCIAL_FAMILIES,
+			venueFamilies:
+				entity.baseOffset % 4 === 0
+					? CONDO_SELECTOR_RESTAURANT
+					: CONDO_SELECTOR_FAST_FOOD,
 			returnState: STATE_ACTIVE,
 			successStressDelta: 10,
 			failureStressDelta: 7,
@@ -888,6 +919,46 @@ export function rebuild_runtime_entities(world: WorldState): void {
 	}
 
 	world.entities = next;
+}
+
+export function cleanup_entities_for_removed_tile(
+	world: WorldState,
+	anchorX: number,
+	y: number,
+): void {
+	const floorAnchor = yToFloor(y);
+	const removedIds = new Set<string>();
+
+	for (const entity of world.entities) {
+		if (entity.subtypeIndex !== anchorX || entity.floorAnchor !== floorAnchor) {
+			continue;
+		}
+		clear_entity_route(entity);
+		entity.destinationFloor = -1;
+		removedIds.add(entityKey(entity));
+	}
+
+	if (removedIds.size === 0) return;
+
+	for (const carrier of world.carriers) {
+		carrier.pendingRoutes = carrier.pendingRoutes.filter(
+			(route) => !removedIds.has(route.entityId),
+		);
+		for (const car of carrier.cars) {
+			for (const slot of car.activeRouteSlots) {
+				if (!slot.active) continue;
+				if (!removedIds.has(slot.routeId)) continue;
+				slot.active = false;
+				slot.routeId = "";
+				slot.sourceFloor = 0xff;
+				slot.destinationFloor = 0xff;
+				slot.boarded = false;
+			}
+			car.pendingRouteIds = car.pendingRouteIds.filter(
+				(id) => !removedIds.has(id),
+			);
+		}
+	}
 }
 
 export function reset_entity_runtime_state(world: WorldState): void {

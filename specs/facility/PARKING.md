@@ -48,7 +48,21 @@ Parking-space objects have no coverage byte set at placement. The coverage byte 
 
 ### Demand Families
 
-Parking demand is emitted by family `0x0b` parking spaces (and type-code variants `0x18`/`0x19`/`0x1a`). Consumers that route to parking include hotel suites (family `0x05`) and condos (family `0x09`). Office workers (family `0x07`) may also generate parking demand at higher star levels.
+Parking demand is emitted by family `0x0b` parking spaces (and type-code variants `0x18`/`0x19`/`0x1a`). Consumers that route to parking include hotel suites (family `0x05`), condos (family `0x09`), and office workers (family `0x07`).
+
+Binary-backed confirmation:
+
+- parking-space emitters populate the service-request table at `0xc1cc`/`0xc1ce` through `allocate_service_request_entry` during `recompute_object_runtime_links_by_type` (type/family `0x0b`)
+- the random picker `select_random_service_request_entry` (`11a0:0621`) selects from this table; returns `0xffff` when the table is empty
+- `assign_service_venue_to_entity` (`11a0:031a`) is the shared assignment function that calls the picker; it serves both hotel suite guests (family `0x05`) and office workers (family `0x07`)
+- `check_service_venue_assignment_eligibility` (`11a0:06e7`) gates entry:
+  - family `0x05` (hotel suite): any non-zero entity state word
+  - family `0x07` (office): `(floor + slot) % 4 == 1` AND entity state word == 2
+  - requires star level > 2 (`g_bc40 > 2`)
+- on assignment failure, `display_status_bar_notification(5)` shows "Office workers demand Parking" via NE custom resource type `0xff06`, ID 1010, string index 5
+- the notification string was previously reported as orphaned; the "zero xrefs" was a false negative because Ghidra's static xref analysis cannot trace Windows `FindResource`/`LoadResource` API loads for custom resource types
+
+Note: offices are **consumers** of parking demand, not producers. They do not call `allocate_service_request_entry`. Parking spaces populate the service-request table; office workers pull from it.
 
 ## Demand History
 
@@ -74,9 +88,14 @@ Recovered rebuild rules:
 - stale entries are actively invalidated during the rebuild
 - valid entries are appended only when the owning parking-space object's coverage flag is not `1`
 
+The queue/log helpers themselves are shared:
+
+- `select_random_service_request_entry` (`11a0:0621`) is the random picker over the current `0xc1cc`/`0xc1ce` log
+- `assign_service_venue_to_entity` (`11a0:031a`) calls that picker for both hotel suite guests (family `0x05`) and office workers (family `0x07`)
+
 Random selection:
 
-- `pick_random_demand_log_entry` returns `log[abs(rng()) % count]`
+- `select_random_service_request_entry` returns `log[abs(rng()) % count]`
 - returns `0xffff` when the log is empty
 
 Summary table:

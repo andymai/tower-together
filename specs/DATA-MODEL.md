@@ -12,6 +12,16 @@ This document defines shared state and terminology used across the simulation sp
 
 Each placed object is addressed by `(floor_index, subtype_index)`, where `subtype_index` is that floor's object-slot index.
 
+## Binary-Facing Floor Slots
+
+Some recovered binary notes use the executable's internal floor-slot numbering rather than world-floor numbering.
+
+- internal floor slot = `world_floor + 10`
+- world floor `0` (lobby) = internal floor slot `10`
+- world floor `109` = internal floor slot `119`
+
+When a spec mentions values like lobby floor `10`, that is an internal slot reference, not a contradiction of the world-floor model above.
+
 ## Type Namespaces
 
 Two type namespaces exist:

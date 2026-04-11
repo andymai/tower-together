@@ -1,10 +1,16 @@
 import { rebuild_carrier_list } from "./carriers";
-import { rebuild_runtime_entities } from "./entities";
+import {
+	cleanup_entities_for_removed_tile,
+	rebuild_runtime_entities,
+} from "./entities";
 import { type LedgerState, rebuild_facility_ledger } from "./ledger";
 import {
 	FAMILY_CONDO,
+	FAMILY_FAST_FOOD,
+	FAMILY_HOUSEKEEPING,
 	FAMILY_METRO,
 	FAMILY_OFFICE,
+	FAMILY_RETAIL,
 	FAMILY_SECURITY,
 	LEGACY_VIP_TILE_TO_STANDARD,
 	TILE_COSTS,
@@ -26,6 +32,7 @@ import {
 	type ServiceRequestEntry,
 	UNDERGROUND_Y,
 	type WorldState,
+	yToFloor,
 } from "./world";
 
 // ─── Patch type ───────────────────────────────────────────────────────────────
@@ -58,7 +65,7 @@ export type SimCommand =
 const INFRASTRUCTURE_TILES = new Set(["floor", "lobby", "stairs"]);
 
 // Families whose rentLevel initialises to 1; all others initialise to 4 (no payout).
-const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, 10]);
+const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, FAMILY_RETAIL]);
 
 // ─── PlacedObjectRecord helpers ───────────────────────────────────────────────
 
@@ -419,6 +426,40 @@ export function handle_place_tile(
 		}
 	}
 
+	// Service stack proximity: security/housekeeping must overlap an existing
+	// 0x14/0x15 stack within the recovered search band (anchor-2 .. anchor+1).
+	const familyCode = TILE_TO_FAMILY_CODE[normalizedTileType] ?? 0;
+	if (familyCode === FAMILY_SECURITY || familyCode === FAMILY_HOUSEKEEPING) {
+		const proposedFloor = yToFloor(y);
+		let hasExisting = false;
+		let overlaps = false;
+		for (const [key, obj] of Object.entries(world.placedObjects)) {
+			if (
+				obj.objectTypeCode !== FAMILY_SECURITY &&
+				obj.objectTypeCode !== FAMILY_HOUSEKEEPING
+			) {
+				continue;
+			}
+			hasExisting = true;
+			const [, oy] = key.split(",").map(Number);
+			const existingFloor = yToFloor(oy);
+			if (
+				proposedFloor >= existingFloor - 2 &&
+				proposedFloor <= existingFloor + 1
+			) {
+				overlaps = true;
+				break;
+			}
+		}
+		if (hasExisting && !overlaps) {
+			return {
+				accepted: false,
+				reason:
+					"Service facility must be placed near an existing security or housekeeping stack",
+			};
+		}
+	}
+
 	// Apply placement
 	for (const key of floorToRemove) delete world.cells[key];
 	world.cells[`${x},${y}`] = normalizedTileType;
@@ -535,6 +576,8 @@ export function handle_remove_tile(
 		delete world.placedObjects[anchorKey];
 	}
 
+	cleanup_entities_for_removed_tile(world, ax, ay);
+
 	const patch: CellPatch[] = [];
 	for (let dx = 0; dx < tileWidth; dx++) {
 		const resultType = turnToFloor ? "floor" : "empty";
@@ -552,7 +595,16 @@ export function handle_remove_tile(
 // ─── Rent level adjustment ────────────────────────────────────────────────────
 
 /** Families that support rent level changes (rent_level 0-3). */
-const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 6, 7, 9, 10, 12]);
+const RENT_ADJUSTABLE_FAMILIES = new Set([
+	3,
+	4,
+	5,
+	6,
+	7,
+	9,
+	FAMILY_RETAIL,
+	FAMILY_FAST_FOOD,
+]);
 
 export function handle_set_rent_level(
 	x: number,

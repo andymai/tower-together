@@ -90,14 +90,19 @@ Accepted support families:
 
 | Requester | Accepts support from |
 |---|---|
-| hotel rooms (3/4/5) | fast food (6), office (7), restaurant (10), retail (12), entertainment |
-| office (7) | fast food (6), restaurant (10), retail (12), entertainment |
-| condo (9) | hotel rooms (3/4/5), fast food (6), office (7), restaurant (10), retail (12), entertainment |
+| hotel rooms (3/4/5) | restaurant (6), office (7), retail (10), fast food (12), entertainment |
+| office (7) | restaurant (6), retail (10), fast food (12), entertainment |
+| condo (9) | hotel rooms (3/4/5), restaurant (6), office (7), retail (10), fast food (12), entertainment |
 
 Notable exclusions: hotels do **not** accept condos or other hotels as support. Offices
 do **not** accept hotels or other offices. Commercial families (6, 10, 12) do not
 participate in the support scoring pipeline — they use a separate commercial readiness
 system with `apply_service_variant_modifier_to_score` (`1138:06b9`).
+
+Binary evidence:
+
+- `map_neighbor_family_to_support_match` (`1140:01b8`) accepts raw family codes `0x06`, `0x0a`, and `0x0c` directly, with entertainment grouped separately
+- build/type tables and recovered resource labels identify those codes as restaurant `0x06`, retail `0x0a`, and fast food `0x0c`
 
 ## Thresholds By Star Rating
 

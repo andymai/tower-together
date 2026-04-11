@@ -43,6 +43,16 @@ Deactivated offices:
 - clear activation tick count
 - stop contributing recurring cashflow
 
+Operational status and pairing:
+
+- office readiness is recomputed by the shared `recompute_object_operational_status` path used by families `7`, `9`, and `10`
+- the recomputed `pairing_state` byte is a 3-level operational grade, not just a boolean paired/unpaired flag:
+  - `0`: unpaired / failed readiness
+  - `1`: operational but only in the lower passing band
+  - `2`: strong readiness, waiting to pair with another same-family unit on the floor
+- the companion `pairing_active_flag` latches whether the office has entered a successful operational pairing and is used by the vacancy-expiry path
+- the score thresholds feeding `pairing_state` are star-rating dependent shared thresholds, so office operational grade tightens as the tower star rating rises
+
 Exact open/closed bands:
 
 - `0x00..0x0f`: open / active
@@ -61,7 +71,10 @@ Deactivation trigger:
 - if `eval_level == 0` and the office is still in the active band, deactivation clears `eval_active_flag`
 - deactivation resets `activation_tick_count`
 - deactivation subtracts the office's recurring contribution from cash and removes `6` from the population ledger
-- after a deactivation, the same-floor scan (`attempt_pairing_with_floor_neighbor`) may immediately re-pair it with an "A-rated neighbor" — a same-floor, same-family slot with `pairing_state == 2` (waiting/advertised). Re-pairing promotes both to `pairing_state == 1` (the "stable band" = active paired open state). `pairing_state` values: `0` = unpaired/closed, `1` = active pair, `2` = waiting for partner
+- after a deactivation, the same-floor scan (`attempt_pairing_with_floor_neighbor`) may immediately re-pair it with a same-floor, same-family slot whose `pairing_state == 2`
+- a successful match promotes both offices to `pairing_state == 1`, sets `pairing_active_flag`, and refreshes the office span
+- if `pairing_state >= 1` when the pairing helper runs, the helper does not search; it just asserts `pairing_active_flag` and refreshes
+- this pairing logic is shared with families `9` and `10`, but for offices it affects the recurring activation/deactivation economy path, not the worker trip-state routing
 
 ## Worker Loop
 
@@ -103,3 +116,12 @@ Recovered dispatch table:
 - `0x23` / `0x63`: enforce the 16-tick dwell, then route to the saved target; on same-floor arrival the next state is `0x00` for `base_offset == 1`, otherwise `0x05`
 
 The office workers use the same shared service-request entry mechanism as hotel guests.
+
+## Binary Notes
+
+Recovered evidence used for this spec section:
+
+- `recompute_object_operational_status` (`0x11380704`) writes `pairing_state` from the computed operational score using the shared thresholds: `< threshold_1 -> 2`, `< threshold_2 -> 1`, otherwise `0`
+- `attempt_pairing_with_floor_neighbor` (`0x11380f79`) shows the same-floor same-family scan for a neighbor with `pairing_state == 2`, then promotes both slots to `1` and sets `pairing_active_flag`
+- `deactivate_family_cashflow_if_unpaired` (`0x11380a00`) shows that office deactivation happens only on the `pairing_state == 0` path, after which the same-floor pairing scan may immediately relink the office
+- `activate_family_cashflow_if_operational` (`0x11380bad`) shows the shared activation gate for families `7`, `9`, and `10`; office worker routing does not branch on `pairing_state`

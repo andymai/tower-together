@@ -47,6 +47,15 @@ Typical loop:
 4. arrival hands control back to the family handler
 5. family either continues the trip, begins an activity, or parks
 
+## Floor References In Binary Notes
+
+Some binary-facing analyses use internal floor-slot indices instead of world-floor indices.
+
+- internal floor slot = `world_floor + 10`
+- lobby world floor `0` = internal slot `10`
+
+Unless a note explicitly says otherwise, this document uses world floors for gameplay-facing descriptions.
+
 ## Shared Occupant Staggering
 
 Multi-occupant facilities do not move all occupants identically. `base_offset` is used to stagger:
@@ -125,7 +134,7 @@ family-0x0f` uses other family-specific countdown state instead of repurposing t
 | 2 | **Pending countdown**: if `[+0xa] != 0` → decrement, return. If 0 → `flag_selected_unit_unavailable`, state 0 |
 
 Vacant-room search scope: rentable units (families 3/4/5) in the same modulo-6 floor
-group (`floor / 6`). Claim writes guest entity ref into the room's ServiceRequestEntry
+remainder class (`floor % 6`). Claim writes guest entity ref into the room's ServiceRequestEntry
 sidecar, sets `room.unit_status = rand(2..14)`, sets `room[+0x13] = 1` (occupied).
 
 ### Families `3`, `4`, `5` — Hotel Room Occupants
@@ -152,7 +161,7 @@ Lifecycle: check-in → venue trips → sibling sync → checkout → vacancy.
 | 0x20/0x60 | Route to hotel room. If 0x20: `assign_hotel_room` first (sets `unit_status = rand(2..14)`, encodes target floor). If `unit_status > 0x17` and no route-block: state → 0x26 | 0/1/2 → 0x60; 3 → `activate_family_345_unit` + `increment_unit_status` → 0x01 or 0x04; fail → clear/reset |
 | 0x01/0x41 | Call `decrement_unit_status_345`. Route to commercial venue | 0/1/2 → 0x41; 3 → 0x22; fail → `increment_unit_status` → 0x04 |
 | 0x22/0x62 | Release venue slot, route back | 0/1/2 → 0x62; 3 → `increment_unit_status` → 0x04; fail → 0x04 |
-| 0x04 | Sibling sync: state → 0x10. `sync_unit_status_if_all_siblings_ready_345`: family 3 → unconditional; family 4/5 → if `unit_status & 7 == 1` OR sibling at 0x10 → write `unit_status = 0x10` | |
+| 0x04 | Sibling sync: state → 0x10. `sync_unit_status_if_all_siblings_ready_345`: family 3 shortcut when `unit_status & 7 == 1`; otherwise the helper requires the sibling set to be ready before writing `unit_status = 0x10` | |
 | 0x10 | If `unit_status == 0x10`: family 3 → `unit_status = 1`; family 4/5 → `unit_status = 2`. State → 0x05 | |
 | 0x05/0x45 | `decrement_unit_status_345`. If `unit_status & 7 == 0`: checkout (set `unit_status = 0x28`/`0x30`, clear occupancy, credit income, increment sale count). Route to lobby | 0/1/2 → 0x45; 3 → 0x20 (reset); fail → 0x20 if vacant, else increment |
 
@@ -183,12 +192,12 @@ dirty, adds to population ledger (+1/+2/+2 for families 3/4/5).
 
 | States | Operation | Route outcomes |
 |--------|-----------|----------------|
-| 0x00/0x40 | Route from floor 10 → assigned floor | 0–2 → 0x40; 3 → 0x21; fail → 0x26 |
+| 0x00/0x40 | Route from lobby to assigned floor. Binary-facing notes may call the lobby `10`, which is internal floor slot `10` = world floor `0` | 0–2 → 0x40; 3 → 0x21; fail → 0x26 |
 | 0x01/0x41 | `route_entity_to_commercial_venue(2, ...)` | fail → 0x26 + release request |
 | 0x02/0x42 | Continue venue transit, resolve route to venue floor | 0–2 → 0x42; 3 → `try_claim_office_slot`: claimed → 0x23, busy → 0x42, none → 0x41 |
-| 0x05/0x45 | Route from assigned floor to lobby (floor 10) | 0–2 → 0x45; fail → 0x26 |
-| 0x20/0x60 | If 0x20: `assign_hotel_room` then route to assigned floor. If 0x60: continue | 0–2 → 0x40; 3 → 0x21 |
-| 0x21/0x61 | Route to floor 10 (0x21) or saved floor (0x61) | 0–2 → 0x61; 3 → `advance_unit_status_or_wrap` |
+| 0x05/0x45 | Route from assigned floor back to lobby | 0–2 → 0x45; fail → 0x26 |
+| 0x20/0x60 | If `0x20`: request selector-2 service for the current entity, then route to the assigned floor. If `0x60`: continue the in-transit leg | 0–2 → 0x40; 3 → 0x21 |
+| 0x21/0x61 | Route to lobby (0x21) or saved floor (0x61) | 0–2 → 0x61; 3 → `advance_unit_status_or_wrap` |
 | 0x22/0x62 | Release venue slot, route home | 0–2 → 0x62; 3 → `advance_unit_status_or_wrap`; fail → failure |
 | 0x23/0x63 | Enforce 16-tick venue dwell, then route to saved target | 0–2 → 0x63; 3 → `advance_unit_status_or_wrap`; if `base_offset == 1` → 0x00 else → 0x05 |
 
@@ -204,7 +213,7 @@ per-family bound is reached. Next state: `base_offset == 1` → 0x00 (idle); els
 ```
 State 0x10: daypart < 5 → dispatch; daypart >= 5 AND day_tick > 0xa06 → 1/12 chance
 State 0x00: daypart == 0 AND day_tick > 0xf0 → 1/12 chance; daypart 6 → no-op; else → dispatch
-State 0x01: if calendar_phase_flag == 1 AND subtype_index % 4 == 0 → SPECIAL PATH; else same as 0x00
+State 0x01: the outbound service selector is based on `base_offset`, not `subtype_index`: selector `1` when `base_offset % 4 == 0`, otherwise selector `2`
 State 0x04: base_offset == 2 → daypart >= 5 → dispatch; else daypart >= 5, day_tick > 0x960 OR 1/12 chance
 ```
 
@@ -220,9 +229,14 @@ State 0x04: base_offset == 2 → daypart >= 5 → dispatch; else daypart >= 5, d
 | 0x10 | If `unit_status == 0x10`: rewrite to 3, mark dirty. If `calendar_phase_flag == 1`: odd subtype → INC unit_status → 0x04; even → 0x01. Else: `base_offset == 1` → 0x01; else → 0x00 | |
 | 0x01/0x41 | If 0x01: DEC unit_status. Choose venue selector by calendar phase + subtype parity. Route to commercial venue | fail → INC unit_status → 0x04; else → 0x41 |
 | 0x20/0x60 | Route to commercial venue. **SALE POINT**: if `unit_status >= 0x18` and route succeeds → `activate_commercial_tenant_cashflow` (credit sale, reset unit_status to 0/8, +3 ledger) | fail + unsold → 0x20; fail + sold → INC → 0x04; success + unsold → 0x60 (SALE); arrived → 0x04 |
-| 0x21/0x61 | Route to floor 10 / saved floor | 0–2 → 0x61; fail or arrived → INC unit_status → 0x04 |
+| 0x21/0x61 | Route to lobby / saved floor | 0–2 → 0x61; fail or arrived → INC unit_status → 0x04 |
 | 0x22/0x62 | Release venue, route home | fail/arrived → INC → 0x04 |
 | 0x04 | State → 0x10. `try_set_parent_state_in_transit_if_all_slots_transit`: if `unit_status & 7 == 1` → shortcut `unit_status = 0x10`; else check all 3 siblings at 0x10 | |
+
+Trip-cycle selector note:
+
+- `dispatch_object_family_9_state_handler` sets the commercial selector with `base_offset % 4 == 0 ? 1 : 2`
+- with the recovered 3-occupant condo pattern, this yields restaurant / fast-food / fast-food across the three occupants
 
 Trip counter net effect per morning cycle: even tiles DEC, odd tile INC → net −1.
 After ~2 cycles from 3, unit_status reaches 1 → sync shortcut → back to 0x10.

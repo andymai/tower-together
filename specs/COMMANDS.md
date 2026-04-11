@@ -54,6 +54,9 @@ Recovered family-specific floor and stack rules:
 
 - security office is basement-only
 - office is above-grade only
+- the paired security/housekeeping two-floor service stack uses an extra overlap validator:
+  - if no live `0x14/0x15` service-stack infrastructure exists yet, the first stack is allowed immediately
+  - otherwise the proposed stack must overlap an existing live `0x14/0x15` stack within the recovered search band of floors `anchor - 2` through `anchor + 1`
 - metro station placement is a 3-floor stack and is accepted only on floors `-8..-1` with the required floor-class descriptor present
 - cathedral/evaluation placement is a 5-floor stack rooted at floor `103`
 - evaluation entities occupy floors `99..109`
@@ -97,7 +100,7 @@ Recovered placement constraints:
 - parking-ramp placement uses its own column-9 constraint path
 - stairs and escalators use dedicated top-footprint, bottom-footprint, and width validators
 - elevator-editor placement enforces a minimum 6-tile gap from standard elevators and 4-tile gap from non-standard carriers, with additional side-clearance checks
-- drag-family preview/commit acceptance still has some UI-layer details that remain partially recovered
+- drag-family preview/commit acceptance still has some UI-layer details that remain partially recovered, but the sim-level placement legality for parking spaces, parking ramps, drag-span floor/lobby families, and special links is now mostly pinned down
 
 Recovered dispatch-level build errors:
 
@@ -133,14 +136,20 @@ Recovered headless rule:
 2. reject non-removable families
 3. run the unified teardown path
 4. run the global rebuild sweep
-5. allow the next normal reset/checkpoint sweep to normalize any stale runtime entities that still referenced the removed object
+5. allow later normal reset/checkpoint sweeps to normalize any broader derived state not handled by the immediate teardown helpers
 
 Recovered teardown notes:
 
 - No cash refund is given for demolition.
 - The teardown primitive performs family-specific ledger and sidecar cleanup, but global rebuilds are the responsibility of the command/event caller.
 - A conservative faithful implementation may run the full rebuild sweep after any player demolition, even where the original caller may have used a smaller per-family subset.
-- Runtime entities and in-flight requests anchored at the removed object are not confirmed to be synchronously culled inside teardown; the clean-room rule should therefore preserve them until the normal reset sweep clears or rewrites them.
+- Runtime cleanup is partly synchronous inside teardown:
+  - `delete_placed_object_and_release_sidecars` first calls `update_entity_tile_span(..., 1)` for most removable families
+  - `update_entity_tile_span(..., 1)` walks the removed object's runtime span and calls `finalize_runtime_route_state` for entities with active route state
+  - the same helper clears per-entity runtime bytes `+4` and `+6` for the removed span and removes matching entries from the active-request table via `remove_active_request_entry`
+  - for hotel/condo-type spans it also calls `release_service_request_entry`
+  - for office spans it calls `release_service_request_entry` while walking the office runtime records
+- So the faithful rule is not "leave all in-flight state untouched until next reset". The removed object's directly anchored runtime/request state is cleaned up immediately, while broader cache normalization still relies on the caller rebuilds and later scheduler checkpoints.
 
 Recovered non-removable families:
 
@@ -163,6 +172,8 @@ Recovered per-family teardown effects:
 - parking-space emitters invalidate the corresponding demand-history entry
 - parking ramps force a parking coverage and demand-history rebuild
 - carrier edits and demolition rebuild transfer-group and route-reachability caches immediately
+- hotel/condo spans synchronously finalize route state, clear active-request entries, and release attached service-request backlinks through `update_entity_tile_span(..., 1)`
+- office spans synchronously finalize route state and release attached service-request backlinks through `update_entity_tile_span(..., 1)`
 
 Demolition confirmation prompts are known for some carrier edits:
 

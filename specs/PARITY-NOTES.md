@@ -11,7 +11,7 @@ This document tracks the remaining gaps that could affect exact replay parity or
 
 - exact editor-side behavior for elevator schedule editing
 - exact prompt/notification sequencing in all edge cases
-- some demolish-time interaction semantics when actors are already in flight
+- some demolish-time post-cancellation behavior when actors were already in flight
 
 ## Tier 3: Cosmetic Gaps
 

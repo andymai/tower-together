@@ -4,7 +4,14 @@ This document covers helper-style families and hotel guest behavior.
 
 ## Family `0x0f`
 
-This family is a helper that targets hotel rooms rather than behaving like a hotel occupant. Maximum 10 entities, allocated from a 10-slot table. Spawned when security office or housekeeping room is placed. Persists across save/load via the runtime entity table.
+This family is a helper that targets hotel rooms rather than behaving like a hotel occupant.
+
+Binary clarification:
+
+- raw placed-object family/type `0x0f` (Housekeeping) initializes its runtime entities through `initialize_runtime_entities_for_type_0f` -> `initialize_runtime_entities_for_object_span`, so the room-claim helper is object-span-backed rather than allocated from the shared 10-slot event-response pool
+- the separate shared 10-slot helper pool belongs to bomb/fire service-response handling and also uses family code `0x0f` at runtime
+
+These are related runtime handlers, but they are not the same allocation path.
 
 Behavior:
 

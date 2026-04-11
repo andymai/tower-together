@@ -54,9 +54,17 @@ Condo readiness uses the shared thresholds but has its own support radius and oc
 
 ## 3-Occupant Stagger Pattern
 
-Condo occupants are indexed by `subtype_index` (0, 1, 2) within the 3-tile span. On each morning dispatch cycle:
-- even `subtype_index` (0, 2): `decrement_stay_phase_9` fires → `unit_status -= 1`
-- odd `subtype_index` (1): `increment_stay_phase_9` fires → `unit_status += 1`
+Condo occupants are staggered by `base_offset` within the 3-tile runtime span.
+
+Recovered binary-facing rules:
+
+- outbound selector uses `base_offset % 4 == 0 ? 1 : 2`
+- with the normal 3-occupant condo span, that yields one selector-1 occupant and two selector-2 occupants
+- the stay-phase stagger is still parity-based across the three occupants: two advance, one bounces, for a net `-1` step per full cycle
+
+Operationally, this behaves as:
+- even-position occupants advance (`unit_status -= 1`)
+- the middle staggered occupant bounces (`unit_status += 1`)
 
 Net effect per full cycle: 2 decrements + 1 increment = net -1 step of progress toward checkout. The middle occupant bounces while the outer ones advance.
 
@@ -82,4 +90,4 @@ Trip-cycle timing:
 Calendar-phase stagger:
 
 - the state `0x20` (outbound trip) dispatch path is gated by `calendar_phase_flag`
-- when `g_calendar_phase_flag == 1` (every 3rd day in a 12-day cycle: days 2, 5, 8, 11), odd-subtype occupants (`subtype_index % 2 != 0`) skip the decrement and instead increment (bounce), delaying the cycle by one step that day
+- when `g_calendar_phase_flag == 1` (every 3rd day in a 12-day cycle: days 2, 5, 8, 11), the staggered "middle" occupant takes the bounce path instead of the advancing path, delaying the cycle by one step that day
