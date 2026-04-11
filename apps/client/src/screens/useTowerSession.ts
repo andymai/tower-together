@@ -144,7 +144,8 @@ export function useTowerSession({
 					setCash(msg.cash);
 					break;
 				case "notification":
-					if (msg.message) addToast(msg.message, "info");
+					// Keep server-side notifications flowing for protocol parity, but
+					// do not surface them as toasts in the client UI.
 					break;
 				case "prompt":
 					setActivePrompt({
