@@ -221,7 +221,7 @@ Gate address: `1228:2aec`, jump table at `1228:2d92`.
 | | daypart < 4 | no dispatch |
 | **0x22** | daypart >= 4 | always dispatch |
 | | daypart < 4 | no dispatch |
-| **0x26** | tick > 2300 | force state → 0x24 (if `last_sample_tick == 0`) or 0x20 (if != 0) |
+| **0x26** | tick > 2300 | force state → 0x24 (if `last_trip_tick == 0`) or 0x20 (if != 0) |
 | | otherwise | parked |
 
 ### Dispatch Table

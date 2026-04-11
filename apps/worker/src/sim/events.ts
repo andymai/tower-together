@@ -185,7 +185,7 @@ export function tryTriggerBombEvent(
 	// Guard: star 2, 3, or 4 only
 	if (time.starCount < 2 || time.starCount > 4) return;
 
-	const lobbyHeight = 1; // g_lobby_height default
+	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
 	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
 	// Select floor via contiguous-live-floor scan
@@ -381,7 +381,7 @@ export function tryTriggerFireEvent(
 	)
 		return;
 
-	const lobbyHeight = 1;
+	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
 	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
 	// Select floor via contiguous-live-floor scan

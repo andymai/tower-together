@@ -68,6 +68,7 @@ export function createInitialSnapshot(
 			name,
 			width: GRID_WIDTH,
 			height: GRID_HEIGHT,
+			lobbyHeight: 1,
 			gateFlags: createGateFlags(),
 			cells: {},
 			cellToAnchor: {},
@@ -152,6 +153,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			name: old.name as string,
 			width: (old.width as number) ?? GRID_WIDTH,
 			height: (old.height as number) ?? GRID_HEIGHT,
+			lobbyHeight: (old.lobbyHeight as number) ?? 1,
 			gateFlags: createGateFlags(),
 			cells: (old.cells as Record<string, string>) ?? {},
 			cellToAnchor: (old.cellToAnchor as Record<string, string>) ?? {},
@@ -230,6 +232,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	if (snapshot.world.height < GRID_HEIGHT) snapshot.world.height = GRID_HEIGHT;
 	if (!snapshot.world.width || snapshot.world.width < GRID_WIDTH)
 		snapshot.world.width = GRID_WIDTH;
+	snapshot.world.lobbyHeight ??= 1;
 	snapshot.world.placedObjects ??= {};
 	snapshot.world.sidecars ??= [];
 	snapshot.world.entities ??= [];
@@ -424,6 +427,7 @@ export function serializeSimState(
 			name: world.name,
 			width: world.width,
 			height: world.height,
+			lobbyHeight: world.lobbyHeight,
 			gateFlags: { ...world.gateFlags },
 			cells: { ...world.cells },
 			cellToAnchor: { ...world.cellToAnchor },

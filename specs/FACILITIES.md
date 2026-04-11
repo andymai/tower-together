@@ -25,13 +25,13 @@ caller. Early-exit guards per family:
 
 The shared scoring pipeline is:
 
-1. compute a per-sim stress metric as `accumulated_elapsed / sample_count`,
-   returning `0` when `sample_count == 0`. This is the **average elapsed ticks
+1. compute a per-sim stress metric as `accumulated_elapsed / trip_count`,
+   returning `0` when `trip_count == 0`. This is the **average elapsed ticks
    per service visit** — the sim's stress level. A sim that spends 200 ticks
    per trip scores 200; one that spends 50 scores 50. Higher score = more
    stressed = worse evaluation. See PEOPLE.md "Stress / Demand Pipeline" for how
-   `accumulated_elapsed` and `sample_count` are maintained.
-2. average that metric across the facility's population:
+   `accumulated_elapsed` and `trip_count` are maintained.
+2. average that metric across the family's population (number of sims):
    - family 3 (single room): 1
    - family 4 (twin room): 2
    - family 5 (suite): 2
@@ -52,7 +52,7 @@ The shared scoring pipeline is:
 ### Demand Pipeline (Per-Entity Runtime Counters)
 
 The full demand/stress pipeline is documented in PEOPLE.md "Stress / Demand Pipeline".
-The per-tile metric used here is `accumulated_elapsed / sample_count` — the average
+The per-sim metric used here is `accumulated_elapsed / trip_count` — the average
 elapsed ticks per service visit. The 300-tick clamp on each sample prevents any single
 long transit from dominating the running average.
 
@@ -79,6 +79,10 @@ Accepted support families:
 | hotel rooms (3/4/5) | restaurant (6), office (7), retail (10), fast food (12), entertainment |
 | office (7) | restaurant (6), retail (10), fast food (12), entertainment |
 | condo (9) | hotel rooms (3/4/5), restaurant (6), office (7), retail (10), fast food (12), entertainment |
+
+Note: the commercial families as support providers are restaurant (6), retail (10),
+and fast food (12). See `facility/COMMERCIAL.md` for the authoritative family-to-name
+mapping.
 
 Notable exclusions: hotels do **not** accept condos or other hotels as support. Offices
 do **not** accept hotels or other offices. Commercial families (6, 10, 12) do not
@@ -125,10 +129,10 @@ forward-only.
 
 ## Commercial Readiness
 
-Commercial families (fast food 6, restaurant 10, retail 12) use a separate readiness
+Commercial families (restaurant 6, retail 10, fast food 12) use a separate readiness
 model based on customer count from the commercial-venue sidecar record. Thresholds are stored in per-family threshold slots.
 
-Restaurant (family 10) thresholds are adjusted by `apply_service_variant_modifier_to_score`,
+Retail (family 10) thresholds are adjusted by `apply_service_variant_modifier_to_score`,
 which applies a smaller rent_level-based modifier:
 
 - rent_level `0`: `+5`
@@ -136,7 +140,7 @@ which applies a smaller rent_level-based modifier:
 - rent_level `2`: `-5`
 - rent_level `3`: `-12`
 
-Fast food (6) and retail (12) use fixed thresholds without rent_level adjustment.
+Restaurant (6) and fast food (12) use fixed thresholds without rent_level adjustment.
 
 ## Warning State
 

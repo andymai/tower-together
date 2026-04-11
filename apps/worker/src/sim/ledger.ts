@@ -90,7 +90,7 @@ export function doExpenseSweep(
 	const parkingRate = PARKING_EXPENSE_RATE_BY_STAR[Math.min(starCount, 5)] ?? 0;
 
 	const lobbyFloor = UNDERGROUND_FLOORS; // internal floor index of ground lobby
-	const lobbyHeight = 1; // g_lobby_height default
+	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
 
 	for (const [key, obj] of Object.entries(world.placedObjects)) {
 		const code = obj.objectTypeCode;

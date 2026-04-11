@@ -391,13 +391,6 @@ function scoreHousekeepingRouteSegment(
 	return Math.abs(toFloor - fromFloor) * 8 + STAIRS_ROUTE_EXTRA_COST;
 }
 
-function distanceMismatchPenalty(heightMetricDelta: number): number {
-	const absDelta = Math.abs(heightMetricDelta);
-	if (absDelta >= 125) return 0x3c;
-	if (absDelta > 79) return 0x1e;
-	return 0;
-}
-
 function scoreCarrierDirectRoute(
 	world: WorldState,
 	carrierId: number,
@@ -416,12 +409,9 @@ function scoreCarrierDirectRoute(
 		toFloor > fromFloor ? 0 : 1,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
-	// Distance penalty only applies to standard/service carriers (mode != 0)
-	const penalty =
-		carrier.carrierMode !== 0 ? distanceMismatchPenalty(delta) : 0;
 	return status === 0x28
-		? 1000 + delta * 8 + penalty
-		: delta * 8 + STAIRS_ROUTE_EXTRA_COST + penalty;
+		? 1000 + delta * 8
+		: delta * 8 + STAIRS_ROUTE_EXTRA_COST;
 }
 
 function scoreCarrierTransferRoute(
@@ -448,12 +438,7 @@ function scoreCarrierTransferRoute(
 		toFloor > fromFloor ? 0 : 1,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
-	// Distance penalty only applies to standard/service carriers (mode != 0)
-	const penalty =
-		carrier.carrierMode !== 0 ? distanceMismatchPenalty(delta) : 0;
-	return status === 0x28
-		? 6000 + delta * 8 + penalty
-		: delta * 8 + 3000 + penalty;
+	return status === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000;
 }
 
 /**

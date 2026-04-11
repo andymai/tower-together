@@ -57,7 +57,7 @@ not created lazily at rental time. Each worker starts with family `7`, `occupant
 
 Office readiness is computed from:
 
-- per-tile activity average across the office span
+- per-sim activity average across the office's population
 - rent-tier modifier
 - support-search penalty when nearby support is missing
 

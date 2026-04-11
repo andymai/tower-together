@@ -33,6 +33,7 @@ import {
 	rebuildRuntimeEntities,
 	reconcileEntityTransport,
 	resetCommercialVenueCycle,
+	resolveEntityRouteBetweenFloors,
 	updateRecyclingCenterState,
 } from "./entities";
 import { handlePromptResponse, tickBombEvent } from "./events";
@@ -81,6 +82,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		name: "Test Tower",
 		width: GRID_WIDTH,
 		height: GRID_HEIGHT,
+		lobbyHeight: 1,
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
@@ -1724,6 +1726,93 @@ describe("selectBestRouteCandidate", () => {
 		const route = selectBestRouteCandidate(world, 12, 2);
 		expect(route).toBeNull();
 	});
+
+	it("adds distance stress only for states that enable distance feedback", () => {
+		const world = makeWorld();
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 110));
+		const commuteEntity = {
+			floorAnchor: 80,
+			subtypeIndex: 0,
+			baseOffset: 0,
+			familyCode: 7,
+			stateCode: 0x00,
+			route: { mode: "idle" as const },
+			selectedFloor: 10,
+			originFloor: 10,
+			destinationFloor: -1,
+			venueReturnState: 0,
+			queueTick: 0,
+			elapsedTicks: 0,
+			routeRetryDelay: 0,
+			transitTicksRemaining: 0,
+			lastDemandTick: 0,
+			tripCount: 0,
+			accumulatedTicks: 0,
+		};
+		const venueEntity = {
+			...commuteEntity,
+			stateCode: 0x22,
+		};
+
+		const commuteResult = resolveEntityRouteBetweenFloors(
+			world,
+			commuteEntity,
+			10,
+			100,
+			0,
+			createTimeState(),
+		);
+		const venueResult = resolveEntityRouteBetweenFloors(
+			world,
+			venueEntity,
+			10,
+			100,
+			0,
+			createTimeState(),
+		);
+
+		expect(commuteResult).toBe(2);
+		expect(venueResult).toBe(2);
+		expect(commuteEntity.elapsedTicks).toBe(30);
+		expect(venueEntity.elapsedTicks).toBe(0);
+	});
+
+	it("reduces boarding stress for tall lobbies on non-service carriers", () => {
+		const world = makeWorld();
+		world.lobbyHeight = 3;
+		world.carriers.push(makeCarrier(0, 0, 1, 10, 110));
+		const entity = {
+			floorAnchor: 80,
+			subtypeIndex: 0,
+			baseOffset: 0,
+			familyCode: 7,
+			stateCode: 0x00,
+			route: { mode: "idle" as const },
+			selectedFloor: 10,
+			originFloor: 10,
+			destinationFloor: -1,
+			venueReturnState: 0,
+			queueTick: 0,
+			elapsedTicks: 80,
+			routeRetryDelay: 0,
+			transitTicksRemaining: 0,
+			lastDemandTick: 0,
+			tripCount: 0,
+			accumulatedTicks: 0,
+		};
+
+		const result = resolveEntityRouteBetweenFloors(
+			world,
+			entity,
+			10,
+			40,
+			0,
+			createTimeState(),
+		);
+
+		expect(result).toBe(2);
+		expect(entity.elapsedTicks).toBe(30);
+	});
 });
 
 describe("car state machine", () => {
@@ -2249,6 +2338,33 @@ describe("Phase 4 runtime entities", () => {
 		expect(officeEntity.stateCode).toBe(0x21);
 	});
 
+	it("counts same-floor route success as a completed trip", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 7,
+		);
+		if (!entity) throw new Error("expected office entity");
+
+		const result = resolveEntityRouteBetweenFloors(
+			world,
+			entity,
+			10,
+			10,
+			0,
+			createTimeState(),
+		);
+
+		expect(result).toBe(3);
+		expect(entity.tripCount).toBe(1);
+		expect(entity.accumulatedTicks).toBe(0);
+	});
+
 	it("seeds carrier waiters from active entities so elevator cars move", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -2347,6 +2463,43 @@ describe("Phase 4 runtime entities", () => {
 		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
 	});
 
+	it("allows office workers 1-5 to leave morning gate during the daypart-3 stagger", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		rebuildRuntimeEntities(world);
+
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!office) throw new Error("expected office object");
+		office.evalActiveFlag = 1;
+
+		const originalRandom = Math.random;
+		Math.random = () => 0;
+		try {
+			for (let dayTick = 0; dayTick < 16; dayTick++) {
+				advanceEntityRefreshStride(world, ledger, {
+					...createTimeState(),
+					dayCounter: 3,
+					daypartIndex: 3,
+					dayTick,
+					starCount: 4,
+				});
+			}
+		} finally {
+			Math.random = originalRandom;
+		}
+
+		const commuters = world.entities.filter(
+			(entity) =>
+				entity.familyCode === 7 &&
+				(entity.stateCode === 0x00 || entity.stateCode === 0x21),
+		);
+		expect(commuters).toHaveLength(6);
+	});
+
 	it("keeps office rented when the first worker arrives with a sparse sample", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
@@ -2388,6 +2541,48 @@ describe("Phase 4 runtime entities", () => {
 		expect(entity.stateCode).toBe(0x21);
 		expect(office.evalLevel).toBe(0xff);
 		expect(office.evalActiveFlag).toBe(1);
+	});
+
+	it("captures elapsed demand when a carrier trip completes", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 7,
+		);
+		if (!entity) throw new Error("expected office entity");
+		entity.stateCode = 0x00;
+		entity.selectedFloor = 10;
+		entity.destinationFloor = entity.floorAnchor;
+		entity.route = {
+			mode: "carrier",
+			carrierId: 0,
+			direction: "up",
+			source: 10,
+		};
+		entity.lastDemandTick = 10;
+
+		onCarrierArrival(
+			world,
+			ledger,
+			{
+				...createTimeState(),
+				dayTick: 25,
+				dayCounter: 3,
+				daypartIndex: 1,
+				starCount: 4,
+			},
+			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			entity.floorAnchor,
+		);
+
+		expect(entity.tripCount).toBe(1);
+		expect(entity.accumulatedTicks).toBe(15);
+		expect(entity.lastDemandTick).toBe(0);
 	});
 
 	it("keeps disconnected offices for rent instead of spawning commuters", () => {
@@ -2523,6 +2718,32 @@ describe("Phase 4 runtime entities", () => {
 		expect(ledger.cashBalance).toBeGreaterThan(cashBefore);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`].unitStatus).toBe(0x08);
 		expect(entity.stateCode).toBe(0x62);
+	});
+
+	it("skips the unavailable-venue stress penalty for condos", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "condo", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 9,
+		);
+		if (!entity) throw new Error("expected condo entity");
+
+		advanceEntityRefreshStride(world, ledger, {
+			...createTimeState(),
+			dayCounter: 3,
+			daypartIndex: 1,
+			starCount: 4,
+		});
+
+		expect(entity.stateCode).toBe(0x27);
+		expect(entity.tripCount).toBe(0);
+		expect(entity.accumulatedTicks).toBe(0);
+		expect(entity.elapsedTicks).toBe(0);
 	});
 
 	it("dispatches segment routes without waiting for the next entity stride", () => {

@@ -336,7 +336,7 @@ function recomputeObjectOperationalStatus(
 					: object.objectTypeCode === FAMILY_OFFICE
 						? 6
 						: 3;
-	// Per-sim stress = accumulated_elapsed / sample_count, averaged across population.
+	// Per-sim stress = accumulated_elapsed / trip_count, averaged across population.
 	let stressSum = 0;
 	for (const sibling of siblings) {
 		if (sibling.tripCount > 0) {
@@ -485,25 +485,29 @@ function resetSimDemandCounters(entity: EntityRecord): void {
 }
 
 /**
- * Reduce elapsed time for express elevator service.
- * Spec: scale_delay_for_speed_mode.
+ * Reduce elapsed time when boarding a non-service carrier from the lobby.
+ * Spec: reduce_elapsed_for_lobby_boarding.
  */
-function scaleDelayForSpeedMode(
+function reduceElapsedForLobbyBoarding(
 	entity: EntityRecord,
 	sourceFloor: number,
 	world: WorldState,
-	starCount: number,
 ): void {
-	// Check if source floor is served by an express elevator
-	const isExpressFloor = world.carriers.some(
-		(c) =>
-			c.carrierMode === 0 &&
-			sourceFloor >= c.bottomServedFloor &&
-			sourceFloor <= c.topServedFloor,
-	);
-	if (!isExpressFloor) return;
-	const discount = starCount >= 3 ? 50 : starCount >= 2 ? 25 : 0;
+	if (sourceFloor !== LOBBY_FLOOR) return;
+	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
+	const discount = lobbyHeight >= 3 ? 50 : lobbyHeight === 2 ? 25 : 0;
+	if (discount === 0) return;
 	entity.elapsedTicks = Math.max(0, entity.elapsedTicks - discount);
+}
+
+function completeSimTransitEvent(
+	entity: EntityRecord,
+	time: TimeState | undefined,
+): void {
+	if (time) {
+		rebaseSimElapsedFromClock(entity, time);
+	}
+	accumulateSimTripTicks(entity);
 }
 
 function reserveVenue(record: CommercialVenueRecord): void {
@@ -515,12 +519,14 @@ function beginCommercialVenueDwell(
 	entity: EntityRecord,
 	arrivalFloor: number,
 	returnState: number,
+	time: TimeState,
 ): void {
 	entity.destinationFloor = -1;
 	entity.selectedFloor = arrivalFloor;
 	clearEntityRoute(entity);
 	entity.venueReturnState = returnState;
 	entity.stateCode = COMMERCIAL_DWELL_STATE;
+	entity.lastDemandTick = time.dayTick;
 }
 
 function beginCommercialVenueTrip(
@@ -566,6 +572,7 @@ function dispatchCommercialVenueVisit(
 		venueFamilies: Set<number>;
 		returnState: number;
 		unavailableState?: number;
+		skipPenaltyOnUnavailable?: boolean;
 		onVenueReserved?: () => void;
 	},
 ): boolean {
@@ -575,8 +582,10 @@ function dispatchCommercialVenueVisit(
 		options.venueFamilies,
 	);
 	if (!venue) {
-		addDelayToCurrentSim(entity, 300);
-		accumulateSimTripTicks(entity);
+		if (!options.skipPenaltyOnUnavailable) {
+			addDelayToCurrentSim(entity, 300);
+			accumulateSimTripTicks(entity);
+		}
 		if (options.unavailableState !== undefined) {
 			entity.stateCode = options.unavailableState;
 		}
@@ -607,7 +616,7 @@ function dispatchCommercialVenueVisit(
 	accumulateSimTripTicks(entity);
 	options.onVenueReserved?.();
 	if (venue.floor === entity.floorAnchor) {
-		beginCommercialVenueDwell(entity, venue.floor, options.returnState);
+		beginCommercialVenueDwell(entity, venue.floor, options.returnState, time);
 	} else {
 		beginCommercialVenueTrip(entity, venue.floor);
 	}
@@ -618,6 +627,7 @@ function handleCommercialVenueArrival(
 	entity: EntityRecord,
 	arrivalFloor: number,
 	returnState: number,
+	time: TimeState,
 ): boolean {
 	if (
 		entity.stateCode !== STATE_VENUE_TRIP ||
@@ -625,7 +635,7 @@ function handleCommercialVenueArrival(
 	) {
 		return false;
 	}
-	beginCommercialVenueDwell(entity, arrivalFloor, returnState);
+	beginCommercialVenueDwell(entity, arrivalFloor, returnState, time);
 	return true;
 }
 
@@ -858,7 +868,7 @@ function processOfficeEntity(
 			}
 		}
 
-		if (time.daypartIndex >= 3) return;
+		if (time.daypartIndex > 3) return;
 
 		// Spec state 0x00 commute gate with occupant stagger:
 		// Occupant 0: daypart 0 → 1/12 chance; dayparts 1–3 → dispatch
@@ -987,6 +997,8 @@ function processCondoEntity(
 					? CONDO_SELECTOR_RESTAURANT
 					: CONDO_SELECTOR_FAST_FOOD,
 			returnState: STATE_ACTIVE,
+			unavailableState: STATE_PARKED,
+			skipPenaltyOnUnavailable: true,
 			onVenueReserved: () => {
 				if (object.unitStatus < UNIT_STATUS_CONDO_VACANT) return;
 				object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
@@ -1276,6 +1288,8 @@ export function advanceEntityRefreshStride(
 	for (let index = 0; index < world.entities.length; index++) {
 		if (index % ENTITY_REFRESH_STRIDE !== stride) continue;
 		const entity = world.entities[index];
+		// Spec: dispatch_sim_behavior calls rebase_sim_elapsed_from_clock every tick.
+		rebaseSimElapsedFromClock(entity, time);
 		finalizePendingRouteLeg(entity);
 		switch (entity.familyCode) {
 			case FAMILY_HOTEL_SINGLE:
@@ -1435,6 +1449,7 @@ export function resolveEntityRouteBetweenFloors(
 	time: TimeState | undefined,
 ): RouteResolution {
 	if (sourceFloor === destinationFloor) {
+		completeSimTransitEvent(entity, time);
 		return 3;
 	}
 
@@ -1458,6 +1473,13 @@ export function resolveEntityRouteBetweenFloors(
 	}
 
 	if (route.kind === "segment") {
+		maybeApplyDistanceFeedback(
+			world,
+			entity,
+			sourceFloor,
+			destinationFloor,
+			true,
+		);
 		entity.route = {
 			mode: "segment",
 			segmentId: route.id,
@@ -1511,11 +1533,18 @@ export function resolveEntityRouteBetweenFloors(
 	};
 	entity.queueTick = time?.dayTick ?? entity.queueTick;
 	entity.destinationFloor = destinationFloor;
-	// Spec: accumulate_elapsed_delay_into_current_sim for standard carriers.
-	if (time && carrier.carrierMode === 1) {
+	// Spec: accumulate_elapsed_delay_into_current_sim for non-service carriers.
+	if (time && carrier.carrierMode !== 2) {
 		rebaseSimElapsedFromClock(entity, time);
-		scaleDelayForSpeedMode(entity, sourceFloor, world, time.starCount);
+		reduceElapsedForLobbyBoarding(entity, sourceFloor, world);
 	}
+	maybeApplyDistanceFeedback(
+		world,
+		entity,
+		sourceFloor,
+		destinationFloor,
+		carrier.carrierMode !== 2,
+	);
 	// Route-start timestamp: start the clock for elapsed tracking.
 	if (time) entity.lastDemandTick = time.dayTick;
 	return 2;
@@ -1551,6 +1580,12 @@ function dispatchEntityArrival(
 	entity: EntityRecord,
 	arrivalFloor: number,
 ): void {
+	if (
+		entity.destinationFloor >= 0 &&
+		arrivalFloor === entity.destinationFloor
+	) {
+		completeSimTransitEvent(entity, time);
+	}
 	entity.selectedFloor = arrivalFloor;
 	clearEntityRoute(entity);
 
@@ -1569,7 +1604,9 @@ function dispatchEntityArrival(
 				entity.stateCode = STATE_ACTIVE;
 				return;
 			}
-			if (handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE)) {
+			if (
+				handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE, time)
+			) {
 				return;
 			}
 			if (
@@ -1595,7 +1632,9 @@ function dispatchEntityArrival(
 				return;
 			}
 			// Arrived at venue floor from venue trip
-			if (handleCommercialVenueArrival(entity, arrivalFloor, STATE_AT_WORK)) {
+			if (
+				handleCommercialVenueArrival(entity, arrivalFloor, STATE_AT_WORK, time)
+			) {
 				return;
 			}
 			// Arrived at lobby from evening departure
@@ -1609,7 +1648,7 @@ function dispatchEntityArrival(
 			}
 			return;
 		case FAMILY_CONDO:
-			handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE);
+			handleCommercialVenueArrival(entity, arrivalFloor, STATE_ACTIVE, time);
 			return;
 		default:
 			// Cathedral guest entities
@@ -1992,6 +2031,53 @@ function entityStressLevel(
 	if (elapsed >= 120) return "high";
 	if (elapsed >= 80) return "medium";
 	return "low";
+}
+
+function shouldEmitDistanceFeedback(entity: EntityRecord): boolean {
+	switch (entity.familyCode) {
+		case FAMILY_HOTEL_SINGLE:
+		case FAMILY_HOTEL_TWIN:
+		case FAMILY_HOTEL_SUITE:
+			return entity.stateCode !== STATE_VENUE_TRIP;
+		case FAMILY_OFFICE:
+			return (
+				entity.stateCode === STATE_COMMUTE ||
+				entity.stateCode === STATE_DEPARTURE
+			);
+		case FAMILY_CONDO:
+			return (
+				entity.stateCode === STATE_ACTIVE || entity.stateCode === STATE_PARKED
+			);
+		default:
+			if (CATHEDRAL_FAMILIES.has(entity.familyCode)) {
+				return entity.stateCode === STATE_EVAL_OUTBOUND;
+			}
+			return false;
+	}
+}
+
+function distanceFeedbackPenalty(
+	sourceFloor: number,
+	destinationFloor: number,
+): number {
+	const delta = Math.abs(destinationFloor - sourceFloor);
+	if (delta >= 125) return 60;
+	if (delta > 79) return 30;
+	return 0;
+}
+
+function maybeApplyDistanceFeedback(
+	_world: WorldState,
+	entity: EntityRecord,
+	sourceFloor: number,
+	destinationFloor: number,
+	canApplyForRouteKind: boolean,
+): void {
+	if (!canApplyForRouteKind) return;
+	if (!shouldEmitDistanceFeedback(entity)) return;
+	const penalty = distanceFeedbackPenalty(sourceFloor, destinationFloor);
+	if (penalty === 0) return;
+	addDelayToCurrentSim(entity, penalty);
 }
 
 export function createEntityStateRecords(

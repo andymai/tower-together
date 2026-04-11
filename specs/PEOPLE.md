@@ -29,7 +29,7 @@ Every actor should track:
 
 ## Shared State-Code Convention
 
-Bit 6 (`0x40`) is the **in-transit flag**. When set, the entity has committed
+Bit 6 (`0x40`) is the **in-transit flag**. When set, the sim has committed
 to a route leg and the gate handler is bypassed — the refresh handler calls
 the dispatch handler directly every service tick until the leg completes.
 
@@ -50,20 +50,20 @@ state `0x20` and `0x60` hit the same handler, etc.
 
 ### Refresh handler flow
 
-For every entity serviced in the 1/16 stride:
+For every sim serviced in the 1/16 stride:
 
 1. read `state_byte` from `entity[+5]`
 2. if `state_byte < 0x40`:
    - scan the family's **gate jump table** for a matching entry
-   - the gate checks daypart, tick, RNG, and entity-specific fields
+   - the gate checks daypart, tick, RNG, and sim-specific fields
    - if the gate allows: call the **dispatch handler**
-   - if the gate denies: return (entity stays in current state)
+   - if the gate denies: return (sim stays in current state)
    - some gates modify state directly (e.g. force `0x05` or `0x27`) without dispatching
 3. if `state_byte >= 0x40`:
    - if `entity[+8] < 0x40`: call the **dispatch handler** directly (active leg)
    - if `entity[+8] >= 0x40`: call `maybe_dispatch_queued_route_after_wait` (queued on a carrier)
 
-This means the gate is a **one-time barrier**: once an entity transitions
+This means the gate is a **one-time barrier**: once a sim transitions
 to a `0x4x`/`0x6x` state, it is serviced unconditionally until the route
 leg completes and the dispatch handler drops it back to a base state.
 
@@ -74,8 +74,8 @@ Family handlers own intent; the routing layer owns movement.
 Typical loop:
 
 1. family chooses destination or next action
-2. family requests one route leg (calls `resolve_entity_route_between_floors`)
-3. route result 0/1/2: entity enters `0x4x`/`0x6x` (in-transit) state
+2. family requests one route leg (calls `resolve_sim_route_between_floors`)
+3. route result 0/1/2: entity sim `0x4x`/`0x6x` (in-transit) state
 4. route result 3: same-floor arrival, dispatch handler handles immediately
 5. route result -1: failure, family handler decides fallback
 6. arrival hands control back to the family handler (state drops to base band)
@@ -103,66 +103,87 @@ Many actor families use a parked or dormant nightly state. That state usually:
 Each non-housekeeping sim accumulates **elapsed travel time** (measured in
 `day_tick` deltas) across its trips. This per-sim elapsed counter is the
 binary's implementation of the manual's "stress": the average number of ticks a
-sim spends in transit per service visit.
+sim spends in transit per trip.
 
 ### Per-Sim Demand Fields
 
 | Offset | Size | Field | Meaning |
 |--------|------|-------|---------|
-| `+0x09` | byte | `sample_count` | number of completed service-visit samples |
-| `+0x0a` | word | `last_sample_tick` | `g_day_tick` snapshot at route-start; zeroed after rebase |
+| `+0x09` | byte | `trip_count` | number of completed route legs / transit events |
+| `+0x0a` | word | `last_trip_tick` | `g_day_tick` snapshot at route-start; zeroed after rebase |
 | `+0x0c` | word | `elapsed_packed` | low 10 bits = current elapsed ticks; high 6 bits = flags |
 | `+0x0e` | word | `accumulated_elapsed` | running sum of per-sample elapsed values |
 
-### Pipeline Steps
+### When Counters Advance
+
+`advance_sim_demand_counters` (which increments `trip_count` and drains
+`elapsed_packed` into `accumulated_elapsed`) is called at these specific
+transit events — NOT per-tick:
+
+| Call site | When |
+|-----------|------|
+| `dispatch_sim_behavior` | elevator arrival (queue drain delivers sim to destination floor) |
+| `resolve_sim_route_between_floors` | same-floor route success (result 3) |
+| `resolve_sim_route_between_floors` | route failure (result −1) |
+| `finalize_runtime_route_state` | route leg completion / cancellation |
+| `acquire_commercial_venue_slot` | venue slot claimed |
+| `FUN_1178_0291` | (additional transit event) |
+
+`trip_count` therefore counts **completed route legs and transit events**,
+not simulation ticks. The per-tick refresh handler for in-transit entities
+(`state >= 0x40, entity[+8] < 0x40`) calls the family dispatch handler
+directly, bypassing `dispatch_sim_behavior` and the demand pipeline entirely.
+
+### Pipeline Functions
 
 1. **`rebase_sim_elapsed_from_clock`** — called from `dispatch_sim_behavior`
-   every service tick (and from `cancel_runtime_route_request`):
-   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_sample_tick`
+   (elevator arrival) and `cancel_runtime_route_request`:
+   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_trip_tick`
    - clamp to 300
    - store back: `elapsed_packed = (elapsed_packed & 0xfc00) | elapsed`
-   - clear `last_sample_tick = 0`
+   - clear `last_trip_tick = 0`
 
-2. **`advance_sim_demand_counters`** — called immediately after rebase in
-   `dispatch_sim_behavior`, and also at same-floor route success, route failure,
-   route finalization, and venue slot acquisition:
-   - `sample_count += 1`
+2. **`advance_sim_demand_counters`** — called at the transit events above:
+   - `trip_count += 1`
    - `accumulated_elapsed += (elapsed_packed & 0x3ff)`
-   - clear `last_sample_tick = 0`
+   - clear `last_trip_tick = 0`
    - clear low 10 bits of `elapsed_packed` (keep flags)
 
 3. **`accumulate_elapsed_delay_into_current_sim`** — called from
    `assign_request_to_runtime_route` when a carrier leg is assigned
-   (non-express, non-service carriers only):
-   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_sample_tick`
-   - call `scale_delay_for_speed_mode(elapsed, source_floor)` to adjust for
-     express elevators
-   - clamp to 300, store back, clear `last_sample_tick`
+   (non-service carriers only; both express and standard):
+   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_trip_tick`
+   - call `scale_delay_for_speed_mode(elapsed, source_floor)` to apply the
+     lobby-boarding reduction (see below)
+   - clamp to 300, store back, clear `last_trip_tick`
 
 4. **`add_delay_to_current_sim`** — adds a fixed tick penalty:
    - `elapsed = (elapsed_packed & 0x3ff) + delay_delta`
-   - clamp to 300, store back, clear `last_sample_tick`
+   - clamp to 300, store back, clear `last_trip_tick`
    - used for: no-route delay (300 ticks), distance penalties (30 or 60 ticks),
      queue-full waiting delay (5 ticks)
+   - the distance penalty is gated by `emit_distance_feedback` in the route
+     resolver — only certain base states enable it (see ROUTING.md
+     "`emit_distance_feedback` Gating")
 
 5. **Route-start timestamp** — at the end of `resolve_sim_route_between_floors`,
-   `last_sample_tick = g_day_tick`. This starts the clock for the next leg.
+   `last_trip_tick = g_day_tick`. This starts the clock for the next leg.
 
 ### Scoring
 
 `compute_runtime_tile_stress_average` computes:
 
 ```
-if sample_count == 0: return 0
-return accumulated_elapsed / sample_count
+if trip_count == 0: return 0
+return accumulated_elapsed / trip_count
 ```
 
-This is the **average elapsed ticks per service visit** — the sim's stress.
+This is the **average elapsed ticks per trip** — the sim's stress.
 Higher values = more stressed = worse evaluation.
 
 `compute_object_operational_score` averages this metric across the facility's
-tile count (family 3: 1 tile, family 4/5: 2–3 tiles, family 7: 6 tiles,
-family 9: 3 tiles), then passes through `apply_variant_and_support_bonus_to_score`
+population count (family 3: 1 sim, family 4/5: 2 sims, family 7: 6 sims,
+family 9: 3 sims), then passes through `apply_variant_and_support_bonus_to_score`
 for rent-level and nearby-support adjustments (see FACILITIES.md).
 
 ### Stress Color Bands (Manual)
@@ -175,25 +196,33 @@ The manual describes three visible stress colors for individual sims:
 | 80–119 | pink | moderate stress |
 | 120–300 | red | high stress |
 
-These thresholds apply to the per-sim `accumulated_elapsed / sample_count` value.
+These thresholds apply to the per-sim `accumulated_elapsed / trip_count` value.
 The 300-tick clamp on `elapsed_packed` prevents any single leg from dominating.
 
-### Speed Mode Scaling
+### Lobby-Boarding Stress Reduction
 
-`scale_delay_for_speed_mode` reduces elapsed time for express elevator service:
-- not an express floor (speed_mode ≠ 10): no adjustment
-- star_count 2: subtract 25 ticks (floor at 0)
-- star_count 3: subtract 50 ticks (floor at 0)
+`reduce_elapsed_for_lobby_boarding` reduces accumulated elapsed time when a sim
+boards a non-service carrier at the lobby floor (EXE floor 10 / clone logical
+floor 0). The reduction is keyed to `g_lobby_height`:
+
+- `source_floor != 10` (not the lobby): no adjustment
+- `g_lobby_height <= 1`: no adjustment
+- `g_lobby_height == 2`: subtract 25 ticks (min 0)
+- `g_lobby_height == 3`: subtract 50 ticks (min 0)
+
+The bonus applies to both express and standard carriers (the only exclusion is
+service carriers, which skip `accumulate_elapsed_delay_into_current_sim` entirely).
+A taller lobby reduces elevator-boarding stress for sims departing from the ground
+floor.
 
 ### Reset
 
-`reset_sim_demand_counters` clears `sample_count` and `accumulated_elapsed` to 0.
-Called from `refresh_commercial_object_span_tiles` when re-initializing commercial
-entity demand state.
+`reset_sim_demand_counters` clears `trip_count` and `accumulated_elapsed` to 0.
+Called from `refresh_commercial_object_span_tiles` when re-initializing commercial sim demand state.
 
-## Runtime Entity Record Layout
+## Sim Entity Record Layout
 
-Each entity is a 16-byte record in `g_sim_table`, indexed by `entity_tile_index << 4`.
+Each sim has a 16-byte record in `g_sim_table`, indexed by `entity_tile_index << 4`.
 
 | Offset | Size | Field | Notes |
 |--------|------|-------|-------|
@@ -203,10 +232,10 @@ Each entity is a 16-byte record in `g_sim_table`, indexed by `entity_tile_index 
 | `+0x06` | 1 | `route_mode` / family selector | read by route resolution |
 | `+0x07` | 1 | `spawn_floor` / source floor | written when route begins |
 | `+0x08` | 1 | `route_carrier_or_segment` | carrier_up(i) = carrier i ascending, carrier_down(i) = descending, or invalid/none sentinel |
-| `+0x09` | 1 | `sample_count` | number of service-visit samples (stress pipeline) |
-| `+0x0a` | 2 | `last_sample_tick` | day_tick snapshot; zeroed after rebase |
+| `+0x09` | 1 | `trip_count` | number of completed trips (stress pipeline) |
+| `+0x0a` | 2 | `last_trip_tick` | day_tick snapshot; zeroed after rebase |
 | `+0x0c` | 2 | `elapsed_packed` | low 10 bits = current elapsed ticks; high 6 bits = flags |
-| `+0x0e` | 2 | `accumulated_elapsed` | running sum of per-sample elapsed values |
+| `+0x0e` | 2 | `accumulated_elapsed` | running sum of per-trip elapsed values |
 
 Save/load must preserve all fields per entity to round-trip the demand pipeline.
 
@@ -225,15 +254,15 @@ Housekeeping entity that searches for and claims vacant hotel rooms. One per hot
 entity slot. Not a persistent occupant.
 
 Entity fields: `route_mode` = target floor (searching sentinel when not yet assigned), `spawn_floor`
-(negative = uninitialized). The shared `last_sample_tick` field remains as defined;
+(negative = uninitialized). The shared `last_trip_tick` field remains as defined;
 family 0x0f uses other family-specific countdown state instead of repurposing that field.
 
 | State | Behavior |
 |-------|----------|
 | 0 | **Initial search**: if `spawn_floor < 0` → store current floor. Call `find_matching_vacant_unit_floor`. Set `route_mode` to searching sentinel. Fall through to route setup |
 | 1/4 | **Route to candidate floor**: resolve route using `spawn_floor` as destination. Result 0/1/2 → state 4. Result 3 or fail → state 0 |
-| 3 | **Route to room floor**: resolve route using `route_mode`. Result 0/1/2 → stay at 3. Result 3 + valid daytime (`day_tick < 1500`) → `activate_selected_vacant_unit`, state 2, `last_sample_tick = 3`. Otherwise → state 0 |
-| 2 | **Pending countdown**: if `last_sample_tick != 0` → decrement, return. If 0 → `flag_selected_unit_unavailable`, state 0 |
+| 3 | **Route to room floor**: resolve route using `route_mode`. Result 0/1/2 → stay at 3. Result 3 + valid daytime (`day_tick < 1500`) → `activate_selected_vacant_unit`, state 2, `last_trip_tick = 3`. Otherwise → state 0 |
+| 2 | **Pending countdown**: if `last_trip_tick != 0` → decrement, return. If 0 → `flag_selected_unit_unavailable`, state 0 |
 
 Vacant-room search scope: rentable units (families 3/4/5) in the same modulo-6 floor
 remainder class (`floor % 6`). Claim writes guest entity ref into the room's ServiceRequestEntry
@@ -254,7 +283,7 @@ Lifecycle: check-in → venue trips → sibling sync → checkout → vacancy.
 | 0x04 | daypart < 5 → no dispatch; daypart >= 5 AND tick > 2400 → dispatch; daypart >= 5 AND tick <= 2400 → 1/12 chance (`rand() % 12 == 0`) |
 | 0x10 | daypart < 5 → dispatch; daypart >= 5 AND tick > 2566 → 1/12 chance (`rand() % 12 == 0`); daypart >= 5 AND tick <= 2566 → no dispatch |
 | 0x05 | daypart 0 → 1/12 chance (`rand() % 12 == 0`); daypart 6 → no dispatch; dayparts 1–5 → dispatch |
-| 0x26 | tick > 2300 → state 0x24 (if `last_sample_tick == 0`) else state 0x20 |
+| 0x26 | tick > 2300 → state 0x24 (if `last_trip_tick == 0`) else state 0x20 |
 
 #### Dispatch Table
 
@@ -272,7 +301,7 @@ dirty, adds to population ledger (+1/+2/+2 for families 3/4/5).
 
 ### Family `7` — Office Workers
 
-6 entities per office (one per tile). Recurring cashflow on 3-day cadence.
+6 entities per office. Recurring cashflow on 3-day cadence.
 
 #### Gate Table (11 entries)
 
@@ -343,7 +372,7 @@ Trip-cycle selector note:
 - `dispatch_object_family_9_state_handler` sets the commercial selector with `resident_index % 4 == 0 ? 1 : 2`
 - with the recovered 3-occupant condo pattern, this yields restaurant / fast-food / fast-food across the three occupants
 
-Trip counter net effect per morning cycle: even tiles DEC, odd tile INC → net −1.
+Trip counter net effect per morning cycle: even sims DEC, odd sim INC → net −1.
 After ~2 cycles from 3, unit_status reaches 1 → sync shortcut → back to 0x10.
 
 ### Families `0x12`, `0x1d` — Entertainment Entities

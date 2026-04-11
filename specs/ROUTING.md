@@ -138,6 +138,31 @@ Long-distance penalty (applied when `emit_distance_feedback` is set):
 - `>= 125`: add `60` ticks delay
 - for carriers, this penalty applies only when `carrier_mode != 0` (standard/service)
 - for stairs/escalator segments, it applies to both branches
+- the delay is applied via `add_delay_to_current_sim`, which adds it directly to
+  `elapsed_packed` — it accumulates into the sim's stress score (see PEOPLE.md
+  "Stress / Demand Pipeline")
+
+### `emit_distance_feedback` Gating
+
+`resolve_sim_route_between_floors` accepts an `emit_distance_feedback` parameter
+that gates both the long-distance delay penalty and the distance popup notification.
+Callers set this parameter based on the sim's **base state** — in-transit
+continuations (`0x4x`/`0x6x`) inherit whatever was set when the route was first
+resolved, so the penalty fires only on initial route resolution, not on every
+per-tick transit step.
+
+Per-family caller behavior:
+
+| Family | States that enable feedback | States that disable |
+|--------|---------------------------|---------------------|
+| 3/4/5 (hotel) | 0x20, 0x01, 0x05 (outbound trips) | 0x22 (return from venue) |
+| 7 (office) | 0x00 (commute to office), 0x05 (commute home) | 0x01, 0x02 (venue visits), 0x20–0x23 (service cycle) |
+| 9 (condo) | 0x00, 0x01, 0x20 (outbound trips) | 0x21, 0x22 (return trips) |
+| 0x0f (housekeeping) | (never) | all states — `is_passenger_route = 0` |
+| 0x12/0x1d (entertainment) | 0x20 (arrival) | 0x05 (departure), 0x01/0x22 (venue) |
+
+Housekeeping always passes `0` for both `is_passenger_route` and
+`emit_distance_feedback`, so housekeeping routes never contribute to stress.
 
 ## Walkability Rules
 

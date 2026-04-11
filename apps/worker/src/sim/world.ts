@@ -390,6 +390,8 @@ export interface WorldState {
 	name: string;
 	width: number;
 	height: number;
+	/** Lobby slice height in floors; defaults to 1 until expanded-lobby support exists. */
+	lobbyHeight: number;
 	/** Global simulation gate flags (star advancement, recycling adequacy, etc.). */
 	gateFlags: GateFlags;
 	/** "x,y" → tileType for every occupied cell (anchors and extensions alike). */
