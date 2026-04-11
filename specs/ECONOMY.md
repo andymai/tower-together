@@ -143,7 +143,9 @@ Parking expense formula:
   - stars `>= 4`: `100`
 - these are `$100` units before the `/ 10` scaling step
 - the resulting expense is recorded under the parking expense ledger bucket
-- the charge is skipped for floor indices inside the excluded underground band `1 <= floor < lowest_floor_bound`
+- the charge is skipped for floors inside the lower-atrium band directly above the lobby:
+  - EXE floor indices `11 <= floor < 10 + g_lobby_height`
+  - clone logical floors `1 <= floor < g_lobby_height`
 
 This naming-to-behavior inversion is strange, but it is no longer unresolved.
 

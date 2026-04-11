@@ -5,6 +5,7 @@ import type { TimeState } from "./time";
 import {
 	type EventState,
 	GRID_HEIGHT,
+	UNDERGROUND_FLOORS,
 	type WorldState,
 	yToFloor,
 } from "./world";
@@ -129,6 +130,39 @@ function deleteObjectCoveringFloorTile(
 	}
 }
 
+/**
+ * Shared floor-selection helper matching the binary's contiguous-live-floor scan.
+ * Scans upward from lowerBound to find the first non-empty floor, then the first
+ * empty floor after that contiguous occupied run. Returns a uniformly chosen floor
+ * from [lowerBound, topLiveFloor], or -1 if no occupied floors exist above lowerBound.
+ */
+function selectRandomLiveFloor(
+	world: WorldState,
+	es: EventState,
+	lowerBound: number,
+): number {
+	// Find the first non-empty floor at or above lowerBound
+	let firstOccupied = -1;
+	for (let f = lowerBound; f < GRID_HEIGHT; f++) {
+		if (floorTileBoundsForFloor(world, f) !== null) {
+			firstOccupied = f;
+			break;
+		}
+	}
+	if (firstOccupied < 0) return -1;
+
+	// Find the end of the contiguous occupied run
+	let topLiveFloor = firstOccupied;
+	for (let f = firstOccupied + 1; f < GRID_HEIGHT; f++) {
+		if (floorTileBoundsForFloor(world, f) === null) break;
+		topLiveFloor = f;
+	}
+
+	const range = topLiveFloor - lowerBound + 1;
+	if (range <= 0) return -1;
+	return lowerBound + (sampleLcg15(es) % range);
+}
+
 // ─── Bomb Event ──────────────────────────────────────────────────────────────
 
 /**
@@ -152,23 +186,16 @@ export function tryTriggerBombEvent(
 	if (time.starCount < 2 || time.starCount > 4) return;
 
 	const lobbyHeight = 1; // g_lobby_height default
-	const minFloor = lobbyHeight + 10 + 10; // lobby + underground + 10
+	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
-	// Select floor
-	let selectedFloor = -1;
-	for (let attempt = 0; attempt < 50; attempt++) {
-		const candidate =
-			minFloor + (sampleLcg15(es) % Math.max(1, topFloor - minFloor + 1));
-		const bounds = floorTileBoundsForFloor(world, candidate);
-		if (bounds && bounds.right - bounds.left > 3) {
-			selectedFloor = candidate;
-			break;
-		}
-	}
+	// Select floor via contiguous-live-floor scan
+	const selectedFloor = selectRandomLiveFloor(world, es, minFloor);
 	if (selectedFloor < 0) return;
 
+	// Require floor width >= 4 tiles
 	const bounds = floorTileBoundsForFloor(world, selectedFloor);
-	if (!bounds) return;
+	if (!bounds || bounds.right - bounds.left < 4) return;
+
 	const tileRange = bounds.right - bounds.left - 4;
 	const selectedTile =
 		bounds.left + (tileRange > 0 ? sampleLcg15(es) % (tileRange + 1) : 0);
@@ -303,7 +330,7 @@ function applyBlastDamage(world: WorldState): void {
 	const floorMin = es.bombFloor - 2;
 	const floorMax = es.bombFloor + 3;
 	const tileMin = es.bombTile - BLAST_HALF_TILES;
-	const tileMax = es.bombTile + BLAST_HALF_TILES;
+	const tileMax = es.bombTile + BLAST_HALF_TILES - 1;
 	for (let floor = floorMin; floor <= floorMax; floor++) {
 		for (let tile = tileMin; tile <= tileMax; tile++) {
 			deleteObjectCoveringFloorTile(world, floor, tile);
@@ -355,23 +382,15 @@ export function tryTriggerFireEvent(
 		return;
 
 	const lobbyHeight = 1;
-	const minFloor = lobbyHeight + 10 + 10;
+	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
-	// Select floor with width >= 32 tiles
-	let selectedFloor = -1;
-	for (let attempt = 0; attempt < 50; attempt++) {
-		const candidate =
-			minFloor + (sampleLcg15(es) % Math.max(1, topFloor - minFloor + 1));
-		const bounds = floorTileBoundsForFloor(world, candidate);
-		if (bounds && bounds.right - bounds.left >= 0x20) {
-			selectedFloor = candidate;
-			break;
-		}
-	}
+	// Select floor via contiguous-live-floor scan
+	const selectedFloor = selectRandomLiveFloor(world, es, minFloor);
 	if (selectedFloor < 0) return;
 
+	// Require floor width >= 32 tiles
 	const bounds = floorTileBoundsForFloor(world, selectedFloor);
-	if (!bounds) return;
+	if (!bounds || bounds.right - bounds.left < 0x20) return;
 
 	es.fireFloor = selectedFloor;
 	es.fireTile = bounds.right - 0x20;
@@ -580,6 +599,10 @@ export function tickVipSpecialVisitor(
 	}
 }
 
+// TODO: Spec documents viewport-sampling with 6 buckets, per-family eligibility
+// gates, and classifier return codes. Current implementation approximates by
+// picking a random placed object. See EVENTS.md "Random News Events" for the
+// full viewport-sampling algorithm to implement when the clone has a viewport.
 export function triggerRandomNewsEvent(
 	world: WorldState,
 	time: TimeState,

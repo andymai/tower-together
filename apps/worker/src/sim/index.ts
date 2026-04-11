@@ -69,6 +69,7 @@ export class TowerSim {
 	private time: TimeState;
 	private world: WorldState;
 	private ledger: LedgerState;
+	freeBuild = false;
 
 	private constructor(time: TimeState, world: WorldState, ledger: LedgerState) {
 		this.time = time;
@@ -151,6 +152,7 @@ export class TowerSim {
 					cmd.tileType,
 					this.world,
 					this.ledger,
+					this.freeBuild,
 				);
 			case "remove_tile":
 				return handleRemoveTile(cmd.x, cmd.y, this.world, this.ledger);

@@ -63,7 +63,11 @@ The Tower-grade promotion uses a separate cathedral/evaluation path rather than 
 
 ## Gate Meanings
 
-- `route_viable`: set when the tower's path-seed rebuild finds viable commercial routes in the post-3-star regime
+- `route_viable`: exact binary behavior is narrower than the old wording implied
+  - new game and `reset_star_gate_state()` clear it to `0`
+  - start-of-day `rebuild_path_seed_bucket_table()` sets it to `1` whenever `star_count > 2`
+  - no later route-scoring helper was found writing a more selective predicate in the reviewed binary pass
+  - practical parity consequence: after reaching 3 stars, the gate stays false until the next day-start rebuild, then latches true until the next star-gate reset
 - `office-service-ok`: set by the office-service evaluation system (see below)
 
 ## Office Service Evaluation
@@ -101,9 +105,11 @@ When the evaluation visitor arrives at the target office,
 `resolve_office_service_evaluation` fires:
 1. Validates `eval_in_progress != 0` and entity matches `eval_target_entity`
 2. Computes `compute_runtime_tile_average()` for the office
-3. Compares against threshold (from startup tuning data)
-4. If average ≤ threshold: **pass** → `office_service_ok = 1`, notification 0xBBA
-5. If average > threshold: **fail** → `office_service_ok = 0`, notification 0xBBB
+3. Compares against the current upper operational threshold global (`0xe5ec`)
+   - this threshold is loaded by `refresh_operational_status_thresholds_for_star_rating()`
+   - at the only eligible tier (`star_count == 3`), the threshold is `150`
+4. If average ≤ threshold: **pass** → `office_service_ok = 1`, notification `0xBBA`
+5. If average > threshold: **fail** → `office_service_ok = 0`, notification `0xBBB`
 6. Clears `eval_in_progress = 0` and `eval_target_entity = cleared sentinel`
 
 ### Cleanup

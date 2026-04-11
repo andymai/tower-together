@@ -151,6 +151,14 @@ The lowest restaurant and fast-food bands are true losses, not zero-income state
 
 Unavailable venues reject slot acquisition and cause actors to bounce or fall back according to their family logic.
 
+Recovered `CommercialVenueRecord.availability_state` values:
+
+- `0`: available / empty
+- `1`: partially occupied (`active_assignment_count == 1..9`)
+- `2`: near-full (`active_assignment_count >= 10`)
+- `3`: closed for the off-hours sweep; daily closure writes this state and selectors/acquire paths reject it
+- `0xff`: dormant / inactive
+
 Slot-acquisition rules:
 
 - invalid or closed venues fail immediately

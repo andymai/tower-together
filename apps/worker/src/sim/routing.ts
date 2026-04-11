@@ -12,7 +12,7 @@ import {
 const ROUTE_COST_INFINITE = 0x7fff;
 const EXPRESS_ROUTE_BASE_COST = 0x280; // 640
 
-const DERIVED_RECORD_CENTERS = [10, 24, 39, 54, 69, 84, 99];
+const DERIVED_RECORD_CENTERS = [10, 25, 40, 55, 70, 85, 100];
 
 export function rebuildSpecialLinks(world: WorldState): void {
 	world.specialLinks = Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
@@ -147,19 +147,22 @@ export function rebuildTransferGroupCache(world: WorldState): void {
 		.filter((candidate) => candidate.membershipMask !== 0)
 		.sort((a, b) => (a.floor === b.floor ? a.x - b.x : a.floor - b.floor));
 
+	// Append+collapse: append each candidate, then collapse into the
+	// immediately preceding entry if it has the same tagged floor and an
+	// overlapping carrier mask.
 	let entryCount = 0;
 	for (const candidate of candidates) {
-		let merged = false;
-		for (let index = 0; index < entryCount; index++) {
-			const entry = world.transferGroupEntries[index];
-			if (!entry?.active) continue;
-			if (entry.taggedFloor !== candidate.floor) continue;
-			if ((entry.carrierMask & candidate.membershipMask) === 0) continue;
-			entry.carrierMask |= candidate.membershipMask;
-			merged = true;
-			break;
+		if (entryCount > 0) {
+			const prev = world.transferGroupEntries[entryCount - 1];
+			if (
+				prev?.active &&
+				prev.taggedFloor === candidate.floor &&
+				(prev.carrierMask & candidate.membershipMask) !== 0
+			) {
+				prev.carrierMask |= candidate.membershipMask;
+				continue;
+			}
 		}
-		if (merged) continue;
 		if (entryCount >= MAX_TRANSFER_GROUPS) return;
 		world.transferGroupEntries[entryCount++] = {
 			active: true,

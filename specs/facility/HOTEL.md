@@ -144,7 +144,8 @@ Checkout effects:
 - payout is realized exactly once by the room object, using the family payout table and `rent_level`
 - the checkout income handler increments `family345_sale_count` once per completed checkout
 - that counter is cumulative only within the current day: checkpoint 1200 resets it to `0`
-- checkout milestones set `newspaper_trigger = 1` on every 2nd checkout while `family345_sale_count < 20`, then on every 8th checkout thereafter
+- each checkout/sale recomputes `newspaper_trigger`: `1` on every 2nd checkout while `family345_sale_count < 20`, then on every 8th checkout thereafter, else `0`
+- the popup itself is not emitted here; the next cash-display refresh that sees both `cash_report_dirty_flag != 0` and `newspaper_trigger != 0` shows popup `0x271d`
 - morning checkout moves the room to `0x28`
 - evening checkout moves the room to `0x30`
 - the occupancy latch and activation counter are cleared so the room can be reassigned on a later cycle

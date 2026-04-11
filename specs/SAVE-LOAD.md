@@ -24,7 +24,13 @@ The implementation may omit derived caches from persistence if they are rebuilt 
 - walkability flags
 - transfer-group cache
 - special-link reachability
+- carrier reachability masks
+- demand-history log and summary totals
 - facility bucket tables
+
+By contrast, object-owned sidecars such as commercial venue records, entertainment link records,
+and service-request entries are part of the canonical simulation state and must survive save/load
+unless the implementation performs an equivalent exact reconstruction from other persisted state.
 
 ## Load Semantics
 

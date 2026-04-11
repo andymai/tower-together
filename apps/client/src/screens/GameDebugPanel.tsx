@@ -5,12 +5,16 @@ interface Props {
 	metrics: TransportMetrics;
 	speedMultiplier: 1 | 3 | 10;
 	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
+	freeBuild: boolean;
+	onFreeBuildChange: (enabled: boolean) => void;
 }
 
 export function GameDebugPanel({
 	metrics,
 	speedMultiplier,
 	onSpeedChange,
+	freeBuild,
+	onFreeBuildChange,
 }: Props) {
 	return (
 		<div style={styles.debugPanel}>
@@ -34,6 +38,16 @@ export function GameDebugPanel({
 						</button>
 					))}
 				</span>
+			</div>
+			<div style={styles.debugRow}>
+				<label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+					<input
+						type="checkbox"
+						checked={freeBuild}
+						onChange={(e) => onFreeBuildChange(e.target.checked)}
+					/>
+					<span>Free build</span>
+				</label>
 			</div>
 			<div style={styles.debugRow}>
 				<span>Total population</span>

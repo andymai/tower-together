@@ -1,5 +1,5 @@
 import { PARKING_EXPENSE_RATE_BY_STAR, YEN_1001, YEN_1002 } from "./resources";
-import type { WorldState } from "./world";
+import { UNDERGROUND_FLOORS, type WorldState, yToFloor } from "./world";
 
 // ─── Three-ledger money model ─────────────────────────────────────────────────
 //
@@ -89,12 +89,21 @@ export function doExpenseSweep(
 ): void {
 	const parkingRate = PARKING_EXPENSE_RATE_BY_STAR[Math.min(starCount, 5)] ?? 0;
 
-	for (const obj of Object.values(world.placedObjects)) {
+	const lobbyFloor = UNDERGROUND_FLOORS; // internal floor index of ground lobby
+	const lobbyHeight = 1; // g_lobby_height default
+
+	for (const [key, obj] of Object.entries(world.placedObjects)) {
 		const code = obj.objectTypeCode;
 
 		// Parking: star-dependent rate × width / 10
 		if (code === 0x18) {
 			if (parkingRate > 0) {
+				// Skip lower-atrium band directly above the lobby
+				const [, y] = key.split(",").map(Number);
+				const floor = yToFloor(y);
+				if (floor >= lobbyFloor + 1 && floor < lobbyFloor + lobbyHeight) {
+					continue;
+				}
 				const width = obj.rightTileIndex - obj.leftTileIndex + 1;
 				const amount = Math.trunc((width * parkingRate) / 10) * YEN_UNIT;
 				ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);

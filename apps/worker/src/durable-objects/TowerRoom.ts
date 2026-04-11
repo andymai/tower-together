@@ -158,6 +158,11 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
+		if (isSessionMessage(msg) && msg.type === "set_free_build") {
+			this.sim.freeBuild = msg.enabled;
+			return;
+		}
+
 		if (msg.type === "query_cell") {
 			const info = this.sim.queryCell(msg.x, msg.y);
 			this.sessions.send(ws, {

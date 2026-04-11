@@ -41,6 +41,7 @@ Known notification popup IDs:
   - `0xb28`: party-hall preview strip
 - general event popup family:
   - `0x2712`, `0x271b`, `0x271c`: general tower / empty-sample news variants
+  - `0x271d`: family-`3/4/5` checkout-sale newspaper popup
   - `0x2713`: bomb ransom prompt
   - `0x2714`: bomb detonation result
   - `0x2716`: fire-rescue prompt family

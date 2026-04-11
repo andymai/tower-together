@@ -4,8 +4,7 @@ This document tracks the remaining gaps that could affect exact replay parity or
 
 ## Tier 1: Mechanically Important Gaps
 
-- some per-type placement edge rules
-- some modal prompt edge cases when state changes happen mid-action
+- none currently confirmed after the latest binary-grounded pass
 
 ## Tier 2: Interaction Gaps
 

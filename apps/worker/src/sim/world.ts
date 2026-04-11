@@ -272,6 +272,13 @@ export interface CommercialVenueRecord {
 	availabilityState: number;
 }
 
+// CommercialVenueRecord.availabilityState values
+export const VENUE_AVAILABLE = 0;
+export const VENUE_PARTIAL = 1; // active_assignment_count 1..9
+export const VENUE_NEAR_FULL = 2; // active_assignment_count >= 10
+export const VENUE_CLOSED = 3; // daily off-hours closure
+export const VENUE_DORMANT = 0xff; // inactive
+
 export interface ServiceRequestEntry {
 	kind: "service_request";
 	ownerSubtypeIndex: number;

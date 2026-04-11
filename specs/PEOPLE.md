@@ -204,7 +204,7 @@ per-family bound is reached. Next state: `occupant_index == 1` → `0x00` (idle)
 ```
 State 0x10: daypart < 5 → dispatch; daypart >= 5 AND day_tick > 2566 → 1/12 chance
 State 0x00: daypart == 0 AND day_tick > 240 → 1/12 chance; daypart 6 → no-op; else → dispatch
-State 0x01: the outbound service selector is based on `resident_index`, not `subtype_index`: selector `1` when `resident_index % 4 == 0`, otherwise selector `2`
+State 0x01: the outbound service selector is based on `resident_index`, not `floor_local_object_id`: selector `1` when `resident_index % 4 == 0`, otherwise selector `2`
 State 0x04: resident_index == 2 → daypart >= 5 → dispatch; else daypart >= 5, day_tick > 2400 OR 1/12 chance
 ```
 
@@ -219,7 +219,7 @@ State 0x04: resident_index == 2 → daypart >= 5 → dispatch; else daypart >= 5
 |--------|-----------|----------------|
 | 0x10 | If `unit_status == 0x10`: rewrite to 3, mark dirty. If `calendar_phase_flag == 1`: odd subtype → INC unit_status → 0x04; even → 0x01. Else: `resident_index == 1` → 0x01; else → 0x00 | |
 | 0x01/0x41 | If 0x01: DEC unit_status. Choose venue selector by calendar phase + subtype parity. Route to commercial venue | fail → INC unit_status → 0x04; else → 0x41 |
-| 0x20/0x60 | Route to commercial venue. **SALE POINT**: if `unit_status >= 0x18`, service lookup succeeded, and the follow-up route resolver returns `0`, `1`, `2`, or `3`, call `activate_commercial_tenant_cashflow` (credit family-9 YEN value, reset `unit_status` to `0/8`, `+3` primary ledger) | service lookup `0xffff` → INC → `0x04`; route result `-1` + unsold → `0x60` (no sale); route result `-1` + sold → INC → `0x04`; route result `0/1/2` + unsold → `0x60` (SALE); route result `3` + unsold → INC → `0x04` (SALE) |
+| 0x20/0x60 | Route to commercial venue. **SALE POINT**: if `unit_status >= 0x18`, service lookup succeeded, and the follow-up route resolver returns `0`, `1`, `2`, or `3`, call `finalize_condo_sale` (credit family-9 YEN value, reset `unit_status` to `0/8`, `+3` primary ledger) | service lookup `0xffff` → INC → `0x04`; route result `-1` + unsold → `0x60` (no sale); route result `-1` + sold → INC → `0x04`; route result `0/1/2` + unsold → `0x60` (SALE); route result `3` + unsold → INC → `0x04` (SALE) |
 | 0x21/0x61 | Route to lobby / saved floor | 0–2 → 0x61; fail or arrived → INC unit_status → 0x04 |
 | 0x22/0x62 | Release venue, route home | fail/arrived → INC → 0x04 |
 | 0x04 | State → 0x10. `try_set_parent_state_in_transit_if_all_slots_transit`: if `unit_status & 7 == 1` → shortcut `unit_status = 0x10`; else check all 3 siblings at 0x10 | |

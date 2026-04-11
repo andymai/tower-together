@@ -12,6 +12,16 @@ For a request from `source_floor` to `target_floor`, the router picks the cheape
 
 When that leg completes, the family state machine asks for the next leg if the actor is not yet at its final destination.
 
+## Floor Numbering
+
+This spec uses the clone's logical floor IDs, not the EXE's raw floor indices.
+
+- clone logical floor `0` = lobby
+- EXE floor index `10` = original-game lobby floor
+- translate EXE floor indices to clone logical floors with `logical = exe_index - 10`
+
+When a routing rule below names both values, the EXE index is included only to anchor the reverse-engineering evidence.
+
 ## Route Resolution Results
 
 The route resolver returns:
@@ -22,12 +32,35 @@ The route resolver returns:
 - waiting state because the source-floor queue is full
 - failure because no route exists
 
+`resolve_entity_route_between_floors` writeback behavior:
+
+- same-floor success returns `3`
+- direct stairs/escalator leg returns `1`
+- elevator queue assignment returns `2`
+- queue-full waiting state returns `0`
+- no-route failure returns `-1`
+
+Resolver field writes:
+
+- direct stairs/escalator leg:
+  - `entity[+7] = source_floor +/- ((span >> 1) + 1)` for the completed hop target
+  - `entity[+8] = stairs/escalator segment index`
+- elevator queue assignment:
+  - `entity[+7] = source_floor`
+  - `entity[+8] = carrier code`
+    - `0x40 + carrier_index` for upward queueing
+    - `0x58 + carrier_index` for downward queueing
+  - `entity[+0xa] = current day_tick`
+- queue-full waiting state:
+  - `entity[+7] = source_floor`
+  - `entity[+8] = 0xff`
+
 ## Candidate Priority
 
 Passenger/local mode:
 
 1. direct local stair links when viable
-2. special transfer zones around lobby and sky lobbies
+2. lobby local access ranges
 3. elevator fallback
 
 Express/helper mode:
@@ -37,10 +70,10 @@ Express/helper mode:
 
 Selector behavior:
 
-- the selector scans direct raw special-link segments in ascending index order `0..63`
-- in local mode, any direct local-segment hit suppresses later special-transfer-zone scoring entirely
-- special transfer zones are scanned only when no direct local segment candidate exists
-- special transfer zones are scanned in ascending index order `0..7`
+- the selector scans direct stairs/escalator segments in ascending index order `0..63`
+- in local mode, any direct local-segment hit suppresses later lobby local-access range scoring entirely
+- lobby local access ranges are scanned only when no direct local segment candidate exists
+- lobby local access ranges are scanned in ascending index order `0..7`
 - carrier candidates are scanned last in ascending carrier index order `0..23`
 - all candidate replacement checks use strict `<`, not `<=`, so equal-cost ties keep the first candidate seen in scan order
 
@@ -48,15 +81,22 @@ Selector behavior:
 
 ### Stair / Escalator Segments
 
-- local-branch special-link segment: `abs(height_delta) * 8`
-- express-branch special-link segment: `abs(height_delta) * 8 + 640`
+- local-walk segment: `abs(height_delta) * 8`
+- express-only segment: `abs(height_delta) * 8 + 640`
 
-Express-mode routing only considers express-branch special-link segments.
+Express-mode routing only considers express-only stairs/escalator segments.
 
-Object-type mapping:
+Behavioral branch mapping:
 
-- Stairs (type 0x16) are local-branch special links
-- Escalators (type 0x1b) are express-branch special links
+- low-bit `0` selects the local-walk branch
+- low-bit `1` selects the express-only branch
+
+Original-EXE labeling quirk:
+
+- the EXE's build-object type labels appear swapped relative to routing behavior
+- type `0x16` (`Stairs` in resources/UI) creates the express-only / `+640` branch
+- type `0x1b` (`Escalator` in resources/UI) creates the local-walk branch
+- the clone should preserve the recovered routing behavior even if we choose saner public labels
 
 ## Carrier Costs
 
@@ -79,8 +119,8 @@ Use these delays:
 - requeue-failure delay: `0`
 - no-route delay: `300`
 - invalid-venue delay: `0`
-- local-branch special-link per-stop delay: `16`
-- express-branch special-link per-stop delay: `35`
+- local-walk stairs/escalator per-stop delay: `16`
+- express-only stairs/escalator per-stop delay: `35`
 
 Long-distance penalty (applied when `emit_distance_feedback` is set):
 
@@ -89,17 +129,17 @@ Long-distance penalty (applied when `emit_distance_feedback` is set):
 - `> 79` and `< 125`: add `30` ticks delay
 - `>= 125`: add `60` ticks delay
 - for carriers, this penalty applies only when `carrier_mode != 0` (standard/service)
-- for special-link segments, it applies to all branches
+- for stairs/escalator segments, it applies to both branches
 
 ## Walkability Rules
 
 `floor_walkability_flags` is a 120-entry byte array (one per floor, indices 0–119).
 
 Bit semantics:
-- bit 0: local walkability (set by local-branch special-link segments, i.e. stairs)
-- bit 1: express walkability (set by express-branch special-link segments, i.e. escalators)
+- bit 0: local walkability (set by local-walk stairs/escalator segments)
+- bit 1: express walkability (set by express-only stairs/escalator segments)
 
-Rebuild trigger: walkability flags are rebuilt whenever a special-link segment (stairs or escalator) is placed or demolished. The rebuild scans all 64 special-link slots and sets the appropriate bit on each floor covered by a live segment.
+Rebuild trigger: walkability flags are rebuilt whenever a stairs/escalator segment is placed or demolished. The rebuild scans all 64 segment slots and sets the appropriate bit on each floor covered by a live segment.
 
 Local walkability:
 
@@ -118,22 +158,22 @@ Express walkability:
 
 ## Transfer Groups
 
-Transfer groups describe floors where carriers and transfer zones intersect.
+Transfer groups describe floors where elevators and lobby local access ranges intersect.
 
 They are rebuilt from:
 
 - lobby/concourse transfer infrastructure
 - carrier served-floor coverage
-- sky-lobby transfer spans
+- lobby local access ranges centered on the main lobby and sky-lobby floors
 
 Rebuild algorithm:
 
 1. clear all 16 transfer-group cache entries
 2. scan all floors for placed objects of type `0x18` (sky lobby / transit concourse)
 3. for each such object, determine which carriers serve that floor by scanning carriers `0..23` and building a carrier bitmask
-4. if an existing cache entry already has the same tagged floor, merge the new carrier bitmask into the existing entry via bitwise OR
-5. otherwise allocate the next free cache entry (up to 16), storing the tagged floor and carrier bitmask
-6. after the object scan, also merge in the derived transfer-zone records (lobby and sky-lobby walkable spans) — each zone contributes its own carrier reachability to overlapping cache entries
+4. append a new cache entry with that tagged floor and carrier bitmask
+5. if the immediately preceding cache entry has the same tagged floor and an overlapping carrier bitmask, collapse back into that preceding row via bitwise OR
+6. after the object scan, also merge in the derived lobby local access ranges — each range contributes its own elevator reachability to overlapping cache entries
 7. entries are stored in discovery order; the 16-entry cap is a hard limit
 
 The cache is rebuilt:
@@ -150,12 +190,12 @@ Invalidation rule for the visible route-failure suppression cache:
 They feed:
 
 - carrier transfer scoring
-- special-link reachability
+- lobby local-access reachability
 - transfer-floor selection during queue drain
 
 Transfer-reachability behavior:
 
-- carrier and special-link transfer tests both scan the 16 transfer-group cache entries in ascending index order `0..15`
+- elevator and lobby local-access tests both scan the 16 transfer-group cache entries in ascending index order `0..15`
 - entries whose tagged floor equals the current floor are skipped
 - the first valid entry whose carrier-mask overlaps the candidate's target-floor reachability mask succeeds
 - the emitted direction flag is derived from whether the current floor is below that entry's tagged floor
@@ -173,15 +213,21 @@ Transfer-floor selection behavior during queue drain:
 - the first candidate that passes those checks is returned as the boarding / transfer floor
 - if no candidate passes, transfer-floor selection fails with `-1`
 
-## Derived Transfer Zones
+## Lobby Local Access Ranges
 
-The lobby / sky-lobby transfer zones are derived records, not placed objects.
+Lobby local access ranges are derived routing records, not placed objects. Each range is a computed floor range around a lobby floor. If an actor stands within that floor range, the router may use the nearby lobby as local access into elevator routing.
 
 Record set:
 
-- up to 8 records in `special_link_record_table`
-- one centered around floor `0` (lobby)
-- one each centered around floors `24`, `39`, `54`, `69`, `84`, and `99`
+- up to 8 local-access records
+- one centered around EXE floor index `10` / clone logical floor `0` (lobby)
+- one each centered around:
+  - EXE `24` / clone logical `14`
+  - EXE `39` / clone logical `29`
+  - EXE `54` / clone logical `44`
+  - EXE `69` / clone logical `59`
+  - EXE `84` / clone logical `74`
+  - EXE `99` / clone logical `89`
 - at most 7 of those records are typically live at once
 
 Zone-building rule:
@@ -200,18 +246,20 @@ Zone-building rule:
   - if gap flag set AND next floor `< center - 3`: exit, return current floor
   - if loop completes: return `center - 6`
 - the span stored in the record is `[downward_bound, upward_bound)` (lower inclusive, upper exclusive)
-- `is_floor_within_special_link_span` tests `bottom_floor <= floor <= top_floor`
+- a floor counts as inside the zone when `bottom_floor <= floor <= top_floor`
 
 Route-use rule for these zones:
 
 - they are considered only in local mode
-- they are scanned only when no direct local special-link candidate exists
+- they are scanned only when no direct local stairs/escalator candidate exists
 - zone scoring is viability-only:
   - active record required
   - source floor must lie inside the derived span
   - target floor must either lie inside the same span or be reachable through the record's per-floor transfer mask cache
 - a viable zone contributes cost `0`; an invalid one contributes `32767`
-- once a zone is chosen, the router computes the first one-floor leg in the emitted direction and requires that first step to be covered by a direct local special-link segment
+- once a zone is chosen, the router computes the first one-floor leg in the emitted direction and requires that first step to be covered by a direct local stairs/escalator segment
+
+This means lobby local access ranges are not themselves ridden like elevator legs. They are routing aids used to justify a local one-floor first hop, after which the actor re-resolves on arrival.
 
 Per-floor cache format:
 
@@ -219,7 +267,7 @@ Per-floor cache format:
 - `1..16`: direct transfer-group index + 1 for a tagged floor inside the record's own span
 - other nonzero values: transfer-participant bitmask
   - bits `0..23`: carriers
-  - bits `24..31`: peer derived transfer-zone records
+  - bits `24..31`: peer lobby local access ranges
 
 ## Queues
 
@@ -243,10 +291,16 @@ The routing system also maintains:
 
 - per-car active route slots
 - path buckets
-- special-link reachability by floor
+- lobby local-access reachability by floor
 - walkability flags
 
 These are simulation state.
+
+Route execution remains single-leg:
+
+- queue drain assigns only the current carrier leg, not a full multi-leg itinerary
+- on elevator arrival, `dispatch_destination_queue_entries` stamps `entity[+7] = arrival_floor` and immediately hands control back to the family-specific dispatcher
+- if the actor still needs another leg after that arrival, the family handler calls `resolve_entity_route_between_floors` again from the new floor
 
 Separately, the executable keeps a visible route-failure suppression cache for notifications:
 
@@ -261,20 +315,27 @@ This cache affects repeated popup emission. It does not participate in route sco
 
 `select_best_route_candidate` applies these additional rules:
 
-- express mode checks raw express-branch segments first and immediately accepts the best one if any exists
-- local mode immediately accepts a direct local-branch segment only when its cost is below `640`
+- express mode checks express-only stairs/escalator segments first and immediately accepts the best one if any exists
+- local mode immediately accepts a direct local-walk stairs/escalator segment only when its cost is below `640`
 - otherwise local mode continues on to carrier fallback, but still preserves the best direct-segment candidate found so far
-- special transfer-zone records return only viability (`0` or `32767`); when one succeeds, the selector computes the first one-floor leg in the chosen direction and then requires a direct local-branch segment for that first step
+- lobby local access ranges return only viability (`0` or `32767`); when one succeeds, the selector computes the first one-floor leg in the chosen direction and then requires a direct local-walk stairs/escalator segment for that first step
 - direct carrier service and transfer-assisted carrier service are both folded into the same final carrier scan
 
-## Raw Special-Link Flags
+## Stairs / Escalator Segment Flags
 
-Raw special-link records carry a `mode_and_span` byte.
+Each stairs/escalator segment carries a `mode_and_span` byte.
 
 Branch semantics:
 
-- local-branch special links are used for local routing
-- express-branch special links are used for express routing
-- local route scoring accepts both branches, but adds the +640 surcharge to express-branch links
-- express route scoring accepts only express-branch links
-- reachability rebuild writes local walkability for local-branch links and express walkability for express-branch links
+- local-walk segments are used for local routing
+- express-only segments are used for express routing
+- local route scoring accepts both branches, but adds the `+640` surcharge to express-only segments
+- express route scoring accepts only express-only segments
+- reachability rebuild writes local walkability for local-walk segments and express walkability for express-only segments
+
+Bit layout:
+
+- bit `0`: branch selector
+  - `0` = local-walk branch
+  - `1` = express-only branch
+- bits `7:1`: encoded span; the walked floor delta for a direct leg is `((mode_and_span >> 1) + 1)`

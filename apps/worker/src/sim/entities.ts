@@ -33,6 +33,8 @@ import {
 	type PlacedObjectRecord,
 	type RouteState,
 	type ServiceRequestEntry,
+	VENUE_CLOSED,
+	VENUE_PARTIAL,
 	type WorldState,
 	yToFloor,
 } from "./world";
@@ -405,23 +407,9 @@ function attemptPairingWithFloorNeighbor(
 }
 
 function recomputeRoutesViableFlag(world: WorldState, time: TimeState): void {
-	if (time.starCount <= 2) {
-		world.gateFlags.routesViable = 0;
-		return;
-	}
-
-	world.gateFlags.routesViable = Object.entries(world.placedObjects).some(
-		([key, object]) => {
-			if (!EVALUATABLE_FAMILIES.has(object.objectTypeCode)) {
-				return false;
-			}
-
-			const [, y] = key.split(",").map(Number);
-			return hasViableRouteBetweenFloors(world, LOBBY_FLOOR, yToFloor(y));
-		},
-	)
-		? 1
-		: 0;
+	// Binary-grounded: rebuild_path_seed_bucket_table unconditionally latches
+	// routesViable = 1 whenever star_count > 2; no route-scoring predicate found.
+	world.gateFlags.routesViable = time.starCount > 2 ? 1 : 0;
 }
 
 interface VenueSelection {
@@ -442,7 +430,7 @@ function pickAvailableVenue(
 			| undefined;
 		if (!record || record.kind !== "commercial_venue") continue;
 		if (record.ownerSubtypeIndex === INVALID_FLOOR) continue;
-		if (record.availabilityState === 3) continue;
+		if (record.availabilityState === VENUE_CLOSED) continue;
 		if (record.todayVisitCount >= record.capacity) continue;
 
 		const [, y] = key.split(",").map(Number);
@@ -630,6 +618,8 @@ function checkoutHotelStay(
 		(saleCount >= 20 && saleCount % 8 === 0)
 	) {
 		world.gateFlags.newspaperTrigger = 1;
+	} else {
+		world.gateFlags.newspaperTrigger = 0;
 	}
 	for (const sibling of siblings) sibling.stateCode = STATE_HOTEL_PARKED;
 	object.unitStatus = UNIT_STATUS_HOTEL_CHECKOUT;
@@ -1516,14 +1506,14 @@ export function resetCommercialVenueCycle(world: WorldState): void {
 		record.yesterdayVisitCount = record.todayVisitCount;
 		record.todayVisitCount = 0;
 		record.visitCount = 0;
-		record.availabilityState = 1;
+		record.availabilityState = VENUE_PARTIAL;
 	}
 }
 
 export function closeCommercialVenues(world: WorldState): void {
 	for (const record of world.sidecars) {
 		if (record.kind !== "commercial_venue") continue;
-		record.availabilityState = 3;
+		record.availabilityState = VENUE_CLOSED;
 	}
 }
 

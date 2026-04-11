@@ -60,7 +60,7 @@ Route-resolution outcomes:
 
 Sale effect:
 
-- sale calls `activate_commercial_tenant_cashflow` (`0x1180:105d`)
+- sale calls `finalize_condo_sale` (`0x1180:105d`)
 - that helper adds the family-9 YEN `#1001` value for the current `rent_level`
 - it resets `unit_status` to `0x08` in pre-day-4 periods or `0x00` otherwise
 - it marks the span dirty and adds `+3` to the primary family ledger
@@ -110,10 +110,10 @@ Family-9 refund condition:
 
 Refund effect:
 
-- the shared deactivation gate calls `deactivate_commercial_tenant_cashflow(floor, slot, 1)`
+- the shared deactivation gate calls `revert_condo_to_unsold(floor, slot, 1)`
 - that helper sets `unit_status` to `0x18` in pre-day-4 periods or `0x20` otherwise
 - it clears `eval_active_flag` and `activation_tick_count`
-- because `do_reverse_cashflow == 1`, it calls `remove_cashflow_from_family_resource(9, rent_level)`
+- because `do_reverse_sale_value == 1`, it calls `remove_cashflow_from_family_resource(9, rent_level)`
 - the reversed amount is exactly the original sale value from YEN `#1001`
 - it also adds `-3` to the primary family ledger, so the condo becomes unsold again
 

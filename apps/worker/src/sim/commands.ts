@@ -33,6 +33,7 @@ import {
 	type PlacedObjectRecord,
 	type ServiceRequestEntry,
 	UNDERGROUND_Y,
+	VENUE_PARTIAL,
 	type WorldState,
 	yToFloor,
 } from "./world";
@@ -118,7 +119,7 @@ function allocSidecar(
 			visitCount: 0,
 			todayVisitCount: 0,
 			yesterdayVisitCount: 0,
-			availabilityState: 1,
+			availabilityState: VENUE_PARTIAL,
 		};
 		record = r;
 	} else if (
@@ -276,6 +277,7 @@ export function handlePlaceTile(
 	tileType: string,
 	world: WorldState,
 	ledger: LedgerState,
+	freeBuild = false,
 ): CommandResult {
 	const normalizedTileType =
 		LEGACY_TILE_ALIASES[LEGACY_VIP_TILE_TO_STANDARD[tileType] ?? tileType] ??
@@ -407,7 +409,7 @@ export function handlePlaceTile(
 			reason: "Lobby only allowed on ground floor or every 15 floors above",
 		};
 	}
-	if (cost > ledger.cashBalance) {
+	if (!freeBuild && cost > ledger.cashBalance) {
 		return { accepted: false, reason: "Insufficient funds" };
 	}
 
@@ -488,7 +490,7 @@ export function handlePlaceTile(
 		world.cells[`${x + dx},${y}`] = normalizedTileType;
 		world.cellToAnchor[`${x + dx},${y}`] = `${x},${y}`;
 	}
-	ledger.cashBalance -= cost;
+	if (!freeBuild) ledger.cashBalance -= cost;
 
 	// PlacedObjectRecord
 	if (!INFRASTRUCTURE_TILES.has(normalizedTileType)) {

@@ -305,7 +305,7 @@ the first rollover/expense pass therefore occurs when `day_counter == 3`.
 ### Per-Tick Work (when `day_tick > 240`)
 
 In addition to the checkpoints above, every tick when `day_tick > 240`:
-- if `daypart_index < 6`: `trigger_random_news_event()` runs when notifications are enabled and no bomb/fire event is active; it rolls `rand() % 16`, and on `0` samples one of six fixed screen buckets (`x = 1/4, 1/2, 3/4` of visible width; `y = 1/2 or 3/4` of visible height) before mapping the sampled object to a news notification family
+- if `daypart_index < 6`: `trigger_random_news_event()` runs when notifications are enabled and the bomb/fire bits in `game_state_flags` are both clear. It rolls `rand() % 16`, and on `0` samples one of six fixed screen buckets (`x = 1/4, 1/2, 3/4` of visible width; `y = half-height or lower-quarter height`) before classifying the sampled tile. Empty samples below floor `10` suppress the event; empty samples on floor `10+` enter the general tower-news fallback (`0x2712` / `0x271b` / `0x271c`); live facility samples use the per-family readiness gates and popup mapping documented in `EVENTS.md`.
 - if `daypart_index < 4` and `metro_station_floor_index >= 0` and not paused: `trigger_vip_special_visitor()` runs with extra guards that no bomb/fire event is active and `vip_system_eligibility >= 0`; on `rand() % 100 == 0`, it sweeps metro-stack types `0x1f/0x20/0x21`, toggles `special_visitor_flag` between `0` and `2`, marks each touched object dirty, and fires notification `0x271a` if any object flipped from `0` to `2`
 
 Ordering note:

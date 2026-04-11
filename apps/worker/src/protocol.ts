@@ -6,6 +6,7 @@ export type SessionMessage = Extract<
 	| { type: "join_tower" }
 	| { type: "ping" }
 	| { type: "set_speed" }
+	| { type: "set_free_build" }
 	| { type: "query_cell" }
 >;
 
@@ -26,6 +27,7 @@ export function isSessionMessage(msg: ClientMessage): msg is SessionMessage {
 		msg.type === "join_tower" ||
 		msg.type === "ping" ||
 		msg.type === "set_speed" ||
+		msg.type === "set_free_build" ||
 		msg.type === "query_cell"
 	);
 }
@@ -61,6 +63,7 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 		case "join_tower":
 		case "ping":
 		case "set_speed":
+		case "set_free_build":
 		case "query_cell":
 			return null;
 	}

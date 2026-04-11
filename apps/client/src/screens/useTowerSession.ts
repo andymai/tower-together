@@ -27,6 +27,7 @@ interface UseTowerSessionResult {
 	entities: EntityStateData[];
 	carriers: CarrierCarStateData[];
 	speedMultiplier: 1 | 3 | 10;
+	freeBuild: boolean;
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
 	setInspectedCell: React.Dispatch<React.SetStateAction<CellInfoData | null>>;
@@ -39,6 +40,7 @@ interface UseTowerSessionResult {
 	inspectCell: (x: number, y: number) => void;
 	respondToPrompt: (accepted: boolean) => void;
 	setSpeedMultiplier: (multiplier: 1 | 3 | 10) => void;
+	setFreeBuild: (enabled: boolean) => void;
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
 	addElevatorCar: (x: number) => void;
 	removeElevatorCar: (x: number) => void;
@@ -63,6 +65,7 @@ export function useTowerSession({
 	const [entities, setEntities] = useState<EntityStateData[]>([]);
 	const [carriers, setCarriers] = useState<CarrierCarStateData[]>([]);
 	const [speedMultiplier, setSpeedMultiplierState] = useState<1 | 3 | 10>(1);
+	const [freeBuild, setFreeBuildState] = useState(false);
 	const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(null);
 	const [inspectedCell, setInspectedCell] = useState<CellInfoData | null>(null);
 	const clockSampleRef = useRef<{
@@ -243,6 +246,14 @@ export function useTowerSession({
 		[socket],
 	);
 
+	const setFreeBuild = useCallback(
+		(enabled: boolean) => {
+			setFreeBuildState(enabled);
+			socket.send({ type: "set_free_build", enabled });
+		},
+		[socket],
+	);
+
 	const setRentLevel = useCallback(
 		(x: number, y: number, rentLevel: number) => {
 			socket.send({ type: "set_rent_level", x, y, rentLevel });
@@ -278,6 +289,7 @@ export function useTowerSession({
 		entities,
 		carriers,
 		speedMultiplier,
+		freeBuild,
 		activePrompt,
 		inspectedCell,
 		setInspectedCell,
@@ -285,6 +297,7 @@ export function useTowerSession({
 		inspectCell,
 		respondToPrompt,
 		setSpeedMultiplier,
+		setFreeBuild,
 		setRentLevel,
 		addElevatorCar,
 		removeElevatorCar,

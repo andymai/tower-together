@@ -141,6 +141,7 @@ export function GameScreen({
 		entities,
 		carriers,
 		speedMultiplier,
+		freeBuild,
 		activePrompt,
 		inspectedCell,
 		setInspectedCell,
@@ -148,6 +149,7 @@ export function GameScreen({
 		inspectCell,
 		respondToPrompt,
 		setSpeedMultiplier,
+		setFreeBuild,
 		setRentLevel,
 		addElevatorCar,
 		removeElevatorCar,
@@ -259,6 +261,8 @@ export function GameScreen({
 					metrics={metrics}
 					speedMultiplier={speedMultiplier}
 					onSpeedChange={setSpeedMultiplier}
+					freeBuild={freeBuild}
+					onFreeBuildChange={setFreeBuild}
 				/>
 			</div>
 

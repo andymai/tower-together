@@ -175,6 +175,11 @@ Per-family teardown effects:
 - hotel/condo spans synchronously finalize route state, clear active-request entries, and release attached service-request backlinks via the tile-span teardown walk
 - office spans synchronously finalize route state and release attached service-request backlinks via the tile-span teardown walk
 
+Interpretation:
+
+- object-owned sidecars are owned by the demolished object and must be invalidated immediately
+- routing, parking-coverage, and demand-history tables are derived sidecar caches and are rebuilt after teardown rather than freed as individually owned records
+
 Demolition confirmation prompts are known for some carrier edits:
 
 - elevator served-floor removal emits confirm prompt `0x3ed` if any active route currently uses that floor

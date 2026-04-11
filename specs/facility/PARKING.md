@@ -21,7 +21,9 @@ Formula:
 
 Expense gate:
 
-- the parking-expense helper skips floors in the excluded underground band `1 <= floor < lowest_floor_bound`
+- the parking-expense helper skips floors in the lower-atrium band above the lobby, not an underground band
+  - EXE floor indices: `11 <= floor < 10 + g_lobby_height`
+  - clone logical floors: `1 <= floor < g_lobby_height`
 - parking variants swept by this path share the same expense math; their remaining distinction is visual/depth classification rather than operating-cost behavior
 
 ## Service Request Entries

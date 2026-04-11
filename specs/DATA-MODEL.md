@@ -4,11 +4,22 @@ This document defines shared state and terminology used across the simulation sp
 
 ## World Indexing
 
-- There are 120 floors, indexed `-10..109`.
-- Floor `0` is the ground-floor lobby.
+- The clone exposes 120 logical floors indexed `-10..109`.
+- Clone logical floor `0` is the ground-floor lobby.
 - Floors `-10..-1` are below grade (10 basement levels).
-- Floors `1..109` are above grade (109 above-ground levels).
-- Sky lobbies may be placed on floors `15`, `30`, `45`, etc.
+- Floors `1..109` are above grade.
+- Sky lobbies may be placed on clone logical floors `15`, `30`, `45`, etc.
+
+Binary-translation note:
+
+- The original `SIMTOWER.EX_` does not use the clone's logical floor IDs internally.
+- EXE floor index `0` corresponds to original-game logical floor `-10`.
+- EXE floor index `10` is the original game's lobby / logical floor `1`.
+- For the clone spec, we intentionally remap that same physical floor to logical floor `0`.
+- When this spec cites binary constants recovered from the EXE, translate them to clone logical floors with:
+  - `clone_logical_floor = exe_floor_index - 10`
+  - example: EXE transfer-zone center `10` => clone logical floor `0`
+  - example: EXE transfer-zone center `24` => clone logical floor `14`
 
 Each placed object is addressed by `(floor_index, floor_local_object_id)`.
 
@@ -151,7 +162,39 @@ The top-level simulation state must include:
 
 ## Sidecars And Caches
 
-The simulation also maintains derived or sidecar tables such as:
+In this spec, **sidecar systems** means the stateful tables that sit beside the shared
+placed-object/runtime-actor records instead of inside them.
+
+They fall into two different classes that the implementation should not blur together:
+
+- **Object-owned sidecars**: allocated slots that are attached to specific placed objects or
+  object families and are torn down explicitly when those owners are demolished or invalidated.
+- **Derived caches**: rebuildable support tables that summarize routing, coverage, or selection
+  state from the current tower layout and sidecars.
+
+Recovered object-owned sidecar systems include:
+
+- `commercial_venue_records[512]` plus the per-type bucket tables built from them
+- `entertainment_link_records[16]`
+- `service_request_entries[512]` used for parking-demand emitters and rentable-unit/helper
+  backlinks
+
+Recovered derived-cache sidecar systems include:
+
+- transfer-group cache
+- carrier reachability masks
+- derived lobby local-access reachability records
+- floor walkability flags
+- demand-history log and its summary table
+
+The binary distinction is operational, not cosmetic:
+
+- `delete_placed_object_and_release_sidecars` invalidates or frees the object-owned sidecars
+  attached to the demolished object
+- caller-side rebuild helpers then recompute the affected derived caches such as route
+  reachability, transfer groups, parking coverage, and demand history
+
+The simulation also maintains concrete sidecar/cached tables such as:
 
 - commercial venue records
 - entertainment venue records
