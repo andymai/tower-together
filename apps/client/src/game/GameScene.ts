@@ -54,6 +54,8 @@ export class GameScene extends Phaser.Scene {
 	private floorLabels: Phaser.GameObjects.Text[] = [];
 	private tileLabels: Phaser.GameObjects.Text[] = [];
 	private carLabels: Phaser.GameObjects.Text[] = [];
+	private roomSprites: Phaser.GameObjects.Sprite[] = [];
+	private roomTexturesLoaded = false;
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -264,6 +266,8 @@ export class GameScene extends Phaser.Scene {
 		this.cloudManager = new CloudManager(this, 1);
 		this.cloudManager.loadTextures();
 
+		this.loadRoomTextures();
+
 		this.setupInput();
 		this.setupFloorLabels();
 	}
@@ -366,10 +370,34 @@ export class GameScene extends Phaser.Scene {
 		sky.setDepth(0);
 	}
 
+	private static readonly ROOM_SVG_SCALE = 16;
+
+	private loadRoomTextures(): void {
+		const roomTypes = ["office"];
+		const s = GameScene.ROOM_SVG_SCALE;
+		for (const room of roomTypes) {
+			this.load.svg(`room_${room}`, `/rooms/${room}.svg`, {
+				width: (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s,
+				height: TILE_HEIGHT * s,
+			});
+		}
+		this.load.once("complete", () => {
+			this.roomTexturesLoaded = true;
+			this.drawAllCells();
+		});
+		this.load.start();
+	}
+
+	private clearRoomSprites(): void {
+		for (const sprite of this.roomSprites) sprite.destroy();
+		this.roomSprites = [];
+	}
+
 	private drawAllCells(): void {
 		const g = this.cellGraphics;
 		g.clear();
 		this.clearTileLabels();
+		this.clearRoomSprites();
 
 		// Underground background
 		g.fillStyle(COLOR_UNDERGROUND, 1);
@@ -387,19 +415,32 @@ export class GameScene extends Phaser.Scene {
 		for (const key of this.anchorSet) {
 			const tileType = this.grid.get(key);
 			if (!tileType || MERGE_TYPES.has(tileType)) continue;
-			const color = TILE_COLORS[tileType];
-			if (!color) continue;
 
 			const [x, y] = key.split(",").map(Number);
 			const w = TILE_WIDTHS[tileType] ?? 1;
 
-			g.fillStyle(color, 1);
-			g.fillRect(
-				x * TILE_WIDTH + 1,
-				y * TILE_HEIGHT + 1,
-				w * TILE_WIDTH - 1,
-				TILE_HEIGHT - 1,
-			);
+			const texKey = `room_${tileType}`;
+			if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
+				const sprite = this.add.sprite(
+					x * TILE_WIDTH + 1,
+					y * TILE_HEIGHT + 1,
+					texKey,
+				);
+				sprite.setOrigin(0, 0);
+				sprite.setDisplaySize(w * TILE_WIDTH - 1, TILE_HEIGHT - 1);
+				sprite.setDepth(1.5);
+				this.roomSprites.push(sprite);
+			} else {
+				const color = TILE_COLORS[tileType];
+				if (!color) continue;
+				g.fillStyle(color, 1);
+				g.fillRect(
+					x * TILE_WIDTH + 1,
+					y * TILE_HEIGHT + 1,
+					w * TILE_WIDTH - 1,
+					TILE_HEIGHT - 1,
+				);
+			}
 		}
 
 		// Draw floor/lobby as merged runs per row.
@@ -505,6 +546,8 @@ export class GameScene extends Phaser.Scene {
 
 			const labelText = TILE_LABELS[tileType];
 			if (!labelText) continue;
+			if (this.roomTexturesLoaded && this.textures.exists(`room_${tileType}`))
+				continue;
 
 			const [x, y] = key.split(",").map(Number);
 			const width = TILE_WIDTHS[tileType] ?? 1;
