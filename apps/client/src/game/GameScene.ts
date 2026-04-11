@@ -61,6 +61,9 @@ export class GameScene extends Phaser.Scene {
 	private roomTexturesLoaded = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
 	private unitStatusMap: Map<string, number> = new Map();
+	private evalLevelMap: Map<string, number> = new Map();
+	private evalScoreMap: Map<string, number> = new Map();
+	private evalBadgeLabels: Phaser.GameObjects.Text[] = [];
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -152,6 +155,8 @@ export class GameScene extends Phaser.Scene {
 			isOverlay?: boolean;
 			evalActiveFlag?: number;
 			unitStatus?: number;
+			evalLevel?: number;
+			evalScore?: number;
 		}>,
 		simTime: number,
 		entities: EntityStateData[] = [],
@@ -162,6 +167,8 @@ export class GameScene extends Phaser.Scene {
 		this.overlayGrid.clear();
 		this.evalActiveFlagMap.clear();
 		this.unitStatusMap.clear();
+		this.evalLevelMap.clear();
+		this.evalScoreMap.clear();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
@@ -173,6 +180,10 @@ export class GameScene extends Phaser.Scene {
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
 				if (cell.unitStatus !== undefined)
 					this.unitStatusMap.set(key, cell.unitStatus);
+				if (cell.evalLevel !== undefined)
+					this.evalLevelMap.set(key, cell.evalLevel);
+				if (cell.evalScore !== undefined)
+					this.evalScoreMap.set(key, cell.evalScore);
 			}
 		}
 		this.previousEntitySnapshot = null;
@@ -196,6 +207,8 @@ export class GameScene extends Phaser.Scene {
 			isOverlay?: boolean;
 			evalActiveFlag?: number;
 			unitStatus?: number;
+			evalLevel?: number;
+			evalScore?: number;
 		}>,
 	): void {
 		for (const cell of cells) {
@@ -211,6 +224,8 @@ export class GameScene extends Phaser.Scene {
 				this.anchorSet.delete(key);
 				this.evalActiveFlagMap.delete(key);
 				this.unitStatusMap.delete(key);
+				this.evalLevelMap.delete(key);
+				this.evalScoreMap.delete(key);
 			} else {
 				this.grid.set(key, cell.tileType);
 				if (cell.isAnchor) {
@@ -222,6 +237,10 @@ export class GameScene extends Phaser.Scene {
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
 				if (cell.unitStatus !== undefined)
 					this.unitStatusMap.set(key, cell.unitStatus);
+				if (cell.evalLevel !== undefined)
+					this.evalLevelMap.set(key, cell.evalLevel);
+				if (cell.evalScore !== undefined)
+					this.evalScoreMap.set(key, cell.evalScore);
 			}
 		}
 		this.drawAllCells();
@@ -481,6 +500,8 @@ export class GameScene extends Phaser.Scene {
 		g.clear();
 		this.clearTileLabels();
 		this.clearRoomSprites();
+		for (const lbl of this.evalBadgeLabels) lbl.destroy();
+		this.evalBadgeLabels = [];
 
 		if (!this.undergroundBackground) {
 			g.fillStyle(COLOR_UNDERGROUND, 1);
@@ -573,6 +594,42 @@ export class GameScene extends Phaser.Scene {
 					banner.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
 					this.roomSprites.push(banner);
 				}
+			}
+
+			// Eval score pill badge (blue=A, yellow=B, red=C)
+			const evalLevel = this.evalLevelMap.get(key);
+			const evalScore = this.evalScoreMap.get(key);
+			if (
+				evalLevel !== undefined &&
+				evalLevel <= 2 &&
+				evalScore !== undefined &&
+				evalScore >= 0
+			) {
+				const badgeColor =
+					evalLevel === 2 ? 0x4488ff : evalLevel === 1 ? 0xddcc00 : 0xdd3333;
+				const scoreLabel = String(evalScore);
+				const pillH = TILE_HEIGHT * 0.55;
+				const pillW = Math.max(pillH * 1.4, pillH * 0.8 * scoreLabel.length);
+				const pillR = pillH / 2;
+				const px = x * TILE_WIDTH + 2;
+				const py = y * TILE_HEIGHT + 1 + (TILE_HEIGHT - 1 - pillH) / 2;
+				g.fillStyle(badgeColor, 1);
+				g.fillRoundedRect(px, py, pillW, pillH, pillR);
+				const label = this.add.text(
+					px + pillW / 2,
+					py + pillH / 2,
+					scoreLabel,
+					{
+						fontSize: `${Math.round(pillH * 0.75)}px`,
+						fontFamily: "Arial, sans-serif",
+						fontStyle: "bold",
+						color: "#ffffff",
+						resolution: window.devicePixelRatio * 4,
+					},
+				);
+				label.setOrigin(0.5, 0.5);
+				label.setDepth(5);
+				this.evalBadgeLabels.push(label);
 			}
 		}
 

@@ -504,6 +504,8 @@ describe("checkpoint dispatcher", () => {
 			evalActiveFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 			vipFlag: false,
 		};
 		state.ledger.populationLedger.fill(0);
@@ -600,6 +602,8 @@ describe("ledger: rebuildFacilityLedger", () => {
 			evalActiveFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		world.placedObjects[`1,${y}`] = {
 			...world.placedObjects[`0,${y}`],
@@ -663,6 +667,8 @@ describe("ledger: doExpenseSweep", () => {
 			evalActiveFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 4, // family 6 (restaurant) → init = 4
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		doExpenseSweep(ledger, world);
 		expect(ledger.cashBalance).toBe(0);
@@ -1060,6 +1066,8 @@ describe("handleRemoveTile", () => {
 			evalActiveFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		// Place a floor tile directly above
 		world.cells[`0,${y - 1}`] = "floor";
@@ -1628,6 +1636,8 @@ describe("selectBestRouteCandidate", () => {
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
 		world.carriers.push(makeCarrier(1, 4, 1, 0, 4));
@@ -1657,6 +1667,8 @@ describe("selectBestRouteCandidate", () => {
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		world.placedObjects[`20,${GROUND_Y}`] = {
 			leftTileIndex: 20,
@@ -1670,6 +1682,8 @@ describe("selectBestRouteCandidate", () => {
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
 		world.carriers.push(makeCarrier(1, 20, 1, 0, 10));
@@ -1774,13 +1788,12 @@ describe("car state machine", () => {
 				destinationFloor: 10,
 				venueReturnState: 0,
 				queueTick: 0,
-				stressCounter: 0,
+				elapsedTicks: 0,
 				routeRetryDelay: 0,
 				transitTicksRemaining: 0,
 				lastDemandTick: 0,
 				demandSampleCount: 0,
 				demandAccumulator: 0,
-				visitCounter: 0,
 			});
 		}
 		const time = createTimeState();
@@ -1824,13 +1837,12 @@ describe("car state machine", () => {
 				destinationFloor: dst,
 				venueReturnState: 0,
 				queueTick: 0,
-				stressCounter: 0,
+				elapsedTicks: 0,
 				routeRetryDelay: 0,
 				transitTicksRemaining: 0,
 				lastDemandTick: 0,
 				demandSampleCount: 0,
 				demandAccumulator: 0,
-				visitCounter: 0,
 			});
 		}
 		const time = createTimeState();
@@ -2156,8 +2168,9 @@ describe("Phase 4 runtime entities", () => {
 		const hotel = world.placedObjects[`0,${GROUND_Y - 1}`];
 		if (!firstEntity || !secondEntity || !hotel)
 			throw new Error("expected hotel runtime state");
-		firstEntity.stressCounter = 10;
-		secondEntity.stressCounter = 90;
+		// Current-trip elapsed: low stress (10) and medium stress (90)
+		firstEntity.elapsedTicks = 10;
+		secondEntity.elapsedTicks = 90;
 		hotel.evalLevel = 0;
 
 		const state = createEntityStateRecords(world);
@@ -2177,7 +2190,7 @@ describe("Phase 4 runtime entities", () => {
 		rebuildRuntimeEntities(world);
 		const entity = world.entities[0];
 		if (!entity) throw new Error("expected hotel entity");
-		entity.stressCounter = 120;
+		entity.elapsedTicks = 120;
 
 		const state = createEntityStateRecords(world);
 		expect(state[0]?.stressLevel).toBe("high");
@@ -2357,7 +2370,7 @@ describe("Phase 4 runtime entities", () => {
 			direction: "up",
 			source: 10,
 		};
-		entity.visitCounter = 1;
+		entity.demandSampleCount = 1;
 
 		onCarrierArrival(
 			world,
@@ -2539,13 +2552,12 @@ describe("Phase 4 runtime entities", () => {
 			destinationFloor: 14,
 			venueReturnState: 0,
 			queueTick: 0,
-			stressCounter: 0,
+			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
 			lastDemandTick: 0,
 			demandSampleCount: 0,
 			demandAccumulator: 0,
-			visitCounter: 0,
 		});
 
 		populateCarrierRequests(world, { ...createTimeState(), dayTick: 321 });
@@ -2576,13 +2588,12 @@ describe("Phase 4 runtime entities", () => {
 			destinationFloor: 14,
 			venueReturnState: 0,
 			queueTick: 0,
-			stressCounter: 0,
+			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
 			lastDemandTick: 0,
 			demandSampleCount: 0,
 			demandAccumulator: 0,
-			visitCounter: 0,
 		});
 
 		reconcileEntityTransport(world, ledger, createTimeState());
@@ -2673,6 +2684,8 @@ describe("Phase 4 runtime entities", () => {
 			evalActiveFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
+			evalScore: -1,
+			pairingPendingFlag: 0,
 		};
 		world.gateFlags.recyclingCenterCount = 1;
 		world.eventState.gameStateFlags = 1;

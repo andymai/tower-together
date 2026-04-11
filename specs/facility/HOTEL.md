@@ -212,6 +212,73 @@ End-of-day reset behavior:
   distinct semantic bands throughout the scheduler, even though later checkpoint passes normalize
   them back and forth within each pair
 
+## Cockroach Infestation
+
+Hotel rooms that remain in the checked-out / turnover band (`unit_status` `0x28` or `0x30`) without
+housekeeping service degrade into an irreversible **infested** state. The only cure is destroying the
+room.
+
+### Three-Strikes Expiry
+
+At checkpoint `0x640` each day, `handle_extended_vacancy_expiry` runs for every hotel room (family
+3-5) with `unit_status > 0x27`:
+
+- if the room's `pairing_pending_flag` (`+0x14`) is set (housekeeping has claimed it): clears
+  `eval_level`, `activation_tick_count`, and `pairing_pending_flag` — the room is safe
+- if `pairing_pending_flag` is **not** set: increments `activation_tick_count` (`+0x17`) by `1`
+- when `activation_tick_count` reaches `3`: sets `unit_status` to `0x40` (pre-day-4) or `0x38`
+  (post-day-4), and marks the room dirty
+
+This means a room must go **3 consecutive checkpoint passes** without housekeeping service before
+cockroaches appear.
+
+### Spread
+
+At the same checkpoint `0x640`, `update_hotel_pair_stay_states` runs **before** the expiry check.
+For each infested room (family 3-5, `unit_status >= 0x38`), it infects adjacent hotel rooms on
+the same floor:
+
+- **previous neighbor** (slot - 1): infected unconditionally if family 3-5
+- **next neighbor** (slot + 1): infected only if family 3-5 **and** `unit_status < 0x38`
+
+The asymmetry is a scan-direction optimization: previous slots have already been visited in this
+pass, so re-infecting them is idempotent. The next neighbor is skipped if already infested to avoid
+re-processing.
+
+Infection writes to the neighbor record:
+
+- `unit_status` (`+0x0b`): `0x38` or `0x40` (day-phase dependent)
+- `operational_score` (`+0x15`): `0xff`
+- `pairing_pending_flag` (`+0x14`): `0x00`
+- `dirty_flag` (`+0x13`): `0x01`
+
+Because spread runs before expiry, a newly infested room does not spread to its neighbors until the
+following day's `0x640` checkpoint.
+
+### Execution Order At Checkpoint `0x640`
+
+1. `update_hotel_pair_stay_states` — spread existing infestations
+2. `update_hotel_operational_and_pairings` — which calls per-room:
+   - `recompute_object_operational_status`
+   - `handle_extended_vacancy_expiry` — may create new infestations
+3. `attempt_pairing_with_floor_neighbor` (second loop)
+
+### Rendering
+
+During tile repaint, `draw_cockroach_infestation_label` checks whether the room is family 3-5 with
+`unit_status > 0x37`. If so, it draws string resource `0x1a` (from string table base `0x2c7`) as a
+text overlay on the room tile using `TextOut`, provided fewer than 3 overlay lines have already been
+drawn for that object.
+
+### State Band Summary
+
+| Range | Meaning | Recoverable? |
+|---|---|---|
+| `0x00..0x17` | occupied | yes (normal stay) |
+| `0x18..0x27` | vacant / available | yes |
+| `0x28..0x37` | checked-out / turnover | yes (housekeeping resets counter) |
+| `0x38..0x40` | **infested (cockroaches)** | **no — must destroy room** |
+
 ## Family `0x21`
 
 This family models hotel guests making venue visits.

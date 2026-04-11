@@ -135,14 +135,14 @@ export interface EntityRecord {
 	destinationFloor: number;
 	venueReturnState: number;
 	queueTick: number;
-	stressCounter: number;
+	/** Current elapsed ticks for the in-progress service visit (maps to low 10 bits of elapsed_packed). */
+	elapsedTicks: number;
 	/** Ticks remaining before the entity may retry routing (route-failure / wait-state delay). */
 	routeRetryDelay: number;
 	transitTicksRemaining: number;
 	lastDemandTick: number;
 	demandSampleCount: number;
 	demandAccumulator: number;
-	visitCounter: number;
 }
 
 // ─── Routing types ────────────────────────────────────────────────────────────
@@ -201,10 +201,14 @@ export interface PlacedObjectRecord {
 	evalActiveFlag: number;
 	/** Operational rating: 0 = bad/refund-eligible, 1 = ok, 2 = good. −1 until first scoring sweep. */
 	evalLevel: number;
+	/** Raw average stress score before threshold bucketing. -1 until first scoring sweep. */
+	evalScore: number;
 	/** Pricing tier 0–3 (0 = best payout, 3 = worst); 4 = no payout. */
 	rentLevel: number;
 	/** Cumulative activation count, capped. */
 	activationTickCount: number;
+	/** Housekeeping has claimed this room for turnover service. */
+	pairingPendingFlag: number;
 	/** VIP suite flag normalized onto standard hotel room types. */
 	vipFlag?: boolean;
 }

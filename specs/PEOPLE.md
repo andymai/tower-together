@@ -98,38 +98,115 @@ Many actor families use a parked or dormant nightly state. That state usually:
 - waits for a daypart threshold
 - resets or re-enters the family's daytime loop at the next activation window
 
-## Stress / Operational Score
+## Stress / Demand Pipeline
 
-The game manual describes inhabitant "stress" as accumulating travel time, with three
-visible bands (black ≤ 80, pink 80–119, red 120–300) and a quality formula. The
-this is **not** a separate per-actor stress counter. The
-manual's "stress" is the same quantity as the facility operational score: average
-inter-visit interval per tile, computed via `0x1000 / sample_count` (see
-FACILITIES.md "Shared Readiness / Pairing Model").
+Each non-housekeeping sim accumulates **elapsed travel time** (measured in
+`day_tick` deltas) across its trips. This per-sim elapsed counter is the
+binary's implementation of the manual's "stress": the average number of ticks a
+sim spends in transit per service visit.
 
-The thresholds (80 / 150 / 200) match the `eval_level` grade cutoffs exactly.
-There is no separate stress accumulator, no per-actor frustration counter, and no
-behavioral branching based on a "stress" field. The A/B/C ratings displayed to the
-player map directly to `eval_level` values 2/1/0.
+### Per-Sim Demand Fields
 
-A clean-room implementation should use the documented `compute_object_operational_score`
-pipeline and threshold mapping. The manual's "stress" wording can be used in
-player-facing labels without adding any simulation-level stress tracking.
+| Offset | Size | Field | Meaning |
+|--------|------|-------|---------|
+| `+0x09` | byte | `sample_count` | number of completed service-visit samples |
+| `+0x0a` | word | `last_sample_tick` | `g_day_tick` snapshot at route-start; zeroed after rebase |
+| `+0x0c` | word | `elapsed_packed` | low 10 bits = current elapsed ticks; high 6 bits = flags |
+| `+0x0e` | word | `accumulated_elapsed` | running sum of per-sample elapsed values |
+
+### Pipeline Steps
+
+1. **`rebase_sim_elapsed_from_clock`** — called from `dispatch_sim_behavior`
+   every service tick (and from `cancel_runtime_route_request`):
+   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_sample_tick`
+   - clamp to 300
+   - store back: `elapsed_packed = (elapsed_packed & 0xfc00) | elapsed`
+   - clear `last_sample_tick = 0`
+
+2. **`advance_sim_demand_counters`** — called immediately after rebase in
+   `dispatch_sim_behavior`, and also at same-floor route success, route failure,
+   route finalization, and venue slot acquisition:
+   - `sample_count += 1`
+   - `accumulated_elapsed += (elapsed_packed & 0x3ff)`
+   - clear `last_sample_tick = 0`
+   - clear low 10 bits of `elapsed_packed` (keep flags)
+
+3. **`accumulate_elapsed_delay_into_current_sim`** — called from
+   `assign_request_to_runtime_route` when a carrier leg is assigned
+   (non-express, non-service carriers only):
+   - `elapsed = (elapsed_packed & 0x3ff) + g_day_tick - last_sample_tick`
+   - call `scale_delay_for_speed_mode(elapsed, source_floor)` to adjust for
+     express elevators
+   - clamp to 300, store back, clear `last_sample_tick`
+
+4. **`add_delay_to_current_sim`** — adds a fixed tick penalty:
+   - `elapsed = (elapsed_packed & 0x3ff) + delay_delta`
+   - clamp to 300, store back, clear `last_sample_tick`
+   - used for: no-route delay (300 ticks), distance penalties (30 or 60 ticks),
+     queue-full waiting delay (5 ticks)
+
+5. **Route-start timestamp** — at the end of `resolve_sim_route_between_floors`,
+   `last_sample_tick = g_day_tick`. This starts the clock for the next leg.
+
+### Scoring
+
+`compute_runtime_tile_stress_average` computes:
+
+```
+if sample_count == 0: return 0
+return accumulated_elapsed / sample_count
+```
+
+This is the **average elapsed ticks per service visit** — the sim's stress.
+Higher values = more stressed = worse evaluation.
+
+`compute_object_operational_score` averages this metric across the facility's
+tile count (family 3: 1 tile, family 4/5: 2–3 tiles, family 7: 6 tiles,
+family 9: 3 tiles), then passes through `apply_variant_and_support_bonus_to_score`
+for rent-level and nearby-support adjustments (see FACILITIES.md).
+
+### Stress Color Bands (Manual)
+
+The manual describes three visible stress colors for individual sims:
+
+| Score range | Color | Meaning |
+|-------------|-------|---------|
+| < 80 | black | low stress |
+| 80–119 | pink | moderate stress |
+| 120–300 | red | high stress |
+
+These thresholds apply to the per-sim `accumulated_elapsed / sample_count` value.
+The 300-tick clamp on `elapsed_packed` prevents any single leg from dominating.
+
+### Speed Mode Scaling
+
+`scale_delay_for_speed_mode` reduces elapsed time for express elevator service:
+- not an express floor (speed_mode ≠ 10): no adjustment
+- star_count 2: subtract 25 ticks (floor at 0)
+- star_count 3: subtract 50 ticks (floor at 0)
+
+### Reset
+
+`reset_sim_demand_counters` clears `sample_count` and `accumulated_elapsed` to 0.
+Called from `refresh_commercial_object_span_tiles` when re-initializing commercial
+entity demand state.
 
 ## Runtime Entity Record Layout
 
-| Field | Notes |
-|-------|-------|
-| reserved / link header | family-specific use |
-| `family_code` | matches placed object's family |
-| `state_code` | the entity state machine byte |
-| `route_mode` / family selector | read by route resolution |
-| `spawn_floor` / source floor | written when route begins |
-| `route_carrier_or_segment` | carrier_up(i) = carrier i ascending, carrier_down(i) = descending, or invalid/none sentinel |
-| `sample_count` | feeds operational score (see FACILITIES.md) |
-| `last_sample_tick` | day_tick snapshot used by the demand / elapsed-time rebase pipeline |
-| `target_floor_packed` | encoded floor or elapsed/flags packed |
-| `accumulated_elapsed` | running sum for demand pipeline |
+Each entity is a 16-byte record in `g_sim_table`, indexed by `entity_tile_index << 4`.
+
+| Offset | Size | Field | Notes |
+|--------|------|-------|-------|
+| `+0x00` | 4 | reserved / link header | family-specific use |
+| `+0x04` | 1 | `family_code` | matches placed object's family |
+| `+0x05` | 1 | `state_code` | the entity state machine byte |
+| `+0x06` | 1 | `route_mode` / family selector | read by route resolution |
+| `+0x07` | 1 | `spawn_floor` / source floor | written when route begins |
+| `+0x08` | 1 | `route_carrier_or_segment` | carrier_up(i) = carrier i ascending, carrier_down(i) = descending, or invalid/none sentinel |
+| `+0x09` | 1 | `sample_count` | number of service-visit samples (stress pipeline) |
+| `+0x0a` | 2 | `last_sample_tick` | day_tick snapshot; zeroed after rebase |
+| `+0x0c` | 2 | `elapsed_packed` | low 10 bits = current elapsed ticks; high 6 bits = flags |
+| `+0x0e` | 2 | `accumulated_elapsed` | running sum of per-sample elapsed values |
 
 Save/load must preserve all fields per entity to round-trip the demand pipeline.
 

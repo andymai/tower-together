@@ -52,6 +52,8 @@ export type CellPatch = {
 	isOverlay?: boolean;
 	evalActiveFlag?: number;
 	unitStatus?: number;
+	evalLevel?: number;
+	evalScore?: number;
 };
 
 export interface CommandResult {
@@ -115,9 +117,11 @@ function makePlacedObject(
 		auxValueOrTimer: 0,
 		needsRefreshFlag: 1,
 		evalLevel: 0xff,
+		evalScore: -1,
 		evalActiveFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
+		pairingPendingFlag: 0,
 		vipFlag,
 	};
 }

@@ -82,7 +82,6 @@ export const NO_EVAL_ENTITY = 0xffff;
 
 // ─── Misc tuning constants ──────────────────────────────────────────────────
 
-const SCORING_DIVISOR = 4096;
 const ENTITY_REFRESH_STRIDE = 16;
 const ACTIVATION_TICK_CAP = 0x78;
 
@@ -168,13 +167,12 @@ function makeEntity(
 		destinationFloor: -1,
 		venueReturnState: 0,
 		queueTick: 0,
-		stressCounter: 0,
+		elapsedTicks: 0,
 		routeRetryDelay: 0,
 		transitTicksRemaining: 0,
 		lastDemandTick: 0,
 		demandSampleCount: 0,
 		demandAccumulator: 0,
-		visitCounter: 0,
 	};
 }
 
@@ -302,6 +300,7 @@ function recomputeObjectOperationalStatus(
 		object.unitStatus > UNIT_STATUS_HOTEL_SOLD_OUT
 	) {
 		object.evalLevel = 0xff;
+		object.evalScore = -1;
 		object.needsRefreshFlag = 1;
 		return;
 	}
@@ -311,6 +310,7 @@ function recomputeObjectOperationalStatus(
 		object.evalActiveFlag !== 0
 	) {
 		object.evalLevel = 0xff;
+		object.evalScore = -1;
 		object.needsRefreshFlag = 1;
 		return;
 	}
@@ -320,16 +320,13 @@ function recomputeObjectOperationalStatus(
 		object.evalActiveFlag !== 0
 	) {
 		object.evalLevel = 0xff;
+		object.evalScore = -1;
 		object.needsRefreshFlag = 1;
 		return;
 	}
 
 	const siblings = findSiblingEntities(world, entity);
-	const sampleTotal = siblings.reduce(
-		(sum, sibling) => sum + sibling.visitCounter,
-		0,
-	);
-	const sampleDivisor =
+	const populationCount =
 		object.objectTypeCode === FAMILY_HOTEL_SINGLE
 			? 1
 			: object.objectTypeCode === FAMILY_HOTEL_TWIN
@@ -339,9 +336,16 @@ function recomputeObjectOperationalStatus(
 					: object.objectTypeCode === FAMILY_OFFICE
 						? 6
 						: 3;
-	let score = Math.trunc(
-		SCORING_DIVISOR / Math.max(1, Math.trunc(sampleTotal / sampleDivisor)),
-	);
+	// Per-sim stress = accumulated_elapsed / sample_count, averaged across population.
+	let stressSum = 0;
+	for (const sibling of siblings) {
+		if (sibling.demandSampleCount > 0) {
+			stressSum += Math.trunc(
+				sibling.demandAccumulator / sibling.demandSampleCount,
+			);
+		}
+	}
+	let score = Math.trunc(stressSum / populationCount);
 
 	switch (object.rentLevel) {
 		case 0:
@@ -370,6 +374,7 @@ function recomputeObjectOperationalStatus(
 	const [lower, upper] = OP_SCORE_THRESHOLDS[Math.min(time.starCount, 5)] ?? [
 		80, 200,
 	];
+	object.evalScore = score;
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
 	if (object.objectTypeCode === FAMILY_OFFICE) {
 		if (object.evalLevel >= 1) {
@@ -447,24 +452,65 @@ function pickAvailableVenue(
 	return null;
 }
 
-function recordDemandSample(entity: EntityRecord, time: TimeState): void {
-	entity.lastDemandTick = time.dayTick;
+/** Sync elapsed ticks with the day clock. Spec: rebase_sim_elapsed_from_clock. */
+function rebaseSimElapsedFromClock(
+	entity: EntityRecord,
+	time: TimeState,
+): void {
+	if (entity.lastDemandTick > 0) {
+		entity.elapsedTicks = Math.min(
+			300,
+			entity.elapsedTicks + time.dayTick - entity.lastDemandTick,
+		);
+	}
+	entity.lastDemandTick = 0;
+}
+
+/** Capture a completed service-visit sample. Spec: advance_sim_demand_counters. */
+function advanceSimDemandCounters(entity: EntityRecord): void {
 	entity.demandSampleCount = Math.min(300, entity.demandSampleCount + 1);
-	entity.demandAccumulator += entity.demandSampleCount;
-	entity.visitCounter = Math.min(255, entity.visitCounter + 1);
+	entity.demandAccumulator += entity.elapsedTicks;
+	entity.elapsedTicks = 0;
+	entity.lastDemandTick = 0;
+}
+
+/** Add a fixed tick penalty to the current elapsed. Spec: add_delay_to_current_sim. */
+function addDelayToCurrentSim(entity: EntityRecord, delta: number): void {
+	entity.elapsedTicks = Math.min(300, entity.elapsedTicks + delta);
+	entity.lastDemandTick = 0;
+}
+
+/** Clear demand counters. Spec: reset_sim_demand_counters. */
+function resetSimDemandCounters(entity: EntityRecord): void {
+	entity.demandSampleCount = 0;
+	entity.demandAccumulator = 0;
+}
+
+/**
+ * Reduce elapsed time for express elevator service.
+ * Spec: scale_delay_for_speed_mode.
+ */
+function scaleDelayForSpeedMode(
+	entity: EntityRecord,
+	sourceFloor: number,
+	world: WorldState,
+	starCount: number,
+): void {
+	// Check if source floor is served by an express elevator
+	const isExpressFloor = world.carriers.some(
+		(c) =>
+			c.carrierMode === 0 &&
+			sourceFloor >= c.bottomServedFloor &&
+			sourceFloor <= c.topServedFloor,
+	);
+	if (!isExpressFloor) return;
+	const discount = starCount >= 3 ? 50 : starCount >= 2 ? 25 : 0;
+	entity.elapsedTicks = Math.max(0, entity.elapsedTicks - discount);
 }
 
 function reserveVenue(record: CommercialVenueRecord): void {
 	record.todayVisitCount += 1;
 	record.visitCount = record.todayVisitCount;
-}
-
-function raiseStress(entity: EntityRecord, amount = 20): void {
-	entity.stressCounter = Math.min(255, entity.stressCounter + amount);
-}
-
-function lowerStress(entity: EntityRecord, amount = 12): void {
-	entity.stressCounter = Math.max(0, entity.stressCounter - amount);
 }
 
 function beginCommercialVenueDwell(
@@ -521,8 +567,6 @@ function dispatchCommercialVenueVisit(
 	options: {
 		venueFamilies: Set<number>;
 		returnState: number;
-		successStressDelta: number;
-		failureStressDelta: number;
 		unavailableState?: number;
 		onVenueReserved?: () => void;
 	},
@@ -533,7 +577,8 @@ function dispatchCommercialVenueVisit(
 		options.venueFamilies,
 	);
 	if (!venue) {
-		raiseStress(entity, options.failureStressDelta);
+		addDelayToCurrentSim(entity, 300);
+		advanceSimDemandCounters(entity);
 		if (options.unavailableState !== undefined) {
 			entity.stateCode = options.unavailableState;
 		}
@@ -552,7 +597,6 @@ function dispatchCommercialVenueVisit(
 			time,
 		);
 		if (routeResult === -1 || routeResult === 0) {
-			raiseStress(entity, options.failureStressDelta);
 			if (options.unavailableState !== undefined) {
 				entity.stateCode = options.unavailableState;
 			}
@@ -561,14 +605,14 @@ function dispatchCommercialVenueVisit(
 	}
 
 	reserveVenue(venue.record);
-	recordDemandSample(entity, time);
+	rebaseSimElapsedFromClock(entity, time);
+	advanceSimDemandCounters(entity);
 	options.onVenueReserved?.();
 	if (venue.floor === entity.floorAnchor) {
 		beginCommercialVenueDwell(entity, venue.floor, options.returnState);
 	} else {
 		beginCommercialVenueTrip(entity, venue.floor);
 	}
-	lowerStress(entity, options.successStressDelta);
 	return true;
 }
 
@@ -606,14 +650,12 @@ function activateHotelStay(
 		time,
 	);
 	if (result === -1 || result === 0) {
-		raiseStress(entity, 30);
 		return;
 	}
 
 	entity.originFloor = LOBBY_FLOOR;
 	object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
 	object.needsRefreshFlag = 1;
-	lowerStress(entity, 8);
 
 	if (result === 3) {
 		// Same-floor: immediate arrival
@@ -707,8 +749,6 @@ function processHotelEntity(
 			dispatchCommercialVenueVisit(world, time, entity, {
 				venueFamilies: COMMERCIAL_FAMILIES,
 				returnState: STATE_ACTIVE,
-				successStressDelta: 16,
-				failureStressDelta: 8,
 				onVenueReserved: () => {
 					object.activationTickCount = Math.min(
 						ACTIVATION_TICK_CAP,
@@ -912,8 +952,6 @@ function processOfficeEntity(
 		dispatchCommercialVenueVisit(world, time, entity, {
 			venueFamilies: COMMERCIAL_FAMILIES,
 			returnState: STATE_AT_WORK,
-			successStressDelta: 12,
-			failureStressDelta: 8,
 			unavailableState: STATE_NIGHT_B,
 		});
 		return;
@@ -951,8 +989,6 @@ function processCondoEntity(
 					? CONDO_SELECTOR_RESTAURANT
 					: CONDO_SELECTOR_FAST_FOOD,
 			returnState: STATE_ACTIVE,
-			successStressDelta: 10,
-			failureStressDelta: 7,
 			onVenueReserved: () => {
 				if (object.unitStatus < UNIT_STATUS_CONDO_VACANT) return;
 				object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
@@ -993,9 +1029,12 @@ export function rebuildRuntimeEntities(world: WorldState): void {
 				object.objectTypeCode,
 			);
 			const prior = previous.get(entityKey(fresh));
-			next.push(
-				prior ? { ...fresh, ...prior, floorAnchor, subtypeIndex: x } : fresh,
-			);
+			if (prior) {
+				next.push({ ...fresh, ...prior, floorAnchor, subtypeIndex: x });
+			} else {
+				resetSimDemandCounters(fresh);
+				next.push(fresh);
+			}
 		}
 	}
 
@@ -1081,7 +1120,8 @@ function tryAssignParkingService(
 		];
 	const rec = world.sidecars[idx] as ServiceRequestEntry | undefined;
 	if (!rec || rec.kind !== "service_request") return false;
-	recordDemandSample(entity, time);
+	rebaseSimElapsedFromClock(entity, time);
+	advanceSimDemandCounters(entity);
 	return true;
 }
 
@@ -1107,7 +1147,7 @@ export function resetEntityRuntimeState(world: WorldState): void {
 		entity.destinationFloor = -1;
 		entity.venueReturnState = 0;
 		entity.queueTick = 0;
-		entity.stressCounter = 0;
+		entity.elapsedTicks = 0;
 		entity.transitTicksRemaining = 0;
 	}
 }
@@ -1149,6 +1189,80 @@ export function normalizeUnitStatusEndOfDay(world: WorldState): void {
 						: UNIT_STATUS_CONDO_VACANT;
 			}
 			object.needsRefreshFlag = 1;
+		}
+	}
+}
+
+// ─── Cockroach infestation ──────────────────────────────────────────────────
+
+/**
+ * Spread existing cockroach infestations to adjacent hotel rooms on the same floor.
+ * Spec: runs at checkpoint 0x640 BEFORE the expiry check.
+ */
+export function spreadCockroachInfestation(
+	world: WorldState,
+	time: TimeState,
+): void {
+	const objectsByKey = Object.entries(world.placedObjects);
+	for (const [key, object] of objectsByKey) {
+		if (!HOTEL_FAMILIES.has(object.objectTypeCode)) continue;
+		if (object.unitStatus < 0x38) continue;
+
+		const [x, y] = key.split(",").map(Number);
+		// Infect adjacent hotel rooms on the same floor.
+		for (const [nKey, neighbor] of objectsByKey) {
+			if (neighbor === object) continue;
+			if (!HOTEL_FAMILIES.has(neighbor.objectTypeCode)) continue;
+			const [nx, ny] = nKey.split(",").map(Number);
+			if (ny !== y) continue;
+			// Previous neighbor (leftward): infect unconditionally
+			if (nx < x && neighbor.rightTileIndex >= object.leftTileIndex - 1) {
+				infectHotelRoom(neighbor, time);
+			}
+			// Next neighbor (rightward): only if not already infested
+			if (
+				nx > x &&
+				neighbor.leftTileIndex <= object.rightTileIndex + 1 &&
+				neighbor.unitStatus < 0x38
+			) {
+				infectHotelRoom(neighbor, time);
+			}
+		}
+	}
+}
+
+function infectHotelRoom(neighbor: PlacedObjectRecord, time: TimeState): void {
+	neighbor.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
+	neighbor.evalLevel = 0xff;
+	neighbor.pairingPendingFlag = 0;
+	neighbor.needsRefreshFlag = 1;
+}
+
+/**
+ * Three-strikes expiry: hotel rooms in checkout/turnover band without housekeeping
+ * become infested after 3 consecutive checkpoint passes.
+ * Spec: handle_extended_vacancy_expiry, runs at checkpoint 0x640.
+ */
+export function handleExtendedVacancyExpiry(
+	world: WorldState,
+	time: TimeState,
+): void {
+	for (const object of Object.values(world.placedObjects)) {
+		if (!HOTEL_FAMILIES.has(object.objectTypeCode)) continue;
+		if (object.unitStatus <= 0x27) continue;
+		if (object.unitStatus >= 0x38) continue; // already infested
+
+		if (object.pairingPendingFlag !== 0) {
+			// Housekeeping has claimed it — room is safe.
+			object.evalLevel = 0xff;
+			object.activationTickCount = 0;
+			object.pairingPendingFlag = 0;
+		} else {
+			object.activationTickCount += 1;
+			if (object.activationTickCount >= 3) {
+				object.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
+				object.needsRefreshFlag = 1;
+			}
 		}
 	}
 }
@@ -1340,6 +1454,8 @@ export function resolveEntityRouteBetweenFloors(
 	if (!route) {
 		clearEntityRoute(entity);
 		entity.routeRetryDelay = 300;
+		addDelayToCurrentSim(entity, 300);
+		advanceSimDemandCounters(entity);
 		return -1;
 	}
 
@@ -1358,6 +1474,8 @@ export function resolveEntityRouteBetweenFloors(
 		const perStopDelay = isStairsBranch ? 35 : 16;
 		entity.transitTicksRemaining =
 			Math.abs(destinationFloor - sourceFloor) * perStopDelay;
+		// Route-start timestamp: start the clock for elapsed tracking.
+		if (time) entity.lastDemandTick = time.dayTick;
 		return 1;
 	}
 
@@ -1366,6 +1484,8 @@ export function resolveEntityRouteBetweenFloors(
 	);
 	if (!carrier) {
 		clearEntityRoute(entity);
+		addDelayToCurrentSim(entity, 300);
+		advanceSimDemandCounters(entity);
 		return -1;
 	}
 
@@ -1381,6 +1501,7 @@ export function resolveEntityRouteBetweenFloors(
 		entity.route = { mode: "queued", source: sourceFloor };
 		entity.destinationFloor = destinationFloor;
 		entity.routeRetryDelay = 5;
+		addDelayToCurrentSim(entity, 5);
 		return 0;
 	}
 
@@ -1392,6 +1513,13 @@ export function resolveEntityRouteBetweenFloors(
 	};
 	entity.queueTick = time?.dayTick ?? entity.queueTick;
 	entity.destinationFloor = destinationFloor;
+	// Spec: accumulate_elapsed_delay_into_current_sim for standard carriers.
+	if (time && carrier.carrierMode === 1) {
+		rebaseSimElapsedFromClock(entity, time);
+		scaleDelayForSpeedMode(entity, sourceFloor, world, time.starCount);
+	}
+	// Route-start timestamp: start the clock for elapsed tracking.
+	if (time) entity.lastDemandTick = time.dayTick;
 	return 2;
 }
 
@@ -1862,12 +1990,9 @@ function entityStressLevel(
 	entity: EntityRecord,
 	_object: PlacedObjectRecord | undefined,
 ): "low" | "medium" | "high" {
-	if (entity.stressCounter >= 120) {
-		return "high";
-	}
-	if (entity.stressCounter >= 80) {
-		return "medium";
-	}
+	const elapsed = entity.elapsedTicks;
+	if (elapsed >= 120) return "high";
+	if (elapsed >= 80) return "medium";
 	return "low";
 }
 

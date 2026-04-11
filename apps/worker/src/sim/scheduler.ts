@@ -10,11 +10,13 @@ import {
 } from "./entertainment";
 import {
 	closeCommercialVenues,
+	handleExtendedVacancyExpiry,
 	normalizeUnitStatusEndOfDay,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 	resetEntityRuntimeState,
 	resetRecyclingCenterDutyTier,
+	spreadCockroachInfestation,
 	updateRecyclingCenterState,
 } from "./entities";
 import { checkDailyEvents } from "./events";
@@ -72,6 +74,12 @@ function checkpointEntertainmentPhase1(_s: SimState): void {
 }
 
 function checkpointMidday(_s: SimState): void {
+	// Spec execution order at checkpoint 0x640:
+	// 1. Spread existing cockroach infestations
+	spreadCockroachInfestation(_s.world, _s.time);
+	// 2. Recompute operational status + handle vacancy expiry (may create new infestations)
+	handleExtendedVacancyExpiry(_s.world, _s.time);
+	// 3. Normal midday tasks
 	resetCommercialVenueCycle(_s.world, _s.ledger);
 	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
 	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 0);

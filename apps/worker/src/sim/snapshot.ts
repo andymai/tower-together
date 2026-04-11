@@ -222,6 +222,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		if (!("rentLevel" in legacyRecord) && "variantIndex" in legacyRecord) {
 			legacyRecord.rentLevel = legacyRecord.variantIndex;
 		}
+		if (!("evalScore" in legacyRecord)) {
+			legacyRecord.evalScore = -1;
+		}
 	}
 
 	if (snapshot.world.height < GRID_HEIGHT) snapshot.world.height = GRID_HEIGHT;
@@ -278,7 +281,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		sidecar.linkPhaseState ??= 0;
 		sidecar.pendingTransitionFlag ??= 0;
 		// Migrate forwardBudget/reverseBudget → upperBudget/lowerBudget
-		const legacy = sidecar as Record<string, unknown>;
+		const legacy = sidecar as unknown as Record<string, unknown>;
 		if ("forwardBudget" in legacy) {
 			sidecar.upperBudget = legacy.forwardBudget as number;
 			delete legacy.forwardBudget;
@@ -388,6 +391,16 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.parkingDemandLog ??= [];
 	for (const entity of snapshot.world.entities) {
 		entity.routeRetryDelay ??= 0;
+		entity.elapsedTicks ??= 0;
+		// Migrate old stressCounter/visitCounter fields away
+		const raw = entity as unknown as Record<string, unknown>;
+		delete raw.stressCounter;
+		delete raw.visitCounter;
+	}
+	for (const obj of Object.values(snapshot.world.placedObjects)) {
+		const raw = obj as unknown as Record<string, unknown>;
+		raw.pairingPendingFlag ??= 0;
+		raw.evalScore ??= -1;
 	}
 	snapshot.world.eventState ??= createEventState();
 

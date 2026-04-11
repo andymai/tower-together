@@ -100,9 +100,13 @@ export class TowerSim {
 		// Snapshot display-facing room fields before tick to detect changes.
 		const evalBefore = new Map<string, number>();
 		const unitStatusBefore = new Map<string, number>();
+		const evalLevelBefore = new Map<string, number>();
+		const evalScoreBefore = new Map<string, number>();
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
 			evalBefore.set(key, record.evalActiveFlag);
 			unitStatusBefore.set(key, record.unitStatus);
+			evalLevelBefore.set(key, record.evalLevel);
+			evalScoreBefore.set(key, record.evalScore);
 		}
 
 		const { time } = advanceOneTick(this.time);
@@ -140,9 +144,14 @@ export class TowerSim {
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
 			const prev = evalBefore.get(key);
 			const prevUnitStatus = unitStatusBefore.get(key);
+			const prevEvalLevel = evalLevelBefore.get(key);
+			const prevEvalScore = evalScoreBefore.get(key);
 			if (
 				(prev !== undefined && prev !== record.evalActiveFlag) ||
-				(prevUnitStatus !== undefined && prevUnitStatus !== record.unitStatus)
+				(prevUnitStatus !== undefined &&
+					prevUnitStatus !== record.unitStatus) ||
+				(prevEvalLevel !== undefined && prevEvalLevel !== record.evalLevel) ||
+				(prevEvalScore !== undefined && prevEvalScore !== record.evalScore)
 			) {
 				const [x, y] = key.split(",").map(Number);
 				cellPatches.push({
@@ -152,6 +161,8 @@ export class TowerSim {
 					isAnchor: true,
 					evalActiveFlag: record.evalActiveFlag,
 					unitStatus: record.unitStatus,
+					evalLevel: record.evalLevel,
+					evalScore: record.evalScore,
 				});
 			}
 		}
@@ -366,6 +377,8 @@ export class TowerSim {
 					? {
 							evalActiveFlag: record.evalActiveFlag,
 							unitStatus: record.unitStatus,
+							evalLevel: record.evalLevel,
+							evalScore: record.evalScore,
 						}
 					: {}),
 			});

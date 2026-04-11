@@ -25,13 +25,13 @@ caller. Early-exit guards per family:
 
 The shared scoring pipeline is:
 
-1. compute a per-tile runtime metric as `0x1000 / sample_count`, returning `0` when
-   `sample_count == 0`. Here `sample_count` is a per-sim field — it counts the number of times `advance_entity_demand_counters` has been
-   called for this sim (once per service-visit arrival or route-resolution event).
-   The metric is therefore **inverse visit frequency**: a tile visited 10 times scores
-   `4096 / 10 = 409`; a tile visited 50 times scores `4096 / 50 = 81`. Lower score
-   = more frequently visited = better.
-2. average that metric across the family's tile divisor:
+1. compute a per-sim stress metric as `accumulated_elapsed / sample_count`,
+   returning `0` when `sample_count == 0`. This is the **average elapsed ticks
+   per service visit** — the sim's stress level. A sim that spends 200 ticks
+   per trip scores 200; one that spends 50 scores 50. Higher score = more
+   stressed = worse evaluation. See PEOPLE.md "Stress / Demand Pipeline" for how
+   `accumulated_elapsed` and `sample_count` are maintained.
+2. average that metric across the facility's population:
    - family 3 (single room): 1
    - family 4 (twin room): 2
    - family 5 (suite): 2
@@ -51,23 +51,10 @@ The shared scoring pipeline is:
 
 ### Demand Pipeline (Per-Entity Runtime Counters)
 
-Each sim maintains demand counters used to compute the per-tile metric:
-
-| Field | Meaning |
-|-------|---------|
-| `sample_count` | number of service-visit samples taken |
-| `last_sample_tick` | `day_tick` snapshot at last rebase |
-| `elapsed_packed` | low 10 bits = elapsed ticks since last sample, high 6 bits = flags |
-| `accumulated_elapsed` | running sum of all per-sample elapsed values |
-
-The pipeline runs in two steps, called from entity dispatch and route resolution:
-
-1. **`rebase_entity_elapsed_from_clock`**: `elapsed = (elapsed_packed & 0x3ff) + day_tick - last_sample_tick`, clamped to 300, stored in low 10 bits of `elapsed_packed`, saves `day_tick` to `last_sample_tick`.
-2. **`advance_entity_demand_counters`**: drains `elapsed_packed & 0x3ff` into `accumulated_elapsed`, increments `sample_count`, clears drained bits.
-
-The 300-tick clamp prevents a single long gap from dominating the running average.
-`accumulated_elapsed / sample_count` gives average inter-visit interval (lower = better), but the
-scoring function reads only `sample_count` via `0x1000 / sample_count`.
+The full demand/stress pipeline is documented in PEOPLE.md "Stress / Demand Pipeline".
+The per-tile metric used here is `accumulated_elapsed / sample_count` — the average
+elapsed ticks per service visit. The 300-tick clamp on each sample prevents any single
+long transit from dominating the running average.
 
 ## Support Search
 
@@ -100,13 +87,24 @@ system with `apply_service_variant_modifier_to_score`.
 
 ## Thresholds By Star Rating
 
-Thresholds are stored as tuning parameters (lower and upper) and are
-rewritten when the star rating changes:
+Thresholds are loaded from the startup tuning resource (NE resource type
+`0x7f05`, id `0x03e8`) into a 3×2 table (lower, upper pairs for each star
+tier). At runtime, `refresh_operational_status_thresholds_for_star_rating`
+copies the active pair into the working threshold slots based on the current
+star count.
 
-| Star rating | Lower | Upper |
+Extracted values from the binary resource:
+
+| Star rating | Lower (A/B boundary) | Upper (B/C boundary) |
 |---|---:|---:|
-| 1–3 | 80 | 150 |
-| 4–5 | 80 | 200 |
+| 1–2 | 80 | 150 |
+| 3 | 80 | 150 |
+| 4+ | 80 | 200 |
+
+The lower threshold is constant at 80 across all star levels. At stars 4+,
+the upper threshold widens to 200, making it harder for sims to reach the
+"poor" (C/red) evaluation — tenants become more tolerant at higher tower
+ratings.
 
 Score mapping in `recompute_object_operational_status`:
 
