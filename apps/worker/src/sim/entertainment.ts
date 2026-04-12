@@ -1,6 +1,6 @@
-import { STATE_ACTIVE, STATE_ARRIVED, STATE_PARKED } from "./entities";
 import type { LedgerState } from "./ledger";
 import { FAMILY_CINEMA, FAMILY_ENTERTAINMENT } from "./resources";
+import { STATE_ACTIVE, STATE_ARRIVED, STATE_PARKED } from "./sims/states";
 import type { PlacedObjectRecord, WorldState } from "./world";
 
 const ENTERTAINMENT_FAMILY_PAIRED = FAMILY_CINEMA;

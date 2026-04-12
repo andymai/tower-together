@@ -8,13 +8,6 @@ import {
 	handleSetRentLevel,
 } from "./commands";
 import {
-	advanceEntityRefreshStride,
-	createEntityStateRecords,
-	onCarrierArrival,
-	populateCarrierRequests,
-	reconcileEntityTransport,
-} from "./entities";
-import {
 	handlePromptResponse,
 	tickBombEvent,
 	tickFireEvent,
@@ -25,6 +18,13 @@ import type { LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
 import { runCheckpoints, type SimState } from "./scheduler";
 import {
+	advanceSimRefreshStride,
+	createSimStateRecords,
+	onCarrierArrival,
+	populateCarrierRequests,
+	reconcileSimTransport,
+} from "./sims";
+import {
 	createInitialSnapshot,
 	hydrateSnapshot,
 	type SimSnapshot,
@@ -33,7 +33,7 @@ import {
 import { advanceOneTick, type TimeState } from "./time";
 import type { WorldState } from "./world";
 
-export type { EntityStateRecord } from "./entities";
+export type { SimStateRecord } from "./sims";
 export type { SimSnapshot } from "./snapshot";
 export type { CellPatch, CommandResult };
 
@@ -126,7 +126,7 @@ export class TowerSim {
 		tickBombEvent(this.world, this.ledger, this.time);
 		tickFireEvent(this.world, this.ledger, this.time);
 
-		advanceEntityRefreshStride(this.world, this.ledger, this.time);
+		advanceSimRefreshStride(this.world, this.ledger, this.time);
 		populateCarrierRequests(this.world, this.time);
 		tickAllCarriers(this.world, this.time, (routeId, arrivalFloor) => {
 			onCarrierArrival(
@@ -137,7 +137,7 @@ export class TowerSim {
 				arrivalFloor,
 			);
 		});
-		reconcileEntityTransport(this.world, this.ledger, this.time);
+		reconcileSimTransport(this.world, this.ledger, this.time);
 
 		// Emit cell patches for display-facing room state changes.
 		const cellPatches: CellPatch[] = [];
@@ -393,7 +393,7 @@ export class TowerSim {
 	}
 
 	entitiesToArray() {
-		return createEntityStateRecords(this.world);
+		return createSimStateRecords(this.world);
 	}
 
 	carriersToArray(): CarrierCarStateRecord[] {

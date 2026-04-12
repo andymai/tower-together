@@ -98,14 +98,14 @@ Many actor families use a parked or dormant nightly state. That state usually:
 - waits for a daypart threshold
 - resets or re-enters the family's daytime loop at the next activation window
 
-## Stress / Demand Pipeline
+## Stress / Trip-Counter Pipeline
 
 Each non-housekeeping sim accumulates **elapsed travel time** (measured in
 `day_tick` deltas) across its trips. This per-sim elapsed counter is the
 binary's implementation of the manual's "stress": the average number of ticks a
 sim spends in transit per trip.
 
-### Per-Sim Demand Fields
+### Per-Sim Trip Fields
 
 | Offset | Size | Field | Meaning |
 |--------|------|-------|---------|
@@ -116,9 +116,9 @@ sim spends in transit per trip.
 
 ### When Counters Advance
 
-`advance_sim_demand_counters` (which increments `trip_count` and drains
-`elapsed_packed` into `accumulated_elapsed`) is called at these specific
-transit events — NOT per-tick:
+`advance_sim_trip_counters` (which increments `trip_count` and drains
+`elapsed_packed` into `accumulated_elapsed`) is called at specific
+transit-completion events — NOT per-tick:
 
 | Call site | When |
 |-----------|------|
@@ -132,9 +132,9 @@ transit events — NOT per-tick:
 `trip_count` therefore counts **completed route legs and transit events**,
 not simulation ticks. The per-tick refresh handler for in-transit entities
 (`state >= 0x40, entity[+8] < 0x40`) calls the family dispatch handler
-directly, bypassing `dispatch_sim_behavior` and the demand pipeline entirely.
+directly, bypassing `dispatch_sim_behavior` and the trip-counter pipeline entirely.
 
-### Pipeline Functions
+### Trip-Counter Functions
 
 1. **`rebase_sim_elapsed_from_clock`** — called from `dispatch_sim_behavior`
    (elevator arrival) and `cancel_runtime_route_request`:
@@ -143,7 +143,7 @@ directly, bypassing `dispatch_sim_behavior` and the demand pipeline entirely.
    - store back: `elapsed_packed = (elapsed_packed & 0xfc00) | elapsed`
    - clear `last_trip_tick = 0`
 
-2. **`advance_sim_demand_counters`** — called at the transit events above:
+2. **`advance_sim_trip_counters`** — called at the transit events above:
    - `trip_count += 1`
    - `accumulated_elapsed += (elapsed_packed & 0x3ff)`
    - clear `last_trip_tick = 0`
@@ -217,8 +217,11 @@ floor.
 
 ### Reset
 
-`reset_sim_demand_counters` clears `trip_count` and `accumulated_elapsed` to 0.
-Called from `refresh_commercial_object_span_tiles` when re-initializing commercial sim demand state.
+`reset_sim_trip_counters` clears `trip_count` and `accumulated_elapsed` to 0
+for a single sim. `reset_facility_sim_trip_counters` calls it in a loop for
+all sims belonging to a facility. This fires at the 3-day cashflow pass
+(via `activate_family_cashflow_if_operational`) and on first reopen after vacancy
+(via `activate_office_cashflow`).
 
 ## Sim Entity Record Layout
 
@@ -237,7 +240,7 @@ Each sim has a 16-byte record in `g_sim_table`, indexed by `entity_tile_index <<
 | `+0x0c` | 2 | `elapsed_packed` | low 10 bits = current elapsed ticks; high 6 bits = flags |
 | `+0x0e` | 2 | `accumulated_elapsed` | running sum of per-trip elapsed values |
 
-Save/load must preserve all fields per entity to round-trip the demand pipeline.
+Save/load must preserve all fields per entity to round-trip the trip-counter pipeline.
 
 ---
 
@@ -311,7 +314,7 @@ dirty, adds to population ledger (+1/+2/+2 for families 3/4/5).
 | 0x01 | daypart ≥ 4 → force state 0x05; daypart 0 → no dispatch; daypart 1 → 1/12 chance; dayparts 2–3 → dispatch |
 | 0x02 | (shared with 0x01) |
 | 0x05 | daypart 4 → 1/6 chance (`rand() % 6 == 0`); dayparts 5–6 → dispatch; daypart < 4 → no dispatch |
-| 0x20 | `calendar_phase_flag != 0` → no dispatch; `eval_active_flag == 0` → no dispatch; daypart 0 → 1/12 chance; dayparts 1–2 → dispatch; daypart ≥ 3 → **no dispatch** |
+| 0x20 | `calendar_phase_flag != 0` → no dispatch; `occupied_flag == 0` → no dispatch; daypart 0 → 1/12 chance; dayparts 1–2 → dispatch; daypart ≥ 3 → **no dispatch** |
 | 0x21 | daypart ≥ 4 → **force state 0x27 + release service request** (NOT dispatch); daypart 3 → 1/12 chance; dayparts 0–2 → no dispatch |
 | 0x22 | daypart ≥ 4 → force state 0x27 + release request; dayparts 2–3 → dispatch; dayparts 0–1 → no dispatch |
 | 0x23 | (shared with 0x22) |
@@ -326,14 +329,48 @@ dirty, adds to population ledger (+1/+2/+2 for families 3/4/5).
 | 0x00/0x40 | Route from lobby to assigned floor | 0–2 → 0x40; 3 → 0x21; fail → 0x26 |
 | 0x01/0x41 | `route_entity_to_commercial_venue(2, ...)` | fail → 0x26 + release request |
 | 0x02/0x42 | Continue venue transit, resolve route to venue floor | 0–2 → 0x42; 3 → `try_claim_office_slot`: claimed → 0x23, busy → 0x42, none → 0x41 |
-| 0x05/0x45 | Route from assigned floor back to lobby | 0–2 → 0x45; fail → 0x26 |
-| 0x20/0x60 | If `0x20`: request selector-2 service for the current entity, then route to the assigned floor. If `0x60`: continue the in-transit leg | 0–2 → 0x40; 3 → 0x21 |
-| 0x21/0x61 | Route to lobby (0x21) or saved floor (0x61) | 0–2 → 0x61; 3 → `advance_unit_status_or_wrap` |
-| 0x22/0x62 | Release venue slot, route home | 0–2 → 0x62; 3 → `advance_unit_status_or_wrap`; fail → failure |
-| 0x23/0x63 | Enforce 16-tick venue dwell, then route to saved target | 0–2 → 0x63; 3 → `advance_unit_status_or_wrap`; if `occupant_index == 1` → `0x00` else → `0x05` |
+| 0x05/0x45 | Route from assigned floor back to lobby. On **first dispatch** (state 0x05, not 0x45): calls `decrement_office_presence_counter` regardless of route result | 0–2 → 0x45; 3 → 0x27 + release service request; fail → 0x26 + release service request |
+| 0x20/0x60 | If `0x20`: request selector-2 service for the current entity, then route from lobby to assigned floor. If `0x60`: continue the in-transit leg | 0–2 → 0x60 (activate vacant office); 3 → activate + `advance_office_presence_counter` + occupant 0 → 0x00, else → 0x01 (default) or 0x02 (`g_star_count ≥ 3` AND `rand() % 10 == 0`); fail + vacant → 0x20; fail + open → 0x25 |
+| 0x21/0x61 | Route from lobby to assigned floor (0x21) or saved floor to assigned floor (0x61) | 0–2 → 0x61; 3 → `advance_office_presence_counter` → 0x05; fail → 0x26 + release |
+| 0x22/0x62 | Release venue slot, route home | 0–2 → 0x62; 3 → `advance_office_presence_counter`, then `occupant_index == 1` → 0x00, else → 0x05; fail → 0x26 + release |
+| 0x23/0x63 | Enforce 16-tick venue dwell, then route to saved target | 0–2 → 0x63; 3 → `advance_office_presence_counter`, then `occupant_index == 1` → 0x00, else → 0x05; fail → 0x26 + release |
 
-`advance_unit_status_or_wrap`: increments trip counter, wraps back to start when
-per-family bound is reached. Next state: `occupant_index == 1` → `0x00` (idle); else → `0x05`.
+`advance_office_presence_counter` (`1228:68c3`): increments `unit_status` (accessed as
+`ES:[BX + 0x0b]` due to the 6-byte FloorObjectTable header); wraps 8 → 1. Always marks
+dirty. Fires on every worker arrival: elevator delivery (`dispatch_sim_behavior` for states
+0x40/0x41/0x42), same-floor arrival from 0x20/0x60, and same-floor return from
+0x21/0x22/0x23.
+
+`decrement_office_presence_counter` (`1228:698a`): decrements `unit_status`; if the value
+reaches 0 AND daypart ≥ 4, resets to 8. Always marks dirty. Fires on state 0x05 first
+dispatch only (evening departure initiation), regardless of route result.
+
+The presence counter is `unit_status` cycled within the active band (1–8). The same field
+holds deactivation values (0x10, 0x18) in the vacant bands. See OFFICE.md for full call-site
+table and elevator arrival handler details.
+
+#### Elevator Arrival (`dispatch_sim_behavior`)
+
+When an elevator delivers a family-7 worker, `dispatch_sim_behavior` (`1228:186c`) runs
+the family-7 jump table at `1228:1c51`:
+
+- States 0x40/0x41/0x42 (inbound/lunch transit): `advance_office_presence_counter` → state 0x05
+- States 0x45/0x60/0x61/0x62/0x63 (evening/rental/return): state 0x26 + release service request
+
+The 0x40/0x41/0x42 path is the normal inbound arrival: the worker reaches the office floor,
+the counter advances, and the worker enters state 0x05 (at work, gated until daypart ≥ 4).
+
+The 0x45/0x60/0x61/0x62/0x63 path is an error/cancellation fallback.
+
+#### Parked States (0x25, 0x26, 0x27)
+
+All three park until `day_tick > 2300`, then transition to 0x20. Entry conditions:
+
+| State | How entered |
+|-------|-------------|
+| 0x25 | Route failure on the rental/opening path (0x20/0x60) when office is already open (`unit_status < 0x10`) |
+| 0x26 | Route failure from any other dispatch (0x00, 0x01, 0x05, 0x21, 0x22, 0x23) |
+| 0x27 | Successful evening arrival at lobby (0x05 result 3), OR forced late-day parking from the gate (states 0x21/0x22/0x23 at daypart ≥ 4) |
 
 ### Family `9` — Condo Residents
 

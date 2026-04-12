@@ -261,7 +261,7 @@ following day's `0x640` checkpoint.
 2. `update_hotel_operational_and_pairings` — which calls per-room:
    - `recompute_object_operational_status`
    - `handle_extended_vacancy_expiry` — may create new infestations
-3. `attempt_pairing_with_floor_neighbor` (second loop)
+3. `refresh_occupied_flag_and_trip_counters` (second loop)
 
 ### Rendering
 

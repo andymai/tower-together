@@ -215,13 +215,7 @@ export function useTowerSession({
 					type: "place_tile",
 					x,
 					y,
-					tileType: "recyclingCenterUpper",
-				});
-				socket.send({
-					type: "place_tile",
-					x: x + 2,
-					y,
-					tileType: "recyclingCenterLower",
+					tileType: "recyclingCenter",
 				});
 				sceneRef.current?.setLastPlaced(x, y, tileType);
 				return;

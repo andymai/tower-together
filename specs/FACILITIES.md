@@ -20,8 +20,8 @@ caller. Early-exit guards per family:
 | Family | Guard | Returns |
 |---|---|---|
 | 3/4/5 (hotel) | `unit_status > 0x37` | `0xffff` |
-| 7 (office) | `unit_status > 0x0f` AND `eval_active_flag != 0` | `0xffff` |
-| 9 (condo) | `unit_status > 0x17` AND `eval_active_flag != 0` | `0xffff` |
+| 7 (office) | `unit_status > 0x0f` AND `occupied_flag != 0` | `0xffff` |
+| 9 (condo) | `unit_status > 0x17` AND `occupied_flag != 0` | `0xffff` |
 
 The shared scoring pipeline is:
 
@@ -124,15 +124,24 @@ Score mapping in `recompute_object_operational_status`:
 - score `< upper`: `eval_level = 1` (acceptable)
 - score `>= upper`: `eval_level = 0` (poor)
 
-### eval_active_flag Latching
+### occupied_flag
 
-`eval_active_flag` is set to `1` the first time `eval_level`
-transitions to nonzero. For hotel rooms (families 3/4/5), the latch is further guarded
-by `unit_status <= 0x27` — hotels past that lifecycle phase do not latch even if their
-score is nonzero. The latch is **not retroactive**: if a room's `eval_level` transitions
-to nonzero while `unit_status > 0x27`, the latch simply does not fire. It will not
-catch up later when the room returns to a lower `unit_status` band. The flag is
-forward-only.
+`occupied_flag` (+0x14) tracks whether a facility currently has active tenants
+whose stress is being measured.
+
+In `recompute_object_operational_status`: set to `1` when `eval_level` first
+becomes nonzero. For hotel rooms (families 3/4/5), this is further guarded by
+`unit_status <= 0x27` — hotels past that lifecycle phase do not set it even if
+their score is nonzero.
+
+Cleared on deactivation (`deactivate_office_cashflow`, `revert_condo_to_unsold`)
+and when `refresh_occupied_flag_and_trip_counters` finds no A-rated donor for a
+failing unit. Re-set daily for hotels (via `refresh_occupied_flag_and_trip_counters`
+at checkpoint 0x640) and every 3 days for offices/condos/retail (via
+`activate_family_cashflow_if_operational` at checkpoint 2533).
+
+When clear, the family-7/9 gate blocks worker dispatch (state 0x20), preventing
+new trips and freezing the stress average.
 
 ## Commercial Readiness
 

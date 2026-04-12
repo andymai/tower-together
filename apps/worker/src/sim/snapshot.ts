@@ -1,5 +1,4 @@
 import { initCarrierState } from "./carriers";
-import { rebuildRuntimeEntities } from "./entities";
 import type { LedgerState } from "./ledger";
 import { createLedgerState } from "./ledger";
 import { LEGACY_TILE_ALIASES, LEGACY_VIP_TILE_TO_STANDARD } from "./resources";
@@ -9,6 +8,7 @@ import {
 	rebuildTransferGroupCache,
 	rebuildWalkabilityFlags,
 } from "./routing";
+import { rebuildRuntimeEntities } from "./sims";
 import { createNewGameTimeState, type TimeState } from "./time";
 import {
 	createEventState,

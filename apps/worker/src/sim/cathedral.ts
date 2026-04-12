@@ -1,18 +1,20 @@
 import {
-	CATHEDRAL_FAMILIES,
 	clearEntityRoute,
-	EVAL_ZONE_FLOOR,
 	findObjectForEntity,
+	resolveSimRouteBetweenFloors,
+} from "./sims";
+import {
+	CATHEDRAL_FAMILIES,
+	EVAL_ZONE_FLOOR,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
-	resolveEntityRouteBetweenFloors,
 	STATE_ARRIVED,
 	STATE_DEPARTURE,
 	STATE_EVAL_OUTBOUND,
 	STATE_EVAL_RETURN,
 	STATE_MORNING_GATE,
 	STATE_PARKED,
-} from "./entities";
+} from "./sims/states";
 import type { TimeState } from "./time";
 import type { EntityRecord, WorldState } from "./world";
 
@@ -89,7 +91,7 @@ export function processCathedralEntity(
 			// Dispatch: route from lobby to eval zone
 			entity.selectedFloor = LOBBY_FLOOR;
 			entity.destinationFloor = EVAL_ZONE_FLOOR;
-			const result = resolveEntityRouteBetweenFloors(
+			const result = resolveSimRouteBetweenFloors(
 				world,
 				entity,
 				LOBBY_FLOOR,
@@ -121,7 +123,7 @@ export function processCathedralEntity(
 			if (entity.route.mode !== "idle") return; // already routed
 			entity.selectedFloor = EVAL_ZONE_FLOOR;
 			entity.destinationFloor = LOBBY_FLOOR;
-			const returnResult = resolveEntityRouteBetweenFloors(
+			const returnResult = resolveSimRouteBetweenFloors(
 				world,
 				entity,
 				EVAL_ZONE_FLOOR,

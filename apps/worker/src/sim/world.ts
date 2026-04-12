@@ -197,7 +197,7 @@ export interface PlacedObjectRecord {
 	linkedRecordIndex: number;
 	/** Dirty bit set to 1 on placement so the first refresh sweep picks it up. */
 	needsRefreshFlag: number;
-	/** First-activation latch (1 = not yet activated). */
+	/** Occupancy flag: 1 while the facility has active tenants. */
 	evalActiveFlag: number;
 	/** Operational rating: 0 = bad/refund-eligible, 1 = ok, 2 = good. −1 until first scoring sweep. */
 	evalLevel: number;

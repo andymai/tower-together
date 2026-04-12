@@ -19,8 +19,6 @@ const STATE_LABELS: Record<number, string> = {
 	37: "NightA",
 	38: "NightB",
 	39: "Parked",
-	69: "EvalReturn",
-	96: "EvalOutbound",
 };
 
 const STRESS_VALUE: Record<EntityStateData["stressLevel"], number> = {
@@ -30,7 +28,12 @@ const STRESS_VALUE: Record<EntityStateData["stressLevel"], number> = {
 };
 
 function stateLabel(code: number): string {
-	return STATE_LABELS[code] ?? `0x${code.toString(16).padStart(2, "0")}`;
+	const inTransit = code & 0x40;
+	code &= ~0x40;
+	return (
+		STATE_LABELS[code] ??
+		`0x${code.toString(16).padStart(2, "0")}${inTransit ? " (T)" : ""}`
+	);
 }
 
 export function GameInspectPanel({ entities }: Props) {

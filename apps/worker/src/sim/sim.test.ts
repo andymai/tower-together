@@ -25,17 +25,6 @@ import {
 	handleRemoveTile,
 	runGlobalRebuilds,
 } from "./commands";
-import {
-	advanceEntityRefreshStride,
-	createEntityStateRecords,
-	onCarrierArrival,
-	populateCarrierRequests,
-	rebuildRuntimeEntities,
-	reconcileEntityTransport,
-	resetCommercialVenueCycle,
-	resolveEntityRouteBetweenFloors,
-	updateRecyclingCenterState,
-} from "./entities";
 import { handlePromptResponse, tickBombEvent } from "./events";
 import { TowerSim } from "./index";
 import {
@@ -46,7 +35,14 @@ import {
 	type LedgerState,
 	rebuildFacilityLedger,
 } from "./ledger";
-import { TILE_COSTS, YEN_1001, YEN_1002 } from "./resources";
+import { updateRecyclingCenterState } from "./recycling";
+import {
+	FAMILY_RECYCLING_CENTER_LOWER,
+	FAMILY_RECYCLING_CENTER_UPPER,
+	TILE_COSTS,
+	YEN_1001,
+	YEN_1002,
+} from "./resources";
 import {
 	isFloorSpanWalkableForHousekeepingRoute,
 	isFloorSpanWalkableForLocalRoute,
@@ -54,6 +50,16 @@ import {
 	selectBestRouteCandidate,
 } from "./routing";
 import { runCheckpoints, type SimState } from "./scheduler";
+import {
+	advanceSimRefreshStride,
+	createSimStateRecords,
+	onCarrierArrival,
+	populateCarrierRequests,
+	rebuildRuntimeEntities,
+	reconcileSimTransport,
+	resetCommercialVenueCycle,
+	resolveSimRouteBetweenFloors,
+} from "./sims";
 import {
 	advanceOneTick,
 	createNewGameTimeState,
@@ -280,7 +286,7 @@ describe("PlacedObjectRecord", () => {
 		expect(rec.rightTileIndex).toBe(7); // width 8
 	});
 
-	it("initializes office vacancy from unit status rather than eval latch", () => {
+	it("initializes office vacancy from unit status rather than occupied flag", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		const y = GROUND_Y - 1;
@@ -363,14 +369,34 @@ describe("sidecar allocation", () => {
 		}
 	});
 
-	it("allocates ServiceRequestEntry for recycling center upper slice", () => {
+	it("places recycling center as a paid upper/lower stack", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupSupport(world);
-		handlePlaceTile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
-		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
-		const sidecar = world.sidecars[rec.linkedRecordIndex];
-		expect(sidecar.kind).toBe("service_request");
+		const cashBefore = ledger.cashBalance;
+
+		const result = handlePlaceTile(
+			0,
+			GROUND_Y + 1,
+			"recyclingCenter",
+			world,
+			ledger,
+		);
+
+		expect(result.accepted).toBe(true);
+		expect(cashBefore - ledger.cashBalance).toBe(500_000);
+		const upper = world.placedObjects[`0,${GROUND_Y + 1}`];
+		const lower = world.placedObjects[`0,${GROUND_Y + 2}`];
+		if (!upper || !lower) throw new Error("expected recycling-center stack");
+		expect(upper.objectTypeCode).toBe(FAMILY_RECYCLING_CENTER_UPPER);
+		expect(lower.objectTypeCode).toBe(FAMILY_RECYCLING_CENTER_LOWER);
+		expect(world.sidecars[upper.linkedRecordIndex].kind).toBe(
+			"service_request",
+		);
+		expect(world.sidecars[lower.linkedRecordIndex].kind).toBe(
+			"service_request",
+		);
+		expect(world.gateFlags.recyclingCenterCount).toBe(1);
 	});
 
 	it("allocates EntertainmentLinkRecord for cinema with pairedSubtypeIndex=0xff", () => {
@@ -1167,8 +1193,9 @@ describe("YEN tables", () => {
 		expect(TILE_COSTS.condo).toBe(80_000);
 		expect(TILE_COSTS.cinema).toBe(500_000);
 		expect(TILE_COSTS.entertainment).toBe(100_000);
+		expect(TILE_COSTS.recyclingCenter).toBe(500_000);
 		expect(TILE_COSTS.recyclingCenterUpper).toBe(500_000);
-		expect(TILE_COSTS.recyclingCenterLower).toBe(50_000);
+		expect(TILE_COSTS.recyclingCenterLower).toBe(0);
 		expect(TILE_COSTS.parking).toBe(5_000);
 		expect(TILE_COSTS.metro).toBe(1_000_000);
 	});
@@ -1754,7 +1781,7 @@ describe("selectBestRouteCandidate", () => {
 			stateCode: 0x22,
 		};
 
-		const commuteResult = resolveEntityRouteBetweenFloors(
+		const commuteResult = resolveSimRouteBetweenFloors(
 			world,
 			commuteEntity,
 			10,
@@ -1762,7 +1789,7 @@ describe("selectBestRouteCandidate", () => {
 			0,
 			createTimeState(),
 		);
-		const venueResult = resolveEntityRouteBetweenFloors(
+		const venueResult = resolveSimRouteBetweenFloors(
 			world,
 			venueEntity,
 			10,
@@ -1801,7 +1828,7 @@ describe("selectBestRouteCandidate", () => {
 			accumulatedTicks: 0,
 		};
 
-		const result = resolveEntityRouteBetweenFloors(
+		const result = resolveSimRouteBetweenFloors(
 			world,
 			entity,
 			10,
@@ -2115,13 +2142,13 @@ describe("car state machine", () => {
 			directionFlag: 1,
 			assignedCarIndex: 0,
 		});
-		reconcileEntityTransport(world, ledger, createTimeState());
+		reconcileSimTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(15);
 
 		carrier.pendingRoutes = [];
 		carrier.completedRouteIds.push("15:0:3:0");
 		const cashBefore = ledger.cashBalance;
-		reconcileEntityTransport(world, ledger, createTimeState());
+		reconcileSimTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(10);
 		expect(world.entities[0]?.stateCode).toBe(0x24);
 		expect(world.entities[0]?.route.mode).toBe("idle");
@@ -2195,12 +2222,13 @@ describe("Phase 4 runtime entities", () => {
 		const time = createTimeState();
 		setupOccupiedFloor(world, ledger);
 
-		handlePlaceTile(0, GROUND_Y - 1, "recyclingCenterUpper", world, ledger);
+		handlePlaceTile(0, GROUND_Y + 1, "recyclingCenter", world, ledger);
 		ledger.populationLedger[7] = 300;
 		updateRecyclingCenterState(world, ledger, { ...time, starCount: 4 }, 5);
 
 		expect(world.gateFlags.recyclingAdequate).toBe(1);
-		expect(world.placedObjects[`0,${GROUND_Y - 1}`].unitStatus).toBe(1);
+		expect(world.placedObjects[`0,${GROUND_Y + 1}`].unitStatus).toBe(1);
+		expect(world.placedObjects[`0,${GROUND_Y + 2}`].unitStatus).toBe(1);
 	});
 
 	it("sells condos through the entity refresh stride", () => {
@@ -2216,7 +2244,7 @@ describe("Phase 4 runtime entities", () => {
 
 		const condoBefore = ledger.cashBalance;
 		for (let tick = 0; tick < 64; tick++) {
-			advanceEntityRefreshStride(world, ledger, {
+			advanceSimRefreshStride(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
@@ -2231,7 +2259,7 @@ describe("Phase 4 runtime entities", () => {
 				dayCounter: 3,
 				starCount: 4,
 			});
-			reconcileEntityTransport(world, ledger, {
+			reconcileSimTransport(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
@@ -2262,7 +2290,7 @@ describe("Phase 4 runtime entities", () => {
 		secondEntity.elapsedTicks = 90;
 		hotel.evalLevel = 0;
 
-		const state = createEntityStateRecords(world);
+		const state = createSimStateRecords(world);
 		expect(state).toHaveLength(2);
 		expect(state[0]?.stressLevel).toBe("low");
 		expect(state[1]?.stressLevel).toBe("medium");
@@ -2281,7 +2309,7 @@ describe("Phase 4 runtime entities", () => {
 		if (!entity) throw new Error("expected hotel entity");
 		entity.elapsedTicks = 120;
 
-		const state = createEntityStateRecords(world);
+		const state = createSimStateRecords(world);
 		expect(state[0]?.stressLevel).toBe("high");
 	});
 
@@ -2301,10 +2329,12 @@ describe("Phase 4 runtime entities", () => {
 		const officeEntity = world.entities.find(
 			(entity) => entity.familyCode === 7,
 		);
+		const officeObject = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const venueObject = world.placedObjects[`12,${GROUND_Y - 1}`];
-		if (!officeEntity || !venueObject) {
+		if (!officeEntity || !officeObject || !venueObject) {
 			throw new Error("expected same-floor office + venue state");
 		}
+		officeObject.unitStatus = 1;
 		officeEntity.stateCode = 0x01;
 		officeEntity.selectedFloor = officeEntity.floorAnchor;
 		officeEntity.destinationFloor = -1;
@@ -2316,7 +2346,7 @@ describe("Phase 4 runtime entities", () => {
 			throw new Error("expected commercial venue sidecar");
 		}
 
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
@@ -2328,14 +2358,15 @@ describe("Phase 4 runtime entities", () => {
 		expect(officeEntity.destinationFloor).toBe(-1);
 		expect(venue.todayVisitCount).toBe(1);
 
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 64,
 			dayCounter: 3,
 			daypartIndex: 1,
 			starCount: 4,
 		});
-		expect(officeEntity.stateCode).toBe(0x21);
+		expect(officeEntity.stateCode).toBe(0x05);
+		expect(officeObject.unitStatus).toBe(2);
 	});
 
 	it("counts same-floor route success as a completed trip", () => {
@@ -2351,7 +2382,7 @@ describe("Phase 4 runtime entities", () => {
 		);
 		if (!entity) throw new Error("expected office entity");
 
-		const result = resolveEntityRouteBetweenFloors(
+		const result = resolveSimRouteBetweenFloors(
 			world,
 			entity,
 			10,
@@ -2410,7 +2441,7 @@ describe("Phase 4 runtime entities", () => {
 			daypartIndex: 6,
 		};
 		// First advance: hotel activates and commutes to room
-		advanceEntityRefreshStride(world, ledger, newGameTime);
+		advanceSimRefreshStride(world, ledger, newGameTime);
 		expect(entity.stateCode).toBe(0x00); // STATE_COMMUTE
 
 		// Simulate carrier arrival at hotel floor
@@ -2424,7 +2455,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(entity.stateCode).toBe(0x01); // STATE_ACTIVE
 
 		// Next advance: daypart >= 4 triggers departure
-		advanceEntityRefreshStride(world, ledger, newGameTime);
+		advanceSimRefreshStride(world, ledger, newGameTime);
 		expect(entity.stateCode).toBe(0x05); // STATE_DEPARTURE
 	});
 
@@ -2449,8 +2480,8 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 0,
 			starCount: 4,
 		};
-		advanceEntityRefreshStride(world, ledger, activeTime);
-		expect(entity.stateCode).toBe(0x00); // commuting to office
+		advanceSimRefreshStride(world, ledger, activeTime);
+		expect(entity.stateCode).toBe(0x60); // rental/opening transit
 		expect(entity.selectedFloor).toBe(10);
 		expect(entity.destinationFloor).toBe(entity.floorAnchor);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`]?.unitStatus).toBe(0);
@@ -2461,9 +2492,19 @@ describe("Phase 4 runtime entities", () => {
 		const requestSlot = floorToSlot(carrier, 10);
 		expect(requestSlot).toBeGreaterThanOrEqual(0);
 		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
+
+		onCarrierArrival(
+			world,
+			ledger,
+			activeTime,
+			`${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`,
+			entity.floorAnchor,
+		);
+		expect(entity.stateCode).toBe(0x05);
+		expect(world.placedObjects[`0,${GROUND_Y - 1}`]?.unitStatus).toBe(1);
 	});
 
-	it("allows office workers 1-5 to leave morning gate during the daypart-3 stagger", () => {
+	it("keeps rental-path office workers gated at daypart 3", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
@@ -2480,7 +2521,7 @@ describe("Phase 4 runtime entities", () => {
 		Math.random = () => 0;
 		try {
 			for (let dayTick = 0; dayTick < 16; dayTick++) {
-				advanceEntityRefreshStride(world, ledger, {
+				advanceSimRefreshStride(world, ledger, {
 					...createTimeState(),
 					dayCounter: 3,
 					daypartIndex: 3,
@@ -2492,12 +2533,11 @@ describe("Phase 4 runtime entities", () => {
 			Math.random = originalRandom;
 		}
 
-		const commuters = world.entities.filter(
-			(entity) =>
-				entity.familyCode === 7 &&
-				(entity.stateCode === 0x00 || entity.stateCode === 0x21),
-		);
-		expect(commuters).toHaveLength(6);
+		expect(
+			world.entities.every(
+				(entity) => entity.familyCode !== 7 || entity.stateCode === 0x20,
+			),
+		).toBe(true);
 	});
 
 	it("keeps office rented when the first worker arrives with a sparse sample", () => {
@@ -2597,7 +2637,7 @@ describe("Phase 4 runtime entities", () => {
 		if (!office) throw new Error("expected office object");
 
 		for (let dayTick = 0; dayTick < 16; dayTick++) {
-			advanceEntityRefreshStride(world, ledger, {
+			advanceSimRefreshStride(world, ledger, {
 				...createTimeState(),
 				dayCounter: 3,
 				daypartIndex: 1,
@@ -2635,7 +2675,7 @@ describe("Phase 4 runtime entities", () => {
 		const newGameTime = createNewGameTimeState();
 
 		for (let offset = 0; offset < 16; offset++) {
-			advanceEntityRefreshStride(world, ledger, {
+			advanceSimRefreshStride(world, ledger, {
 				...newGameTime,
 				dayTick: newGameTime.dayTick + offset,
 			});
@@ -2652,7 +2692,7 @@ describe("Phase 4 runtime entities", () => {
 		);
 	});
 
-	it("queues office workers downward from the office floor at end of day", () => {
+	it("queues office workers downward from the office floor on departure dispatch", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
@@ -2665,10 +2705,13 @@ describe("Phase 4 runtime entities", () => {
 			(candidate) => candidate.familyCode === 7,
 		);
 		if (!entity) throw new Error("expected office entity");
-		entity.stateCode = 0x21;
+		entity.stateCode = 0x05;
 		entity.selectedFloor = entity.floorAnchor;
 		entity.destinationFloor = -1;
 		entity.route = { mode: "idle" };
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!office) throw new Error("expected office object");
+		office.unitStatus = 2;
 
 		const endOfDayTime = {
 			...createTimeState(),
@@ -2677,10 +2720,17 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 0,
 			starCount: 4,
 		};
-		advanceEntityRefreshStride(world, ledger, endOfDayTime);
-		expect(entity.stateCode).toBe(0x05);
+		const originalRandom = Math.random;
+		Math.random = () => 0;
+		try {
+			advanceSimRefreshStride(world, ledger, endOfDayTime);
+		} finally {
+			Math.random = originalRandom;
+		}
+		expect(entity.stateCode).toBe(0x45);
 		expect(entity.selectedFloor).toBe(entity.floorAnchor);
 		expect(entity.destinationFloor).toBe(10);
+		expect(office.unitStatus).toBe(1);
 
 		populateCarrierRequests(world, endOfDayTime);
 		const carrier = world.carriers[0];
@@ -2690,6 +2740,37 @@ describe("Phase 4 runtime entities", () => {
 		expect(carrier.secondaryRouteStatusByFloor[requestSlot]).toBeGreaterThan(0);
 		expect(carrier.primaryRouteStatusByFloor[requestSlot]).toBe(0);
 		expect(entity.route.mode).toBe("carrier");
+	});
+
+	it("keeps office workers at work before the evening departure window", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "office", world, ledger);
+		placeElevatorShaft(world, ledger, 0, 10, 15);
+		rebuildRuntimeEntities(world);
+
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 7,
+		);
+		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
+		if (!entity || !office) throw new Error("expected office runtime state");
+		entity.stateCode = 0x05;
+		entity.selectedFloor = entity.floorAnchor;
+		office.unitStatus = 2;
+
+		advanceSimRefreshStride(world, ledger, {
+			...createTimeState(),
+			dayCounter: 3,
+			daypartIndex: 3,
+			dayTick: 0,
+			starCount: 4,
+		});
+
+		expect(entity.stateCode).toBe(0x05);
+		expect(entity.route.mode).toBe("idle");
+		expect(office.unitStatus).toBe(2);
 	});
 
 	it("sells a condo only after a commercial trip is reserved", () => {
@@ -2714,7 +2795,7 @@ describe("Phase 4 runtime entities", () => {
 			dayTick: 0,
 			starCount: 4,
 		};
-		advanceEntityRefreshStride(world, ledger, activeTime);
+		advanceSimRefreshStride(world, ledger, activeTime);
 		expect(ledger.cashBalance).toBeGreaterThan(cashBefore);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`].unitStatus).toBe(0x08);
 		expect(entity.stateCode).toBe(0x62);
@@ -2733,7 +2814,7 @@ describe("Phase 4 runtime entities", () => {
 		);
 		if (!entity) throw new Error("expected condo entity");
 
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
@@ -2744,6 +2825,49 @@ describe("Phase 4 runtime entities", () => {
 		expect(entity.tripCount).toBe(0);
 		expect(entity.accumulatedTicks).toBe(0);
 		expect(entity.elapsedTicks).toBe(0);
+	});
+
+	it("clears condo occupied flag and trip counters on failed refresh without a donor", () => {
+		const world = makeWorld();
+		const ledger = makeLedger();
+		setupOccupiedFloor(world, ledger);
+
+		handlePlaceTile(0, GROUND_Y - 1, "condo", world, ledger);
+		rebuildRuntimeEntities(world);
+
+		const condo = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const entity = world.entities.find(
+			(candidate) => candidate.familyCode === 9,
+		);
+		if (!condo || !entity) throw new Error("expected condo runtime state");
+		condo.unitStatus = 0;
+		condo.evalActiveFlag = 1;
+		for (const sibling of world.entities.filter(
+			(candidate) => candidate.familyCode === 9,
+		)) {
+			sibling.tripCount = 1;
+			sibling.accumulatedTicks = 1_000;
+		}
+		const entityIndex = world.entities.indexOf(entity);
+
+		advanceSimRefreshStride(world, ledger, {
+			...createTimeState(),
+			dayTick: entityIndex % 16,
+			dayCounter: 3,
+			daypartIndex: 1,
+			starCount: 4,
+		});
+
+		expect(condo.evalLevel).toBe(0);
+		expect(condo.evalActiveFlag).toBe(0);
+		expect(
+			world.entities
+				.filter((candidate) => candidate.familyCode === 9)
+				.every(
+					(candidate) =>
+						candidate.tripCount === 0 && candidate.accumulatedTicks === 0,
+				),
+		).toBe(true);
 	});
 
 	it("dispatches segment routes without waiting for the next entity stride", () => {
@@ -2782,7 +2906,7 @@ describe("Phase 4 runtime entities", () => {
 		});
 
 		populateCarrierRequests(world, { ...createTimeState(), dayTick: 321 });
-		reconcileEntityTransport(world, ledger, {
+		reconcileSimTransport(world, ledger, {
 			...createTimeState(),
 			dayTick: 321,
 		});
@@ -2817,7 +2941,7 @@ describe("Phase 4 runtime entities", () => {
 			accumulatedTicks: 0,
 		});
 
-		reconcileEntityTransport(world, ledger, createTimeState());
+		reconcileSimTransport(world, ledger, createTimeState());
 		expect(world.entities[0]?.selectedFloor).toBe(10);
 		expect(world.entities[0]?.route.mode).toBe("segment");
 		const route0 = world.entities[0]?.route;
@@ -2941,7 +3065,7 @@ describe("Phase 4 runtime entities", () => {
 		hotel.unitStatus = 0;
 
 		const startCash = ledger.cashBalance;
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 0,
 			daypartIndex: 4,
@@ -2950,7 +3074,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(hotel.unitStatus).toBe(0x10);
 		expect(ledger.cashBalance).toBe(startCash);
 
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 16,
 			daypartIndex: 4,
@@ -2958,7 +3082,7 @@ describe("Phase 4 runtime entities", () => {
 		});
 		expect(hotel.unitStatus).toBe(1);
 
-		advanceEntityRefreshStride(world, ledger, {
+		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 32,
 			daypartIndex: 4,

@@ -46,7 +46,7 @@ Every placed object needs, at minimum:
 - family-specific aux/timer field
 - optional linked sidecar index
 - dirty/refresh flag
-- readiness latch: `eval_active_flag`
+- `occupied_flag`: whether the facility currently has active tenants
 - current readiness grade: `eval_level`
 - pricing tier: `rent_level` (player-configurable, 0–3)
 - activity counter: `activation_tick_count`

@@ -16,14 +16,14 @@ Snapshot creation, migration, hydration, and persistence cloning.
 ### `world.ts`
 Grid constants, `PlacedObjectRecord` layout, `GateFlags`, sidecar record types, `CarrierRecord`, `EventState`, and notification/prompt types.
 
-### `entities.ts`
-Entity population rebuild, daily refresh, operational scoring, state machines (office/hotel/condo/parking), venue visits, transport state, and entity cleanup on demolition.
+### `recycling.ts`
+Recycling-center checkpoint state: daily duty-tier reset, adequacy calculation, and upper/lower slice unit-status updates.
 
 ### `entertainment.ts`
 Cinema and entertainment link state machines — budget seeding, phase advance, attendance payouts.
 
 ### `cathedral.ts`
-Cathedral guest entities (families 0x24–0x28) — activation, dispatch, return routing, award path.
+Cathedral guest sims (families 0x24–0x28) — activation, dispatch, return routing, award path.
 
 ### `resources.ts`
 Compile-time constants: tile widths/costs/types, family mappings, income/expense tables, route delay constants.
@@ -48,3 +48,8 @@ Bomb, fire, random-news, and VIP special visitor event systems.
 
 ### `routing.ts`
 Special-link rebuilds, walkability flags, transfer-group cache, and route candidate selection.
+
+## Subpackages
+
+### `sims/`
+Runtime sims facade, split facility helpers, shared state/constants, population helpers, scoring, trip counters, parking, and family-specific state machines.

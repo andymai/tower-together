@@ -163,7 +163,7 @@ Refund effect:
 
 - the shared deactivation gate calls `revert_condo_to_unsold(floor, slot, 1)`
 - that helper sets `unit_status` to `0x18` or `0x20`, depending on the current half-day branch
-- it clears `eval_active_flag` and `activation_tick_count`
+- it clears `occupied_flag` and `activation_tick_count`
 - because `do_reverse_sale_value == 1`, it calls `remove_cashflow_from_family_resource(9, rent_level)`
 - the reversed amount is exactly the original sale value from YEN `#1001`
 - it also adds `-3` to the primary family ledger, so the condo becomes unsold again

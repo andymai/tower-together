@@ -1,9 +1,4 @@
 import { rebuildCarrierList } from "./carriers";
-import {
-	cleanupEntitiesForRemovedTile,
-	rebuildParkingDemandLog,
-	rebuildRuntimeEntities,
-} from "./entities";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
 	FAMILY_CONDO,
@@ -28,6 +23,11 @@ import {
 	rebuildTransferGroupCache,
 	rebuildWalkabilityFlags,
 } from "./routing";
+import {
+	cleanupEntitiesForRemovedTile,
+	rebuildParkingDemandLog,
+	rebuildRuntimeEntities,
+} from "./sims";
 import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
@@ -298,6 +298,150 @@ export function runGlobalRebuilds(
 	rebuildTransferGroupCache(world);
 }
 
+function hasRecyclingStackOverlap(
+	world: WorldState,
+	proposedFloor: number,
+): boolean {
+	let hasExisting = false;
+	let overlaps = false;
+	for (const [key, obj] of Object.entries(world.placedObjects)) {
+		if (
+			obj.objectTypeCode !== FAMILY_RECYCLING_CENTER_UPPER &&
+			obj.objectTypeCode !== FAMILY_RECYCLING_CENTER_LOWER
+		) {
+			continue;
+		}
+		hasExisting = true;
+		const [, oy] = key.split(",").map(Number);
+		const existingFloor = yToFloor(oy);
+		if (
+			proposedFloor >= existingFloor - 2 &&
+			proposedFloor <= existingFloor + 1
+		) {
+			overlaps = true;
+			break;
+		}
+	}
+	return !hasExisting || overlaps;
+}
+
+function placeRecyclingCenterStack(
+	x: number,
+	y: number,
+	normalizedTileType: string,
+	world: WorldState,
+	ledger: LedgerState,
+	freeBuild: boolean,
+	time: { daypartIndex: number },
+): CommandResult {
+	const tileWidth = TILE_WIDTHS.recyclingCenterUpper ?? 2;
+	const upperY = normalizedTileType === "recyclingCenterLower" ? y - 1 : y;
+	const lowerY = upperY + 1;
+	const cost = TILE_COSTS.recyclingCenter;
+
+	if (
+		upperY < 0 ||
+		lowerY >= world.height ||
+		x + tileWidth - 1 >= world.width
+	) {
+		return { accepted: false, reason: "Out of bounds" };
+	}
+	if (!freeBuild && cost > ledger.cashBalance) {
+		return { accepted: false, reason: "Insufficient funds" };
+	}
+	if (!hasRecyclingStackOverlap(world, yToFloor(upperY))) {
+		return {
+			accepted: false,
+			reason:
+				"Recycling center must be placed near an existing recycling-center stack",
+		};
+	}
+
+	const stackCells = new Set<string>();
+	for (const rowY of [upperY, lowerY]) {
+		for (let dx = 0; dx < tileWidth; dx++) {
+			stackCells.add(`${x + dx},${rowY}`);
+		}
+	}
+
+	const floorToRemove: string[] = [];
+	for (const key of stackCells) {
+		if (world.cellToAnchor[key]) {
+			return { accepted: false, reason: "Cell already occupied" };
+		}
+		const existing = world.cells[key];
+		if (existing) {
+			if (existing === "floor") {
+				floorToRemove.push(key);
+			} else {
+				return { accepted: false, reason: "Cell already occupied" };
+			}
+		}
+	}
+
+	for (const rowY of [upperY, lowerY]) {
+		const supportY = rowY >= UNDERGROUND_Y ? rowY - 1 : rowY + 1;
+		for (let dx = 0; dx < tileWidth; dx++) {
+			const supportKey = `${x + dx},${supportY}`;
+			if (
+				supportY < 0 ||
+				supportY >= world.height ||
+				(!world.cells[supportKey] && !stackCells.has(supportKey))
+			) {
+				return { accepted: false, reason: "No support" };
+			}
+		}
+	}
+
+	for (const key of floorToRemove) delete world.cells[key];
+	for (const [rowY, tileType] of [
+		[upperY, "recyclingCenterUpper"],
+		[lowerY, "recyclingCenterLower"],
+	] as const) {
+		world.cells[`${x},${rowY}`] = tileType;
+		for (let dx = 1; dx < tileWidth; dx++) {
+			world.cells[`${x + dx},${rowY}`] = tileType;
+			world.cellToAnchor[`${x + dx},${rowY}`] = `${x},${rowY}`;
+		}
+		world.placedObjects[`${x},${rowY}`] = makePlacedObject(
+			x,
+			rowY,
+			tileType,
+			world,
+			time,
+		);
+	}
+	if (!freeBuild) ledger.cashBalance -= cost;
+
+	const patch: CellPatch[] = [];
+	for (const [rowY, tileType] of [
+		[upperY, "recyclingCenterUpper"],
+		[lowerY, "recyclingCenterLower"],
+	] as const) {
+		const record = world.placedObjects[`${x},${rowY}`];
+		for (let dx = 0; dx < tileWidth; dx++) {
+			patch.push({
+				x: x + dx,
+				y: rowY,
+				tileType,
+				isAnchor: dx === 0,
+				...(dx === 0 && record
+					? {
+							evalActiveFlag: record.evalActiveFlag,
+							unitStatus: record.unitStatus,
+						}
+					: {}),
+			});
+		}
+	}
+
+	fillRowGaps(upperY, world, patch);
+	fillRowGaps(lowerY, world, patch);
+	runGlobalRebuilds(world, ledger);
+
+	return { accepted: true, patch, economyChanged: cost > 0 };
+}
+
 // ─── Place tile ───────────────────────────────────────────────────────────────
 
 export function handlePlaceTile(
@@ -320,6 +464,22 @@ export function handlePlaceTile(
 	}
 	if (x < 0 || x >= world.width || y < 0 || y >= world.height) {
 		return { accepted: false, reason: "Out of bounds" };
+	}
+
+	if (
+		normalizedTileType === "recyclingCenter" ||
+		normalizedTileType === "recyclingCenterUpper" ||
+		normalizedTileType === "recyclingCenterLower"
+	) {
+		return placeRecyclingCenterStack(
+			x,
+			y,
+			normalizedTileType,
+			world,
+			ledger,
+			freeBuild,
+			time,
+		);
 	}
 
 	// ── Elevator / Escalator: overlay on a floor/lobby tile ─────────────────────

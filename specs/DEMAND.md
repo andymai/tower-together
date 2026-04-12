@@ -103,7 +103,7 @@ Gate address: `1228:1cb5` (refresh handler), jump table at `1228:2005`.
 | | dayparts 5–6 | always dispatch |
 | | daypart < 4 | no dispatch |
 | **0x20** | `calendar_phase_flag != 0` | no dispatch (blocked) |
-| | `eval_active_flag == 0` | no dispatch (required) |
+| | `occupied_flag == 0` | no dispatch (required) |
 | | daypart 0 | 1/12 chance → dispatch |
 | | dayparts 1–2 | always dispatch |
 | | daypart >= 3 | no dispatch; state remains `0x20` |
@@ -145,10 +145,11 @@ Route-result state writes for the core office commute states:
 | `0x00/0x40` | `3` | write `0x21` |
 | `0x21/0x61` | `-1` | write `0x26` and release service request |
 | `0x21/0x61` | `0`, `1`, or `2` | write `0x61` |
-| `0x21/0x61` | `3` | write `0x05` |
+| `0x21/0x61` | `3` | call `advance_office_presence_counter`, write `0x05` |
 | `0x05/0x45` | `-1` | write `0x26` and release service request |
 | `0x05/0x45` | `0`, `1`, or `2` | write `0x45` |
-| `0x05/0x45` | `3` | write `0x27`, release service request, and run the evening-arrival cleanup |
+| `0x05/0x45` | `3` | write `0x27` and release service request |
+| `0x05/0x45` | *(all results, first dispatch only)* | call `decrement_office_presence_counter` — fires when base state is `0x05`, not `0x45` |
 
 ### Demand Profile
 
@@ -402,7 +403,7 @@ Gate address: `1228:3ed9`.
 
 | State | Gate condition | Action |
 |-------|---------------|--------|
-| **0x20** | `active_capacity_limit > 127` AND `eval_active_flag == 0` | no dispatch (extra guard) |
+| **0x20** | `active_capacity_limit > 127` AND `occupied_flag == 0` | no dispatch (extra guard) |
 | | dayparts 0–3, tick > 240 | 1/36 chance (`rand() % 36 == 0`) → dispatch |
 | | dayparts 0–3, tick <= 240 | no dispatch |
 | | daypart 4 | 1/6 chance (`rand() % 6 == 0`) → dispatch |

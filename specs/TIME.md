@@ -212,7 +212,7 @@ are listed inline; multi-step checkpoints are expanded below.
 
 1. **rebuild type-6 facility records**: clear family-6 population ledger bucket; sweep venue table: for type-6 entries call `recompute_facility_runtime_state`
 2. **hotel pair-state update**: for hotel rooms (3/4/5) with `state >= 0x38`: check adjacent same-floor objects; if neighbor is hotel with state < 0x38: set neighbor's state to `0x40` (pre-day-4) or `0x38` (post); reset neighbor pairing fields
-3. **hotel operational update**: for each hotel room: `recompute_object_operational_status`; `handle_extended_vacancy_expiry`. Then for each: `attempt_pairing_with_floor_neighbor`
+3. **hotel operational update**: for each hotel room: `recompute_object_operational_status`; `handle_extended_vacancy_expiry`. Then for each: `refresh_occupied_flag_and_trip_counters`
 4. **clear periodic vacancy slot**: if `day_counter % 9 != 3` → clear
 5. **flush hotel requests**: sweep `active_request_table`, remove entries for families 3/4/5
 6. **advance stay-phase tiers** (sweep all placed objects, exact-value matches only —

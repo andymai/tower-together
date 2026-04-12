@@ -8,23 +8,25 @@ import {
 	promoteAndActivateSingleLower,
 	seedEntertainmentBudgets,
 } from "./entertainment";
-import {
-	closeCommercialVenues,
-	handleExtendedVacancyExpiry,
-	normalizeUnitStatusEndOfDay,
-	refundUnhappyFacilities,
-	resetCommercialVenueCycle,
-	resetEntityRuntimeState,
-	resetRecyclingCenterDutyTier,
-	spreadCockroachInfestation,
-	updateRecyclingCenterState,
-} from "./entities";
 import { checkDailyEvents } from "./events";
 import {
 	doLedgerRollover,
 	type LedgerState,
 	rebuildFacilityLedger,
 } from "./ledger";
+import {
+	resetRecyclingCenterDutyTier,
+	updateRecyclingCenterState,
+} from "./recycling";
+import {
+	closeCommercialVenues,
+	normalizeUnitStatusEndOfDay,
+	refundUnhappyFacilities,
+	resetCommercialVenueCycle,
+	resetEntityRuntimeState,
+	spreadCockroachInfestation,
+	updateHotelOperationalAndOccupancy,
+} from "./sims";
 import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
@@ -77,8 +79,8 @@ function checkpointMidday(_s: SimState): void {
 	// Spec execution order at checkpoint 0x640:
 	// 1. Spread existing cockroach infestations
 	spreadCockroachInfestation(_s.world, _s.time);
-	// 2. Recompute operational status + handle vacancy expiry (may create new infestations)
-	handleExtendedVacancyExpiry(_s.world, _s.time);
+	// 2. Recompute hotel status + handle vacancy expiry + refresh occupancy
+	updateHotelOperationalAndOccupancy(_s.world, _s.time);
 	// 3. Normal midday tasks
 	resetCommercialVenueCycle(_s.world, _s.ledger);
 	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
