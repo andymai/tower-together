@@ -1732,7 +1732,7 @@ describe("selectBestRouteCandidate", () => {
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 110));
 		const commuteEntity = {
 			floorAnchor: 80,
-			subtypeIndex: 0,
+			homeColumn: 0,
 			baseOffset: 0,
 			familyCode: 7,
 			stateCode: 0x00,
@@ -1783,7 +1783,7 @@ describe("selectBestRouteCandidate", () => {
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 110));
 		const entity = {
 			floorAnchor: 80,
-			subtypeIndex: 0,
+			homeColumn: 0,
 			baseOffset: 0,
 			familyCode: 7,
 			stateCode: 0x00,
@@ -1867,7 +1867,7 @@ describe("car state machine", () => {
 		for (let f = 11; f <= 14; f++) {
 			world.entities.push({
 				floorAnchor: f,
-				subtypeIndex: 0,
+				homeColumn: 0,
 				baseOffset: 0,
 				familyCode: 7,
 				stateCode: 0x22,
@@ -1916,7 +1916,7 @@ describe("car state machine", () => {
 			const dst = src === 10 ? 14 : 10;
 			world.entities.push({
 				floorAnchor: src,
-				subtypeIndex: i,
+				homeColumn: i,
 				baseOffset: 0,
 				familyCode: 7,
 				stateCode: 0x22,
@@ -2266,7 +2266,7 @@ describe("Phase 4 runtime entities", () => {
 		expect(state).toHaveLength(2);
 		expect(state[0]?.stressLevel).toBe("low");
 		expect(state[1]?.stressLevel).toBe("medium");
-		expect(state[0]?.subtypeIndex).toBe(0);
+		expect(state[0]?.homeColumn).toBe(0);
 		expect(state[0]?.floorAnchor).toBe(GRID_HEIGHT - 1 - (GROUND_Y - 1));
 	});
 
@@ -2418,7 +2418,7 @@ describe("Phase 4 runtime entities", () => {
 			world,
 			ledger,
 			newGameTime,
-			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			`${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`,
 			entity.floorAnchor,
 		);
 		expect(entity.stateCode).toBe(0x01); // STATE_ACTIVE
@@ -2534,7 +2534,7 @@ describe("Phase 4 runtime entities", () => {
 				daypartIndex: 1,
 				starCount: 4,
 			},
-			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			`${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`,
 			entity.floorAnchor,
 		);
 
@@ -2576,7 +2576,7 @@ describe("Phase 4 runtime entities", () => {
 				daypartIndex: 1,
 				starCount: 4,
 			},
-			`${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`,
+			`${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`,
 			entity.floorAnchor,
 		);
 
@@ -2763,7 +2763,7 @@ describe("Phase 4 runtime entities", () => {
 		}
 		world.entities.push({
 			floorAnchor: 10,
-			subtypeIndex: 0,
+			homeColumn: 0,
 			baseOffset: 0,
 			familyCode: 7,
 			stateCode: 0x22,
@@ -2799,7 +2799,7 @@ describe("Phase 4 runtime entities", () => {
 		const ledger = makeLedger();
 		world.entities.push({
 			floorAnchor: 10,
-			subtypeIndex: 0,
+			homeColumn: 0,
 			baseOffset: 0,
 			familyCode: 7,
 			stateCode: 0x01,

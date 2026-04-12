@@ -7,6 +7,7 @@ import type { SelectedTool } from "../types";
 import { DAY_TICK_MAX, TILE_COSTS } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameDebugPanel } from "./GameDebugPanel";
+import { GameInspectPanel } from "./GameInspectPanel";
 import { GamePromptModal } from "./GamePromptModal";
 import { GameStatusBar } from "./GameStatusBar";
 import { GameToasts } from "./GameToasts";
@@ -82,24 +83,13 @@ const TOOLS: ToolDef[] = [
 	{ id: "condo", label: "Condo", color: "#e7cf6b", cost: TILE_COSTS.condo },
 	{ id: "cinema", label: "Cinema", color: "#c040a0", cost: TILE_COSTS.cinema },
 	{
-		id: "recyclingCenterUpper",
-		label: "Recycle Up",
+		id: "recyclingCenter",
+		label: "Recycle",
 		color: "#c04040",
-		cost: TILE_COSTS.recyclingCenterUpper,
-	},
-	{
-		id: "recyclingCenterLower",
-		label: "Recycle Low",
-		color: "#8cb0c0",
-		cost: TILE_COSTS.recyclingCenterLower,
+		cost: TILE_COSTS.recyclingCenter,
 	},
 	{ id: "metro", label: "Metro", color: "#60c0c0", cost: TILE_COSTS.metro },
-	{
-		id: "fireSuppressor",
-		label: "Fire Supp.",
-		color: "#e06060",
-		cost: TILE_COSTS.fireSuppressor,
-	},
+	{ id: "inspect", label: "Inspect", color: "#5bc0de", cost: 0 },
 ];
 
 let toastCounter = 0;
@@ -164,9 +154,13 @@ export function GameScreen({
 
 	const handleCellClick = useCallback(
 		(x: number, y: number, shift: boolean) => {
+			if (selectedTool === "inspect") {
+				inspectCell(x, y);
+				return;
+			}
 			sendTileCommand(x, y, selectedTool, shift);
 		},
-		[selectedTool, sendTileCommand],
+		[selectedTool, sendTileCommand, inspectCell],
 	);
 
 	const handlePatchInspectedCell = useCallback(
@@ -264,6 +258,7 @@ export function GameScreen({
 					freeBuild={freeBuild}
 					onFreeBuildChange={setFreeBuild}
 				/>
+				{selectedTool === "inspect" && <GameInspectPanel entities={entities} />}
 			</div>
 
 			{activePrompt && (
@@ -272,6 +267,7 @@ export function GameScreen({
 
 			<CellInspectionDialog
 				inspectedCell={inspectedCell}
+				entities={entities}
 				onClose={() => setInspectedCell(null)}
 				onSetRentLevel={setRentLevel}
 				onAddElevatorCar={addElevatorCar}

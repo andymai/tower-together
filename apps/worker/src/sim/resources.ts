@@ -28,6 +28,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	cinema: 24,
 	entertainment: 24,
 	// Services
+	recyclingCenter: 4, // combined upper + lower (2+2)
 	recyclingCenterUpper: 2, // family 0x14 upper slice
 	recyclingCenterLower: 2, // family 0x15 lower slice
 	parking: 4, // family 0x18
@@ -54,8 +55,9 @@ export const TILE_COSTS: Record<string, number> = {
 	condo: 80_000,
 	cinema: 500_000,
 	entertainment: 100_000,
-	recyclingCenterUpper: 500_000,
-	recyclingCenterLower: 50_000,
+	recyclingCenter: 500_000, // combined cost
+	recyclingCenterUpper: 250_000,
+	recyclingCenterLower: 250_000,
 	parking: 5_000,
 	metro: 1_000_000,
 	fireSuppressor: 500_000,

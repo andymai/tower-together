@@ -125,7 +125,7 @@ export type RouteState =
 
 export interface EntityRecord {
 	floorAnchor: number;
-	subtypeIndex: number;
+	homeColumn: number;
 	baseOffset: number;
 	familyCode: number;
 	stateCode: number;

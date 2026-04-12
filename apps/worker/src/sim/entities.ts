@@ -89,7 +89,7 @@ export interface EntityStateRecord {
 	id: string;
 	floorAnchor: number;
 	selectedFloor: number;
-	subtypeIndex: number;
+	homeColumn: number;
 	baseOffset: number;
 	familyCode: number;
 	stateCode: number;
@@ -98,6 +98,9 @@ export interface EntityStateRecord {
 	assignedCarIndex: number;
 	boardedOnCarrier: boolean;
 	stressLevel: "low" | "medium" | "high";
+	tripCount: number;
+	accumulatedTicks: number;
+	elapsedTicks: number;
 }
 
 const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
@@ -151,13 +154,13 @@ const CONDO_SELECTOR_FAST_FOOD = new Set([FAMILY_FAST_FOOD]);
 
 function makeEntity(
 	floorAnchor: number,
-	subtypeIndex: number,
+	homeColumn: number,
 	baseOffset: number,
 	familyCode: number,
 ): EntityRecord {
 	return {
 		floorAnchor,
-		subtypeIndex,
+		homeColumn,
 		baseOffset,
 		familyCode,
 		stateCode: initialStateForFamily(familyCode),
@@ -184,12 +187,12 @@ function initialStateForFamily(familyCode: number): number {
 }
 
 function entityKey(entity: EntityRecord): string {
-	return `${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`;
+	return `${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`;
 }
 
 function objectKey(entity: EntityRecord): string {
 	const y = GRID_HEIGHT - 1 - entity.floorAnchor;
-	return `${entity.subtypeIndex},${y}`;
+	return `${entity.homeColumn},${y}`;
 }
 
 export function findObjectForEntity(
@@ -206,7 +209,7 @@ function findSiblingEntities(
 	return world.entities.filter(
 		(candidate) =>
 			candidate.floorAnchor === entity.floorAnchor &&
-			candidate.subtypeIndex === entity.subtypeIndex &&
+			candidate.homeColumn === entity.homeColumn &&
 			candidate.familyCode === entity.familyCode,
 	);
 }
@@ -853,10 +856,10 @@ function processOfficeEntity(
 				);
 			}
 
-			// Office parking demand: (floorAnchor + subtypeIndex) % 4 === 1, unitStatus === 2
+			// Office parking demand: (floorAnchor + homeColumn) % 4 === 1, unitStatus === 2
 			if (
 				time.starCount > 2 &&
-				(entity.floorAnchor + entity.subtypeIndex) % 4 === 1 &&
+				(entity.floorAnchor + entity.homeColumn) % 4 === 1 &&
 				object.unitStatus === 2
 			) {
 				if (!tryAssignParkingService(world, time, entity)) {
@@ -1040,7 +1043,7 @@ export function rebuildRuntimeEntities(world: WorldState): void {
 			);
 			const prior = previous.get(entityKey(fresh));
 			if (prior) {
-				next.push({ ...fresh, ...prior, floorAnchor, subtypeIndex: x });
+				next.push({ ...fresh, ...prior, floorAnchor, homeColumn: x });
 			} else {
 				resetSimDemandCounters(fresh);
 				next.push(fresh);
@@ -1060,7 +1063,7 @@ export function cleanupEntitiesForRemovedTile(
 	const removedIds = new Set<string>();
 
 	for (const entity of world.entities) {
-		if (entity.subtypeIndex !== anchorX || entity.floorAnchor !== floorAnchor) {
+		if (entity.homeColumn !== anchorX || entity.floorAnchor !== floorAnchor) {
 			continue;
 		}
 		clearEntityRoute(entity);
@@ -1998,7 +2001,7 @@ export function refundUnhappyFacilities(
 			object.needsRefreshFlag = 1;
 			const [x, y] = key.split(",").map(Number);
 			for (const entity of world.entities) {
-				if (entity.subtypeIndex === x && entity.floorAnchor === yToFloor(y)) {
+				if (entity.homeColumn === x && entity.floorAnchor === yToFloor(y)) {
 					entity.stateCode = STATE_PARKED;
 					entity.selectedFloor = entity.floorAnchor;
 					entity.destinationFloor = -1;
@@ -2112,7 +2115,7 @@ export function createEntityStateRecords(
 				id: entityKey(entity),
 				floorAnchor: entity.floorAnchor,
 				selectedFloor: entity.selectedFloor,
-				subtypeIndex: entity.subtypeIndex,
+				homeColumn: entity.homeColumn,
 				baseOffset: entity.baseOffset,
 				familyCode: entity.familyCode,
 				stateCode: entity.stateCode,
@@ -2121,6 +2124,9 @@ export function createEntityStateRecords(
 				assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
 				boardedOnCarrier: pendingRoute?.boarded ?? false,
 				stressLevel: entityStressLevel(entity, object),
+				tripCount: entity.tripCount,
+				accumulatedTicks: entity.accumulatedTicks,
+				elapsedTicks: entity.elapsedTicks,
 			} satisfies EntityStateRecord;
 		})
 		.filter((entity): entity is EntityStateRecord => entity !== null);

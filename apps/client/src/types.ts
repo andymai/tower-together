@@ -45,13 +45,14 @@ export type TileType =
 	| "cinema"
 	| "entertainment"
 	// Services
+	| "recyclingCenter"
 	| "recyclingCenterUpper"
 	| "recyclingCenterLower"
 	| "parking"
 	| "metro"
 	| "fireSuppressor";
 
-export type SelectedTool = TileType;
+export type SelectedTool = TileType | "inspect";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -78,7 +79,7 @@ export type EntityStateData = {
 	id: string;
 	floorAnchor: number;
 	selectedFloor: number;
-	subtypeIndex: number;
+	homeColumn: number;
 	baseOffset: number;
 	familyCode: number;
 	stateCode: number;
@@ -87,6 +88,9 @@ export type EntityStateData = {
 	assignedCarIndex: number;
 	boardedOnCarrier: boolean;
 	stressLevel: "low" | "medium" | "high";
+	tripCount: number;
+	accumulatedTicks: number;
+	elapsedTicks: number;
 };
 
 export type CarrierCarStateData = {
@@ -139,6 +143,7 @@ export type ServerMessage =
 			type: "cell_info";
 			x: number;
 			y: number;
+			anchorX: number;
 			tileType: string;
 			objectInfo?: {
 				objectTypeCode: number;

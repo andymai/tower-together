@@ -9,7 +9,8 @@ Full-page React screen components.
 - **gameScreenStyles.ts** — Shared inline style registry used by the extracted game-screen presentation components.
 - **gameScreenTypes.ts** — Shared local screen types for toasts, prompts, and inspected-cell payloads.
 - **GameToolbar.tsx** — Extracted top toolbar for tower rename, tool selection, cash/day/player display, and leave action.
-- **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters and speed controls.
+- **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, speed controls, and inspect toggle.
+- **GameInspectPanel.tsx** — Population inspect panel showing each sim's state/stress and average stress.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.
 - **CellInspectionDialog.tsx** — Extracted inspection dialog for room/elevator metadata plus rent and car-count controls.
 - **GameToasts.tsx** — Extracted toast stack renderer for transient info/error messages.

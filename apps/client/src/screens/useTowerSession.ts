@@ -167,6 +167,7 @@ export function useTowerSession({
 					setInspectedCell({
 						x: msg.x,
 						y: msg.y,
+						anchorX: msg.anchorX,
 						tileType: msg.tileType,
 						objectInfo: msg.objectInfo,
 						carrierInfo: msg.carrierInfo,
@@ -206,6 +207,23 @@ export function useTowerSession({
 					const last = fills[fills.length - 1];
 					sceneRef.current?.setLastPlaced(last.x, last.y, tileType);
 				}
+				return;
+			}
+
+			if (tileType === "recyclingCenter") {
+				socket.send({
+					type: "place_tile",
+					x,
+					y,
+					tileType: "recyclingCenterUpper",
+				});
+				socket.send({
+					type: "place_tile",
+					x: x + 2,
+					y,
+					tileType: "recyclingCenterLower",
+				});
+				sceneRef.current?.setLastPlaced(x, y, tileType);
 				return;
 			}
 

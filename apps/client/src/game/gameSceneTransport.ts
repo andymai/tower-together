@@ -126,13 +126,13 @@ export function getQueuedEntityLayout(
 	const spanWidth = FAMILY_WIDTHS[entity.familyCode] ?? 1;
 	const population = FAMILY_POPULATION[entity.familyCode] ?? 1;
 	const slotFraction = (entity.baseOffset + 0.5) / population;
-	const fallbackX = entity.subtypeIndex + slotFraction * spanWidth;
+	const fallbackX = entity.homeColumn + slotFraction * spanWidth;
 	const elevatorColumn = pickElevatorColumn(entity, elevatorColumnsByFloor);
 	const hasSelectedFloorColumns = elevatorColumnsByFloor.has(
 		entity.selectedFloor,
 	);
 	const gridX =
-		elevatorColumn === entity.subtypeIndex && !hasSelectedFloorColumns
+		elevatorColumn === entity.homeColumn && !hasSelectedFloorColumns
 			? fallbackX
 			: elevatorColumn +
 				(TILE_WIDTHS.elevator ?? 4) / 2 +
@@ -182,13 +182,13 @@ function pickElevatorColumn(
 	const selectedColumns = elevatorColumnsByFloor.get(entity.selectedFloor);
 	const availableColumns = selectedColumns ?? columns;
 	if (!availableColumns || availableColumns.length === 0) {
-		return entity.subtypeIndex;
+		return entity.homeColumn;
 	}
 
-	let best = availableColumns[0] ?? entity.subtypeIndex;
-	let bestDistance = Math.abs(best - entity.subtypeIndex);
+	let best = availableColumns[0] ?? entity.homeColumn;
+	let bestDistance = Math.abs(best - entity.homeColumn);
 	for (const column of availableColumns) {
-		const distance = Math.abs(column - entity.subtypeIndex);
+		const distance = Math.abs(column - entity.homeColumn);
 		if (distance < bestDistance) {
 			best = column;
 			bestDistance = distance;

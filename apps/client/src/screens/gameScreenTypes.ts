@@ -14,6 +14,7 @@ export interface ActivePrompt {
 export interface CellInfoData {
 	x: number;
 	y: number;
+	anchorX: number;
 	tileType: string;
 	objectInfo?: {
 		objectTypeCode: number;

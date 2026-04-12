@@ -234,6 +234,7 @@ export class TowerSim {
 		x: number,
 		y: number,
 	): {
+		anchorX: number;
 		tileType: string;
 		objectInfo?: {
 			objectTypeCode: number;
@@ -317,7 +318,8 @@ export class TowerSim {
 			}
 		}
 
-		return { tileType, objectInfo, carrierInfo };
+		const [anchorXStr] = anchorKey.split(",");
+		return { anchorX: Number(anchorXStr), tileType, objectInfo, carrierInfo };
 	}
 
 	// ── Serialization ──────────────────────────────────────────────────────────

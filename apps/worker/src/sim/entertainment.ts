@@ -150,7 +150,7 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 		// Park upper-half entities for this entertainment record
 		for (const entity of world.entities) {
 			if (entity.familyCode !== ENTERTAINMENT_FAMILY_PAIRED) continue;
-			if (entity.subtypeIndex !== sidecar.ownerSubtypeIndex) continue;
+			if (entity.homeColumn !== sidecar.ownerSubtypeIndex) continue;
 			if (
 				entity.stateCode >= STATE_ACTIVE &&
 				entity.stateCode <= STATE_ARRIVED
@@ -214,7 +214,7 @@ export function advanceEntertainmentLowerPhaseAndAccrue(
 		for (const entity of world.entities) {
 			if (
 				entity.familyCode !== object.objectTypeCode ||
-				entity.subtypeIndex !== sidecar.ownerSubtypeIndex
+				entity.homeColumn !== sidecar.ownerSubtypeIndex
 			)
 				continue;
 			if (entity.stateCode !== STATE_PARKED) {

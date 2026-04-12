@@ -169,6 +169,7 @@ export class TowerRoom extends DurableObject<Env> {
 				type: "cell_info",
 				x: msg.x,
 				y: msg.y,
+				anchorX: info.anchorX,
 				tileType: info.tileType,
 				objectInfo: info.objectInfo,
 				carrierInfo: info.carrierInfo,

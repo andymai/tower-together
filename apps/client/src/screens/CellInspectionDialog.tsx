@@ -1,3 +1,4 @@
+import { type EntityStateData, GRID_HEIGHT } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { CellInfoData } from "./gameScreenTypes";
 
@@ -47,8 +48,15 @@ function getFacilityStatus(info: {
 	return null;
 }
 
+const STRESS_COLORS: Record<EntityStateData["stressLevel"], string> = {
+	low: "#4ade80",
+	medium: "#facc15",
+	high: "#f87171",
+};
+
 interface Props {
 	inspectedCell: CellInfoData | null;
+	entities: EntityStateData[];
 	onClose: () => void;
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
 	onAddElevatorCar: (x: number) => void;
@@ -58,6 +66,7 @@ interface Props {
 
 export function CellInspectionDialog({
 	inspectedCell,
+	entities,
 	onClose,
 	onSetRentLevel,
 	onAddElevatorCar,
@@ -220,6 +229,66 @@ export function CellInspectionDialog({
 						</div>
 					</>
 				)}
+
+				{(() => {
+					const floor = GRID_HEIGHT - 1 - inspectedCell.y;
+					const facilityEntities = entities.filter(
+						(e) =>
+							e.homeColumn === inspectedCell.anchorX && e.floorAnchor === floor,
+					);
+					if (facilityEntities.length === 0) return null;
+					const totalTrips = facilityEntities.reduce(
+						(s, e) => s + e.tripCount,
+						0,
+					);
+					const avgStress =
+						facilityEntities.length > 0
+							? facilityEntities.reduce((s, e) => {
+									const avg =
+										e.tripCount > 0
+											? e.accumulatedTicks / e.tripCount
+											: e.elapsedTicks;
+									return s + avg;
+								}, 0) / facilityEntities.length
+							: 0;
+					return (
+						<div style={styles.inspectSection}>
+							<div style={styles.inspectLabel}>
+								Sims ({facilityEntities.length})
+							</div>
+							<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
+								<span>Total trips</span>
+								<strong>{totalTrips}</strong>
+							</div>
+							<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
+								<span>Avg stress</span>
+								<strong>{avgStress.toFixed(1)}</strong>
+							</div>
+							<div style={{ maxHeight: 120, overflowY: "auto" }}>
+								{facilityEntities.map((e) => {
+									const simStress =
+										e.tripCount > 0
+											? e.accumulatedTicks / e.tripCount
+											: e.elapsedTicks;
+									return (
+										<div key={e.id} style={styles.inspectRow}>
+											<span style={{ color: "#e0e0e0" }}>
+												{e.id.slice(0, 6)} · {e.tripCount}t · {e.elapsedTicks}el
+											</span>
+											<span
+												style={{
+													color: STRESS_COLORS[e.stressLevel],
+												}}
+											>
+												{simStress.toFixed(1)}
+											</span>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					);
+				})()}
 			</div>
 		</button>
 	);

@@ -509,7 +509,7 @@ function findBestAvailableCarForFloor(
 
 function clearEntityRouteById(world: WorldState, entityId: string): void {
 	for (const entity of world.entities) {
-		const key = `${entity.floorAnchor}:${entity.subtypeIndex}:${entity.familyCode}:${entity.baseOffset}`;
+		const key = `${entity.floorAnchor}:${entity.homeColumn}:${entity.familyCode}:${entity.baseOffset}`;
 		if (key !== entityId) continue;
 		entity.route = { mode: "idle" };
 		entity.routeRetryDelay = 0;
