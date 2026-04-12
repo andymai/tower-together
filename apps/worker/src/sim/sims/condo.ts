@@ -6,6 +6,7 @@ import {
 	findObjectForSim,
 	finishCommercialVenueDwell,
 	finishCommercialVenueTrip,
+	handleCommercialVenueArrival,
 	recomputeObjectOperationalStatus,
 } from "./index";
 import {
@@ -55,4 +56,12 @@ export function processCondoSim(
 	}
 
 	recomputeObjectOperationalStatus(world, time, sim, object);
+}
+
+export function handleCondoSimArrival(
+	sim: SimRecord,
+	arrivalFloor: number,
+	time: TimeState,
+): void {
+	handleCommercialVenueArrival(sim, arrivalFloor, STATE_ACTIVE, time);
 }

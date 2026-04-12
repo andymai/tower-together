@@ -22,6 +22,7 @@ import {
 import { findObjectForSim, findSiblingSims, simKey } from "./population";
 import {
 	CATHEDRAL_FAMILIES,
+	ENTITY_POPULATION_BY_TYPE,
 	EVALUATABLE_FAMILIES,
 	HOTEL_FAMILIES,
 	STATE_ACTIVE,
@@ -165,16 +166,7 @@ export function recomputeObjectOperationalStatus(
 	}
 
 	const siblings = findSiblingSims(world, sim);
-	const populationCount =
-		object.objectTypeCode === FAMILY_HOTEL_SINGLE
-			? 1
-			: object.objectTypeCode === FAMILY_HOTEL_TWIN
-				? 2
-				: object.objectTypeCode === FAMILY_HOTEL_SUITE
-					? 2
-					: object.objectTypeCode === FAMILY_OFFICE
-						? 6
-						: 3;
+	const populationCount = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 1;
 	let stressSum = 0;
 	for (const sibling of siblings) {
 		if (sibling.tripCount > 0) {

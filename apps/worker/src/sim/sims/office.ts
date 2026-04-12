@@ -6,6 +6,7 @@ import {
 	clearSimRoute,
 	dispatchCommercialVenueVisit,
 	findObjectForSim,
+	handleCommercialVenueArrival,
 	recomputeObjectOperationalStatus,
 	releaseServiceRequest,
 	resetFacilitySimTripCounters,
@@ -75,6 +76,27 @@ function routeFailureStateForOffice(object: PlacedObjectRecord): number {
 	return object.unitStatus > UNIT_STATUS_OFFICE_OCCUPIED
 		? STATE_MORNING_GATE
 		: STATE_NIGHT_A;
+}
+
+function failOfficeRoute(
+	world: WorldState,
+	sim: SimRecord,
+	failureState: number,
+): void {
+	releaseServiceRequest(world, sim);
+	sim.stateCode = failureState;
+}
+
+function finalizeOfficeFloorArrival(
+	sim: SimRecord,
+	object: PlacedObjectRecord | undefined,
+	nextState: number,
+): void {
+	if (object) advanceOfficePresenceCounter(object);
+	sim.destinationFloor = -1;
+	sim.selectedFloor = sim.floorAnchor;
+	sim.venueReturnState = 0;
+	sim.stateCode = nextState;
 }
 
 export function nextOfficeReturnState(sim: SimRecord): number {
@@ -260,17 +282,13 @@ export function processOfficeSim(
 			time,
 		);
 		if (routeResult === -1) {
-			sim.stateCode = STATE_NIGHT_B;
-			releaseServiceRequest(world, sim);
+			failOfficeRoute(world, sim, STATE_NIGHT_B);
 			return;
 		}
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 3) {
-			advanceOfficePresenceCounter(object);
-			sim.destinationFloor = -1;
-			sim.selectedFloor = sim.floorAnchor;
-			sim.stateCode = STATE_DEPARTURE;
+			finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
 		} else {
 			sim.stateCode = STATE_AT_WORK_TRANSIT;
 		}
@@ -289,17 +307,12 @@ export function processOfficeSim(
 			time,
 		);
 		if (routeResult === -1) {
-			sim.stateCode = STATE_NIGHT_B;
-			releaseServiceRequest(world, sim);
+			failOfficeRoute(world, sim, STATE_NIGHT_B);
 			return;
 		}
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 3) {
-			advanceOfficePresenceCounter(object);
-			sim.destinationFloor = -1;
-			sim.selectedFloor = sim.floorAnchor;
-			sim.venueReturnState = 0;
-			sim.stateCode = nextOfficeReturnState(sim);
+			finalizeOfficeFloorArrival(sim, object, nextOfficeReturnState(sim));
 		} else {
 			sim.stateCode = STATE_DWELL_RETURN_TRANSIT;
 		}
@@ -356,8 +369,7 @@ export function processOfficeSim(
 			time,
 		);
 		if (routeResult === -1) {
-			sim.stateCode = STATE_NIGHT_B;
-			releaseServiceRequest(world, sim);
+			failOfficeRoute(world, sim, STATE_NIGHT_B);
 			return;
 		}
 		sim.selectedFloor = sim.floorAnchor;
@@ -374,4 +386,83 @@ export function processOfficeSim(
 	}
 
 	recomputeObjectOperationalStatus(world, time, sim, object);
+}
+
+export function handleOfficeSimArrival(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+	arrivalFloor: number,
+): void {
+	const object = findObjectForSim(world, sim);
+
+	if (
+		sim.stateCode === STATE_MORNING_TRANSIT &&
+		arrivalFloor === sim.floorAnchor
+	) {
+		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_AT_WORK_TRANSIT &&
+		arrivalFloor === sim.floorAnchor
+	) {
+		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+		return;
+	}
+
+	if (
+		(sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
+			sim.stateCode === STATE_DWELL_RETURN_TRANSIT) &&
+		arrivalFloor === sim.floorAnchor
+	) {
+		finalizeOfficeFloorArrival(sim, object, nextOfficeReturnState(sim));
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
+		arrivalFloor === LOBBY_FLOOR
+	) {
+		sim.stateCode = STATE_PARKED;
+		sim.selectedFloor = LOBBY_FLOOR;
+		releaseServiceRequest(world, sim);
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_COMMUTE_TRANSIT ||
+		sim.stateCode === STATE_ACTIVE_TRANSIT ||
+		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
+	) {
+		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_DEPARTURE_TRANSIT ||
+		sim.stateCode === STATE_MORNING_TRANSIT ||
+		sim.stateCode === STATE_AT_WORK_TRANSIT ||
+		sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
+		sim.stateCode === STATE_DWELL_RETURN_TRANSIT
+	) {
+		failOfficeRoute(world, sim, STATE_NIGHT_B);
+		return;
+	}
+
+	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
+		finalizeOfficeFloorArrival(sim, object, STATE_AT_WORK);
+		return;
+	}
+
+	if (handleCommercialVenueArrival(sim, arrivalFloor, STATE_AT_WORK, time)) {
+		return;
+	}
+
+	if (sim.stateCode === STATE_DEPARTURE && arrivalFloor === LOBBY_FLOOR) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_PARKED;
+	}
 }

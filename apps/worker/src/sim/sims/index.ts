@@ -1,5 +1,5 @@
 import { enqueueCarrierRoute } from "../carriers";
-import { checkEvalCompletionAndAward, processCathedralSim } from "../cathedral";
+import { handleCathedralSimArrival, processCathedralSim } from "../cathedral";
 import type { LedgerState } from "../ledger";
 import {
 	FAMILY_CONDO,
@@ -12,7 +12,7 @@ import {
 	FAMILY_RETAIL,
 } from "../resources";
 import { type RouteCandidate, selectBestRouteCandidate } from "../routing";
-import { processCondoSim } from "./condo";
+import { handleCondoSimArrival, processCondoSim } from "./condo";
 
 export {
 	closeCommercialVenues,
@@ -20,7 +20,7 @@ export {
 	resetCommercialVenueCycle,
 } from "./facility-refunds";
 
-import { checkoutHotelStay, processHotelSim } from "./hotel";
+import { handleHotelSimArrival, processHotelSim } from "./hotel";
 
 export {
 	handleExtendedVacancyExpiry,
@@ -29,12 +29,8 @@ export {
 	updateHotelOperationalAndOccupancy,
 } from "./hotel-facilities";
 
-import {
-	advanceOfficePresenceCounter,
-	nextOfficeReturnState,
-	processOfficeSim,
-} from "./office";
-import { clearSimRoute, findObjectForSim, simKey } from "./population";
+import { handleOfficeSimArrival, processOfficeSim } from "./office";
+import { clearSimRoute, simKey } from "./population";
 import { maybeApplyDistanceFeedback } from "./scoring";
 import {
 	CATHEDRAL_FAMILIES,
@@ -47,10 +43,7 @@ import {
 	INVALID_FLOOR,
 	LOBBY_FLOOR,
 	ROUTE_IDLE,
-	STATE_ACTIVE,
 	STATE_ACTIVE_TRANSIT,
-	STATE_ARRIVED,
-	STATE_AT_WORK,
 	STATE_AT_WORK_TRANSIT,
 	STATE_CHECKOUT_QUEUE,
 	STATE_COMMUTE,
@@ -61,8 +54,6 @@ import {
 	STATE_EVAL_OUTBOUND,
 	STATE_EVAL_RETURN,
 	STATE_MORNING_TRANSIT,
-	STATE_NIGHT_B,
-	STATE_PARKED,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP,
 	STATE_VENUE_TRIP_TRANSIT,
@@ -653,136 +644,21 @@ function dispatchSimArrival(
 	}
 	sim.selectedFloor = arrivalFloor;
 	clearSimRoute(sim);
-
-	const object = findObjectForSim(world, sim);
 	switch (sim.familyCode) {
 		case FAMILY_HOTEL_SINGLE:
 		case FAMILY_HOTEL_TWIN:
 		case FAMILY_HOTEL_SUITE:
-			// Arrived at room from check-in commute
-			if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_ACTIVE;
-				return;
-			}
-			if (handleCommercialVenueArrival(sim, arrivalFloor, STATE_ACTIVE, time)) {
-				return;
-			}
-			if (
-				(sim.stateCode === STATE_CHECKOUT_QUEUE ||
-					sim.stateCode === STATE_DEPARTURE) &&
-				arrivalFloor === LOBBY_FLOOR
-			) {
-				sim.destinationFloor = -1;
-				if (object) checkoutHotelStay(world, ledger, time, sim, object);
-			}
+			handleHotelSimArrival(world, ledger, time, sim, arrivalFloor);
 			return;
 		case FAMILY_OFFICE:
-			if (
-				sim.stateCode === STATE_MORNING_TRANSIT &&
-				arrivalFloor === sim.floorAnchor
-			) {
-				if (object) advanceOfficePresenceCounter(object);
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_DEPARTURE;
-				return;
-			}
-			if (
-				sim.stateCode === STATE_AT_WORK_TRANSIT &&
-				arrivalFloor === sim.floorAnchor
-			) {
-				if (object) advanceOfficePresenceCounter(object);
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_DEPARTURE;
-				return;
-			}
-			if (
-				(sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
-					sim.stateCode === STATE_DWELL_RETURN_TRANSIT) &&
-				arrivalFloor === sim.floorAnchor
-			) {
-				if (object) advanceOfficePresenceCounter(object);
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.venueReturnState = 0;
-				sim.stateCode = nextOfficeReturnState(sim);
-				return;
-			}
-			if (
-				sim.stateCode === STATE_DEPARTURE_TRANSIT &&
-				arrivalFloor === LOBBY_FLOOR
-			) {
-				sim.stateCode = STATE_PARKED;
-				sim.selectedFloor = LOBBY_FLOOR;
-				releaseServiceRequest(world, sim);
-				return;
-			}
-			if (
-				sim.stateCode === STATE_COMMUTE_TRANSIT ||
-				sim.stateCode === STATE_ACTIVE_TRANSIT ||
-				sim.stateCode === STATE_VENUE_TRIP_TRANSIT
-			) {
-				if (object) advanceOfficePresenceCounter(object);
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_DEPARTURE;
-				return;
-			}
-			if (
-				sim.stateCode === STATE_DEPARTURE_TRANSIT ||
-				sim.stateCode === STATE_MORNING_TRANSIT ||
-				sim.stateCode === STATE_AT_WORK_TRANSIT ||
-				sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
-				sim.stateCode === STATE_DWELL_RETURN_TRANSIT
-			) {
-				releaseServiceRequest(world, sim);
-				sim.stateCode = STATE_NIGHT_B;
-				return;
-			}
-			// Arrived at office floor from morning commute
-			if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_AT_WORK;
-				if (object) advanceOfficePresenceCounter(object);
-				return;
-			}
-			// Arrived at venue floor from venue trip
-			if (
-				handleCommercialVenueArrival(sim, arrivalFloor, STATE_AT_WORK, time)
-			) {
-				return;
-			}
-			// Arrived at lobby from evening departure
-			if (sim.stateCode === STATE_DEPARTURE && arrivalFloor === LOBBY_FLOOR) {
-				sim.destinationFloor = -1;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_PARKED;
-			}
+			handleOfficeSimArrival(world, time, sim, arrivalFloor);
 			return;
 		case FAMILY_CONDO:
-			handleCommercialVenueArrival(sim, arrivalFloor, STATE_ACTIVE, time);
+			handleCondoSimArrival(sim, arrivalFloor, time);
 			return;
 		default:
-			// Cathedral guest sims
 			if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {
-				if (
-					sim.stateCode === STATE_EVAL_OUTBOUND &&
-					arrivalFloor === EVAL_ZONE_FLOOR
-				) {
-					sim.stateCode = STATE_ARRIVED;
-					sim.destinationFloor = -1;
-					checkEvalCompletionAndAward(world, time, sim);
-				} else if (
-					sim.stateCode === STATE_EVAL_RETURN &&
-					arrivalFloor === LOBBY_FLOOR
-				) {
-					sim.stateCode = STATE_PARKED;
-					sim.destinationFloor = -1;
-				}
+				handleCathedralSimArrival(world, time, sim, arrivalFloor);
 			}
 			return;
 	}

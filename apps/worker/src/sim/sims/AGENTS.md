@@ -5,7 +5,7 @@ Family-specific state machines and shared runtime helpers for the placed-object-
 ## Files
 
 ### `index.ts`
-Runtime sim facade: refresh stride orchestration, venue visits, transport routing/arrival plumbing, compatibility aliases, and public re-exports for the split sim modules.
+Runtime sim facade: refresh stride orchestration, venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling now lives with each family module instead of in the central dispatcher.
 
 ### `states.ts`
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.
@@ -29,10 +29,10 @@ Commercial venue day-cycle reset/close handling, retail activation/deactivation,
 Hotel/condo end-of-day unit status normalization, cockroach infestation spread, vacancy expiry, and hotel operational/occupancy refresh.
 
 ### `hotel.ts`
-Hotel-family sim state machine: check-in routing, active-stay venue visits, checkout queues, sale accounting, and room turnover.
+Hotel-family sim state machine: check-in routing, active-stay venue visits, checkout queues, sale accounting, room turnover, and hotel-specific arrival handling.
 
 ### `office.ts`
-Office-family sim state machine: morning activation, worker commute/service-demand handling, presence counters, venue trips, evening departure, and office service evaluation entry points.
+Office-family sim state machine: morning activation, worker commute/service-demand handling, presence counters, venue trips, evening departure, office service evaluation entry points, and office-specific arrival handling.
 
 ### `condo.ts`
-Condo-family sim state machine: occupant activation, restaurant/fast-food venue selection, sale accounting, and operational refresh.
+Condo-family sim state machine: occupant activation, restaurant/fast-food venue selection, sale accounting, operational refresh, and condo-specific arrival handling.

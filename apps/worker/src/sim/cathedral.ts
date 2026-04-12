@@ -200,3 +200,25 @@ export function checkEvalCompletionAndAward(
 		(time as { starCount: number }).starCount = 6;
 	}
 }
+
+export function handleCathedralSimArrival(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+	arrivalFloor: number,
+): void {
+	if (
+		sim.stateCode === STATE_EVAL_OUTBOUND &&
+		arrivalFloor === EVAL_ZONE_FLOOR
+	) {
+		sim.stateCode = STATE_ARRIVED;
+		sim.destinationFloor = -1;
+		checkEvalCompletionAndAward(world, time, sim);
+		return;
+	}
+
+	if (sim.stateCode === STATE_EVAL_RETURN && arrivalFloor === LOBBY_FLOOR) {
+		sim.stateCode = STATE_PARKED;
+		sim.destinationFloor = -1;
+	}
+}

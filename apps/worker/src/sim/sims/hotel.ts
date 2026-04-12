@@ -12,6 +12,7 @@ import {
 	findSiblingSims,
 	finishCommercialVenueDwell,
 	finishCommercialVenueTrip,
+	handleCommercialVenueArrival,
 	resolveSimRouteBetweenFloors,
 	tryAssignParkingService,
 } from "./index";
@@ -188,5 +189,35 @@ export function processHotelSim(
 			return;
 		default:
 			sim.stateCode = STATE_HOTEL_PARKED;
+	}
+}
+
+export function handleHotelSimArrival(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	arrivalFloor: number,
+): void {
+	const object = findObjectForSim(world, sim);
+
+	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_ACTIVE;
+		return;
+	}
+
+	if (handleCommercialVenueArrival(sim, arrivalFloor, STATE_ACTIVE, time)) {
+		return;
+	}
+
+	if (
+		(sim.stateCode === STATE_CHECKOUT_QUEUE ||
+			sim.stateCode === STATE_DEPARTURE) &&
+		arrivalFloor === LOBBY_FLOOR
+	) {
+		sim.destinationFloor = -1;
+		if (object) checkoutHotelStay(world, ledger, time, sim, object);
 	}
 }
