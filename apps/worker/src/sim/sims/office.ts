@@ -341,11 +341,41 @@ export function processOfficeSim(
 		if (time.daypartIndex === 0) return;
 		if (time.daypartIndex === 1 && sampleRng(world) % 12 !== 0) return;
 
-		dispatchCommercialVenueVisit(world, time, sim, {
+		const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
 			venueFamilies: new Set([FAMILY_FAST_FOOD]),
 			returnState: STATE_AT_WORK,
-			unavailableState: STATE_NIGHT_B,
+			skipPenaltyOnUnavailable: true,
 		});
+		if (!dispatched) {
+			// Spec §No Fast Food Available: route to lobby for fake lunch round-trip.
+			// Worker travels to lobby, dwells, returns to office — never gets stuck.
+			const routeResult = resolveSimRouteBetweenFloors(
+				world,
+				sim,
+				sim.floorAnchor,
+				LOBBY_FLOOR,
+				1,
+				time,
+			);
+			if (routeResult === -1) {
+				// Spec §Route to Lobby Fails: fake-transit sentinel → eventually
+				// advance_office_presence_counter → STATE_DEPARTURE (0x05).
+				advanceOfficePresenceCounter(object);
+				sim.stateCode = STATE_DEPARTURE;
+				return;
+			}
+			sim.destinationFloor = LOBBY_FLOOR;
+			sim.selectedFloor = sim.floorAnchor;
+			if (routeResult === 3) {
+				// Office on lobby floor — immediate dwell then return
+				sim.venueReturnState = 0;
+				sim.stateCode = COMMERCIAL_DWELL_STATE;
+				sim.lastDemandTick = time.dayTick;
+				clearSimRoute(sim);
+			} else {
+				sim.stateCode = STATE_VENUE_TRIP;
+			}
+		}
 		return;
 	}
 
@@ -411,7 +441,12 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
-		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState(sim));
+		// baseOffset 0 already fired income + routed in the morning gate;
+		// go straight to AT_WORK instead of re-entering COMMUTE (which would
+		// consume an extra RNG call and re-route from lobby).
+		const nextState =
+			sim.baseOffset === 0 ? STATE_AT_WORK : STATE_ACTIVE;
+		finalizeOfficeFloorArrival(sim, object, nextState);
 		return;
 	}
 

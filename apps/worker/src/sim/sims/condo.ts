@@ -27,7 +27,29 @@ export function processCondoSim(
 	const object = findObjectForSim(world, sim);
 	if (!object) return;
 
-	if (sim.stateCode === STATE_PARKED) sim.stateCode = STATE_ACTIVE;
+	if (sim.stateCode === STATE_PARKED) {
+		sim.stateCode = STATE_ACTIVE;
+		return;
+	}
+
+	// Condo sale: when a vacant condo first activates, mark it occupied and
+	// generate sale income (once per unit, triggered by baseOffset 0).
+	if (
+		sim.stateCode === STATE_ACTIVE &&
+		object.unitStatus >= UNIT_STATUS_CONDO_VACANT
+	) {
+		object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
+		object.needsRefreshFlag = 1;
+		if (sim.baseOffset === 0) {
+			addCashflowFromFamilyResource(
+				ledger,
+				"condo",
+				object.rentLevel,
+				object.objectTypeCode,
+			);
+		}
+	}
+
 	if (finishCommercialVenueDwell(sim, time, STATE_ACTIVE)) return;
 	if (sim.stateCode === STATE_ACTIVE) {
 		dispatchCommercialVenueVisit(world, time, sim, {
@@ -38,18 +60,6 @@ export function processCondoSim(
 			returnState: STATE_ACTIVE,
 			unavailableState: STATE_PARKED,
 			skipPenaltyOnUnavailable: true,
-			onVenueReserved: () => {
-				if (object.unitStatus < UNIT_STATUS_CONDO_VACANT) return;
-				object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
-				object.needsRefreshFlag = 1;
-				if (sim.baseOffset !== 0) return;
-				addCashflowFromFamilyResource(
-					ledger,
-					"condo",
-					object.rentLevel,
-					object.objectTypeCode,
-				);
-			},
 		});
 	} else if (sim.stateCode === STATE_VENUE_TRIP) {
 		finishCommercialVenueTrip(sim, STATE_ACTIVE);

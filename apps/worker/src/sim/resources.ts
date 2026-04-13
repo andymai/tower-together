@@ -18,8 +18,8 @@ export const TILE_WIDTHS: Record<string, number> = {
 	hotelSuite: 12,
 	// Commercial (families 6/0x0a/0x0c)
 	restaurant: 24,
-	fastFood: 12,
-	retail: 16,
+	fastFood: 16,
+	retail: 12,
 	// Office (family 7)
 	office: 9,
 	// Condo (family 9)
@@ -127,12 +127,12 @@ export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 // Income per checkout/activation event, indexed by variant tier (0=best, 3=worst).
 
 export const YEN_1001: Record<string, number[]> = {
-	hotelSingle: [30, 20, 15, 5],
-	hotelTwin: [30, 20, 15, 5],
-	hotelSuite: [30, 20, 15, 5],
+	hotelSingle: [3, 2, 1.5, 0.5],
+	hotelTwin: [3, 2, 1.5, 0.5],
+	hotelSuite: [3, 2, 1.5, 0.5],
 	office: [15, 10, 5, 2],
-	condo: [2000, 1500, 1000, 400],
-	retail: [200, 150, 100, 40],
+	condo: [200, 150, 100, 40],
+	retail: [20, 15, 10, 4],
 };
 
 // ─── YEN #1002 — expense table ────────────────────────────────────────────────

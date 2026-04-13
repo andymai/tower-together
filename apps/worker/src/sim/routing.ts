@@ -55,8 +55,8 @@ export function rebuildSpecialLinks(world: WorldState): void {
 		}
 		const group = grouped.get(groupKey);
 		group?.floors.add(floor);
-		// Stairs/escalator at floor N connect N↔N+1; include the upper landing.
-		group?.floors.add(floor + 1);
+		// Stairs/escalator at floor N connect N-1↔N; include the lower landing.
+		group?.floors.add(floor - 1);
 	}
 
 	for (const group of grouped.values()) rawSegments.push(group);
@@ -662,6 +662,9 @@ function canEnterSegmentFromFloor(
 	fromFloor: number,
 	toFloor: number,
 ): boolean {
+	// Stairs allow entry from any covered floor (you can walk in at any landing).
+	if ((segment.flags & 1) !== 0) return true;
+	// Escalators: must enter at the bottom (going up) or top (going down).
 	if (toFloor > fromFloor) return fromFloor === segment.entryFloor;
 	return fromFloor === getSegmentTopFloor(segment);
 }

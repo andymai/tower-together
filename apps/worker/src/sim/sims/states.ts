@@ -5,6 +5,7 @@ import {
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
+	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
@@ -69,11 +70,15 @@ export const ENTITY_REFRESH_STRIDE = 16;
 export const ACTIVATION_TICK_CAP = 0x78;
 
 export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
-	[FAMILY_HOTEL_SINGLE]: 1,
-	[FAMILY_HOTEL_TWIN]: 2,
+	[FAMILY_HOTEL_SINGLE]: 2,
+	[FAMILY_HOTEL_TWIN]: 3,
 	[FAMILY_HOTEL_SUITE]: 3,
+	[FAMILY_RESTAURANT]: 48,
 	[FAMILY_OFFICE]: 6,
 	[FAMILY_CONDO]: 3,
+	[FAMILY_RETAIL]: 48,
+	[FAMILY_FAST_FOOD]: 48,
+	[FAMILY_RECYCLING_CENTER_UPPER]: 6,
 	// Cathedral guest sims: 5 floor types x 8 slots = 40 guests.
 	36: 8, // 0x24
 	37: 8, // 0x25
@@ -104,6 +109,28 @@ export const COMMERCIAL_FAMILIES = new Set([
 ]);
 
 export const CATHEDRAL_FAMILIES = new Set([0x24, 0x25, 0x26, 0x27, 0x28]);
+
+/**
+ * Binary entity-table allocation order, derived from reference trace hex codes.
+ * Sims must be sorted by this priority so stride residues match the binary.
+ */
+export const BINARY_ALLOC_ORDER: Record<number, number> = {
+	[FAMILY_RECYCLING_CENTER_UPPER]: 0, // 0xf2
+	[FAMILY_RESTAURANT]: 1, // 0xf4
+	[FAMILY_FAST_FOOD]: 2, // 0xf6
+	[FAMILY_CONDO]: 3, // 0xf7
+	[FAMILY_OFFICE]: 4, // 0xf9
+	[FAMILY_RETAIL]: 5, // 0xfa
+	[FAMILY_HOTEL_TWIN]: 6, // 0xfb
+	[FAMILY_HOTEL_SUITE]: 7, // 0xfc
+	[FAMILY_HOTEL_SINGLE]: 8, // 0xfd
+	// Cathedral families (36–40) come after all main families.
+	36: 9,
+	37: 10,
+	38: 11,
+	39: 12,
+	40: 13,
+};
 
 export const ELEVATOR_DEMAND_STATES = new Set([
 	STATE_COMMUTE,

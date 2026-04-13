@@ -1,4 +1,8 @@
-import { FAMILY_CONDO, FAMILY_OFFICE } from "../resources";
+import {
+	FAMILY_CONDO,
+	FAMILY_OFFICE,
+	FAMILY_RECYCLING_CENTER_UPPER,
+} from "../resources";
 import type { CarrierRecord } from "../world";
 import {
 	GRID_HEIGHT,
@@ -8,7 +12,9 @@ import {
 	yToFloor,
 } from "../world";
 import {
+	BINARY_ALLOC_ORDER,
 	CATHEDRAL_FAMILIES,
+	COMMERCIAL_FAMILIES,
 	ENTITY_POPULATION_BY_TYPE,
 	HOTEL_FAMILIES,
 	ROUTE_IDLE,
@@ -50,6 +56,8 @@ function initialStateForFamily(familyCode: number): number {
 	if (HOTEL_FAMILIES.has(familyCode)) return STATE_HOTEL_PARKED;
 	if (CATHEDRAL_FAMILIES.has(familyCode)) return STATE_PARKED;
 	if (familyCode === FAMILY_OFFICE) return STATE_MORNING_GATE;
+	if (COMMERCIAL_FAMILIES.has(familyCode)) return STATE_MORNING_GATE;
+	if (familyCode === FAMILY_RECYCLING_CENTER_UPPER) return STATE_ACTIVE;
 	return STATE_PARKED;
 }
 
@@ -114,7 +122,21 @@ export function rebuildRuntimeSims(world: WorldState): void {
 	);
 	const next: SimRecord[] = [];
 
-	for (const [key, object] of Object.entries(world.placedObjects)) {
+	// Sort by binary entity-type allocation order, then by grid position
+	// (y ascending, x ascending) within the same type, to match the
+	// reference binary's entity table layout.
+	const sortedEntries = Object.entries(world.placedObjects).sort(
+		([a, objA], [b, objB]) => {
+			const orderA = BINARY_ALLOC_ORDER[objA.objectTypeCode] ?? 99;
+			const orderB = BINARY_ALLOC_ORDER[objB.objectTypeCode] ?? 99;
+			if (orderA !== orderB) return orderA - orderB;
+			const [ax, ay] = a.split(",").map(Number);
+			const [bx, by] = b.split(",").map(Number);
+			return ay - by || ax - bx;
+		},
+	);
+
+	for (const [key, object] of sortedEntries) {
 		const population = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 0;
 		if (population === 0) continue;
 		const [x, y] = key.split(",").map(Number);

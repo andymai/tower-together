@@ -12,6 +12,7 @@ import {
 	FAMILY_RETAIL,
 } from "../resources";
 import { type RouteCandidate, selectBestRouteCandidate } from "../routing";
+import { handleCommercialSimArrival, processCommercialSim } from "./commercial";
 import { handleCondoSimArrival, processCondoSim } from "./condo";
 
 export {
@@ -353,6 +354,11 @@ export function advanceSimRefreshStride(
 			case FAMILY_CONDO:
 				processCondoSim(world, ledger, time, sim);
 				break;
+			case FAMILY_RESTAURANT:
+			case FAMILY_FAST_FOOD:
+			case FAMILY_RETAIL:
+				processCommercialSim(world, ledger, time, sim);
+				break;
 			default:
 				if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {
 					processCathedralSim(world, time, sim);
@@ -624,12 +630,10 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 
 function finalizePendingRouteLeg(sim: SimRecord): void {
 	if (sim.route.mode !== "segment") return;
-	if (sim.transitTicksRemaining > 0) {
-		sim.transitTicksRemaining -= 1;
-		return;
-	}
+	if (sim.transitTicksRemaining > 0) return;
+	// Transit countdown is handled by reconcileSimTransport; here we just
+	// sync selectedFloor once the leg is complete so processXxxSim sees it.
 	sim.selectedFloor = sim.route.destination;
-	clearSimRoute(sim);
 }
 
 function dispatchSimArrival(
@@ -655,6 +659,11 @@ function dispatchSimArrival(
 			return;
 		case FAMILY_CONDO:
 			handleCondoSimArrival(sim, arrivalFloor, time);
+			return;
+		case FAMILY_RESTAURANT:
+		case FAMILY_FAST_FOOD:
+		case FAMILY_RETAIL:
+			handleCommercialSimArrival(world, sim, arrivalFloor);
 			return;
 		default:
 			if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {

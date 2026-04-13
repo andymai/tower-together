@@ -1,0 +1,21 @@
+{
+  "floor_extent": {
+    "0": {"left": 80, "right": 220},
+    "1": {"left": 80, "right": 220},
+    "2": {"left": 80, "right": 220},
+    "3": {"left": 80, "right": 220}
+  },
+  "facilities": [
+    {"type": "single", "floor": 1, "left": 90},
+    {"type": "single", "floor": 1, "left": 94},
+    {"type": "single", "floor": 1, "left": 98},
+    {"type": "single", "floor": 1, "left": 102},
+    {"type": "twin",   "floor": 2, "left": 90},
+    {"type": "twin",   "floor": 2, "left": 98},
+    {"type": "suite",  "floor": 3, "left": 90},
+    {"type": "suite",  "floor": 3, "left": 106},
+    {"type": "stairs", "floor": 1, "left": 94},
+    {"type": "stairs", "floor": 2, "left": 94},
+    {"type": "stairs", "floor": 3, "left": 94}
+  ]
+}

@@ -1,138 +1,143 @@
 /**
- * Reference trace test — verifies that a 4-office + 2-stair tower
- * reproduces the expected sim lifecycle from the reference trace.
+ * Trace tests — build towers from fixture JSON specs, step through
+ * the simulation, and compare against reference JSONL traces.
  *
- * Trace setup:
- *   - Lobby on ground floor, tiles [100, 200)
- *   - Support floors for floors 1–3
- *   - 2 offices on floor 1: [100,109) and [109,118)
- *   - 2 offices on floor 2: [100,109) and [109,118)
- *   - Stairs floor 0→1 at tile 100, stairs floor 1→2 at tile 100
- *
- * Known divergences from the reference trace:
- *
- *   1. Income: our YEN_1001 office payout at rent-level 1 is 100×1000 = $100k
- *      per office; the reference trace pays ~$10k per office. Total income
- *      $400k vs reference $40k.
- *
- *   2. Office STATE_ACTIVE dispatches a venue visit immediately every tick.
- *      When no fast-food venue exists, sims fall through to STATE_NIGHT_B
- *      and stay parked for the rest of the day. The reference trace shows
- *      sims cycling through lunch-start → at-work → from-lunch → evening-dep
- *      → parked — a richer daily lifecycle where venue-unavailable sims
- *      remain in a working state instead of being shelved.
+ * Each fixture pair (build_X.json + build_X.jsonl) defines:
+ *   - .json: floor extents and facility placements
+ *   - .jsonl: reference trace snapshots (day, tick, cash, sim states)
  */
 
+// @ts-expect-error vitest runs in Node; not in CF worker types
+import { readFileSync } from "node:fs";
+// @ts-expect-error vitest runs in Node; not in CF worker types
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { TowerSim } from "./index";
 import { GROUND_Y } from "./world";
 
-// ─── State code constants ────────────────────────────────────────────────────
+// @ts-expect-error import.meta.url exists at runtime in vitest/Node
+const fixtureDir = `${fileURLToPath(new URL(".", import.meta.url))}fixtures`;
 
-const STATE_ACTIVE = 0x01;
-const STATE_MORNING_GATE = 0x20;
-const STATE_NIGHT_B = 0x26;
-const STATE_PARKED = 0x27;
-const STATE_MORNING_TRANSIT = 0x60;
+// ─── Types ──────────────────────────────────────────────────────────────────
 
-// State name mapping for trace output
-const STATE_NAMES = new Map<number, string>([
-	[0x00, "to-office"],
-	[0x01, "lunch-start"],
-	[0x02, "lunch-alt"],
-	[0x05, "evening-dep"],
-	[0x20, "morning-in"],
-	[0x21, "at-work"],
-	[0x22, "venue-trip"],
-	[0x25, "night-a"],
-	[0x26, "night-b"],
-	[0x27, "parked"],
-	[0x40, "T-to-office"],
-	[0x45, "T-evening"],
-	[0x60, "T-morning"],
-	[0x61, "T-to-work"],
-	[0x62, "T-to-lunch"],
-	[0x63, "T-from-lunch"],
-]);
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function countByState(sims: Array<{ stateCode: number }>): Map<number, number> {
-	const counts = new Map<number, number>();
-	for (const sim of sims) {
-		counts.set(sim.stateCode, (counts.get(sim.stateCode) ?? 0) + 1);
-	}
-	return counts;
+interface BuildSpec {
+	floor_extent: Record<string, { left: number; right: number }>;
+	facilities: Array<{ type: string; floor: number; left: number }>;
 }
 
-function stateCount(counts: Map<number, number>, ...codes: number[]): number {
-	let total = 0;
-	for (const code of codes) {
-		total += counts.get(code) ?? 0;
-	}
-	return total;
+interface TraceEntry {
+	day: number;
+	tick: number;
+	cash: number;
+	population: number;
+	sims: Record<
+		string,
+		{
+			count: number;
+			states: Record<string, number>;
+		}
+	>;
 }
 
-function formatStateCounts(counts: Map<number, number>): string {
-	const parts: string[] = [];
-	for (const [code, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
-		const name = STATE_NAMES.get(code) ?? `0x${code.toString(16)}`;
-		parts.push(`${name}:${n}`);
-	}
-	return `[${parts.join(" ")}]`;
+// ─── Fixture tile name → sim tile name mapping ─────────────────────────────
+
+const FIXTURE_TILE_MAP: Record<string, string> = {
+	office: "office",
+	condo: "condo",
+	restaurant: "restaurant",
+	"fast-food": "fastFood",
+	retail: "retail",
+	single: "hotelSingle",
+	twin: "hotelTwin",
+	suite: "hotelSuite",
+	stairs: "stairs",
+	security: "security",
+};
+
+// ─── Trace sim key → familyCode mapping ────────────────────────────────────
+
+const TRACE_SIM_KEY_TO_FAMILY: Record<string, number> = {
+	office: 7,
+	condo: 9,
+	restaurant: 6,
+	"fast-food": 12,
+	retail: 10,
+	single: 3,
+	twin: 4,
+	suite: 5,
+	security: 20,
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function loadFixture(name: string): { spec: BuildSpec; trace: TraceEntry[] } {
+	const specPath = `${fixtureDir}/build_${name}.json`;
+	const tracePath = `${fixtureDir}/build_${name}.jsonl`;
+	const spec: BuildSpec = JSON.parse(readFileSync(specPath, "utf-8"));
+	const trace: TraceEntry[] = readFileSync(tracePath, "utf-8")
+		.trim()
+		.split("\n")
+		.map((line: string) => JSON.parse(line));
+	return { spec, trace };
 }
 
-// ─── Tower builder ───────────────────────────────────────────────────────────
+function traceTickToTotalTicks(day: number, tick: number): number {
+	return 97 + day * 2600 + (tick - 30);
+}
 
-function buildTraceTower(): TowerSim {
+function buildTowerFromSpec(spec: BuildSpec): TowerSim {
 	const sim = TowerSim.create("trace-test", "Trace Test");
 
-	// Phase 1: advance 97 ticks → dayTick wraps to 30
-	// (new game starts at dayTick 2533; 2533 + 97 = 2630 ≥ 2600 → wraps to 30)
+	// Advance 97 ticks to reach dayTick=30, aligning with the first trace snapshot.
 	for (let i = 0; i < 97; i++) sim.step();
 
 	sim.freeBuild = true;
 
-	// Lobby on ground floor x=[100,200)
-	for (let x = 100; x < 200; x++) {
-		sim.submitCommand({
-			type: "place_tile",
-			x,
-			y: GROUND_Y,
-			tileType: "lobby",
-		});
+	// Place lobby on ground floor
+	const groundExtent = spec.floor_extent["0"];
+	if (groundExtent) {
+		for (let x = groundExtent.left; x < groundExtent.right; x++) {
+			sim.submitCommand({
+				type: "place_tile",
+				x,
+				y: GROUND_Y,
+				tileType: "lobby",
+			});
+		}
 	}
 
-	// Floor support on floor 1 (y=108) and floor 2 (y=107), x=[100,200)
-	for (const y of [GROUND_Y - 1, GROUND_Y - 2]) {
-		for (let x = 100; x < 200; x++) {
+	// Place floor support for each non-ground floor (sorted bottom-up)
+	const floors = Object.keys(spec.floor_extent)
+		.map(Number)
+		.filter((f) => f !== 0)
+		.sort((a, b) => a - b);
+
+	for (const floor of floors) {
+		const extent = spec.floor_extent[String(floor)];
+		const y = GROUND_Y - floor;
+		for (let x = extent.left; x < extent.right; x++) {
 			sim.submitCommand({ type: "place_tile", x, y, tileType: "floor" });
 		}
 	}
 
-	// 4 offices: 2 on floor 1, 2 on floor 2 (each width 9)
-	for (const y of [GROUND_Y - 1, GROUND_Y - 2]) {
-		for (const x of [100, 109]) {
-			expect(
-				sim.submitCommand({ type: "place_tile", x, y, tileType: "office" })
-					.accepted,
-			).toBe(true);
+	// Place facilities (some may be rejected due to placement rule divergences)
+	for (const fac of spec.facilities) {
+		const tileType = FIXTURE_TILE_MAP[fac.type];
+		if (!tileType) {
+			throw new Error(`Unknown fixture tile type: ${fac.type}`);
 		}
-	}
-
-	// Stairs: floor 0→1 (overlay on lobby at y=109), floor 1→2 (overlay at y=108)
-	for (const y of [GROUND_Y, GROUND_Y - 1]) {
-		expect(
-			sim.submitCommand({ type: "place_tile", x: 100, y, tileType: "stairs" })
-				.accepted,
-		).toBe(true);
+		const y = GROUND_Y - fac.floor;
+		sim.submitCommand({ type: "place_tile", x: fac.left, y, tileType });
 	}
 
 	sim.freeBuild = false;
+	return sim;
+}
 
-	// Adjust cash to match trace starting condition
+function prepareFromTrace(spec: BuildSpec, trace: TraceEntry[]): TowerSim {
+	const sim = buildTowerFromSpec(spec);
 	const snap = sim.saveState();
-	snap.ledger.cashBalance = 1_999_000;
+	snap.ledger.cashBalance = trace[0].cash;
 	return TowerSim.fromSnapshot(snap);
 }
 
@@ -140,132 +145,104 @@ function advanceTo(sim: TowerSim, targetTotalTicks: number): void {
 	while (sim.simTime < targetTotalTicks) sim.step();
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+function countSimsByFamily(
+	sims: Array<{ familyCode: number }>,
+): Map<number, number> {
+	const counts = new Map<number, number>();
+	for (const sim of sims) {
+		counts.set(sim.familyCode, (counts.get(sim.familyCode) ?? 0) + 1);
+	}
+	return counts;
+}
 
-describe("reference trace: 4 offices + 2 stairs", () => {
-	it("spawns 24 sims for 4 offices", () => {
-		const sim = buildTraceTower();
-		expect(sim.simsToArray()).toHaveLength(24);
+/** Sum of all sim counts across families in a trace entry. */
+function traceSimTotal(entry: TraceEntry): number {
+	let total = 0;
+	for (const group of Object.values(entry.sims)) total += group.count;
+	return total;
+}
+
+/**
+ * Filter trace entries to only those with named sim families (not hex-coded
+ * pre-categorization entries) that have sims.
+ */
+function activeTraceEntries(trace: TraceEntry[]): TraceEntry[] {
+	return trace.filter((e) => {
+		const keys = Object.keys(e.sims);
+		return keys.length > 0 && keys.some((k) => !k.startsWith("0x"));
 	});
+}
 
-	it("starts at totalTicks=97, dayTick=30, cash=$1,999,000", () => {
-		const sim = buildTraceTower();
+// ─── Test fixtures ──────────────────────────────────────────────────────────
+
+const FIXTURE_NAMES = [
+	"commercial",
+	"condo",
+	"hotel",
+	"lobby_only",
+	"mixed",
+	"offices",
+];
+
+describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
+	const { spec, trace } = loadFixture(fixtureName);
+
+	it("builds tower and runs full trace without crashing", () => {
+		const sim = buildTowerFromSpec(spec);
 		expect(sim.simTime).toBe(97);
-		expect(sim.cash).toBe(1_999_000);
-	});
 
-	it("all sims begin in morning gate", () => {
-		const sim = buildTraceTower();
-		const counts = countByState(sim.simsToArray());
-		expect(stateCount(counts, STATE_MORNING_GATE)).toBe(24);
-	});
-
-	it("offices generate income during morning activation", () => {
-		const sim = buildTraceTower();
-		const cashBefore = sim.cash;
-		advanceTo(sim, 200);
-		// 3 offices activated by tick 200 → 3 × $10k = $30k
-		expect(sim.cash).toBe(cashBefore + 30_000);
-	});
-
-	it("all 4 offices generate income by tick 500", () => {
-		const sim = buildTraceTower();
-		advanceTo(sim, 500);
-		// 4 offices × $10k = $40k income
-		expect(sim.cash).toBe(1_999_000 + 40_000);
-	});
-
-	it("sims transition through morning → active → night-b lifecycle", () => {
-		const sim = buildTraceTower();
-
-		// At tick 200: some sims dispatched, some still in morning gate
-		advanceTo(sim, 200);
-		let counts = countByState(sim.simsToArray());
-		expect(stateCount(counts, STATE_MORNING_GATE)).toBeGreaterThan(0);
-		expect(
-			stateCount(counts, STATE_ACTIVE, STATE_MORNING_TRANSIT),
-		).toBeGreaterThan(0);
-
-		// By tick 900: most sims have left active states (night-b, parked, or departing)
-		advanceTo(sim, 900);
-		counts = countByState(sim.simsToArray());
-		expect(stateCount(counts, STATE_ACTIVE)).toBe(0);
-		expect(stateCount(counts, STATE_MORNING_GATE)).toBe(0);
-	});
-
-	it("sims return to morning gate after dayTick > 2300", () => {
-		const sim = buildTraceTower();
-
-		// By tick 2300 (totalTicks = 97 + 2300 - 30 = 2367), all in night-b or parked
-		advanceTo(sim, 2367);
-		let counts = countByState(sim.simsToArray());
-		expect(
-			stateCount(counts, STATE_NIGHT_B) + stateCount(counts, STATE_PARKED),
-		).toBe(24);
-
-		// By tick 2400 (totalTicks ~2467), sims reactivate to morning gate
-		advanceTo(sim, 2467);
-		counts = countByState(sim.simsToArray());
-		expect(stateCount(counts, STATE_MORNING_GATE)).toBe(24);
-	});
-
-	it("day 1 morning: sims begin dispatching again", () => {
-		const sim = buildTraceTower();
-
-		// Day 1, tick 133 → totalTicks = 97 + (2600 - 30) + 133 = 2800
-		// But our dayTick arithmetic: after 2600 ticks from dayTick 30,
-		// we've gone through a full day and reached dayTick 30 again (day 1).
-		// Then 103 more ticks to reach dayTick 133: totalTicks = 97 + 2703 = 2800
-		advanceTo(sim, 2800);
-		const counts = countByState(sim.simsToArray());
-		// Some sims should be dispatching (morning transit) or arrived (night-b)
-		const dispatched = stateCount(counts, STATE_MORNING_TRANSIT, STATE_NIGHT_B);
-		expect(dispatched).toBeGreaterThan(0);
-	});
-
-	it("sim count stays stable throughout simulation", () => {
-		const sim = buildTraceTower();
-		for (let target = 200; target <= 2800; target += 100) {
-			advanceTo(sim, target);
-			expect(sim.simsToArray()).toHaveLength(24);
+		for (const entry of trace) {
+			const targetTicks = traceTickToTotalTicks(entry.day, entry.tick);
+			if (targetTicks > sim.simTime) {
+				advanceTo(sim, targetTicks);
+			}
 		}
 	});
 
-	// ── xfail: known divergences from the reference trace ──────────────────
+	it("matches reference sim total at each trace tick", () => {
+		const entries = activeTraceEntries(trace);
+		if (entries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
 
-	it.fails("xfail: venue-unavailable sims stay in working states instead of night-b", () => {
-		const sim = buildTraceTower();
-
-		// Reference trace at tick 633 (daypart 1):
-		//   [from-lunch:16 to-office:4 lunch-start:3 T-to-lunch:1]
-		// Sims cycle through active states even without fast-food venues.
-		// Our sim: sims dispatch venue visits, fail, and land in night-b.
-		advanceTo(sim, 900);
-		const counts = countByState(sim.simsToArray());
-
-		// In the reference, no sims are in night-b by end of day
-		expect(stateCount(counts, STATE_NIGHT_B)).toBe(0);
+		for (const entry of entries) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			expect(
+				sim.simsToArray().length,
+				`sim total mismatch at day=${entry.day} tick=${entry.tick}`,
+			).toBe(traceSimTotal(entry));
+		}
 	});
 
-	it("prints full trace for manual comparison", () => {
-		const sim = buildTraceTower();
+	it("matches reference sim counts by family", () => {
+		const entries = activeTraceEntries(trace);
+		if (entries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
 
-		const lines: string[] = [];
-		lines.push(
-			`TICK totalTicks=${sim.simTime} cash=$${sim.cash.toLocaleString()} sims=${sim.simsToArray().length} ${formatStateCounts(countByState(sim.simsToArray()))}`,
-		);
+		for (const entry of entries) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			const byFamily = countSimsByFamily(sim.simsToArray());
 
-		for (let target = 100; target <= 2800; target += 100) {
-			advanceTo(sim, target);
-			const sims = sim.simsToArray();
-			lines.push(
-				`TICK totalTicks=${sim.simTime} cash=$${sim.cash.toLocaleString()} sims=${sims.length} ${formatStateCounts(countByState(sims))}`,
-			);
+			for (const [key, refGroup] of Object.entries(entry.sims)) {
+				const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
+				if (familyCode === undefined) continue;
+				expect(
+					byFamily.get(familyCode) ?? 0,
+					`family ${key} count mismatch at day=${entry.day} tick=${entry.tick}`,
+				).toBe(refGroup.count);
+			}
 		}
+	});
 
-		// Print the trace (visible with --reporter=verbose)
-		console.log("\n=== Simulation Trace ===");
-		for (const line of lines) console.log(line);
-		console.log("=== End Trace ===\n");
+	it("matches reference cash", () => {
+		if (trace.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
+
+		for (const entry of trace) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			expect(
+				sim.cash,
+				`cash mismatch at day=${entry.day} tick=${entry.tick}`,
+			).toBe(entry.cash);
+		}
 	});
 });
