@@ -25,6 +25,7 @@ import {
 	TILE_WIDTH,
 } from "./gameSceneConstants";
 import {
+	anchorX,
 	computeShiftFill,
 	getHoverBounds,
 	type PlacementAnchor,
@@ -917,7 +918,8 @@ export class GameScene extends Phaser.Scene {
 	private drawShiftPreview(): void {
 		if (!this.hoveredCell) return;
 		const g = this.hoverGraphics;
-		const fills = this.computeShiftFill(this.hoveredCell.x, this.hoveredCell.y);
+		const ax = anchorX(this.hoveredCell.x, this.selectedTool);
+		const fills = this.computeShiftFill(ax, this.hoveredCell.y);
 		if (fills.length === 0) return;
 
 		const tileWidth = TILE_WIDTHS[this.selectedTool] ?? 1;
@@ -972,7 +974,8 @@ export class GameScene extends Phaser.Scene {
 					cell.y < GRID_HEIGHT
 				) {
 					this.draggedCells.add(cellKey);
-					this.onCellClick?.(cell.x, cell.y, false);
+					const ax = anchorX(cell.x, this.selectedTool);
+					this.onCellClick?.(ax, cell.y, false);
 				}
 			}
 		});
@@ -1012,7 +1015,8 @@ export class GameScene extends Phaser.Scene {
 				this.draggedCells.clear();
 				this.draggedCells.add(`${cell.x},${cell.y}`);
 				const shift = !!(pointer.event as MouseEvent).shiftKey;
-				this.onCellClick?.(cell.x, cell.y, shift);
+				const ax = anchorX(cell.x, this.selectedTool);
+				this.onCellClick?.(ax, cell.y, shift);
 			}
 		});
 

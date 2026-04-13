@@ -34,33 +34,69 @@ export function computeShiftFill(
 	const lastTileWidth = TILE_WIDTHS[lastType] ?? 1;
 	const yMin = Math.min(lastY, clickY);
 	const yMax = Math.max(lastY, clickY);
+	// Shared tentative set so earlier rows provide support for later ones.
+	const tentative = new Set<string>();
 	const results: Array<{ x: number; y: number }> = [];
 
+	// Iterate bottom-to-top (high y first) so each placed row supports the one above.
 	if (lastX < clickX) {
 		const fillEnd = clickX;
-		for (let y = yMin; y <= yMax; y++) {
+		for (let y = yMax; y >= yMin; y--) {
 			const fillStart = y === lastY ? lastX + lastTileWidth : lastX;
 			if (fillStart > fillEnd) continue;
 			results.push(
-				...packLeft(fillStart, fillEnd, y, tileWidth, selectedTool, grid),
+				...packLeft(
+					fillStart,
+					fillEnd,
+					y,
+					tileWidth,
+					selectedTool,
+					grid,
+					tentative,
+				),
 			);
 		}
 	} else if (lastX > clickX) {
 		const fillStart = clickX;
-		for (let y = yMin; y <= yMax; y++) {
+		for (let y = yMax; y >= yMin; y--) {
 			const fillEnd = y === lastY ? lastX - 1 : lastX + lastTileWidth - 1;
 			if (fillStart > fillEnd) continue;
 			results.push(
-				...packRight(fillStart, fillEnd, y, tileWidth, selectedTool, grid),
+				...packRight(
+					fillStart,
+					fillEnd,
+					y,
+					tileWidth,
+					selectedTool,
+					grid,
+					tentative,
+				),
 			);
+		}
+	} else {
+		// Same X column — pure vertical fill.
+		for (let y = yMax; y >= yMin; y--) {
+			if (y === lastY) continue;
+			if (cellsAvailable(lastX, y, tileWidth, tentative, selectedTool, grid)) {
+				results.push({ x: lastX, y });
+				for (let dx = 0; dx < tileWidth; dx++) {
+					tentative.add(`${lastX + dx},${y}`);
+				}
+			}
 		}
 	}
 
 	return results;
 }
 
+/** Convert a cursor cell X to the left-edge anchor X so the facility is centred on the cursor. */
+export function anchorX(cursorX: number, selectedTool: string): number {
+	const width = TILE_WIDTHS[selectedTool] ?? 1;
+	return cursorX - Math.floor((width - 1) / 2);
+}
+
 export function getHoverBounds(
-	x: number,
+	cursorX: number,
 	y: number,
 	selectedTool: string,
 ): HoverBounds | null {
@@ -68,6 +104,7 @@ export function getHoverBounds(
 	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return null;
 
 	const width = selectedTool !== "empty" ? (TILE_WIDTHS[selectedTool] ?? 1) : 1;
+	const x = anchorX(cursorX, selectedTool);
 	const heightCells = selectedTool === "stairs" ? 2 : 1;
 	const startX = Math.max(0, x);
 	const endX = Math.min(GRID_WIDTH - 1, x + width - 1);
@@ -89,9 +126,9 @@ function packLeft(
 	tileWidth: number,
 	selectedTool: string,
 	grid: Map<string, string>,
+	tentative: Set<string>,
 ): Array<{ x: number; y: number }> {
 	const placements: Array<{ x: number; y: number }> = [];
-	const tentative = new Set<string>();
 	let x = fillStart;
 	while (x <= fillEnd && x + tileWidth - 1 < GRID_WIDTH) {
 		if (cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid)) {
@@ -114,9 +151,9 @@ function packRight(
 	tileWidth: number,
 	selectedTool: string,
 	grid: Map<string, string>,
+	tentative: Set<string>,
 ): Array<{ x: number; y: number }> {
 	const placements: Array<{ x: number; y: number }> = [];
-	const tentative = new Set<string>();
 	let x = Math.min(fillEnd, GRID_WIDTH - tileWidth);
 	while (x >= fillStart) {
 		if (cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid)) {
@@ -157,7 +194,11 @@ function cellsAvailable(
 		}
 
 		if (needsSupport) {
-			if (y + 1 >= GRID_HEIGHT || !grid.has(`${x + dx},${y + 1}`)) {
+			const belowKey = `${x + dx},${y + 1}`;
+			if (
+				y + 1 >= GRID_HEIGHT ||
+				(!grid.has(belowKey) && !tentative.has(belowKey))
+			) {
 				return false;
 			}
 		}
