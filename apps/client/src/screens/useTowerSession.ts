@@ -210,6 +210,14 @@ export function useTowerSession({
 				return;
 			}
 
+			if (
+				tileType === "elevator" &&
+				sceneRef.current?.hasElevatorOverlayAtColumn(x)
+			) {
+				socket.send({ type: "add_elevator_car", x });
+				return;
+			}
+
 			if (tileType === "recyclingCenter") {
 				socket.send({
 					type: "place_tile",
