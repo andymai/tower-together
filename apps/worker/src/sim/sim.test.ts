@@ -2307,7 +2307,7 @@ describe("Phase 4 runtime sims", () => {
 		expect(state[0]?.stressLevel).toBe("high");
 	});
 
-	it("treats same-floor venue visits as immediate arrivals", () => {
+	it("routes office lunch trips to fast food and treats same-floor arrivals as immediate", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
@@ -2318,12 +2318,21 @@ describe("Phase 4 runtime sims", () => {
 		expect(
 			handlePlaceTile(12, GROUND_Y - 1, "restaurant", world, ledger).accepted,
 		).toBe(true);
+		expect(
+			handlePlaceTile(36, GROUND_Y - 1, "fastFood", world, ledger).accepted,
+		).toBe(true);
 		rebuildRuntimeSims(world);
 
 		const officeEntity = world.sims.find((sim) => sim.familyCode === 7);
 		const officeObject = world.placedObjects[`0,${GROUND_Y - 1}`];
-		const venueObject = world.placedObjects[`12,${GROUND_Y - 1}`];
-		if (!officeEntity || !officeObject || !venueObject) {
+		const restaurantObject = world.placedObjects[`12,${GROUND_Y - 1}`];
+		const fastFoodObject = world.placedObjects[`36,${GROUND_Y - 1}`];
+		if (
+			!officeEntity ||
+			!officeObject ||
+			!restaurantObject ||
+			!fastFoodObject
+		) {
 			throw new Error("expected same-floor office + venue state");
 		}
 		officeObject.unitStatus = 1;
@@ -2331,10 +2340,18 @@ describe("Phase 4 runtime sims", () => {
 		officeEntity.selectedFloor = officeEntity.floorAnchor;
 		officeEntity.destinationFloor = -1;
 		officeEntity.route = { mode: "idle" };
-		const venue = world.sidecars[venueObject.linkedRecordIndex] as
+		const restaurantVenue = world.sidecars[
+			restaurantObject.linkedRecordIndex
+		] as { kind: "commercial_venue"; todayVisitCount: number } | undefined;
+		const fastFoodVenue = world.sidecars[fastFoodObject.linkedRecordIndex] as
 			| { kind: "commercial_venue"; todayVisitCount: number }
 			| undefined;
-		if (!venue || venue.kind !== "commercial_venue") {
+		if (
+			!restaurantVenue ||
+			restaurantVenue.kind !== "commercial_venue" ||
+			!fastFoodVenue ||
+			fastFoodVenue.kind !== "commercial_venue"
+		) {
 			throw new Error("expected commercial venue sidecar");
 		}
 
@@ -2348,7 +2365,8 @@ describe("Phase 4 runtime sims", () => {
 		expect(officeEntity.stateCode).toBe(0x62);
 		expect(officeEntity.route.mode).toBe("idle");
 		expect(officeEntity.destinationFloor).toBe(-1);
-		expect(venue.todayVisitCount).toBe(1);
+		expect(restaurantVenue.todayVisitCount).toBe(0);
+		expect(fastFoodVenue.todayVisitCount).toBe(1);
 
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
@@ -2488,7 +2506,7 @@ describe("Phase 4 runtime sims", () => {
 			`${sim.floorAnchor}:${sim.homeColumn}:${sim.familyCode}:${sim.baseOffset}`,
 			sim.floorAnchor,
 		);
-		expect(sim.stateCode).toBe(0x05);
+		expect(sim.stateCode).toBe(0x01);
 		expect(world.placedObjects[`0,${GROUND_Y - 1}`]?.unitStatus).toBe(1);
 	});
 
@@ -2562,7 +2580,7 @@ describe("Phase 4 runtime sims", () => {
 			sim.floorAnchor,
 		);
 
-		expect(sim.stateCode).toBe(0x21);
+		expect(sim.stateCode).toBe(0x01);
 		expect(office.evalLevel).toBe(0xff);
 		expect(office.evalActiveFlag).toBe(1);
 	});

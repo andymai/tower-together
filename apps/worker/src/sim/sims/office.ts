@@ -1,5 +1,5 @@
 import { addCashflowFromFamilyResource, type LedgerState } from "../ledger";
-import { FAMILY_OFFICE } from "../resources";
+import { FAMILY_FAST_FOOD, FAMILY_OFFICE } from "../resources";
 import type { TimeState } from "../time";
 import type { PlacedObjectRecord, SimRecord, WorldState } from "../world";
 import {
@@ -15,7 +15,6 @@ import {
 } from "./index";
 import {
 	COMMERCIAL_DWELL_STATE,
-	COMMERCIAL_FAMILIES,
 	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
@@ -97,6 +96,10 @@ function finalizeOfficeFloorArrival(
 	sim.selectedFloor = sim.floorAnchor;
 	sim.venueReturnState = 0;
 	sim.stateCode = nextState;
+}
+
+function nextOfficeMorningState(): number {
+	return STATE_ACTIVE;
 }
 
 export function nextOfficeReturnState(sim: SimRecord): number {
@@ -214,7 +217,7 @@ export function processOfficeSim(
 		advanceOfficePresenceCounter(object);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = STATE_DEPARTURE;
+		sim.stateCode = nextOfficeMorningState();
 		return;
 	}
 
@@ -331,7 +334,7 @@ export function processOfficeSim(
 		}
 
 		dispatchCommercialVenueVisit(world, time, sim, {
-			venueFamilies: COMMERCIAL_FAMILIES,
+			venueFamilies: new Set([FAMILY_FAST_FOOD]),
 			returnState: STATE_AT_WORK,
 			unavailableState: STATE_NIGHT_B,
 		});
@@ -400,7 +403,7 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
-		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState());
 		return;
 	}
 
@@ -452,7 +455,7 @@ export function handleOfficeSimArrival(
 	}
 
 	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
-		finalizeOfficeFloorArrival(sim, object, STATE_AT_WORK);
+		finalizeOfficeFloorArrival(sim, object, STATE_ACTIVE);
 		return;
 	}
 
