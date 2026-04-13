@@ -217,7 +217,10 @@ export function carrierServesFloor(
 	return floorToSlot(carrier, floor) >= 0;
 }
 
-export function makeCarrierCar(numSlots: number, homeFloor: number): CarrierCar {
+export function makeCarrierCar(
+	numSlots: number,
+	homeFloor: number,
+): CarrierCar {
 	return {
 		active: true,
 		currentFloor: homeFloor,
