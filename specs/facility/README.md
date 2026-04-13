@@ -14,10 +14,10 @@ For the main occupiable / rentable families, the target level of detail is:
 ## Files
 
 - `HOTEL.md`: families `3`, `4`, `5`
-- `OFFICE.md`: family `7`
+- `OFFICE.md`: family `7`, reimplementation-oriented office behavior spec
 - `CONDO.md`: family `9`
 - `COMMERCIAL.md`: families `6`, `12`, `10`
-- `ENTERTAINMENT.md`: party hall (18) and cinema (29)
+- `ENTERTAINMENT.md`: movie theater (18/0x12) and party hall (29/0x1d)
 - `LOBBY.md`: family `24` (Lobby)
 - `PARKING.md`: families `11` (parking space), `44` (parking ramp)
 - `RECYCLING.md`: recycling center stack, adequacy checks, and star gate

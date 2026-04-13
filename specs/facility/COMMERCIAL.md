@@ -8,6 +8,11 @@ Families `6`, `10`, and `12` are commercial destinations.
 - retail = family/type `10` (`0x0a`)
 - fast food = family/type `12` (`0x0c`)
 
+**Binary verification (triple-checked):**
+1. Construction string table resource (seg `1f40`): entry `type+1` maps type 6→"Restaurant - $200000", type 10→"Retail Shop - $100000", type 12→"Fast Food - $100000".
+2. `recompute_object_runtime_links_by_type` jump table at `1230:077f`: families 6 and 12 share a handler (non-retail commercial setup); family 10 has its own handler (retail-specific setup).
+3. `derive_commercial_venue_state_code` (`11b0:1731`): explicitly tests `==6` for restaurant closure payouts (-6000/4000/6000/10000), `==10` for retail (returns 0), `==0x0c` for fast food (-3000/2000/3000/5000).
+
 ## Priced Family Row
 
 Retail shop (`family 10`) uses the priced payout table keyed by `rent_level`:
@@ -123,7 +128,7 @@ Commercial venue customers select a destination via zone-bucketed uniform random
 2. one venue record is chosen uniformly at random from all available entries in the matching zone bucket for the requested type
 3. if the selected venue is invalid or demolished, the sim receives an immediate retry (delay = 0)
 
-Hotel guests (family 0x21) use a separate path: first pick one of the three commercial types uniformly at random (`rand() % 3`: 0=restaurant, 1=fast food, 2=retail), then select uniformly within that type's zone-0 bucket.
+Hotel guests (family 0x21) use a separate path: first pick one of the three commercial types uniformly at random (`rand() % 3`: 0=retail, 1=restaurant, 2=fast food), then select uniformly within that type's zone-0 bucket.
 
 Bucket tables are rebuilt at start-of-day (checkpoint 0).
 

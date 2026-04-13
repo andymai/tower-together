@@ -50,6 +50,7 @@ Every placed object needs, at minimum:
 - current readiness grade: `eval_level`
 - pricing tier: `rent_level` (player-configurable, 0–3)
 - activity counter: `activation_tick_count`
+- `rebuild_countdown`: deferred-init countdown, set to 12 at placement (see FACILITIES.md "Deferred Object Rebuild")
 
 The implementation can choose any internal struct layout. The important part is preserving these behaviors.
 

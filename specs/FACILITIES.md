@@ -77,7 +77,7 @@ Different families have different noise sensitivity radii:
 
 `map_neighbor_family_to_noise_match` normalizes a neighbor's family
 code into a noise-match code, or returns 0 when the neighbor is not a noise
-source. Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → party hall (`0x12`), `0x1d/0x1e` → cinema (`0x1d`).
+source. Entertainment subtypes are grouped: `0x12/0x13/0x22/0x23` → movie theater (`0x12`), `0x1d/0x1e` → party hall (`0x1d`).
 
 Families that count as noise sources:
 
@@ -169,6 +169,107 @@ Some facilities expose a degraded or warning state for outputs/inspection:
 
 This is derived state. It should not be treated as a separate simulation authority.
 
+## Deferred Object Rebuild
+
+When a facility is placed, it is not fully initialized in the same frame.
+Instead, the binary uses a deferred rebuild queue that spreads initialization
+across subsequent scheduler ticks.
+
+### Placement Finalizer
+
+After `place_object_on_floor` writes the core record fields (+0x06 left,
++0x08 right, +0x0A type code, +0x0B unit status, +0x0C sidecar), a
+family-specific finalizer runs for most families (all except floor, lobby,
+parking, and vertical-anchor types which initialize immediately via
+`recompute_object_runtime_links_by_type`).
+
+The finalizer (`0x12300000`):
+
+1. allocates a sim-slot block via `reinitialize_sim_slot_family_fields` —
+   this writes `0xF0 | (slot_index & 0x0F)` as a placeholder family byte
+   into each sim record (the "pending-rebuild sentinel")
+2. **negates the type code** at +0x0A (e.g., office type `7` becomes `-7`),
+   marking the object as pending
+3. assigns a `floor_local_object_id` via `find_unused_floor_subtype_index`
+4. **writes 12 (0x0C) to the countdown byte at +0x17**
+5. enqueues the object into the pending-rebuild circular queue
+
+### Pending-Rebuild Queue
+
+The queue is a 10-slot circular buffer in the DS segment:
+
+| DS offset | Size | Contents |
+|---|---|---|
+| 0xC1A2 | 1 | pending count (0–10) |
+| 0xC1A3 | 1 | queue cursor (read position, mod 10) |
+| 0xC1A4 | 10 | floor index per slot |
+| 0xC1AE | 10 | subtype index per slot |
+| 0xC1B8 | 20 | enqueue `day_tick` per slot (2 bytes each) |
+
+The enqueue function (`0x11f8004b`) appends to the queue and increments
+the pending count. If the queue is already full (10 entries), it forces an
+immediate `process_next_pending_object_rebuild` to free a slot before
+enqueueing.
+
+### Per-Tick Countdown Driver
+
+Every scheduler tick, the per-tick driver (`0x11f80211`) iterates all
+pending queue entries and:
+
+1. decrements the countdown byte at +0x17 of the placed-object record
+2. sets the dirty flag at +0x13 to 1
+3. when the countdown reaches 0, calls `process_next_pending_object_rebuild`
+
+### Rebuild Execution
+
+`process_next_pending_object_rebuild` (`0x11f800a0`):
+
+1. clears old sim states via `clear_object_sim_states`
+2. **negates the type code back to positive** (restoring the real type)
+3. resets: sidecar index (+0x12) to -1, dirty flag (+0x13) to 1,
+   countdown (+0x17) to 0
+4. runs family-specific reconstruction:
+   - entertainment types 0x12/0x13: `split_entertainment_object_into_stairway_pair`
+   - cathedral type 0x21: `expand_type21_object_layout`
+   - all others: `recompute_object_runtime_links_by_type` (patches sim family
+     bytes from 0xF* sentinels to the real family code, sets initial state)
+5. rebuilds the floor subtype lookup map
+6. advances queue cursor: `(cursor + 1) % 10`
+7. decrements pending count
+
+### Flush-All Path
+
+Several cache-rebuild functions call the flush-all helper (`0x11f80016`)
+which processes every pending entry immediately without waiting for
+countdowns. Known callers:
+
+- `rebuild_demand_history_table`
+- `activate_cathedral_evaluation_entities`
+- `initialize_simulation_runtime_tables`
+- `rebuild_path_seed_bucket_table`
+- `rebuild_entertainment_family_ledger`
+- `rebuild_linked_facility_records`
+
+### Timing
+
+The countdown is a hardcoded constant: **12 ticks**. All objects placed on
+the same tick share the same countdown and therefore initialize
+simultaneously. In the normal game this means a single facility initializes
+12 scheduler ticks (~0.2 seconds of game time) after the player places it.
+In batch placement (emulator build mode), all objects flip from pending to
+initialized on the same tick.
+
+The placed-object record fields involved:
+
+| Offset | Size | Field | Set at placement | After rebuild |
+|---|---|---|---|---|
+| +0x0A | 1 | type code | negated (e.g., -7) | restored to positive |
+| +0x12 | 1 | subtype index | assigned | reset to -1 |
+| +0x13 | 1 | dirty flag | 1 | 1 |
+| +0x14 | 1 | occupied flag | 1 | unchanged |
+| +0x16 | 1 | eval level | 1 (hotel/office/condo/retail) or 4 (others) | unchanged |
+| +0x17 | 1 | rebuild countdown | 12 (0x0C) | 0 |
+
 ## Family Index
 
 - `facility/HOTEL.md`
@@ -181,5 +282,4 @@ This is derived state. It should not be treated as a separate simulation authori
 - `facility/RECYCLING.md`
 - `facility/METRO.md`
 - `facility/EVALUATION.md`
-- `facility/HOTEL.md`
 - `facility/HOUSEKEEPING.md`
