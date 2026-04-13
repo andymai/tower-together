@@ -473,7 +473,7 @@ export class GameScene extends Phaser.Scene {
 	private static readonly FOR_SALE_TYPES = new Set(["condo"]);
 
 	private loadRoomTextures(): void {
-		const roomTypes = ["office", "condo"];
+		const roomTypes = ["office", "condo", "fastFood"];
 		const s = GameScene.ROOM_SVG_SCALE;
 		for (const room of roomTypes) {
 			this.load.svg(`room_${room}`, `/rooms/${room}.svg`, {
