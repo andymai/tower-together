@@ -1,4 +1,4 @@
-import { rebuildCarrierList } from "./carriers";
+import { makeCarrierCar, rebuildCarrierList } from "./carriers";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
 	FAMILY_CONDO,
@@ -888,7 +888,13 @@ export function handleAddElevatorCar(
 			return { accepted: true, patch: [] };
 		}
 	}
-	return { accepted: false, reason: "No car slots available" };
+	// All existing cars are active — add a new one
+	const newCar = makeCarrierCar(
+		carrier.topServedFloor - carrier.bottomServedFloor + 1,
+		carrier.bottomServedFloor,
+	);
+	carrier.cars.push(newCar);
+	return { accepted: true, patch: [] };
 }
 
 export function handleRemoveElevatorCar(
