@@ -53,7 +53,10 @@ export function rebuildSpecialLinks(world: WorldState): void {
 		if (!grouped.has(groupKey)) {
 			grouped.set(groupKey, { column, type, floors: new Set<number>() });
 		}
-		grouped.get(groupKey)?.floors.add(floor);
+		const group = grouped.get(groupKey);
+		group?.floors.add(floor);
+		// Stairs/escalator at floor N connect N↔N+1; include the upper landing.
+		group?.floors.add(floor + 1);
 	}
 
 	for (const group of grouped.values()) rawSegments.push(group);
@@ -374,7 +377,8 @@ function scoreLocalRouteSegment(
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
 	const delta = Math.abs(toFloor - fromFloor);
-	return (segment.flags & 1) !== 0 ? ROUTE_COST_INFINITE : delta * 8;
+	const isStairs = (segment.flags & 1) !== 0;
+	return isStairs ? delta * 8 + STAIRS_ROUTE_EXTRA_COST : delta * 8;
 }
 
 function scoreHousekeepingRouteSegment(

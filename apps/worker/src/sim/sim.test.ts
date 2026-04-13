@@ -1439,7 +1439,7 @@ describe("rebuildCarrierList", () => {
 		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
-		expect(active[0].heightMetric).toBe(2); // floors 10 and 11 inclusive
+		expect(active[0].heightMetric).toBe(3); // floors 10..12 inclusive (each overlay covers its floor + the one above)
 		expect(active[0].flags & 1).toBe(0); // escalator overlay = Escalator branch, stairs cost bit clear
 	});
 
@@ -1480,7 +1480,7 @@ describe("rebuild_specialLinks", () => {
 		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
 		expect(active[0].entryFloor).toBe(10);
-		expect(active[0].heightMetric).toBe(11);
+		expect(active[0].heightMetric).toBe(12); // 10..21 inclusive (each overlay covers its floor + the one above)
 		expect(active[0].flags & 1).toBe(1); // stairs overlay = Stairs branch, stairs cost bit set
 	});
 });
@@ -1498,7 +1498,7 @@ describe("rebuildWalkabilityFlags", () => {
 			expect(world.floorWalkabilityFlags[f] & 2).toBe(2);
 		}
 		expect(world.floorWalkabilityFlags[9] & 2).toBe(0);
-		expect(world.floorWalkabilityFlags[16] & 2).toBe(0);
+		expect(world.floorWalkabilityFlags[16] & 2).toBe(2); // floor 15 overlay covers floor 16 via +1 expansion
 	});
 });
 
