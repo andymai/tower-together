@@ -5,3 +5,7 @@ dist/
 *.local
 .env
 .DS_Store
+/analysis-*/
+__pycache__
+/simtower
+.claude
