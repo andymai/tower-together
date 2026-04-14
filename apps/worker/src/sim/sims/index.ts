@@ -677,7 +677,7 @@ function dispatchSimArrival(
 		case FAMILY_RESTAURANT:
 		case FAMILY_FAST_FOOD:
 		case FAMILY_RETAIL:
-			handleCommercialSimArrival(world, sim, arrivalFloor);
+			handleCommercialSimArrival(world, sim, arrivalFloor, time);
 			return;
 		case FAMILY_HOUSEKEEPING:
 			handleHousekeepingSimArrival(world, time, sim, arrivalFloor);

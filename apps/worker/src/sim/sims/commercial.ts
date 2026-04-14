@@ -16,6 +16,7 @@ import {
 	resolveSimRouteBetweenFloors,
 } from "./index";
 import {
+	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
 	STATE_DEPARTURE,
 	STATE_DEPARTURE_TRANSIT,
@@ -131,9 +132,17 @@ export function processCommercialSim(
 	}
 
 	// --- Departure ---
+	// Binary state-5 handler (1228:4517 retail / 1228:4bd7 ff+restaurant).
+	// CALLF release_commercial_venue_slot (11b0:0fae): returns non-zero while
+	// elapsed < get_commercial_venue_service_duration_ticks, and 0 once the
+	// service duration has elapsed — at which point the handler dispatches
+	// to DEPARTURE_TRANSIT. No daypart gate.
 	if (state === STATE_DEPARTURE) {
-		if (time.daypartIndex < 4) return;
-		if (time.daypartIndex === 4 && sampleRng(world) % 6 !== 0) return;
+		if (sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS) {
+			// Keep rebaseSimElapsedFromClock accumulating next stride.
+			sim.lastDemandTick = time.dayTick;
+			return;
+		}
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -166,6 +175,7 @@ export function handleCommercialSimArrival(
 	world: WorldState,
 	sim: SimRecord,
 	arrivalFloor: number,
+	time: TimeState,
 ): void {
 	if (
 		sim.stateCode === STATE_MORNING_TRANSIT &&
@@ -174,6 +184,11 @@ export function handleCommercialSimArrival(
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		sim.stateCode = STATE_DEPARTURE;
+		// Binary: sim[+0x0A] (dword last_activity_tick) is stamped at dwell
+		// start; release_commercial_venue_slot uses it to gate the service
+		// duration check. Track via elapsedTicks (rebased each stride).
+		sim.elapsedTicks = 0;
+		sim.lastDemandTick = time.dayTick;
 		return;
 	}
 
