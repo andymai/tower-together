@@ -135,6 +135,19 @@ export const YEN_1001: Record<string, number[]> = {
 	retail: [20, 15, 10, 4],
 };
 
+// ─── Commercial closure payouts (derive_commercial_venue_state_code) ────────
+// Per-venue payout at daily closure, keyed by visitor-count band.
+// Bands: <25, 25..34, 35..49, >=50. Values in YEN_UNIT (×1000).
+// Source: 11b0:1731 — restaurant (==6) and fast food (==0xc); retail returns 0.
+
+export const COMMERCIAL_CLOSURE_PAYOUTS: Record<string, number[]> = {
+	restaurant: [-6, 4, 6, 10],
+	fastFood: [-3, 2, 3, 5],
+	retail: [0, 0, 0, 0],
+};
+
+export const COMMERCIAL_CLOSURE_BANDS = [25, 35, 50] as const;
+
 // ─── YEN #1002 — expense table ────────────────────────────────────────────────
 // Operating expenses charged every 3 days.
 

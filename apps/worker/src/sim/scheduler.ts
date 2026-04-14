@@ -19,7 +19,12 @@ import {
 	updateRecyclingCenterState,
 } from "./recycling";
 import {
-	closeCommercialVenues,
+	FAMILY_FAST_FOOD,
+	FAMILY_RESTAURANT,
+	FAMILY_RETAIL,
+} from "./resources";
+import {
+	closeCommercialVenuesByFamily,
 	normalizeUnitStatusEndOfDay,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
@@ -96,15 +101,19 @@ function checkpointNoop(_s: SimState): void {
 }
 
 function checkpointEntertainmentPhase2(_s: SimState): void {
-	closeCommercialVenues(_s.world);
+	// Spec 1900: entertainment paired-link reverse-half advance (TODO).
+	// Commercial closure was previously (incorrectly) fired here; it now runs
+	// at 0x7d0 (non-type-6) and 0x898 (type-6) per the binary trace.
 }
 
 function checkpointLateFacility(_s: SimState): void {
+	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_RETAIL);
+	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_FAST_FOOD);
 	updateRecyclingCenterState(_s.world, _s.ledger, 2);
 }
 
 function checkpointType6Advance(_s: SimState): void {
-	closeCommercialVenues(_s.world);
+	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_RESTAURANT);
 }
 
 function checkpointDayCounter(s: SimState): void {

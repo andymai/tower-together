@@ -23,7 +23,7 @@ Operational scoring, nearby-noise checks, distance feedback, occupied flag refre
 Parking demand log rebuild and assignment of parking-service requests to eligible hotel and office sims.
 
 ### `facility-refunds.ts`
-Commercial venue day-cycle reset/close handling, retail activation/deactivation, and unhappy condo/retail facility refunds.
+Commercial venue day-cycle reset/close handling (with per-family closure income accrual), retail activation/deactivation, and unhappy condo/retail facility refunds.
 
 ### `hotel-facilities.ts`
 Hotel/condo end-of-day unit status normalization, cockroach infestation spread, vacancy expiry, and hotel operational/occupancy refresh.
