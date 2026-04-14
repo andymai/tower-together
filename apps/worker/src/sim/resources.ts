@@ -9,7 +9,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	lobby: 1,
 	stairs: 8,
 	elevator: 4,
-	elevatorExpress: 4,
+	elevatorExpress: 6,
 	elevatorService: 4,
 	escalator: 8,
 	// Hotels (families 3/4/5)

@@ -6,6 +6,7 @@ import {
 } from "../resources";
 import { DAY_TICK_NEW_DAY, type TimeState } from "../time";
 import {
+	GRID_HEIGHT,
 	type PlacedObjectRecord,
 	type SimRecord,
 	sampleRng,
@@ -25,46 +26,68 @@ import {
 	ACTIVATION_TICK_CAP,
 	COMMERCIAL_DWELL_STATE,
 	COMMERCIAL_FAMILIES,
+	HOTEL_FAMILIES,
 	LOBBY_FLOOR,
 	STATE_ACTIVE,
 	STATE_CHECKOUT_QUEUE,
 	STATE_COMMUTE,
-	STATE_COMMUTE_TRANSIT,
 	STATE_DEPARTURE,
 	STATE_HOTEL_PARKED,
 	STATE_MORNING_GATE,
-	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
 	STATE_TRANSITION,
 	STATE_VENUE_TRIP,
 } from "./states";
 
-// Sibling states that mean "still en route, will arrive later this cycle".
-// HOTEL_PARKED is excluded because baseOffset==0 sims never activate at all
-// (the NIGHT_B reset keeps them parked), so they are not pending arrivals.
-const HOTEL_INFLIGHT_STATES = new Set<number>([
-	STATE_MORNING_GATE,
-	STATE_MORNING_TRANSIT,
-	STATE_COMMUTE,
-	STATE_COMMUTE_TRANSIT,
-]);
-
 /**
- * On hotel arrival: if any active sibling is still en route, this sim becomes
- * the room's "active" sim (state 0x01) and drives venue trips. If this is the
- * last (or only) active sibling, it goes straight to STATE_CHECKOUT_QUEUE
- * (sync wait, state 0x04). Single rooms have only one active sim, so they
- * always take the CHECKOUT_QUEUE branch.
+ * Binary's `subtype_index` (sim record byte 1) = floor-local ROOM rank in
+ * column-ascending order, confirmed via emulator watchpoint on the IDIV at
+ * 1228:3493 (every occupant of a given room shares the same subtype; the
+ * per-occupant differentiator is the `occupant` word at sim+2 = baseOffset).
+ * The IDIV parity therefore splits *rooms*, not individual sims.
  */
-function hotelArrivalState(world: WorldState, sim: SimRecord): number {
-	const siblings = findSiblingSims(world, sim);
-	for (const sibling of siblings) {
-		if (sibling === sim) continue;
-		if (HOTEL_INFLIGHT_STATES.has(sibling.stateCode)) {
-			return STATE_ACTIVE;
-		}
+function floorLocalRoomRank(world: WorldState, sim: SimRecord): number {
+	const floorY = GRID_HEIGHT - 1 - sim.floorAnchor;
+	const columns: number[] = [];
+	for (const [key, obj] of Object.entries(world.placedObjects)) {
+		if (!HOTEL_FAMILIES.has(obj.objectTypeCode)) continue;
+		const [x, y] = key.split(",").map(Number);
+		if (y !== floorY) continue;
+		columns.push(x);
 	}
-	return STATE_CHECKOUT_QUEUE;
+	columns.sort((a, b) => a - b);
+	return Math.max(0, columns.indexOf(sim.homeColumn));
+}
+
+function hotelArrivalState(world: WorldState, sim: SimRecord): number {
+	return (floorLocalRoomRank(world, sim) & 1) === 0
+		? STATE_ACTIVE
+		: STATE_CHECKOUT_QUEUE;
+}
+
+/** activate_family_345_unit @ 1180:0e72: writes occupied-band base 0x00 / 0x08
+ * only when the room was in the vacant band (>= 0x18). */
+function activateFamily345Unit(
+	object: PlacedObjectRecord,
+	time: TimeState,
+): void {
+	if (object.unitStatus >= 0x18) {
+		object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
+		object.activationTickCount = 0;
+	}
+}
+
+/** increment_stay_phase_345 @ 1228:6a56: rotates the 0x10 sentinel back to
+ * 1 / 9, otherwise increments by 1 (mod 256). */
+function incrementStayPhase345(
+	object: PlacedObjectRecord,
+	time: TimeState,
+): void {
+	if (object.unitStatus === 0x10) {
+		object.unitStatus = time.daypartIndex < 4 ? 1 : 9;
+	} else {
+		object.unitStatus = (object.unitStatus + 1) & 0xff;
+	}
 }
 
 function activateHotelStay(
@@ -90,14 +113,18 @@ function activateHotelStay(
 	}
 
 	sim.originFloor = LOBBY_FLOOR;
-	object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
+
+	// Binary 1228:33ba (en-route) + 1228:3434 (same-floor): both branches call
+	// activate_family_345_unit when the room is still vacant.
+	activateFamily345Unit(object, time);
 
 	if (result === 3) {
-		// Same-floor: immediate arrival
+		// Same-floor arrival: increment stay phase, then parity-split into
+		// STATE_ACTIVE (even) or STATE_CHECKOUT_QUEUE (odd).
+		incrementStayPhase345(object, time);
 		sim.stateCode = hotelArrivalState(world, sim);
 		sim.selectedFloor = sim.floorAnchor;
 	} else {
-		// In-transit: commute to room, arrival handled by dispatchSimArrival
 		sim.stateCode = STATE_COMMUTE;
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
@@ -164,8 +191,9 @@ export function processHotelSim(
 			// Room assignment is handled externally; sims stay parked until then.
 			return;
 		case STATE_MORNING_GATE: {
-			// Binary refresh handler at 1228:2c63:
-			// 1. Check occupiableFlag — if 0, no-op
+			// Gate on `occupiableFlag` (set to 1 at placement, cleared by checkout /
+			// scoring deactivation). Hotel fixtures without a housekeeping helper
+			// still dispatch at daypart 4, so the gate is not `housekeepingClaimedFlag`.
 			if (object.occupiableFlag === 0) return;
 			// 2. daypart === 4: 1/12 RNG gate → dispatch (all families consume RNG)
 			if (time.daypartIndex === 4) {
@@ -178,9 +206,16 @@ export function processHotelSim(
 				activateHotelStay(world, sim, time);
 				return;
 			}
-			// 3. daypart > 4 AND dayTick < 2300: force CHECKOUT_QUEUE
+			// Binary refresh jumptable state 0x20 (1228:2c63): `daypart > 4 AND
+			// day_tick < 2300` dispatches the state-0x20 handler unconditionally
+			// (no RNG). The prior code converted to CHECKOUT_QUEUE here, which
+			// then rolled the CHECKOUT_QUEUE 1/12 gate — an extra LCG sample.
 			if (time.daypartIndex > 4 && time.dayTick < DAY_TICK_NEW_DAY) {
-				sim.stateCode = STATE_CHECKOUT_QUEUE;
+				if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
+					sim.stateCode = STATE_NIGHT_B;
+					return;
+				}
+				activateHotelStay(world, sim, time);
 				return;
 			}
 			// daypart 0–3 or daypart > 4 with dayTick >= 2300: no-op
@@ -298,7 +333,13 @@ export function handleHotelSimArrival(
 	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = hotelArrivalState(world, sim);
+		if (object) {
+			// Binary state-0x60 "in-transit arrived" (1228:3434): activate if
+			// vacant, bump stay phase, then parity-split into 0x01 / 0x04.
+			activateFamily345Unit(object, time);
+			incrementStayPhase345(object, time);
+			sim.stateCode = hotelArrivalState(world, sim);
+		}
 		return;
 	}
 
