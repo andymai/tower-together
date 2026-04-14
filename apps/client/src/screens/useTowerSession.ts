@@ -212,7 +212,7 @@ export function useTowerSession({
 
 			if (
 				tileType === "elevator" &&
-				sceneRef.current?.hasElevatorOverlayAtColumn(x)
+				sceneRef.current?.hasElevatorOverlayAt(x, y)
 			) {
 				socket.send({ type: "add_elevator_car", x });
 				return;

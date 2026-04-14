@@ -130,14 +130,9 @@ export class GameScene extends Phaser.Scene {
 		this.lastPlacedAnchor = { x, y, tileType };
 	}
 
-	/** Check whether any cell in the column at x has an elevator overlay. */
-	hasElevatorOverlayAtColumn(x: number): boolean {
-		for (const [key, type] of this.overlayGrid) {
-			if (type !== "elevator") continue;
-			const [kx] = key.split(",").map(Number);
-			if (kx === x) return true;
-		}
-		return false;
+	/** Check whether the cell at (x, y) has an elevator overlay. */
+	hasElevatorOverlayAt(x: number, y: number): boolean {
+		return this.overlayGrid.get(`${x},${y}`) === "elevator";
 	}
 
 	/** Compute shift-fill positions between lastPlacedAnchor and (clickX, clickY).
