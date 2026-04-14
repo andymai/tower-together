@@ -227,10 +227,11 @@ function beginCommercialVenueDwell(
 function beginCommercialVenueTrip(
 	sim: SimRecord,
 	destinationFloor: number,
+	tripState: number,
 ): void {
 	sim.destinationFloor = destinationFloor;
 	sim.selectedFloor = sim.floorAnchor;
-	sim.stateCode = STATE_VENUE_TRIP;
+	sim.stateCode = tripState;
 }
 
 export function finishCommercialVenueDwell(
@@ -266,6 +267,7 @@ export function dispatchCommercialVenueVisit(
 	options: {
 		venueFamilies: Set<number>;
 		returnState: number;
+		tripState?: number;
 		unavailableState?: number;
 		skipPenaltyOnUnavailable?: boolean;
 		onVenueReserved?: () => void;
@@ -313,7 +315,11 @@ export function dispatchCommercialVenueVisit(
 	if (venue.floor === sim.floorAnchor) {
 		beginCommercialVenueDwell(sim, venue.floor, options.returnState, time);
 	} else {
-		beginCommercialVenueTrip(sim, venue.floor);
+		beginCommercialVenueTrip(
+			sim,
+			venue.floor,
+			options.tripState ?? STATE_VENUE_TRIP,
+		);
 	}
 	return true;
 }
@@ -323,11 +329,9 @@ export function handleCommercialVenueArrival(
 	arrivalFloor: number,
 	returnState: number,
 	time: TimeState,
+	tripState: number = STATE_VENUE_TRIP,
 ): boolean {
-	if (
-		sim.stateCode !== STATE_VENUE_TRIP ||
-		sim.destinationFloor !== arrivalFloor
-	) {
+	if (sim.stateCode !== tripState || sim.destinationFloor !== arrivalFloor) {
 		return false;
 	}
 	beginCommercialVenueDwell(sim, arrivalFloor, returnState, time);

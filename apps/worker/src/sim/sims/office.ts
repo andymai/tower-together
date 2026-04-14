@@ -341,6 +341,7 @@ export function processOfficeSim(
 		const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
 			venueFamilies: new Set([FAMILY_FAST_FOOD]),
 			returnState: STATE_AT_WORK,
+			tripState: STATE_ACTIVE_TRANSIT,
 			skipPenaltyOnUnavailable: true,
 		});
 		if (!dispatched) {
@@ -502,7 +503,15 @@ export function handleOfficeSimArrival(
 		return;
 	}
 
-	if (handleCommercialVenueArrival(sim, arrivalFloor, STATE_AT_WORK, time)) {
+	if (
+		handleCommercialVenueArrival(
+			sim,
+			arrivalFloor,
+			STATE_AT_WORK,
+			time,
+			STATE_ACTIVE_TRANSIT,
+		)
+	) {
 		return;
 	}
 
