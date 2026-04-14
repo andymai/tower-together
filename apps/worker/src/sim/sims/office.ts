@@ -18,6 +18,7 @@ import {
 	tryAssignParkingService,
 } from "./index";
 import {
+	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
 	STATE_ACTIVE,
@@ -306,7 +307,20 @@ export function processOfficeSim(
 			releaseServiceRequest(world, sim);
 			return;
 		}
-		if (time.daypartIndex < 2) return;
+		if (time.daypartIndex < 2) {
+			// Keep the elapsed clock running across strides while the sim waits
+			// for the dispatch daypart — rebaseSimElapsedFromClock zeros
+			// lastDemandTick on entry, so we re-stamp here to accumulate.
+			sim.lastDemandTick = time.dayTick;
+			return;
+		}
+		// Binary release_commercial_venue_slot (11b0:0fae) refuses to release
+		// until the minimum-stay timer has elapsed; keep the sim at the venue
+		// and re-stamp so rebaseSimElapsedFromClock keeps counting.
+		if (sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS) {
+			sim.lastDemandTick = time.dayTick;
+			return;
+		}
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -495,6 +509,7 @@ export function handleOfficeSimArrival(
 		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
+		sim.elapsedTicks = 0;
 		sim.lastDemandTick = time.dayTick;
 		return;
 	}
