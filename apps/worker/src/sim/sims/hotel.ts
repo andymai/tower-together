@@ -17,7 +17,6 @@ import {
 	findObjectForSim,
 	findSiblingSims,
 	finishCommercialVenueDwell,
-	finishCommercialVenueTrip,
 	handleCommercialVenueArrival,
 	resolveSimRouteBetweenFloors,
 	tryAssignParkingService,
@@ -29,15 +28,15 @@ import {
 	HOTEL_FAMILIES,
 	LOBBY_FLOOR,
 	STATE_ACTIVE,
+	STATE_ACTIVE_TRANSIT,
 	STATE_CHECKOUT_QUEUE,
-	STATE_COMMUTE,
 	STATE_DEPARTURE,
 	STATE_DEPARTURE_TRANSIT,
 	STATE_HOTEL_PARKED,
 	STATE_MORNING_GATE,
+	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
 	STATE_TRANSITION,
-	STATE_VENUE_TRIP,
 } from "./states";
 
 /**
@@ -126,7 +125,7 @@ function activateHotelStay(
 		sim.stateCode = hotelArrivalState(world, sim);
 		sim.selectedFloor = sim.floorAnchor;
 	} else {
-		sim.stateCode = STATE_COMMUTE;
+		sim.stateCode = STATE_MORNING_TRANSIT;
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
 	}
@@ -250,6 +249,7 @@ export function processHotelSim(
 			dispatchCommercialVenueVisit(world, time, sim, {
 				venueFamilies: COMMERCIAL_FAMILIES,
 				returnState: STATE_ACTIVE,
+				tripState: STATE_ACTIVE_TRANSIT,
 				// Binary: venue failure → CHECKOUT_QUEUE (0x04) at 1228:33b2.
 				unavailableState: STATE_CHECKOUT_QUEUE,
 				onVenueReserved: () => {
@@ -261,11 +261,11 @@ export function processHotelSim(
 			});
 			return;
 		}
-		case STATE_COMMUTE:
+		case STATE_MORNING_TRANSIT:
 			// In transit from lobby to room; arrival handled by dispatchSimArrival
 			return;
-		case STATE_VENUE_TRIP:
-			finishCommercialVenueTrip(sim, STATE_ACTIVE);
+		case STATE_ACTIVE_TRANSIT:
+			// In transit to commercial venue; arrival handled by dispatchSimArrival.
 			return;
 		case STATE_CHECKOUT_QUEUE:
 			// Gate: daypart < 5 → no dispatch
@@ -363,7 +363,10 @@ export function handleHotelSimArrival(
 ): void {
 	const object = findObjectForSim(world, sim);
 
-	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
+	if (
+		sim.stateCode === STATE_MORNING_TRANSIT &&
+		arrivalFloor === sim.floorAnchor
+	) {
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		if (object) {
@@ -376,7 +379,15 @@ export function handleHotelSimArrival(
 		return;
 	}
 
-	if (handleCommercialVenueArrival(sim, arrivalFloor, STATE_ACTIVE, time)) {
+	if (
+		handleCommercialVenueArrival(
+			sim,
+			arrivalFloor,
+			STATE_ACTIVE,
+			time,
+			STATE_ACTIVE_TRANSIT,
+		)
+	) {
 		return;
 	}
 
