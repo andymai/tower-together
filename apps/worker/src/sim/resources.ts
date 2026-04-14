@@ -14,8 +14,8 @@ export const TILE_WIDTHS: Record<string, number> = {
 	escalator: 8,
 	// Hotels (families 3/4/5)
 	hotelSingle: 4,
-	hotelTwin: 8,
-	hotelSuite: 12,
+	hotelTwin: 6,
+	hotelSuite: 10,
 	// Commercial (families 6/0x0a/0x0c)
 	restaurant: 24,
 	fastFood: 16,
