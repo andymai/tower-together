@@ -422,7 +422,15 @@ function getElevatorDemand(sim: SimRecord): {
 		};
 	}
 
-	if (sim.stateCode === STATE_DEPARTURE) {
+	// Hotel sims require explicit DEPARTURE dispatch (1228:2fa7) to transition
+	// into DEPARTURE_TRANSIT — auto-seeding idle state 0x05 would short-circuit
+	// the binary's daypart-gated dispatch.
+	if (
+		sim.stateCode === STATE_DEPARTURE &&
+		sim.familyCode !== FAMILY_HOTEL_SINGLE &&
+		sim.familyCode !== FAMILY_HOTEL_TWIN &&
+		sim.familyCode !== FAMILY_HOTEL_SUITE
+	) {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: LOBBY_FLOOR,

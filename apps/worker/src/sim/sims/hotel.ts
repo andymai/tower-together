@@ -32,6 +32,7 @@ import {
 	STATE_CHECKOUT_QUEUE,
 	STATE_COMMUTE,
 	STATE_DEPARTURE,
+	STATE_DEPARTURE_TRANSIT,
 	STATE_HOTEL_PARKED,
 	STATE_MORNING_GATE,
 	STATE_NIGHT_B,
@@ -170,7 +171,13 @@ export function checkoutHotelStay(
 	} else {
 		world.gateFlags.newspaperTrigger = 0;
 	}
-	for (const sibling of siblings) sibling.stateCode = STATE_HOTEL_PARKED;
+	// Per binary NIGHT_B semantics: base 0 sim stays parked, others return to
+	// MORNING_GATE to re-enter the check-in cycle (room re-activates with next
+	// arrival).
+	for (const sibling of siblings) {
+		sibling.stateCode =
+			sibling.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+	}
 	object.unitStatus = time.daypartIndex < 4 ? 0x28 : 0x30;
 	object.occupiableFlag = 0;
 	object.activationTickCount = 0;
@@ -289,20 +296,46 @@ export function processHotelSim(
 			sim.stateCode = STATE_DEPARTURE;
 			return;
 		case STATE_DEPARTURE: {
-			// Gate: daypart 0 → 1/12 chance
+			// Binary state 0x05 refresh handler at 1228:2c43:
+			// daypart 0: 1/12 RNG gate, daypart >= 6: no-op, else: dispatch.
 			if (time.daypartIndex === 0) {
 				if (sampleRng(world) % 12 !== 0) return;
 			}
-			// Gate: daypart 6 → no dispatch
 			if (time.daypartIndex >= 6) return;
-			// Dispatch: decrement_unit_status. If unit_status & 7 == 0: checkout + route to lobby.
-			// Always decrement first; the post-decrement low-3-bits == 0 test is what
-			// triggers checkout. Skipping the decrement when unit_status & 7 == 0 (e.g.
-			// occupied-band base 0x08) would short-circuit checkout on the very first
-			// dispatch, paying out before the trip countdown has actually elapsed.
+			// Dispatch: trip_prep + route_fn (1228:2fa7). Route from home floor
+			// to lobby; transition to DEPARTURE_TRANSIT so the carrier system
+			// carries the sim. Decrement + payout happen on lobby arrival.
+			const routeResult = resolveSimRouteBetweenFloors(
+				world,
+				sim,
+				sim.floorAnchor,
+				LOBBY_FLOOR,
+				1,
+				time,
+			);
+			if (routeResult === -1 || routeResult === 0) return;
+			sim.originFloor = sim.floorAnchor;
+			sim.selectedFloor = sim.floorAnchor;
+			sim.destinationFloor = LOBBY_FLOOR;
+			// trip_prep_for_checkout: decrement unit_status; when it hits the
+			// final countdown boundary, take the payout immediately (binary
+			// books cash at dispatch, not lobby arrival).
 			object.unitStatus -= 1;
-			if ((object.unitStatus & 0x07) === 0) {
-				checkoutHotelStay(world, ledger, time, sim, object);
+			const ready = (object.unitStatus & 0x07) === 0;
+			if (routeResult === 3) {
+				sim.destinationFloor = -1;
+				sim.selectedFloor = LOBBY_FLOOR;
+				if (ready) {
+					checkoutHotelStay(world, ledger, time, sim, object);
+				} else {
+					sim.stateCode =
+						sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+				}
+			} else {
+				if (ready) {
+					checkoutHotelStay(world, ledger, time, sim, object);
+				}
+				sim.stateCode = STATE_DEPARTURE_TRANSIT;
 			}
 			return;
 		}
@@ -348,11 +381,26 @@ export function handleHotelSimArrival(
 	}
 
 	if (
-		(sim.stateCode === STATE_CHECKOUT_QUEUE ||
-			sim.stateCode === STATE_DEPARTURE) &&
+		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
+		// Decrement/payout happened at DEPARTURE dispatch; arrival just parks.
 		sim.destinationFloor = -1;
-		if (object) checkoutHotelStay(world, ledger, time, sim, object);
+		sim.stateCode =
+			sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+		return;
+	}
+
+	if (sim.stateCode === STATE_CHECKOUT_QUEUE && arrivalFloor === LOBBY_FLOOR) {
+		sim.destinationFloor = -1;
+		if (object) {
+			object.unitStatus -= 1;
+			if ((object.unitStatus & 0x07) === 0) {
+				checkoutHotelStay(world, ledger, time, sim, object);
+			} else {
+				sim.stateCode =
+					sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+			}
+		}
 	}
 }
