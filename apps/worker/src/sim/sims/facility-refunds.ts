@@ -9,12 +9,14 @@ import {
 	FAMILY_CODE_TO_TILE,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
+	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
 import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
 	type PlacedObjectRecord,
+	VENUE_AVAILABLE,
 	VENUE_CLOSED,
 	VENUE_DORMANT,
 	VENUE_PARTIAL,
@@ -44,6 +46,34 @@ export function rebuildCommercialVenueRuntime(world: WorldState): void {
 		if (!record || record.kind !== "commercial_venue") continue;
 		record.remainingCapacity = 10;
 		record.eligibilityThreshold = -11;
+	}
+}
+
+/**
+ * Mirrors binary `rebuild_type6_facility_records` (11b0:0250) — type 6 is
+ * the restaurant family. Invoked at checkpoint 0x640 (dayTick 1600 / midday):
+ * restaurants use a per-cycle seeding that fires at midday instead of daypart
+ * 0. For each restaurant venue, reopens it (availabilityState → AVAILABLE if
+ * not DORMANT), refills remainingCapacity (floor 10), resets eligibility
+ * threshold to -(cap+1), and rolls visit counters.
+ */
+export function rebuildRestaurantFacilityRecords(world: WorldState): void {
+	for (const obj of Object.values(world.placedObjects)) {
+		if (obj.objectTypeCode !== FAMILY_RESTAURANT) continue;
+		if (obj.linkedRecordIndex < 0) continue;
+		const record = world.sidecars[obj.linkedRecordIndex] as
+			| CommercialVenueRecord
+			| undefined;
+		if (!record || record.kind !== "commercial_venue") continue;
+		if (record.availabilityState !== VENUE_DORMANT) {
+			record.availabilityState = VENUE_AVAILABLE;
+		}
+		record.remainingCapacity = 10;
+		record.eligibilityThreshold = -11;
+		record.yesterdayVisitCount = record.todayVisitCount;
+		record.todayVisitCount = 0;
+		record.currentPopulation = 0;
+		record.visitCount = 0;
 	}
 }
 

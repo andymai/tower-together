@@ -20,6 +20,7 @@ export {
 	closeCommercialVenues,
 	closeCommercialVenuesByFamily,
 	rebuildCommercialVenueRuntime,
+	rebuildRestaurantFacilityRecords,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 } from "./facility-refunds";

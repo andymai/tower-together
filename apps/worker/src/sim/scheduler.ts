@@ -27,6 +27,7 @@ import {
 	closeCommercialVenuesByFamily,
 	normalizeUnitStatusEndOfDay,
 	rebuildCommercialVenueRuntime,
+	rebuildRestaurantFacilityRecords,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 	resetSimRuntimeState,
@@ -84,6 +85,10 @@ function checkpointEntertainmentPhase1(_s: SimState): void {
 
 function checkpointMidday(_s: SimState): void {
 	// Spec execution order at checkpoint 0x640:
+	// 0. rebuild_type6_facility_records (binary 1208:xxx): restaurant per-cycle
+	//    seeding — reopens restaurants, refills remainingCapacity to 10, resets
+	//    eligibility threshold, rolls visit counters.
+	rebuildRestaurantFacilityRecords(_s.world);
 	// 1. Spread existing cockroach infestations
 	spreadCockroachInfestation(_s.world, _s.time);
 	// 2. Recompute hotel status + handle vacancy expiry + refresh occupancy
