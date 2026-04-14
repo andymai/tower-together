@@ -1,9 +1,5 @@
 import type { LedgerState } from "../ledger";
-import {
-	FAMILY_FAST_FOOD,
-	FAMILY_RESTAURANT,
-	FAMILY_RETAIL,
-} from "../resources";
+import { FAMILY_RESTAURANT, FAMILY_RETAIL } from "../resources";
 import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
@@ -83,47 +79,31 @@ export function processCommercialSim(
 				if (sampleRng(world) % 6 !== 0) return;
 			}
 
-			// Binary try_consume_commercial_venue_capacity (11b0:1150), verified
-			// for fast-food at dt=246 sim 86. Retail uses a separate binary gate
-			// handler (gate_object_family_10_state_handler); leave it unchanged
-			// until that path is diagnosed.
-			if (sim.familyCode === FAMILY_FAST_FOOD) {
-				if (object.linkedRecordIndex < 0) return;
-				const record = world.sidecars[object.linkedRecordIndex] as
-					| CommercialVenueRecord
-					| undefined;
-				if (!record || record.kind !== "commercial_venue") return;
-				if (record.remainingCapacity <= 0) return;
-				if (sim.baseOffset > 1 - record.eligibilityThreshold) return;
+			// Binary try_consume_commercial_venue_capacity (11b0:1150). Fast-food
+			// state-0x20 handler (1228:495c) and retail state-0x20 handler
+			// (1228:41cb) both CALLF this with (sim_ref, venue_slot_index) and
+			// bail on AX==0 (no state change, no capacity decrement).
+			if (object.linkedRecordIndex < 0) return;
+			const record = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (!record || record.kind !== "commercial_venue") return;
+			if (record.remainingCapacity <= 0) return;
+			if (sim.baseOffset > 1 - record.eligibilityThreshold) return;
 
-				record.remainingCapacity -= 1;
-				if (record.currentPopulation < 39) {
-					record.currentPopulation += 1;
-				}
-				record.lastAcquireTick = time.dayTick;
-			} else if (
-				sim.familyCode === FAMILY_RETAIL &&
-				object.linkedRecordIndex >= 0
-			) {
-				// Retail activation: binary `acquire_commercial_venue_slot`
-				// bumps active_count; the 0→1 transition flips availability
-				// DORMANT→PARTIAL and is picked up as a rent/population activation.
-				const record = world.sidecars[object.linkedRecordIndex] as
-					| CommercialVenueRecord
-					| undefined;
-				if (record?.kind === "commercial_venue") {
-					if (
-						record.currentPopulation === 0 &&
-						record.availabilityState === VENUE_DORMANT
-					) {
-						activateRetailShop(object, record, ledger);
-					}
-					if (record.currentPopulation < 39) {
-						record.currentPopulation += 1;
-					}
-					record.lastAcquireTick = time.dayTick;
+			record.remainingCapacity -= 1;
+			if (sim.familyCode === FAMILY_RETAIL) {
+				if (
+					record.currentPopulation === 0 &&
+					record.availabilityState === VENUE_DORMANT
+				) {
+					activateRetailShop(object, record, ledger);
 				}
 			}
+			if (record.currentPopulation < 39) {
+				record.currentPopulation += 1;
+			}
+			record.lastAcquireTick = time.dayTick;
 		}
 
 		// Route to home floor
