@@ -272,6 +272,7 @@ export function GameScreen({
 				onSetRentLevel={setRentLevel}
 				onAddElevatorCar={addElevatorCar}
 				onRemoveElevatorCar={removeElevatorCar}
+				onInspectCell={inspectCell}
 				onPatchInspectedCell={handlePatchInspectedCell}
 			/>
 

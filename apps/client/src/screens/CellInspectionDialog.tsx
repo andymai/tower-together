@@ -61,6 +61,7 @@ interface Props {
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
 	onAddElevatorCar: (x: number) => void;
 	onRemoveElevatorCar: (x: number) => void;
+	onInspectCell: (x: number, y: number) => void;
 	onPatchInspectedCell: (updater: (cell: CellInfoData) => CellInfoData) => void;
 }
 
@@ -71,6 +72,7 @@ export function CellInspectionDialog({
 	onSetRentLevel,
 	onAddElevatorCar,
 	onRemoveElevatorCar,
+	onInspectCell,
 	onPatchInspectedCell,
 }: Props) {
 	if (
@@ -185,15 +187,7 @@ export function CellInspectionDialog({
 									disabled={inspectedCell.carrierInfo.carCount >= 8}
 									onClick={() => {
 										onAddElevatorCar(inspectedCell.x);
-										onPatchInspectedCell((cell) => ({
-											...cell,
-											carrierInfo: cell.carrierInfo
-												? {
-														...cell.carrierInfo,
-														carCount: cell.carrierInfo.carCount + 1,
-													}
-												: undefined,
-										}));
+										onInspectCell(inspectedCell.x, inspectedCell.y);
 									}}
 								>
 									+ Add Car
@@ -209,18 +203,7 @@ export function CellInspectionDialog({
 									disabled={inspectedCell.carrierInfo.carCount <= 1}
 									onClick={() => {
 										onRemoveElevatorCar(inspectedCell.x);
-										onPatchInspectedCell((cell) => ({
-											...cell,
-											carrierInfo: cell.carrierInfo
-												? {
-														...cell.carrierInfo,
-														carCount: Math.max(
-															1,
-															cell.carrierInfo.carCount - 1,
-														),
-													}
-												: undefined,
-										}));
+										onInspectCell(inspectedCell.x, inspectedCell.y);
 									}}
 								>
 									- Remove Car
