@@ -430,6 +430,10 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	for (const sim of snapshot.world.sims) {
 		sim.routeRetryDelay ??= 0;
 		sim.elapsedTicks ??= 0;
+		sim.targetRoomFloor ??= -1;
+		sim.spawnFloor ??= sim.floorAnchor;
+		sim.postClaimCountdown ??= 0;
+		sim.encodedTargetFloor ??= 0;
 		// Migrate old stressCounter/visitCounter fields away
 		const raw = sim as unknown as Record<string, unknown>;
 		delete raw.stressCounter;
@@ -437,7 +441,11 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	}
 	for (const obj of Object.values(snapshot.world.placedObjects)) {
 		const raw = obj as unknown as Record<string, unknown>;
-		raw.pairingPendingFlag ??= 0;
+		if ("pairingPendingFlag" in raw) {
+			raw.housekeepingClaimedFlag ??= raw.pairingPendingFlag;
+			delete raw.pairingPendingFlag;
+		}
+		raw.housekeepingClaimedFlag ??= 0;
 		raw.evalScore ??= -1;
 	}
 	snapshot.world.starCount ??= 1;

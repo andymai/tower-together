@@ -31,6 +31,9 @@ Hotel/condo end-of-day unit status normalization, cockroach infestation spread, 
 ### `hotel.ts`
 Hotel-family sim state machine: check-in routing, active-stay venue visits, checkout queues, sale accounting, room turnover, and hotel-specific arrival handling.
 
+### `housekeeping.ts`
+Housekeeping helper (family 0x0f) state machine: vacant-room search, route-to-candidate/target legs, and the post-claim countdown.
+
 ### `office.ts`
 Office-family sim state machine: morning activation, worker commute/service-demand handling, presence counters, venue trips, evening departure, office service evaluation entry points, and office-specific arrival handling.
 

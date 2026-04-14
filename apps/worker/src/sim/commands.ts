@@ -121,7 +121,7 @@ function makePlacedObject(
 		occupiableFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
-		pairingPendingFlag: 0,
+		housekeepingClaimedFlag: 0,
 		vipFlag,
 	};
 }

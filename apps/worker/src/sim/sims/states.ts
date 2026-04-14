@@ -4,6 +4,7 @@ import {
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
+	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RESTAURANT,
@@ -79,6 +80,8 @@ export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_RETAIL]: 48,
 	[FAMILY_FAST_FOOD]: 48,
 	[FAMILY_RECYCLING_CENTER_UPPER]: 6,
+	// Housekeeping helpers (family 0x0f).
+	[FAMILY_HOUSEKEEPING]: 3,
 	// Cathedral guest sims: 5 floor types x 8 slots = 40 guests.
 	36: 8, // 0x24
 	37: 8, // 0x25
@@ -124,6 +127,7 @@ export const BINARY_ALLOC_ORDER: Record<number, number> = {
 	[FAMILY_HOTEL_TWIN]: 6, // 0xfb
 	[FAMILY_HOTEL_SUITE]: 7, // 0xfc
 	[FAMILY_HOTEL_SINGLE]: 8, // 0xfd
+	[FAMILY_HOUSEKEEPING]: 14,
 	// Cathedral families (36–40) come after all main families.
 	36: 9,
 	37: 10,
@@ -149,6 +153,17 @@ export const ELEVATOR_DEMAND_STATES = new Set([
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_DWELL_RETURN_TRANSIT,
 ]);
+
+// Housekeeping helper (family 0x0f) state codes.
+export const HK_STATE_SEARCH = 0;
+export const HK_STATE_ROUTE_TO_CANDIDATE = 1;
+export const HK_STATE_COUNTDOWN = 2;
+export const HK_STATE_ROUTE_TO_TARGET = 3;
+export const HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT = 4;
+export const HK_SEARCHING_SENTINEL = -1;
+export const HK_POST_CLAIM_COUNTDOWN = 3;
+export const HK_CLAIM_DAY_TICK_CUTOFF = 1500;
+export const HK_FLOOR_CLASS_MOD = 6;
 
 // Sentinel used by carrier car slot cleanup and unset cathedral owner indices.
 export const INVALID_FLOOR = 0xff;

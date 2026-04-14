@@ -7,6 +7,7 @@ import {
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
+	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
@@ -23,6 +24,10 @@ export {
 } from "./facility-refunds";
 
 import { handleHotelSimArrival, processHotelSim } from "./hotel";
+import {
+	handleHousekeepingSimArrival,
+	processHousekeepingSim,
+} from "./housekeeping";
 
 export {
 	handleExtendedVacancyExpiry,
@@ -365,6 +370,9 @@ export function advanceSimRefreshStride(
 			case FAMILY_RETAIL:
 				processCommercialSim(world, ledger, time, sim);
 				break;
+			case FAMILY_HOUSEKEEPING:
+				processHousekeepingSim(world, time, sim);
+				break;
 			default:
 				if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {
 					processCathedralSim(world, time, sim);
@@ -661,6 +669,9 @@ function dispatchSimArrival(
 		case FAMILY_FAST_FOOD:
 		case FAMILY_RETAIL:
 			handleCommercialSimArrival(world, sim, arrivalFloor);
+			return;
+		case FAMILY_HOUSEKEEPING:
+			handleHousekeepingSimArrival(world, time, sim, arrivalFloor);
 			return;
 		default:
 			if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {

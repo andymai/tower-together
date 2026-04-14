@@ -33,7 +33,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	recyclingCenterLower: 2, // family 0x15 lower slice
 	parking: 4, // family 0x18
 	metro: 4, // family 0x0e; SPEC.md marks this as a resource-icon-derived width
-	fireSuppressor: 28, // family 0x28
+	housekeeping: 15, // family 0x0f
 };
 
 /** One-time construction cost in dollars. */
@@ -60,7 +60,7 @@ export const TILE_COSTS: Record<string, number> = {
 	recyclingCenterLower: 0,
 	parking: 5_000,
 	metro: 1_000_000,
-	fireSuppressor: 500_000,
+	housekeeping: 50_000,
 };
 
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
@@ -84,6 +84,7 @@ export const FAMILY_RECYCLING_CENTER_LOWER = 21;
 export const FAMILY_PARKING = 24;
 export const FAMILY_ENTERTAINMENT = 29;
 export const FAMILY_FIRE_SUPPRESSOR = 40;
+export const FAMILY_HOUSEKEEPING = 15;
 
 // ─── Family code ↔ tile name mappings ────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_PARKING]: "parking",
 	[FAMILY_ENTERTAINMENT]: "entertainment",
 	[FAMILY_FIRE_SUPPRESSOR]: "fireSuppressor",
+	[FAMILY_HOUSEKEEPING]: "housekeeping",
 };
 
 export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
@@ -116,7 +118,6 @@ export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
 
 export const LEGACY_TILE_ALIASES: Record<string, string> = {
 	security: "recyclingCenterUpper",
-	housekeeping: "recyclingCenterLower",
 };
 
 export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(

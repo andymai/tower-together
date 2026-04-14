@@ -154,6 +154,14 @@ export interface SimRecord {
 	lastDemandTick: number;
 	tripCount: number;
 	accumulatedTicks: number;
+	/** Housekeeping helper (family 0x0f): selected hotel room's floor, with -1 as the searching sentinel. */
+	targetRoomFloor: number;
+	/** Housekeeping helper: recorded spawn floor used as the candidate-search seed and modulo class. */
+	spawnFloor: number;
+	/** Housekeeping helper: 3-tick post-claim countdown. */
+	postClaimCountdown: number;
+	/** Housekeeping helper: encoded subtype/slot of the claimed room (`(0 - floor) * 0x400`). */
+	encodedTargetFloor: number;
 }
 
 // ─── Routing types ────────────────────────────────────────────────────────────
@@ -217,7 +225,7 @@ export interface PlacedObjectRecord {
 	/** Cumulative activation count, capped. */
 	activationTickCount: number;
 	/** Housekeeping has claimed this room for turnover service. */
-	pairingPendingFlag: number;
+	housekeepingClaimedFlag: number;
 	/** VIP suite flag normalized onto standard hotel room types. */
 	vipFlag?: boolean;
 }

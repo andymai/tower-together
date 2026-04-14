@@ -1,5 +1,6 @@
 import {
 	FAMILY_CONDO,
+	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_UPPER,
 } from "../resources";
@@ -16,6 +17,7 @@ import {
 	CATHEDRAL_FAMILIES,
 	COMMERCIAL_FAMILIES,
 	ENTITY_POPULATION_BY_TYPE,
+	HK_STATE_SEARCH,
 	HOTEL_FAMILIES,
 	ROUTE_IDLE,
 	STATE_ACTIVE,
@@ -50,6 +52,10 @@ function makeSim(
 		lastDemandTick: 0,
 		tripCount: 0,
 		accumulatedTicks: 0,
+		targetRoomFloor: -1,
+		spawnFloor: floorAnchor,
+		postClaimCountdown: 0,
+		encodedTargetFloor: 0,
 	};
 }
 
@@ -66,6 +72,7 @@ function initialStateForFamily(
 	if (familyCode === FAMILY_OFFICE) return STATE_MORNING_GATE;
 	if (COMMERCIAL_FAMILIES.has(familyCode)) return STATE_MORNING_GATE;
 	if (familyCode === FAMILY_RECYCLING_CENTER_UPPER) return STATE_ACTIVE;
+	if (familyCode === FAMILY_HOUSEKEEPING) return HK_STATE_SEARCH;
 	return STATE_PARKED;
 }
 
@@ -212,6 +219,11 @@ export function resetSimRuntimeState(world: WorldState): void {
 			// NIGHT_B / CHECKOUT_QUEUE→TRANSITION→DEPARTURE. The binary's
 			// runtime reset does not overwrite hotel sim states.
 			continue;
+		} else if (sim.familyCode === FAMILY_HOUSEKEEPING) {
+			sim.stateCode = HK_STATE_SEARCH;
+			sim.targetRoomFloor = -1;
+			sim.spawnFloor = sim.floorAnchor;
+			sim.postClaimCountdown = 0;
 		} else if (sim.familyCode === FAMILY_CONDO) {
 			sim.stateCode =
 				object.unitStatus >= UNIT_STATUS_CONDO_VACANT

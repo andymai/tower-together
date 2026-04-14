@@ -559,7 +559,7 @@ describe("checkpoint dispatcher", () => {
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 			vipFlag: false,
 		};
 		state.ledger.populationLedger.fill(0);
@@ -657,7 +657,7 @@ describe("ledger: rebuildFacilityLedger", () => {
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		world.placedObjects[`1,${y}`] = {
 			...world.placedObjects[`0,${y}`],
@@ -722,7 +722,7 @@ describe("ledger: doExpenseSweep", () => {
 			activationTickCount: 0,
 			rentLevel: 4, // family 6 (restaurant) → init = 4
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		doExpenseSweep(ledger, world);
 		expect(ledger.cashBalance).toBe(0);
@@ -1121,7 +1121,7 @@ describe("handleRemoveTile", () => {
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		// Place a floor tile directly above
 		world.cells[`0,${y - 1}`] = "floor";
@@ -1692,7 +1692,7 @@ describe("selectBestRouteCandidate", () => {
 			rentLevel: 4,
 			activationTickCount: 0,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
 		world.carriers.push(makeCarrier(1, 4, 1, 0, 4));
@@ -1723,7 +1723,7 @@ describe("selectBestRouteCandidate", () => {
 			rentLevel: 4,
 			activationTickCount: 0,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		world.placedObjects[`20,${GROUND_Y}`] = {
 			leftTileIndex: 20,
@@ -1738,7 +1738,7 @@ describe("selectBestRouteCandidate", () => {
 			rentLevel: 4,
 			activationTickCount: 0,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		world.carriers.push(makeCarrier(0, 0, 1, 10, 20));
 		world.carriers.push(makeCarrier(1, 20, 1, 0, 10));
@@ -1801,6 +1801,10 @@ describe("selectBestRouteCandidate", () => {
 			lastDemandTick: 0,
 			tripCount: 0,
 			accumulatedTicks: 0,
+			targetRoomFloor: -1,
+			spawnFloor: 0,
+			postClaimCountdown: 0,
+			encodedTargetFloor: 0,
 		};
 		const venueEntity = {
 			...commuteEntity,
@@ -1852,6 +1856,10 @@ describe("selectBestRouteCandidate", () => {
 			lastDemandTick: 0,
 			tripCount: 0,
 			accumulatedTicks: 0,
+			targetRoomFloor: -1,
+			spawnFloor: 0,
+			postClaimCountdown: 0,
+			encodedTargetFloor: 0,
 		};
 
 		const result = resolveSimRouteBetweenFloors(
@@ -1936,6 +1944,10 @@ describe("car state machine", () => {
 				lastDemandTick: 0,
 				tripCount: 0,
 				accumulatedTicks: 0,
+				targetRoomFloor: -1,
+				spawnFloor: 0,
+				postClaimCountdown: 0,
+				encodedTargetFloor: 0,
 			});
 		}
 		const time = createTimeState();
@@ -1985,6 +1997,10 @@ describe("car state machine", () => {
 				lastDemandTick: 0,
 				tripCount: 0,
 				accumulatedTicks: 0,
+				targetRoomFloor: -1,
+				spawnFloor: 0,
+				postClaimCountdown: 0,
+				encodedTargetFloor: 0,
 			});
 		}
 		const time = createTimeState();
@@ -2900,6 +2916,10 @@ describe("Phase 4 runtime sims", () => {
 			lastDemandTick: 0,
 			tripCount: 0,
 			accumulatedTicks: 0,
+			targetRoomFloor: -1,
+			spawnFloor: 0,
+			postClaimCountdown: 0,
+			encodedTargetFloor: 0,
 		});
 
 		populateCarrierRequests(world, { ...createTimeState(), dayTick: 321 });
@@ -2936,6 +2956,10 @@ describe("Phase 4 runtime sims", () => {
 			lastDemandTick: 0,
 			tripCount: 0,
 			accumulatedTicks: 0,
+			targetRoomFloor: -1,
+			spawnFloor: 0,
+			postClaimCountdown: 0,
+			encodedTargetFloor: 0,
 		});
 
 		reconcileSimTransport(world, ledger, createTimeState());
@@ -3027,7 +3051,7 @@ describe("Phase 4 runtime sims", () => {
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
-			pairingPendingFlag: 0,
+			housekeepingClaimedFlag: 0,
 		};
 		world.gateFlags.recyclingCenterCount = 1;
 		world.eventState.gameStateFlags = 1;

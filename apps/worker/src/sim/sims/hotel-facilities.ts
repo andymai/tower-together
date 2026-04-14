@@ -87,7 +87,7 @@ export function spreadCockroachInfestation(
 function infectHotelRoom(neighbor: PlacedObjectRecord, time: TimeState): void {
 	neighbor.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
 	neighbor.evalLevel = 0xff;
-	neighbor.pairingPendingFlag = 0;
+	neighbor.housekeepingClaimedFlag = 0;
 }
 
 /**
@@ -104,10 +104,10 @@ export function handleExtendedVacancyExpiry(
 		if (object.unitStatus <= 0x27) continue;
 		if (object.unitStatus >= 0x38) continue;
 
-		if (object.pairingPendingFlag !== 0) {
+		if (object.housekeepingClaimedFlag !== 0) {
 			object.evalLevel = 0xff;
 			object.activationTickCount = 0;
-			object.pairingPendingFlag = 0;
+			object.housekeepingClaimedFlag = 0;
 		} else {
 			object.activationTickCount += 1;
 			if (object.activationTickCount >= 3) {
