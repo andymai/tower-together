@@ -479,6 +479,21 @@ export function handleOfficeSimArrival(
 		return;
 	}
 
+	// Venue arrival (ACTIVE_TRANSIT reaching the selected fast-food floor) must
+	// be checked before the ACTIVE_TRANSIT fallback below, which handles the
+	// fake-lunch return-to-office case.
+	if (
+		handleCommercialVenueArrival(
+			sim,
+			arrivalFloor,
+			STATE_AT_WORK,
+			time,
+			STATE_ACTIVE_TRANSIT,
+		)
+	) {
+		return;
+	}
+
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
@@ -500,18 +515,6 @@ export function handleOfficeSimArrival(
 
 	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
 		finalizeOfficeFloorArrival(sim, object, STATE_ACTIVE);
-		return;
-	}
-
-	if (
-		handleCommercialVenueArrival(
-			sim,
-			arrivalFloor,
-			STATE_AT_WORK,
-			time,
-			STATE_ACTIVE_TRANSIT,
-		)
-	) {
 		return;
 	}
 

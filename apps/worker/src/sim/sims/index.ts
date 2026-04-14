@@ -112,6 +112,7 @@ import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
 	type SimRecord,
+	sampleRng,
 	VENUE_CLOSED,
 	VENUE_DORMANT,
 	type WorldState,
@@ -153,6 +154,11 @@ function pickAvailableVenue(
 	fromFloor: number,
 	allowedFamilies: Set<number>,
 ): VenueSelection | null {
+	// Binary: bucket_select_commercial_venue consults the pre-built per-family
+	// zone bucket table and picks uniformly at random. The call samples RNG
+	// unconditionally (even when the bucket has a single entry), so parity
+	// requires advancing the PRNG on every dispatch attempt.
+	const candidates: VenueSelection[] = [];
 	for (const [key, object] of Object.entries(world.placedObjects)) {
 		if (!allowedFamilies.has(object.objectTypeCode)) continue;
 		if (object.linkedRecordIndex < 0) continue;
@@ -173,10 +179,12 @@ function pickAvailableVenue(
 			continue;
 		}
 
-		return { record, floor: yToFloor(y) };
+		candidates.push({ record, floor: yToFloor(y) });
 	}
 
-	return null;
+	if (candidates.length === 0) return null;
+	const pick = sampleRng(world) % candidates.length;
+	return candidates[pick];
 }
 
 /**
