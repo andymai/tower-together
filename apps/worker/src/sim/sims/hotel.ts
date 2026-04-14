@@ -29,13 +29,43 @@ import {
 	STATE_ACTIVE,
 	STATE_CHECKOUT_QUEUE,
 	STATE_COMMUTE,
+	STATE_COMMUTE_TRANSIT,
 	STATE_DEPARTURE,
 	STATE_HOTEL_PARKED,
 	STATE_MORNING_GATE,
+	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
 	STATE_TRANSITION,
 	STATE_VENUE_TRIP,
 } from "./states";
+
+// Sibling states that mean "still en route, will arrive later this cycle".
+// HOTEL_PARKED is excluded because baseOffset==0 sims never activate at all
+// (the NIGHT_B reset keeps them parked), so they are not pending arrivals.
+const HOTEL_INFLIGHT_STATES = new Set<number>([
+	STATE_MORNING_GATE,
+	STATE_MORNING_TRANSIT,
+	STATE_COMMUTE,
+	STATE_COMMUTE_TRANSIT,
+]);
+
+/**
+ * On hotel arrival: if any active sibling is still en route, this sim becomes
+ * the room's "active" sim (state 0x01) and drives venue trips. If this is the
+ * last (or only) active sibling, it goes straight to STATE_CHECKOUT_QUEUE
+ * (sync wait, state 0x04). Single rooms have only one active sim, so they
+ * always take the CHECKOUT_QUEUE branch.
+ */
+function hotelArrivalState(world: WorldState, sim: SimRecord): number {
+	const siblings = findSiblingSims(world, sim);
+	for (const sibling of siblings) {
+		if (sibling === sim) continue;
+		if (HOTEL_INFLIGHT_STATES.has(sibling.stateCode)) {
+			return STATE_ACTIVE;
+		}
+	}
+	return STATE_CHECKOUT_QUEUE;
+}
 
 function activateHotelStay(
 	world: WorldState,
@@ -64,7 +94,7 @@ function activateHotelStay(
 
 	if (result === 3) {
 		// Same-floor: immediate arrival
-		sim.stateCode = STATE_ACTIVE;
+		sim.stateCode = hotelArrivalState(world, sim);
 		sim.selectedFloor = sim.floorAnchor;
 	} else {
 		// In-transit: commute to room, arrival handled by dispatchSimArrival
@@ -213,9 +243,14 @@ export function processHotelSim(
 				// Gate: daypart >= 5 AND tick > 2566 → 1/12 chance
 				if (sampleRng(world) % 12 !== 0) return;
 			}
-			// Dispatch: set unit_status, state → 0x05
-			object.unitStatus = object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
-
+			// Dispatch: rewrite sync sentinel into the explicit final countdown.
+			// Per HOTEL spec: only the 0x10 sync sentinel is rewritten here; any other
+			// unit_status (e.g. occupied-band base 0x08) is left untouched and decrements
+			// naturally through DEPARTURE.
+			if (object.unitStatus === 0x10) {
+				object.unitStatus =
+					object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+			}
 			sim.stateCode = STATE_DEPARTURE;
 			return;
 		case STATE_DEPARTURE: {
@@ -225,10 +260,12 @@ export function processHotelSim(
 			}
 			// Gate: daypart 6 → no dispatch
 			if (time.daypartIndex >= 6) return;
-			// Dispatch: decrement_unit_status. If unit_status & 7 == 0: checkout + route to lobby
-			if ((object.unitStatus & 0x07) > 0) {
-				object.unitStatus -= 1;
-			}
+			// Dispatch: decrement_unit_status. If unit_status & 7 == 0: checkout + route to lobby.
+			// Always decrement first; the post-decrement low-3-bits == 0 test is what
+			// triggers checkout. Skipping the decrement when unit_status & 7 == 0 (e.g.
+			// occupied-band base 0x08) would short-circuit checkout on the very first
+			// dispatch, paying out before the trip countdown has actually elapsed.
+			object.unitStatus -= 1;
 			if ((object.unitStatus & 0x07) === 0) {
 				checkoutHotelStay(world, ledger, time, sim, object);
 			}
@@ -261,7 +298,7 @@ export function handleHotelSimArrival(
 	if (sim.stateCode === STATE_COMMUTE && arrivalFloor === sim.floorAnchor) {
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = STATE_ACTIVE;
+		sim.stateCode = hotelArrivalState(world, sim);
 		return;
 	}
 
