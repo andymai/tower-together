@@ -58,7 +58,10 @@ export class GameScene extends Phaser.Scene {
 	private floorLabels: Phaser.GameObjects.Text[] = [];
 	private tileLabels: Phaser.GameObjects.Text[] = [];
 	private carLabels: Phaser.GameObjects.Text[] = [];
-	private roomSprites: Phaser.GameObjects.Sprite[] = [];
+	private roomSprites: (
+		| Phaser.GameObjects.Sprite
+		| Phaser.GameObjects.TileSprite
+	)[] = [];
 	private roomTexturesLoaded = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
 	private unitStatusMap: Map<string, number> = new Map();
@@ -484,6 +487,12 @@ export class GameScene extends Phaser.Scene {
 				height: TILE_HEIGHT * s,
 			});
 		}
+		// Lobby SVG is tiled horizontally across contiguous runs; load at its
+		// native 2:1 aspect (one repeat = 2 tiles wide × 1 tile tall).
+		this.load.svg("room_lobby", "/rooms/lobby.svg", {
+			width: 2 * TILE_HEIGHT * s,
+			height: TILE_HEIGHT * s,
+		});
 		// Banner SVGs share the same 9:4 aspect ratio.
 		// Load at high resolution for crisp rendering when zoomed in.
 		const bannerW = 180 * 4;
@@ -658,15 +667,36 @@ export class GameScene extends Phaser.Scene {
 					// extend current run
 				} else {
 					if (runStart !== -1 && runType !== null) {
-						const color = TILE_COLORS[runType];
-						if (color) {
-							g.fillStyle(color, 1);
-							g.fillRect(
-								runStart * TILE_WIDTH + 1,
-								y * TILE_HEIGHT + 1,
-								(x - runStart) * TILE_WIDTH - 1,
-								TILE_HEIGHT - 1,
+						const texKey = `room_${runType}`;
+						const runPxX = runStart * TILE_WIDTH + 1;
+						const runPxY = y * TILE_HEIGHT + 1;
+						const runPxW = (x - runStart) * TILE_WIDTH - 1;
+						const runPxH = TILE_HEIGHT - 1;
+						if (
+							this.roomTexturesLoaded &&
+							this.textures.exists(texKey) &&
+							runType === "lobby"
+						) {
+							const tex = this.textures.get(texKey).getSourceImage();
+							const tileSprite = this.add.tileSprite(
+								runPxX,
+								runPxY,
+								runPxW,
+								runPxH,
+								texKey,
 							);
+							tileSprite.setOrigin(0, 0);
+							// One SVG repeat spans 2*TILE_HEIGHT screen px (native 2:1 aspect).
+							tileSprite.tileScaleX = (2 * TILE_HEIGHT) / tex.width;
+							tileSprite.tileScaleY = TILE_HEIGHT / tex.height;
+							tileSprite.setDepth(1.5);
+							this.roomSprites.push(tileSprite);
+						} else {
+							const color = TILE_COLORS[runType];
+							if (color) {
+								g.fillStyle(color, 1);
+								g.fillRect(runPxX, runPxY, runPxW, runPxH);
+							}
 						}
 					}
 					runStart = isMerge ? x : -1;
