@@ -49,7 +49,7 @@ export class GameScene extends Phaser.Scene {
 
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private simGraphics!: Phaser.GameObjects.Graphics;
-	private carGraphics!: Phaser.GameObjects.Graphics;
+	private carGraphicsList: Phaser.GameObjects.Graphics[] = [];
 	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
 
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
@@ -297,13 +297,11 @@ export class GameScene extends Phaser.Scene {
 
 		this.cellGraphics = this.add.graphics();
 		this.simGraphics = this.add.graphics();
-		this.carGraphics = this.add.graphics();
 		this.hoverGraphics = this.add.graphics();
 
 		// Depth ordering: sky (0) -> clouds (1) -> cells (2) -> overlays (3-4)
 		this.cellGraphics.setDepth(2);
 		this.simGraphics.setDepth(3);
-		this.carGraphics.setDepth(3);
 		this.hoverGraphics.setDepth(4);
 
 		this.arrowKeys =
@@ -834,13 +832,14 @@ export class GameScene extends Phaser.Scene {
 	}
 
 	private drawCars(): void {
-		const g = this.carGraphics;
-		g.clear();
+		for (const g of this.carGraphicsList) g.destroy();
+		this.carGraphicsList = [];
 		this.clearCarLabels();
 		const simSnapshot = this.currentSimSnapshot ??
 			this.previousSimSnapshot ?? { simTime: 0, items: [] };
 		const occupancyByCar = buildOccupancyByCar(simSnapshot.items);
 
+		let carIndex = 0;
 		for (const car of getDisplayedCars(
 			this.currentCarrierSnapshot,
 			this.previousCarrierSnapshot,
@@ -850,11 +849,18 @@ export class GameScene extends Phaser.Scene {
 			const occupancy =
 				occupancyByCar.get(`${car.carrierId}:${car.carIndex}`) ?? 0;
 
+			// Each car (rect + label) gets a unique depth slice so cars never
+			// interleave with other cars' labels.
+			const depth = 3 + carIndex * 0.01;
+			const g = this.add.graphics();
+			g.setDepth(depth);
 			g.fillStyle(CAR_COLOR, 1);
 			g.fillRect(x, y, width, height);
 			g.lineStyle(1, 0x6b5a1b, 1);
 			g.strokeRect(x, y, width, height);
-			this.drawCarOccupancyLabel(x, y, width, height, occupancy);
+			this.carGraphicsList.push(g);
+			this.drawCarOccupancyLabel(x, y, width, height, occupancy, depth);
+			carIndex += 1;
 		}
 	}
 
@@ -864,6 +870,7 @@ export class GameScene extends Phaser.Scene {
 		width: number,
 		height: number,
 		occupancy: number,
+		depth: number,
 	): void {
 		const label = this.add.text(
 			x + width / 2,
@@ -878,7 +885,7 @@ export class GameScene extends Phaser.Scene {
 			},
 		);
 		label.setOrigin(0.5, 0.5);
-		label.setDepth(6);
+		label.setDepth(depth + 0.005);
 		this.carLabels.push(label);
 	}
 
