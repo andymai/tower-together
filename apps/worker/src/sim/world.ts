@@ -312,6 +312,12 @@ export interface CommercialVenueRecord {
 	 * tryConsumeCommercialVenueCapacity to succeed. Prevents rapid re-visits.
 	 */
 	eligibilityThreshold: number;
+	/**
+	 * Remaining daily slots (binary offset +0x06). Refilled to 10 at daypart 0
+	 * by rebuildCommercialVenueRuntime for fast-food and retail (restaurants
+	 * use a different mechanism). Decremented on each successful dispatch.
+	 */
+	remainingCapacity: number;
 }
 
 // CommercialVenueRecord.availabilityState values

@@ -29,9 +29,19 @@ interface BuildSpec {
 interface TraceEntry {
 	day: number;
 	tick: number;
+	daypart: number;
+	stars: number;
 	cash: number;
+	calendar_phase: number;
+	metro_floor: number;
 	population: number;
 	rng_calls?: number;
+	gates: {
+		security: boolean;
+		office: boolean;
+		recycling: boolean;
+		route: boolean;
+	};
 	sims: Record<
 		string,
 		{
@@ -234,6 +244,47 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		}
 	});
 
+	// Fields in the fixture that this suite does NOT currently check, because the
+	// sim has no direct mapping for them yet:
+	//   - calendar_phase       (global 12-day phase counter; not modeled in TimeState)
+	//   - metro_floor          (metro station floor; only metroPlaced bit is tracked)
+	//   - population           (onsite occupancy roll-up; separate from sim count)
+	//   - stress_avg/min/max   (per-sim stress aggregated by family)
+	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
+	it("matches reference scalar fields at each trace tick", () => {
+		if (simEntries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
+
+		for (const entry of simEntries) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			const ctx = `day=${entry.day} tick=${entry.tick}`;
+			const snap = sim.saveState();
+			expect(snap.time.daypartIndex, `daypart mismatch at ${ctx}`).toBe(
+				entry.daypart,
+			);
+			expect(snap.world.starCount, `stars mismatch at ${ctx}`).toBe(
+				entry.stars,
+			);
+			expect(
+				snap.world.gateFlags.officeServiceOk !== 0,
+				`gates.office at ${ctx}`,
+			).toBe(entry.gates.office);
+			expect(
+				snap.world.gateFlags.recyclingAdequate !== 0,
+				`gates.recycling at ${ctx}`,
+			).toBe(entry.gates.recycling);
+			expect(
+				snap.world.gateFlags.routesViable !== 0,
+				`gates.route at ${ctx}`,
+			).toBe(entry.gates.route);
+			// No security-gate flag is currently modeled; fixtures we run always
+			// have gates.security === false, so we assert that invariant.
+			expect(entry.gates.security, `unexpected gates.security at ${ctx}`).toBe(
+				false,
+			);
+		}
+	});
+
 	it("matches reference sim total at each trace tick", () => {
 		const entries = activeTraceEntries(simEntries);
 		if (entries.length === 0) return;
@@ -264,6 +315,36 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 					byFamily.get(familyCode) ?? 0,
 					`family ${key} count mismatch at day=${entry.day} tick=${entry.tick}`,
 				).toBe(refGroup.count);
+			}
+		}
+	});
+
+	it("matches reference sim state counts by family", () => {
+		const entries = activeTraceEntries(simEntries);
+		if (entries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
+
+		for (const entry of entries) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			const byFamilyState = new Map<number, Map<number, number>>();
+			for (const sm of sim.simsToArray()) {
+				let m = byFamilyState.get(sm.familyCode);
+				if (!m) {
+					m = new Map();
+					byFamilyState.set(sm.familyCode, m);
+				}
+				m.set(sm.stateCode, (m.get(sm.stateCode) ?? 0) + 1);
+			}
+			for (const [key, refGroup] of Object.entries(entry.sims)) {
+				const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
+				if (familyCode === undefined) continue;
+				const ourStates = byFamilyState.get(familyCode) ?? new Map();
+				const ourObj: Record<string, number> = {};
+				for (const [st, cnt] of ourStates) ourObj[String(st)] = cnt;
+				expect(
+					ourObj,
+					`family ${key} state counts mismatch at day=${entry.day} tick=${entry.tick}`,
+				).toEqual(refGroup.states);
 			}
 		}
 	});

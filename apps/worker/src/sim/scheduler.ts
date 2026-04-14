@@ -26,6 +26,7 @@ import {
 import {
 	closeCommercialVenuesByFamily,
 	normalizeUnitStatusEndOfDay,
+	rebuildCommercialVenueRuntime,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 	resetSimRuntimeState,
@@ -57,6 +58,7 @@ function checkpointRecyclingReset(_s: SimState): void {
 function checkpointFacilityLedgerRebuild(s: SimState): void {
 	checkDailyEvents(s.world, s.ledger, s.time);
 	rebuildFacilityLedger(s.ledger, s.world);
+	rebuildCommercialVenueRuntime(s.world);
 	seedEntertainmentBudgets(s.world);
 }
 

@@ -8,6 +8,7 @@ import {
 	COMMERCIAL_CLOSURE_PAYOUTS,
 	FAMILY_CODE_TO_TILE,
 	FAMILY_CONDO,
+	FAMILY_FAST_FOOD,
 	FAMILY_RETAIL,
 } from "../resources";
 import type { TimeState } from "../time";
@@ -26,6 +27,25 @@ import {
 	UNIT_STATUS_CONDO_VACANT,
 	UNIT_STATUS_CONDO_VACANT_EVENING,
 } from "./states";
+
+/**
+ * Mirrors binary `rebuild_linked_facility_records` (11b0:0184), invoked at
+ * checkpoint 0x0f0 (dayTick 240 / daypart 0). For each valid fast-food or
+ * retail venue, seeds the daily `remainingCapacity` (binary record[6]) to 10
+ * and the eligibility threshold (record[0xc]) to −(cap+1) = −11. Restaurants
+ * are excluded — they use a separate per-cycle mechanism.
+ */
+export function rebuildCommercialVenueRuntime(world: WorldState): void {
+	for (const obj of Object.values(world.placedObjects)) {
+		const code = obj.objectTypeCode;
+		if (code !== FAMILY_FAST_FOOD && code !== FAMILY_RETAIL) continue;
+		if (obj.linkedRecordIndex < 0) continue;
+		const record = world.sidecars[obj.linkedRecordIndex];
+		if (!record || record.kind !== "commercial_venue") continue;
+		record.remainingCapacity = 10;
+		record.eligibilityThreshold = -11;
+	}
+}
 
 export function resetCommercialVenueCycle(
 	world: WorldState,

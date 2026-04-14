@@ -19,6 +19,7 @@ import { handleCondoSimArrival, processCondoSim } from "./condo";
 export {
 	closeCommercialVenues,
 	closeCommercialVenuesByFamily,
+	rebuildCommercialVenueRuntime,
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 } from "./facility-refunds";

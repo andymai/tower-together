@@ -152,6 +152,7 @@ function allocSidecar(
 			currentPopulation: 0,
 			lastAcquireTick: 0,
 			eligibilityThreshold: 0,
+			remainingCapacity: 0,
 		};
 		record = r;
 	} else if (

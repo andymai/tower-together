@@ -312,6 +312,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			sidecar.currentPopulation ??= 0;
 			sidecar.lastAcquireTick ??= 0;
 			sidecar.eligibilityThreshold ??= 0;
+			sidecar.remainingCapacity ??= 0;
 			continue;
 		}
 		if (sidecar.kind !== "entertainment_link") continue;

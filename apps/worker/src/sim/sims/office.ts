@@ -471,7 +471,14 @@ export function handleOfficeSimArrival(
 	}
 
 	if (
-		sim.stateCode === STATE_COMMUTE_TRANSIT ||
+		sim.stateCode === STATE_COMMUTE_TRANSIT &&
+		arrivalFloor === sim.floorAnchor
+	) {
+		finalizeOfficeFloorArrival(sim, object, STATE_AT_WORK);
+		return;
+	}
+
+	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
 	) {
