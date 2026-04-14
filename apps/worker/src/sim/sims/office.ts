@@ -11,7 +11,6 @@ import {
 	clearSimRoute,
 	dispatchCommercialVenueVisit,
 	findObjectForSim,
-	handleCommercialVenueArrival,
 	recomputeObjectOperationalStatus,
 	releaseServiceRequest,
 	resetFacilitySimTripCounters,
@@ -19,8 +18,6 @@ import {
 	tryAssignParkingService,
 } from "./index";
 import {
-	COMMERCIAL_DWELL_STATE,
-	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
 	STATE_ACTIVE,
@@ -300,9 +297,16 @@ export function processOfficeSim(
 		return;
 	}
 
-	if (state === COMMERCIAL_DWELL_STATE) {
-		if (time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS)
+	// --- At venue (spec state 0x22) ---
+	// Binary gate (PEOPLE.md:323): dayparts 0–1 → no-op; dayparts 2–3 → dispatch
+	// (release venue + route home); daypart ≥ 4 → force state 0x27 + release.
+	if (state === STATE_VENUE_TRIP) {
+		if (time.daypartIndex >= 4) {
+			sim.stateCode = STATE_PARKED;
+			releaseServiceRequest(world, sim);
 			return;
+		}
+		if (time.daypartIndex < 2) return;
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -319,7 +323,7 @@ export function processOfficeSim(
 		if (routeResult === 3) {
 			finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
 		} else {
-			sim.stateCode = STATE_DWELL_RETURN_TRANSIT;
+			sim.stateCode = STATE_VENUE_HOME_TRANSIT;
 		}
 		return;
 	}
@@ -365,21 +369,23 @@ export function processOfficeSim(
 			sim.destinationFloor = LOBBY_FLOOR;
 			sim.selectedFloor = sim.floorAnchor;
 			if (routeResult === 3) {
-				// Office on lobby floor — immediate dwell then return
+				// Office on lobby floor — start venue dwell immediately.
 				sim.venueReturnState = 0;
-				sim.stateCode = COMMERCIAL_DWELL_STATE;
+				sim.stateCode = STATE_VENUE_TRIP;
+				sim.selectedFloor = LOBBY_FLOOR;
+				sim.destinationFloor = -1;
 				sim.lastDemandTick = time.dayTick;
 				clearSimRoute(sim);
 			} else {
-				sim.stateCode = STATE_VENUE_TRIP;
+				// In-transit to lobby for fake lunch; arrival promotes to 0x22.
+				sim.stateCode = STATE_ACTIVE_TRANSIT;
 			}
 		}
 		return;
 	}
 
-	// --- In transit to venue — arrival handled by dispatchSimArrival ---
+	// --- In transit — arrival handled by dispatchSimArrival ---
 	if (
-		state === STATE_VENUE_TRIP ||
 		state === STATE_COMMUTE_TRANSIT ||
 		state === STATE_ACTIVE_TRANSIT ||
 		state === STATE_VENUE_TRIP_TRANSIT ||
@@ -479,26 +485,17 @@ export function handleOfficeSimArrival(
 		return;
 	}
 
-	// Venue arrival (ACTIVE_TRANSIT reaching the selected fast-food floor) must
-	// be checked before the ACTIVE_TRANSIT fallback below, which handles the
-	// fake-lunch return-to-office case.
-	if (
-		handleCommercialVenueArrival(
-			sim,
-			arrivalFloor,
-			STATE_AT_WORK,
-			time,
-			STATE_ACTIVE_TRANSIT,
-		)
-	) {
-		return;
-	}
-
+	// Arrival while in ACTIVE_TRANSIT (outbound lunch trip, real or fake) —
+	// binary promotes to state 0x22 (STATE_VENUE_TRIP) which gates on daypart
+	// before releasing the venue and routing home.
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
 	) {
-		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+		sim.destinationFloor = -1;
+		sim.selectedFloor = arrivalFloor;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.lastDemandTick = time.dayTick;
 		return;
 	}
 
