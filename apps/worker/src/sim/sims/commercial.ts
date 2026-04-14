@@ -88,7 +88,10 @@ export function processCommercialSim(
 				| CommercialVenueRecord
 				| undefined;
 			if (record?.kind === "commercial_venue") {
-				if (record.currentPopulation === 0 && record.availabilityState === VENUE_DORMANT) {
+				if (
+					record.currentPopulation === 0 &&
+					record.availabilityState === VENUE_DORMANT
+				) {
 					activateRetailShop(object, record, ledger);
 				}
 				if (record.currentPopulation < 39) {
