@@ -42,7 +42,7 @@ export interface SimState {
 
 function checkpointStartOfDay(_s: SimState): void {
 	// Activate cathedral guest sims
-	activateEvalSims(_s.world, _s.time);
+	activateEvalSims(_s.world);
 }
 
 function checkpointRecyclingReset(_s: SimState): void {
@@ -84,7 +84,7 @@ function checkpointMidday(_s: SimState): void {
 	// 3. Normal midday tasks
 	resetCommercialVenueCycle(_s.world, _s.ledger);
 	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
-	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 0);
+	updateRecyclingCenterState(_s.world, _s.ledger, 0);
 }
 
 function checkpointAfternoonNotification(_s: SimState): void {
@@ -100,7 +100,7 @@ function checkpointEntertainmentPhase2(_s: SimState): void {
 }
 
 function checkpointLateFacility(_s: SimState): void {
-	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 2);
+	updateRecyclingCenterState(_s.world, _s.ledger, 2);
 }
 
 function checkpointType6Advance(_s: SimState): void {
@@ -108,7 +108,7 @@ function checkpointType6Advance(_s: SimState): void {
 }
 
 function checkpointDayCounter(s: SimState): void {
-	// Increment dayCounter and recompute calendarPhaseFlag.
+	// Increment dayCounter and recompute weekendFlag.
 	// (time.ts already does this via advanceOneTick; this body is a no-op here
 	//  because time state is mutated in advanceOneTick before runCheckpoints.)
 	void s;
@@ -120,7 +120,7 @@ function checkpointRuntimeRefresh(_s: SimState): void {
 }
 
 function checkpointLedgerRollover(s: SimState): void {
-	doLedgerRollover(s.ledger, s.world, s.time.dayCounter, s.time.starCount);
+	doLedgerRollover(s.ledger, s.world, s.time.dayCounter);
 	if (s.time.dayCounter % 3 === 0) {
 		refundUnhappyFacilities(s.world, s.ledger, s.time);
 	}
@@ -132,7 +132,7 @@ function checkpointEndOfDay(_s: SimState): void {
 }
 
 function checkpointRecyclingFinal(_s: SimState): void {
-	updateRecyclingCenterState(_s.world, _s.ledger, _s.time, 5);
+	updateRecyclingCenterState(_s.world, _s.ledger, 5);
 }
 
 // ─── Checkpoint table ─────────────────────────────────────────────────────────

@@ -11,7 +11,6 @@ import {
 	FAMILY_RETAIL,
 	OP_SCORE_THRESHOLDS,
 } from "../resources";
-import type { TimeState } from "../time";
 import {
 	GRID_HEIGHT,
 	type PlacedObjectRecord,
@@ -129,7 +128,6 @@ function hasNearbyNoise(
 
 export function recomputeObjectOperationalStatus(
 	world: WorldState,
-	time: TimeState,
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
@@ -141,27 +139,27 @@ export function recomputeObjectOperationalStatus(
 	) {
 		object.evalLevel = 0xff;
 		object.evalScore = -1;
-		object.needsRefreshFlag = 1;
+
 		return;
 	}
 	if (
 		object.objectTypeCode === FAMILY_OFFICE &&
 		object.unitStatus > UNIT_STATUS_OFFICE_OCCUPIED &&
-		object.evalActiveFlag !== 0
+		object.occupiableFlag !== 0
 	) {
 		object.evalLevel = 0xff;
 		object.evalScore = -1;
-		object.needsRefreshFlag = 1;
+
 		return;
 	}
 	if (
 		object.objectTypeCode === FAMILY_CONDO &&
 		object.unitStatus > UNIT_STATUS_CONDO_OCCUPIED &&
-		object.evalActiveFlag !== 0
+		object.occupiableFlag !== 0
 	) {
 		object.evalLevel = 0xff;
 		object.evalScore = -1;
-		object.needsRefreshFlag = 1;
+
 		return;
 	}
 
@@ -199,23 +197,22 @@ export function recomputeObjectOperationalStatus(
 		score += 60;
 	}
 
-	const [lower, upper] = OP_SCORE_THRESHOLDS[Math.min(time.starCount, 5)] ?? [
+	const [lower, upper] = OP_SCORE_THRESHOLDS[Math.min(world.starCount, 5)] ?? [
 		80, 200,
 	];
 	object.evalScore = score;
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
 	if (object.objectTypeCode === FAMILY_OFFICE) {
 		if (object.evalLevel >= 1) {
-			object.evalActiveFlag = 1;
+			object.occupiableFlag = 1;
 		} else {
 			refreshOccupiedFlagAndTripCounters(world, sim, object);
 		}
-	} else if (object.evalActiveFlag === 0 && object.evalLevel > 0) {
-		object.evalActiveFlag = 1;
+	} else if (object.occupiableFlag === 0 && object.evalLevel > 0) {
+		object.occupiableFlag = 1;
 	} else if (object.objectTypeCode === FAMILY_CONDO && object.evalLevel === 0) {
 		refreshOccupiedFlagAndTripCounters(world, sim, object);
 	}
-	object.needsRefreshFlag = 1;
 }
 
 export function refreshOccupiedFlagAndTripCounters(
@@ -231,17 +228,15 @@ export function refreshOccupiedFlagAndTripCounters(
 		if (cy !== y) continue;
 		if (candidate.evalLevel !== 2) continue;
 		object.evalLevel = 1;
-		object.evalActiveFlag = 1;
+		object.occupiableFlag = 1;
 		candidate.evalLevel = 1;
-		candidate.evalActiveFlag = 1;
-		object.needsRefreshFlag = 1;
-		candidate.needsRefreshFlag = 1;
+		candidate.occupiableFlag = 1;
+
 		return;
 	}
 
-	object.evalActiveFlag = 0;
+	object.occupiableFlag = 0;
 	resetFacilitySimTripCounters(world, sim);
-	object.needsRefreshFlag = 1;
 }
 
 function simStressLevel(

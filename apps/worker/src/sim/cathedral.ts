@@ -26,14 +26,14 @@ const EVAL_SIM_COUNT = 40;
  * Forces all cathedral sim slots into the morning-gate state
  * if a cathedral is placed and the tower is above 2 stars.
  */
-export function activateEvalSims(world: WorldState, time: TimeState): void {
+export function activateEvalSims(world: WorldState): void {
 	if (
 		world.gateFlags.evalSimIndex < 0 ||
 		world.gateFlags.evalSimIndex === NO_EVAL_ENTITY
 	) {
 		return;
 	}
-	if (time.starCount <= 2) return;
+	if (world.starCount <= 2) return;
 
 	for (const sim of world.sims) {
 		if (!CATHEDRAL_FAMILIES.has(sim.familyCode)) continue;
@@ -68,8 +68,8 @@ export function processCathedralSim(
 ): void {
 	switch (sim.stateCode) {
 		case STATE_MORNING_GATE: {
-			// Gate: calendar_phase_flag must be 1
-			if (time.calendarPhaseFlag !== 1) {
+			// Gate: weekendFlag must be 1
+			if (time.weekendFlag !== 1) {
 				if (time.daypartIndex >= 1) {
 					sim.stateCode = STATE_PARKED; // missed dispatch window
 				}
@@ -179,7 +179,6 @@ export function checkEvalCompletionAndAward(
 		const object = findObjectForSim(world, arrivedSim);
 		if (object) {
 			object.auxValueOrTimer = 3;
-			object.needsRefreshFlag = 1;
 		}
 		return;
 	}
@@ -195,9 +194,9 @@ export function checkEvalCompletionAndAward(
 		if (ledgerTotal > tierThresholds[index]) tier = index + 2;
 	}
 
-	if (tier > time.starCount) {
+	if (tier > world.starCount) {
 		// Tower promotion: star_count := 6
-		(time as { starCount: number }).starCount = 6;
+		world.starCount = 6;
 	}
 }
 

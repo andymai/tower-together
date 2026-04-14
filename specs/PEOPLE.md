@@ -161,7 +161,11 @@ directly, bypassing `dispatch_sim_behavior` and the trip-counter pipeline entire
    - `elapsed = (elapsed_packed & 0x3ff) + delay_delta`
    - clamp to 300, store back, clear `last_trip_tick`
    - used for: no-route delay (300 ticks), distance penalties (30 or 60 ticks),
-     queue-full waiting delay (5 ticks)
+     queue-full waiting delay (5 ticks), stair/escalator per-stop delay
+     (stairs: 35 × floors, escalator: 16 × floors)
+   - the stair/escalator delay is the primary mechanism differentiating
+     stairs from escalators: both transit in one entity-refresh stride (16 ticks),
+     but stairs accumulates more stress per floor traversed
    - the distance penalty is gated by `emit_distance_feedback` in the route
      resolver — only certain base states enable it (see ROUTING.md
      "`emit_distance_feedback` Gating")

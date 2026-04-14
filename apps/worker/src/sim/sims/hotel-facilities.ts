@@ -36,7 +36,6 @@ export function normalizeUnitStatusEndOfDay(world: WorldState): void {
 				// Extended band toggle: 0x38 <-> 0x40
 				object.unitStatus = object.unitStatus < 0x40 ? 0x40 : 0x38;
 			}
-			object.needsRefreshFlag = 1;
 		} else if (object.objectTypeCode === FAMILY_CONDO) {
 			if (object.unitStatus < 0x18) {
 				// Sold: clamp to sync sentinel
@@ -48,7 +47,6 @@ export function normalizeUnitStatusEndOfDay(world: WorldState): void {
 						? UNIT_STATUS_CONDO_VACANT_EVENING
 						: UNIT_STATUS_CONDO_VACANT;
 			}
-			object.needsRefreshFlag = 1;
 		}
 	}
 }
@@ -90,7 +88,6 @@ function infectHotelRoom(neighbor: PlacedObjectRecord, time: TimeState): void {
 	neighbor.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
 	neighbor.evalLevel = 0xff;
 	neighbor.pairingPendingFlag = 0;
-	neighbor.needsRefreshFlag = 1;
 }
 
 /**
@@ -115,7 +112,6 @@ export function handleExtendedVacancyExpiry(
 			object.activationTickCount += 1;
 			if (object.activationTickCount >= 3) {
 				object.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
-				object.needsRefreshFlag = 1;
 			}
 		}
 	}
@@ -129,7 +125,7 @@ export function updateHotelOperationalAndOccupancy(
 		const object = findObjectForSim(world, sim);
 		if (!object || !HOTEL_FAMILIES.has(object.objectTypeCode)) continue;
 		if (sim.baseOffset !== 0) continue;
-		recomputeObjectOperationalStatus(world, time, sim, object);
+		recomputeObjectOperationalStatus(world, sim, object);
 	}
 	handleExtendedVacancyExpiry(world, time);
 	for (const sim of world.sims) {
@@ -137,7 +133,7 @@ export function updateHotelOperationalAndOccupancy(
 		if (!object || !HOTEL_FAMILIES.has(object.objectTypeCode)) continue;
 		if (sim.baseOffset !== 0) continue;
 		if (object.evalLevel > 0 && object.evalLevel !== 0xff) {
-			object.evalActiveFlag = 1;
+			object.occupiableFlag = 1;
 			continue;
 		}
 		if (object.evalLevel === 0) {

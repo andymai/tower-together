@@ -3,7 +3,6 @@ import {
 	FAMILY_RECYCLING_CENTER_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
 } from "./resources";
-import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
 export function resetRecyclingCenterDutyTier(world: WorldState): void {
@@ -13,7 +12,6 @@ export function resetRecyclingCenterDutyTier(world: WorldState): void {
 			object.unitStatus === 6
 		) {
 			object.unitStatus = 0;
-			object.needsRefreshFlag = 1;
 		}
 	}
 }
@@ -21,10 +19,9 @@ export function resetRecyclingCenterDutyTier(world: WorldState): void {
 export function updateRecyclingCenterState(
 	world: WorldState,
 	ledger: LedgerState,
-	time: TimeState,
 	param: number,
 ): void {
-	if (time.starCount <= 2) {
+	if (world.starCount <= 2) {
 		world.gateFlags.recyclingAdequate = 0;
 		return;
 	}
@@ -39,7 +36,6 @@ export function updateRecyclingCenterState(
 			) {
 				if (object.unitStatus === 5) continue;
 				object.unitStatus = 0;
-				object.needsRefreshFlag = 1;
 			}
 		}
 		return;
@@ -79,7 +75,6 @@ export function updateRecyclingCenterState(
 		) {
 			if (!adequate && object.unitStatus === 5) continue;
 			object.unitStatus = dutyTier;
-			object.needsRefreshFlag = 1;
 		}
 	}
 }

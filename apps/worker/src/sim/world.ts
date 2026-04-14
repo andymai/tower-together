@@ -25,10 +25,13 @@ export function isValidLobbyY(y: number): boolean {
 
 // ─── PRNG ────────────────────────────────────────────────────────────────────
 
-/** Sample a 15-bit LCG value from the world RNG and advance its state. */
+/** Sample a 15-bit LCG value from the world RNG and advance its state.
+ * 32-bit LCG: state = state * 0x15a4e35 + 1 (mod 2^32).
+ * Returns upper 15 bits: (state >>> 16) & 0x7fff. */
 export function sampleRng(world: WorldState): number {
-	world.rngState = (world.rngState * 0x15a4e35 + 1) & 0x7fff;
-	return world.rngState;
+	world.rngState = (Math.imul(world.rngState, 0x15a4e35) + 1) | 0;
+	world.rngCallCount += 1;
+	return (world.rngState >>> 16) & 0x7fff;
 }
 
 // ─── Carrier types ────────────────────────────────────────────────────────────
@@ -203,10 +206,8 @@ export interface PlacedObjectRecord {
 	auxValueOrTimer: number;
 	/** Index into WorldState.sidecars; −1 when no sidecar is attached. */
 	linkedRecordIndex: number;
-	/** Dirty bit set to 1 on placement so the first refresh sweep picks it up. */
-	needsRefreshFlag: number;
-	/** Occupancy flag: 1 while the facility has active tenants. */
-	evalActiveFlag: number;
+	/** Operational-evaluation latch: 1 at placement, cleared on deactivation. Gates morning dispatch. */
+	occupiableFlag: number;
 	/** Operational rating: 0 = bad/refund-eligible, 1 = ok, 2 = good. −1 until first scoring sweep. */
 	evalLevel: number;
 	/** Raw average stress score before threshold bucketing. -1 until first scoring sweep. */
@@ -282,6 +283,27 @@ export interface CommercialVenueRecord {
 	todayVisitCount: number;
 	yesterdayVisitCount: number;
 	availabilityState: number;
+	/**
+	 * Number of sims currently inside the venue (binary offset +0x09,
+	 * "active_assignment_count"). Incremented by acquireCommercialVenueSlot
+	 * when a sim takes a slot, decremented by releaseCommercialVenueSlot on
+	 * departure. Saturates at 39 in the binary; when > 39 new arrivals are
+	 * queued rather than admitted.
+	 */
+	currentPopulation: number;
+	/**
+	 * dayTick of the most recent slot acquisition (binary offset +0x0a).
+	 * Used by releaseCommercialVenueSlot to gate the minimum dwell time
+	 * against the family's service-duration ticks before a departure is
+	 * accepted.
+	 */
+	lastAcquireTick: number;
+	/**
+	 * Signed eligibility threshold (binary offset +0x0c). When negative, the
+	 * sim's current state word must not exceed `1 - eligibilityThreshold` for
+	 * tryConsumeCommercialVenueCapacity to succeed. Prevents rapid re-visits.
+	 */
+	eligibilityThreshold: number;
 }
 
 // CommercialVenueRecord.availabilityState values
@@ -366,6 +388,8 @@ export interface EventState {
 	bombSearchScanTile: number;
 	/** Pending carrier-edit prompt target column, -1 when idle. */
 	pendingCarrierEditColumn: number;
+	/** When true, suppress triggerRandomNewsEvent (trace-test only). */
+	disableNewsEvents?: boolean;
 }
 
 export function createEventState(): EventState {
@@ -435,6 +459,10 @@ export interface WorldState {
 	parkingDemandLog: number[];
 	/** LCG state for general-purpose simulation randomness. */
 	rngState: number;
+	/** Cumulative count of sampleRng calls (for trace alignment). */
+	rngCallCount: number;
+	/** 1–6 (6 = Tower). */
+	starCount: number;
 	/** Bomb/fire/VIP event state. */
 	eventState: EventState;
 	/** Pending notifications emitted during the current tick (drained by the transport layer). */

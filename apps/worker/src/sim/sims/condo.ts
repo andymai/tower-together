@@ -39,7 +39,7 @@ export function processCondoSim(
 		object.unitStatus >= UNIT_STATUS_CONDO_VACANT
 	) {
 		object.unitStatus = time.daypartIndex < 4 ? 0x08 : 0x00;
-		object.needsRefreshFlag = 1;
+
 		if (sim.baseOffset === 0) {
 			addCashflowFromFamilyResource(
 				ledger,
@@ -65,7 +65,7 @@ export function processCondoSim(
 		finishCommercialVenueTrip(sim, STATE_ACTIVE);
 	}
 
-	recomputeObjectOperationalStatus(world, time, sim, object);
+	recomputeObjectOperationalStatus(world, sim, object);
 }
 
 export function handleCondoSimArrival(

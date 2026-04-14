@@ -23,7 +23,7 @@ import {
 
 export function resetCommercialVenueCycle(
 	world: WorldState,
-	ledger: LedgerState,
+	_ledger: LedgerState,
 ): void {
 	for (const record of world.sidecars) {
 		if (record.kind !== "commercial_venue") continue;
@@ -34,18 +34,8 @@ export function resetCommercialVenueCycle(
 			record.availabilityState = VENUE_PARTIAL;
 		}
 	}
-
-	for (const object of Object.values(world.placedObjects)) {
-		if (object.objectTypeCode !== FAMILY_RETAIL) continue;
-		if (object.evalActiveFlag === 0) continue;
-		if (object.linkedRecordIndex < 0) continue;
-		const record = world.sidecars[object.linkedRecordIndex] as
-			| CommercialVenueRecord
-			| undefined;
-		if (!record || record.kind !== "commercial_venue") continue;
-		if (record.availabilityState !== VENUE_DORMANT) continue;
-		activateRetailShop(object, record, ledger);
-	}
+	// Note: retail shops activate lazily on first worker MORNING_GATE
+	// dispatch (in commercial.ts), matching the binary — not eagerly here.
 }
 
 export function closeCommercialVenues(world: WorldState): void {
@@ -55,13 +45,13 @@ export function closeCommercialVenues(world: WorldState): void {
 	}
 }
 
-function activateRetailShop(
+export function activateRetailShop(
 	object: PlacedObjectRecord,
 	record: CommercialVenueRecord,
 	ledger: LedgerState,
 ): void {
 	record.availabilityState = VENUE_PARTIAL;
-	object.needsRefreshFlag = 1;
+
 	addCashflowFromFamilyResource(
 		ledger,
 		"retail",
@@ -78,9 +68,9 @@ function deactivateRetailShop(
 	ledger: LedgerState,
 ): void {
 	record.availabilityState = VENUE_DORMANT;
-	object.evalActiveFlag = 0;
+	object.occupiableFlag = 0;
 	object.activationTickCount = 0;
-	object.needsRefreshFlag = 1;
+
 	removeCashflowFromFamilyResource(
 		ledger,
 		"retail",
@@ -108,9 +98,9 @@ export function refundUnhappyFacilities(
 				time.daypartIndex < 4
 					? UNIT_STATUS_CONDO_VACANT
 					: UNIT_STATUS_CONDO_VACANT_EVENING;
-			object.evalActiveFlag = 0;
+			object.occupiableFlag = 0;
 			object.activationTickCount = 0;
-			object.needsRefreshFlag = 1;
+
 			const [x, y] = key.split(",").map(Number);
 			for (const sim of world.sims) {
 				if (sim.homeColumn === x && sim.floorAnchor === yToFloor(y)) {

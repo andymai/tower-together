@@ -5,6 +5,7 @@ import type { TimeState } from "./time";
 import {
 	type EventState,
 	GRID_HEIGHT,
+	sampleRng,
 	UNDERGROUND_FLOORS,
 	type WorldState,
 	yToFloor,
@@ -29,13 +30,6 @@ const HELICOPTER_EXTINGUISH_RATE = 1; // DS:0xe648 — ticks per tile
 const HELICOPTER_PROMPT_DELAY = 2; // DS:0xe64a — ticks after fire start / bomb extension
 const RESCUE_COUNTDOWN_WITH_SECURITY = 80; // DS:0xe64c
 const HELICOPTER_RESCUE_COST = 500_000; // DS:0xe688
-
-// ─── LCG15 PRNG ─────────────────────────────────────────────────────────────
-
-function sampleLcg15(es: EventState): number {
-	es.lcgState = (es.lcgState * 0x15a4e35 + 1) & 0x7fff;
-	return es.lcgState;
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -88,7 +82,7 @@ function objectNewsCode(objectTypeCode: number): string | null {
 		case 7:
 			return "0x5a8";
 		case 9:
-			return sampleLcgNews(10) === 0 ? "0x628" : "0x629";
+			return sampleNewsRng(10) === 0 ? "0x628" : "0x629";
 		case 10:
 		case 12:
 			return sampleNewsVariant(["0x569", "0x668"]);
@@ -102,14 +96,14 @@ function objectNewsCode(objectTypeCode: number): string | null {
 	}
 }
 
-let newsLcgSource: EventState | null = null;
-function sampleLcgNews(modulo: number): number {
-	if (!newsLcgSource) return 0;
-	return sampleLcg15(newsLcgSource) % modulo;
+let newsRngSource: WorldState | null = null;
+function sampleNewsRng(modulo: number): number {
+	if (!newsRngSource) return 0;
+	return sampleRng(newsRngSource) % modulo;
 }
 
 function sampleNewsVariant(codes: string[]): string {
-	const index = sampleLcgNews(codes.length);
+	const index = sampleNewsRng(codes.length);
 	return codes[index] ?? codes[0] ?? "news";
 }
 
@@ -136,11 +130,7 @@ function deleteObjectCoveringFloorTile(
  * empty floor after that contiguous occupied run. Returns a uniformly chosen floor
  * from [lowerBound, topLiveFloor], or -1 if no occupied floors exist above lowerBound.
  */
-function selectRandomLiveFloor(
-	world: WorldState,
-	es: EventState,
-	lowerBound: number,
-): number {
+function selectRandomLiveFloor(world: WorldState, lowerBound: number): number {
 	// Find the first non-empty floor at or above lowerBound
 	let firstOccupied = -1;
 	for (let f = lowerBound; f < GRID_HEIGHT; f++) {
@@ -160,7 +150,7 @@ function selectRandomLiveFloor(
 
 	const range = topLiveFloor - lowerBound + 1;
 	if (range <= 0) return -1;
-	return lowerBound + (sampleLcg15(es) % range);
+	return lowerBound + (sampleRng(world) % range);
 }
 
 // ─── Bomb Event ──────────────────────────────────────────────────────────────
@@ -183,13 +173,13 @@ export function tryTriggerBombEvent(
 	// Guard: early part of day
 	if (time.dayTick >= 0x4b1) return;
 	// Guard: star 2, 3, or 4 only
-	if (time.starCount < 2 || time.starCount > 4) return;
+	if (world.starCount < 2 || world.starCount > 4) return;
 
 	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
 	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
 	// Select floor via contiguous-live-floor scan
-	const selectedFloor = selectRandomLiveFloor(world, es, minFloor);
+	const selectedFloor = selectRandomLiveFloor(world, minFloor);
 	if (selectedFloor < 0) return;
 
 	// Require floor width >= 4 tiles
@@ -198,7 +188,7 @@ export function tryTriggerBombEvent(
 
 	const tileRange = bounds.right - bounds.left - 4;
 	const selectedTile =
-		bounds.left + (tileRange > 0 ? sampleLcg15(es) % (tileRange + 1) : 0);
+		bounds.left + (tileRange > 0 ? sampleRng(world) % (tileRange + 1) : 0);
 
 	es.bombFloor = selectedFloor;
 	es.bombTile = selectedTile;
@@ -213,7 +203,7 @@ export function tryTriggerBombEvent(
 		es.bombSearchScanTile = -1;
 	}
 
-	const ransom = BOMB_RANSOM[time.starCount] ?? 0;
+	const ransom = BOMB_RANSOM[world.starCount] ?? 0;
 	world.pendingPrompts.push({
 		promptId: `bomb_${time.dayCounter}`,
 		promptKind: "bomb_ransom",
@@ -373,7 +363,7 @@ export function tryTriggerFireEvent(
 	// Guard: early daypart (< 4)
 	if (time.daypartIndex >= 4) return;
 	// Guard: star > 2
-	if (time.starCount <= 2) return;
+	if (world.starCount <= 2) return;
 	// Guard: no cathedral guest dispatch active
 	if (
 		world.gateFlags.evalSimIndex >= 0 &&
@@ -385,7 +375,7 @@ export function tryTriggerFireEvent(
 	const minFloor = lobbyHeight + UNDERGROUND_FLOORS + 10;
 
 	// Select floor via contiguous-live-floor scan
-	const selectedFloor = selectRandomLiveFloor(world, es, minFloor);
+	const selectedFloor = selectRandomLiveFloor(world, minFloor);
 	if (selectedFloor < 0) return;
 
 	// Require floor width >= 32 tiles
@@ -574,7 +564,7 @@ export function tickVipSpecialVisitor(
 	}
 
 	// 1% chance per tick
-	if (sampleLcg15(es) % 100 !== 0) return;
+	if (sampleRng(world) % 100 !== 0) return;
 
 	if (world.gateFlags.metroPlaced === 0) return;
 
@@ -584,11 +574,10 @@ export function tickVipSpecialVisitor(
 		if (record.objectTypeCode !== FAMILY_METRO) continue;
 		if (record.auxValueOrTimer === 0) {
 			record.auxValueOrTimer = 2; // activate special visitor
-			record.needsRefreshFlag = 1;
+
 			activated = true;
 		} else {
 			record.auxValueOrTimer = 0; // clear
-			record.needsRefreshFlag = 1;
 		}
 	}
 	if (activated) {
@@ -608,13 +597,14 @@ export function triggerRandomNewsEvent(
 	time: TimeState,
 ): void {
 	const es = world.eventState;
+	if (es.disableNewsEvents) return;
 	if (time.dayTick <= 0xf0) return;
 	if (time.daypartIndex >= 6) return;
 	if ((es.gameStateFlags & 9) !== 0) return;
-	if (sampleLcg15(es) % 16 !== 0) return;
+	if (sampleRng(world) % 16 !== 0) return;
 
 	const candidates = Object.values(world.placedObjects);
-	newsLcgSource = es;
+	newsRngSource = world;
 	try {
 		if (candidates.length === 0) {
 			world.pendingNotifications.push({
@@ -623,13 +613,13 @@ export function triggerRandomNewsEvent(
 			});
 			return;
 		}
-		const object = candidates[sampleLcg15(es) % candidates.length];
+		const object = candidates[sampleRng(world) % candidates.length];
 		if (!object) return;
 		const code = objectNewsCode(object.objectTypeCode);
 		if (!code) return;
 		world.pendingNotifications.push({ kind: "news", message: code });
 	} finally {
-		newsLcgSource = null;
+		newsRngSource = null;
 	}
 }
 
@@ -666,7 +656,7 @@ export function handlePromptResponse(
 	if (promptId.startsWith("bomb_")) {
 		if (!accepted) return true; // refused — bomb stays armed (default behavior)
 		// Pay ransom: deactivate bomb
-		const ransom = BOMB_RANSOM[time.starCount] ?? 0;
+		const ransom = BOMB_RANSOM[world.starCount] ?? 0;
 		if (ransom > 0 && ledger.cashBalance >= ransom) {
 			ledger.cashBalance -= ransom;
 			bombCleanup(world, time);

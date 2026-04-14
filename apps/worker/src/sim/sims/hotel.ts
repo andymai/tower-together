@@ -4,8 +4,13 @@ import {
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 } from "../resources";
-import type { TimeState } from "../time";
-import type { PlacedObjectRecord, SimRecord, WorldState } from "../world";
+import { DAY_TICK_NEW_DAY, type TimeState } from "../time";
+import {
+	type PlacedObjectRecord,
+	type SimRecord,
+	sampleRng,
+	type WorldState,
+} from "../world";
 import {
 	dispatchCommercialVenueVisit,
 	findObjectForSim,
@@ -26,6 +31,8 @@ import {
 	STATE_COMMUTE,
 	STATE_DEPARTURE,
 	STATE_HOTEL_PARKED,
+	STATE_MORNING_GATE,
+	STATE_NIGHT_B,
 	STATE_TRANSITION,
 	STATE_VENUE_TRIP,
 } from "./states";
@@ -54,7 +61,6 @@ function activateHotelStay(
 
 	sim.originFloor = LOBBY_FLOOR;
 	object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
-	object.needsRefreshFlag = 1;
 
 	if (result === 3) {
 		// Same-floor: immediate arrival
@@ -109,9 +115,8 @@ export function checkoutHotelStay(
 	}
 	for (const sibling of siblings) sibling.stateCode = STATE_HOTEL_PARKED;
 	object.unitStatus = time.daypartIndex < 4 ? 0x28 : 0x30;
-	object.evalActiveFlag = 0;
+	object.occupiableFlag = 0;
 	object.activationTickCount = 0;
-	object.needsRefreshFlag = 1;
 }
 
 export function processHotelSim(
@@ -125,22 +130,47 @@ export function processHotelSim(
 
 	switch (sim.stateCode) {
 		case STATE_HOTEL_PARKED:
-			activateHotelStay(world, sim, time);
+			// Binary: state 0x24 is NOT in the hotel jump table — it's a no-op.
+			// Room assignment is handled externally; sims stay parked until then.
 			return;
-		case STATE_ACTIVE: {
-			if (time.daypartIndex >= 4) {
-				if (object.unitStatus === 0 || object.unitStatus === 8) {
-					object.unitStatus = STATE_TRANSITION;
+		case STATE_MORNING_GATE: {
+			// Binary refresh handler at 1228:2c63:
+			// 1. Check occupiableFlag — if 0, no-op
+			if (object.occupiableFlag === 0) return;
+			// 2. daypart === 4: 1/12 RNG gate → dispatch (all families consume RNG)
+			if (time.daypartIndex === 4) {
+				if (sampleRng(world) % 12 !== 0) return;
+				// Suite star-count check happens after RNG in the dispatch handler.
+				if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
+					sim.stateCode = STATE_NIGHT_B;
+					return;
 				}
-				sim.destinationFloor = LOBBY_FLOOR;
-				sim.selectedFloor = sim.floorAnchor;
-				sim.stateCode = STATE_DEPARTURE;
+				activateHotelStay(world, sim, time);
 				return;
 			}
+			// 3. daypart > 4 AND dayTick < 2300: force CHECKOUT_QUEUE
+			if (time.daypartIndex > 4 && time.dayTick < DAY_TICK_NEW_DAY) {
+				sim.stateCode = STATE_CHECKOUT_QUEUE;
+				return;
+			}
+			// daypart 0–3 or daypart > 4 with dayTick >= 2300: no-op
+			return;
+		}
+		case STATE_ACTIVE: {
+			// Gate: daypart <= 3 → no dispatch
+			if (time.daypartIndex <= 3) return;
+			// Gate: daypart > 4 → force checkout queue
+			if (time.daypartIndex > 4) {
+				sim.stateCode = STATE_CHECKOUT_QUEUE;
+				return;
+			}
+			// Gate: daypart === 4 → 1/6 chance
+			if (sampleRng(world) % 6 !== 0) return;
+			// Dispatch: decrement_unit_status, route to commercial venue
 			// Hotel suite parking demand: eligible when occupied (unitStatus != 0)
 			if (
 				sim.familyCode === FAMILY_HOTEL_SUITE &&
-				time.starCount > 2 &&
+				world.starCount > 2 &&
 				object.unitStatus !== 0
 			) {
 				tryAssignParkingService(world, time, sim);
@@ -148,6 +178,8 @@ export function processHotelSim(
 			dispatchCommercialVenueVisit(world, time, sim, {
 				venueFamilies: COMMERCIAL_FAMILIES,
 				returnState: STATE_ACTIVE,
+				// Binary: venue failure → CHECKOUT_QUEUE (0x04) at 1228:33b2.
+				unavailableState: STATE_CHECKOUT_QUEUE,
 				onVenueReserved: () => {
 					object.activationTickCount = Math.min(
 						ACTIVATION_TICK_CAP,
@@ -163,29 +195,54 @@ export function processHotelSim(
 		case STATE_VENUE_TRIP:
 			finishCommercialVenueTrip(sim, STATE_ACTIVE);
 			return;
-		case STATE_DEPARTURE:
 		case STATE_CHECKOUT_QUEUE:
-			if (sim.selectedFloor !== LOBBY_FLOOR) return;
-			if (object.unitStatus === 0 || object.unitStatus === 8) {
-				object.unitStatus = STATE_TRANSITION;
-				object.needsRefreshFlag = 1;
-				return;
+			// Gate: daypart < 5 → no dispatch
+			if (time.daypartIndex < 5) return;
+			// Gate: daypart >= 5 AND tick <= 2400 → 1/12 chance
+			if (time.dayTick <= 2400) {
+				if (sampleRng(world) % 12 !== 0) return;
 			}
-			if (object.unitStatus === STATE_TRANSITION) {
-				object.unitStatus =
-					object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
-				object.needsRefreshFlag = 1;
-				return;
-			}
-			if ((object.unitStatus & 0x07) > 1) {
-				object.unitStatus -= 1;
-				object.needsRefreshFlag = 1;
-				return;
-			}
-			checkoutHotelStay(world, ledger, time, sim, object);
+			// Dispatch: sibling sync → STATE_TRANSITION
+			sim.stateCode = STATE_TRANSITION;
 			return;
+		case STATE_TRANSITION:
+			// Gate: daypart < 5 → dispatch
+			if (time.daypartIndex >= 5) {
+				// Gate: daypart >= 5 AND tick <= 2566 → no dispatch
+				if (time.dayTick <= 2566) return;
+				// Gate: daypart >= 5 AND tick > 2566 → 1/12 chance
+				if (sampleRng(world) % 12 !== 0) return;
+			}
+			// Dispatch: set unit_status, state → 0x05
+			object.unitStatus = object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+
+			sim.stateCode = STATE_DEPARTURE;
+			return;
+		case STATE_DEPARTURE: {
+			// Gate: daypart 0 → 1/12 chance
+			if (time.daypartIndex === 0) {
+				if (sampleRng(world) % 12 !== 0) return;
+			}
+			// Gate: daypart 6 → no dispatch
+			if (time.daypartIndex >= 6) return;
+			// Dispatch: decrement_unit_status. If unit_status & 7 == 0: checkout + route to lobby
+			if ((object.unitStatus & 0x07) > 0) {
+				object.unitStatus -= 1;
+			}
+			if ((object.unitStatus & 0x07) === 0) {
+				checkoutHotelStay(world, ledger, time, sim, object);
+			}
+			return;
+		}
 		case COMMERCIAL_DWELL_STATE:
 			finishCommercialVenueDwell(sim, time, STATE_ACTIVE);
+			return;
+		case STATE_NIGHT_B:
+			// Binary: dayTick <= 2300 → no-op; dayTick > 2300 → reset.
+			// base0 → HOTEL_PARKED, others → MORNING_GATE.
+			if (time.dayTick <= DAY_TICK_NEW_DAY) return;
+			sim.stateCode =
+				sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
 			return;
 		default:
 			sim.stateCode = STATE_HOTEL_PARKED;

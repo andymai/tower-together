@@ -84,7 +84,9 @@ export function createInitialSnapshot(
 			transferGroupEntries: createEmptyTransferGroupEntries(),
 			transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 			parkingDemandLog: [],
+			starCount: 1,
 			rngState: 1,
+			rngCallCount: 0,
 			eventState: createEventState(),
 			pendingNotifications: [],
 			pendingPrompts: [],
@@ -170,7 +172,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			transferGroupEntries: [],
 			transferGroupCache: [],
 			parkingDemandLog: [],
+			starCount: 1,
 			rngState: 1,
+			rngCallCount: 0,
 			eventState: createEventState(),
 			pendingNotifications: [],
 			pendingPrompts: [],
@@ -186,13 +190,20 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			dayTick: 0,
 			daypartIndex: 0,
 			dayCounter: 0,
-			calendarPhaseFlag: 0,
-			starCount: 1,
+			weekendFlag: 0,
 			totalTicks: (old.simTime as number) ?? 0,
 		};
 	}
 
 	migrateSnakeToCamel(snapshot);
+
+	// Migrate starCount from time → world (legacy snapshots stored it in time)
+	const legacyTime = snapshot.time as unknown as Record<string, unknown>;
+	if ("starCount" in legacyTime) {
+		snapshot.world.starCount ??= legacyTime.starCount as number;
+		delete legacyTime.starCount;
+	}
+
 	normalizeLegacyTileNames(snapshot);
 
 	const legacyLedger = snapshot.ledger as unknown as Record<string, unknown>;
@@ -215,10 +226,16 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			legacyRecord.unitStatus = legacyRecord.stayPhase;
 		}
 		if (
-			!("evalActiveFlag" in legacyRecord) &&
+			!("occupiableFlag" in legacyRecord) &&
 			"pairingActiveFlag" in legacyRecord
 		) {
-			legacyRecord.evalActiveFlag = legacyRecord.pairingActiveFlag;
+			legacyRecord.occupiableFlag = legacyRecord.pairingActiveFlag;
+		}
+		if (
+			!("occupiableFlag" in legacyRecord) &&
+			"evalActiveFlag" in legacyRecord
+		) {
+			legacyRecord.occupiableFlag = legacyRecord.evalActiveFlag;
 		}
 		if (!("evalLevel" in legacyRecord) && "pairingStatus" in legacyRecord) {
 			legacyRecord.evalLevel = legacyRecord.pairingStatus;
@@ -275,7 +292,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	if (snapshot.world.transferGroupCache.length !== GRID_HEIGHT) {
 		snapshot.world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
 	}
+	snapshot.world.starCount ??= 1;
 	snapshot.world.rngState ??= 1;
+	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
 	snapshot.world.eventState.bombSearchLowerBound ??= -1;
 	snapshot.world.eventState.bombSearchUpperBound ??= -1;
@@ -289,6 +308,12 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.gateFlags.newspaperTrigger ??= 0;
 
 	for (const sidecar of snapshot.world.sidecars) {
+		if (sidecar.kind === "commercial_venue") {
+			sidecar.currentPopulation ??= 0;
+			sidecar.lastAcquireTick ??= 0;
+			sidecar.eligibilityThreshold ??= 0;
+			continue;
+		}
 		if (sidecar.kind !== "entertainment_link") continue;
 		sidecar.familySelectorOrSingleLinkFlag ??= 0xff;
 		sidecar.linkPhaseState ??= 0;
@@ -415,7 +440,9 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 		raw.pairingPendingFlag ??= 0;
 		raw.evalScore ??= -1;
 	}
+	snapshot.world.starCount ??= 1;
 	snapshot.world.rngState ??= 1;
+	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
 
 	rebuildSpecialLinks(snapshot.world);
@@ -466,7 +493,9 @@ export function serializeSimState(
 			) as WorldState["transferGroupEntries"],
 			transferGroupCache: [...world.transferGroupCache],
 			parkingDemandLog: [...world.parkingDemandLog],
+			starCount: world.starCount,
 			rngState: world.rngState,
+			rngCallCount: world.rngCallCount,
 			eventState: JSON.parse(
 				JSON.stringify(world.eventState),
 			) as WorldState["eventState"],

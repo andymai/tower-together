@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { TowerSim } from "./index";
+import { DAY_TICK_MAX, DAY_TICK_NEW_DAY, NEW_GAME_DAY_TICK } from "./time";
 import { GROUND_Y } from "./world";
 
 // @ts-expect-error import.meta.url exists at runtime in vitest/Node
@@ -30,6 +31,7 @@ interface TraceEntry {
 	tick: number;
 	cash: number;
 	population: number;
+	rng_calls?: number;
 	sims: Record<
 		string,
 		{
@@ -82,15 +84,20 @@ function loadFixture(name: string): { spec: BuildSpec; trace: TraceEntry[] } {
 }
 
 function traceTickToTotalTicks(day: number, tick: number): number {
-	return 97 + day * 2600 + (tick - 30);
+	// Day 0 starts at dayTick=2533, runs through 2599→0→...→2299.
+	// Day D (D>=1) starts at dayTick=2300, runs 2600 ticks to next 2300.
+	if (day === 0) {
+		return (tick - NEW_GAME_DAY_TICK + DAY_TICK_MAX) % DAY_TICK_MAX;
+	}
+	const day0Length = DAY_TICK_MAX - NEW_GAME_DAY_TICK + DAY_TICK_NEW_DAY;
+	return (
+		day0Length +
+		(day - 1) * DAY_TICK_MAX +
+		((tick - DAY_TICK_NEW_DAY + DAY_TICK_MAX) % DAY_TICK_MAX)
+	);
 }
 
-function buildTowerFromSpec(spec: BuildSpec): TowerSim {
-	const sim = TowerSim.create("trace-test", "Trace Test");
-
-	// Advance 97 ticks to reach dayTick=30, aligning with the first trace snapshot.
-	for (let i = 0; i < 97; i++) sim.step();
-
+function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 	sim.freeBuild = true;
 
 	// Place lobby on ground floor
@@ -131,14 +138,39 @@ function buildTowerFromSpec(spec: BuildSpec): TowerSim {
 	}
 
 	sim.freeBuild = false;
+}
+
+function buildTowerFromSpec(spec: BuildSpec): TowerSim {
+	const sim = TowerSim.create("trace-test", "Trace Test");
+	placeTilesFromSpec(sim, spec);
+	// Advance 100 ticks: dayTick 2533 → day boundary at tick 67 → dayTick=33.
+	for (let i = 0; i < 100; i++) sim.step();
 	return sim;
 }
 
+/** Compute the 32-bit LCG state after N calls starting from a given seed. */
+function computeRngState(seed: number, calls: number): number {
+	let state = seed;
+	for (let i = 0; i < calls; i++) {
+		state = (Math.imul(state, 0x15a4e35) + 1) | 0;
+	}
+	return state;
+}
+
 function prepareFromTrace(spec: BuildSpec, trace: TraceEntry[]): TowerSim {
-	const sim = buildTowerFromSpec(spec);
+	const sim = TowerSim.create("trace-test", "Trace Test");
+	// Place tiles at dayTick=2533 (day -1), matching the binary.
+	placeTilesFromSpec(sim, spec);
+	// Seed cash, rng state, and rng count from the day -1 baseline (trace[0]).
 	const snap = sim.saveState();
 	snap.ledger.cashBalance = trace[0].cash;
+	if (trace[0].rng_calls !== undefined) {
+		snap.world.rngCallCount = trace[0].rng_calls;
+		snap.world.rngState = computeRngState(1, trace[0].rng_calls);
+	}
+	snap.world.eventState.disableNewsEvents = true;
 	return TowerSim.fromSnapshot(snap);
+	// No pre-advance — the test loop drives advancement through the day boundary.
 }
 
 function advanceTo(sim: TowerSim, targetTotalTicks: number): void {
@@ -187,11 +219,14 @@ const FIXTURE_NAMES = [
 describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	const { spec, trace } = loadFixture(fixtureName);
 
+	// Entry 0 is the day -1 / tick 2533 baseline; simulation entries start at index 1.
+	const simEntries = trace.slice(1);
+
 	it("builds tower and runs full trace without crashing", () => {
 		const sim = buildTowerFromSpec(spec);
-		expect(sim.simTime).toBe(97);
+		expect(sim.simTime).toBe(100);
 
-		for (const entry of trace) {
+		for (const entry of simEntries) {
 			const targetTicks = traceTickToTotalTicks(entry.day, entry.tick);
 			if (targetTicks > sim.simTime) {
 				advanceTo(sim, targetTicks);
@@ -200,7 +235,7 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	});
 
 	it("matches reference sim total at each trace tick", () => {
-		const entries = activeTraceEntries(trace);
+		const entries = activeTraceEntries(simEntries);
 		if (entries.length === 0) return;
 		const sim = prepareFromTrace(spec, trace);
 
@@ -214,7 +249,7 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	});
 
 	it("matches reference sim counts by family", () => {
-		const entries = activeTraceEntries(trace);
+		const entries = activeTraceEntries(simEntries);
 		if (entries.length === 0) return;
 		const sim = prepareFromTrace(spec, trace);
 
@@ -233,11 +268,36 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		}
 	});
 
-	it("matches reference cash", () => {
-		if (trace.length === 0) return;
+	it("matches reference RNG call deltas between trace entries", () => {
+		const entries = simEntries.filter(
+			(e): e is TraceEntry & { rng_calls: number } => e.rng_calls !== undefined,
+		);
+		if (entries.length < 2) return;
 		const sim = prepareFromTrace(spec, trace);
 
-		for (const entry of trace) {
+		advanceTo(sim, traceTickToTotalTicks(entries[0].day, entries[0].tick));
+		let prevSimCalls = sim.rngCallCount;
+		let prevTraceCalls = entries[0].rng_calls;
+
+		for (let i = 1; i < entries.length; i++) {
+			const entry = entries[i];
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			const simDelta = sim.rngCallCount - prevSimCalls;
+			const traceDelta = entry.rng_calls - prevTraceCalls;
+			expect(
+				simDelta,
+				`rng_calls delta mismatch at day=${entry.day} tick=${entry.tick}: sim=${simDelta} trace=${traceDelta}`,
+			).toBe(traceDelta);
+			prevSimCalls = sim.rngCallCount;
+			prevTraceCalls = entry.rng_calls;
+		}
+	});
+
+	it("matches reference cash", () => {
+		if (simEntries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
+
+		for (const entry of simEntries) {
 			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
 			expect(
 				sim.cash,

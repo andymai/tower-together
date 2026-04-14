@@ -46,7 +46,6 @@ import {
 	ROUTE_IDLE,
 	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
-	STATE_CHECKOUT_QUEUE,
 	STATE_COMMUTE,
 	STATE_COMMUTE_TRANSIT,
 	STATE_DEPARTURE,
@@ -131,10 +130,10 @@ export function releaseServiceRequest(
 	clearSimRoute(sim);
 }
 
-function recomputeRoutesViableFlag(world: WorldState, time: TimeState): void {
+function recomputeRoutesViableFlag(world: WorldState): void {
 	// Binary-grounded: rebuild_path_seed_bucket_table unconditionally latches
 	// routesViable = 1 whenever star_count > 2; no route-scoring predicate found.
-	world.gateFlags.routesViable = time.starCount > 2 ? 1 : 0;
+	world.gateFlags.routesViable = world.starCount > 2 ? 1 : 0;
 }
 
 interface VenueSelection {
@@ -342,6 +341,12 @@ export function advanceSimRefreshStride(
 		// Spec: dispatch_sim_behavior calls rebase_sim_elapsed_from_clock every tick.
 		rebaseSimElapsedFromClock(sim, time);
 		finalizePendingRouteLeg(sim);
+		// Binary: sims with the transit flag (0x40) are not in the family dispatch
+		// tables. Skip the state machine for sims actively in transit — the
+		// arrival handler (reconcileSimTransport) will fire later this tick.
+		if (sim.route.mode !== "idle") {
+			continue;
+		}
 		switch (sim.familyCode) {
 			case FAMILY_HOTEL_SINGLE:
 			case FAMILY_HOTEL_TWIN:
@@ -367,7 +372,7 @@ export function advanceSimRefreshStride(
 		}
 	}
 
-	recomputeRoutesViableFlag(world, time);
+	recomputeRoutesViableFlag(world);
 }
 
 function shouldSeedElevatorDemand(sim: SimRecord): boolean {
@@ -408,10 +413,7 @@ function getElevatorDemand(sim: SimRecord): {
 		};
 	}
 
-	if (
-		sim.stateCode === STATE_CHECKOUT_QUEUE ||
-		sim.stateCode === STATE_DEPARTURE
-	) {
+	if (sim.stateCode === STATE_DEPARTURE) {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: LOBBY_FLOOR,
@@ -548,13 +550,8 @@ export function resolveSimRouteBetweenFloors(
 		};
 		sim.queueTick = time?.dayTick ?? sim.queueTick;
 		sim.destinationFloor = destinationFloor;
-		// Per-stop transit delay: Escalator branch = 16 ticks/floor,
-		// Stairs branch = 35 ticks/floor.
-		const segment = world.specialLinks[route.id];
-		const isStairsBranch = segment ? (segment.flags & 1) !== 0 : false;
-		const perStopDelay = isStairsBranch ? 35 : 16;
-		sim.transitTicksRemaining =
-			Math.abs(destinationFloor - sourceFloor) * perStopDelay;
+		// Segment transit is one stride (16 ticks) per floor traversed.
+		sim.transitTicksRemaining = Math.abs(destinationFloor - sourceFloor) * 16;
 		// Route-start timestamp: start the clock for elapsed tracking.
 		if (time) sim.lastDemandTick = time.dayTick;
 		return 1;
@@ -618,7 +615,6 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT ||
-		sim.stateCode === STATE_CHECKOUT_QUEUE ||
 		sim.stateCode === STATE_DEPARTURE ||
 		sim.stateCode === STATE_DEPARTURE_TRANSIT ||
 		sim.stateCode === STATE_MORNING_TRANSIT ||

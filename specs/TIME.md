@@ -33,7 +33,27 @@ Maintain:
 - hotel vacancy band: morning → `0x18`, evening → `0x20`
 
 New game initializes `day_tick = 2533` which gives `daypart_index = 6` (night).
-The first full 0–2599 cycle begins on the second sim day.
+
+**Tick wrap vs day advance**: The tick wrap (`day_tick` resetting from 2600 to 0)
+and the day advance (`day_counter` incrementing at tick 2300) are **separate events**
+separated by 300 ticks. When `day_tick` wraps to 0, the day counter does NOT change.
+The day counter already incremented 300 ticks earlier at checkpoint 2300.
+
+New-game timeline:
+
+1. Game starts at day 0, tick 2533 (night). `initialize_simulation_clock` at
+   `1208:0000` writes `g_day_tick = 0x9E5`, `g_day_counter = 0`.
+2. Ticks 2534–2599 run (still night, still day 0).
+3. Tick 2600: `day_tick` wraps to 0. Day counter stays 0. **No day advance here.**
+4. Ticks 0–2299: the first full daytime plays out under day 0.
+5. Tick 2300 (`0x8FC`): `day_counter` increments to 1.
+6. Ticks 2300–2599: evening/night, now day 1.
+7. Tick 2600: `day_tick` wraps to 0 again. Day counter stays 1.
+
+The 300-tick window (2300–2599) is the "overnight" period: it carries the new day
+number but displays the night sky. Starting at tick 2533 means the player sees a
+brief night, then dawn breaks — a deliberate UX choice. Tick 2533 is also the
+quarterly-expense checkpoint, so the first day begins with a clean financial slate.
 
 ## RNG
 

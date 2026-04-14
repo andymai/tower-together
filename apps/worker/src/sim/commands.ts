@@ -116,10 +116,9 @@ function makePlacedObject(
 		unitStatus,
 		linkedRecordIndex: sidecarIndex,
 		auxValueOrTimer: 0,
-		needsRefreshFlag: 1,
 		evalLevel: 0xff,
 		evalScore: -1,
-		evalActiveFlag: 1,
+		occupiableFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
 		pairingPendingFlag: 0,
@@ -150,6 +149,9 @@ function allocSidecar(
 			yesterdayVisitCount: 0,
 			// Retail starts dormant (unrented); restaurant/fast-food start active
 			availabilityState: tileType === "retail" ? VENUE_DORMANT : VENUE_PARTIAL,
+			currentPopulation: 0,
+			lastAcquireTick: 0,
+			eligibilityThreshold: 0,
 		};
 		record = r;
 	} else if (
@@ -428,7 +430,7 @@ function placeRecyclingCenterStack(
 				isAnchor: dx === 0,
 				...(dx === 0 && record
 					? {
-							evalActiveFlag: record.evalActiveFlag,
+							evalActiveFlag: record.occupiableFlag,
 							unitStatus: record.unitStatus,
 						}
 					: {}),
@@ -703,7 +705,7 @@ export function handlePlaceTile(
 		isAnchor: dx === 0,
 		...(dx === 0 && record
 			? {
-					evalActiveFlag: record.evalActiveFlag,
+					evalActiveFlag: record.occupiableFlag,
 					unitStatus: record.unitStatus,
 				}
 			: {}),
@@ -834,7 +836,7 @@ export function handleSetRentLevel(
 	y: number,
 	rentLevel: number,
 	world: WorldState,
-	time: { daypartIndex: number; starCount: number },
+	time: { daypartIndex: number },
 ): CommandResult {
 	if (rentLevel < 0 || rentLevel > 3) {
 		return { accepted: false, reason: "Rent level must be 0-3" };
@@ -857,7 +859,6 @@ export function handleSetRentLevel(
 		};
 	}
 	record.rentLevel = rentLevel;
-	record.needsRefreshFlag = 1;
 	// Immediate recompute keeps the inspected facility in sync with the command.
 	void time;
 	return { accepted: true, patch: [] };

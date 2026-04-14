@@ -64,8 +64,8 @@ import {
 	advanceOneTick,
 	createNewGameTimeState,
 	createTimeState,
-	DAY_TICK_INCOME,
 	DAY_TICK_MAX,
+	DAY_TICK_NEW_DAY,
 	NEW_GAME_DAY_TICK,
 	preDay4,
 } from "./time";
@@ -76,6 +76,7 @@ import {
 	GRID_WIDTH,
 	GROUND_Y,
 	isValidLobbyY,
+	sampleRng,
 	UNDERGROUND_FLOORS,
 	type WorldState,
 } from "./world";
@@ -89,6 +90,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		width: GRID_WIDTH,
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
+		starCount: 1,
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
@@ -104,6 +106,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		transferGroupEntries: [],
 		transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 		rngState: 1,
+		rngCallCount: 0,
 		eventState: createEventState(),
 		parkingDemandLog: [],
 		pendingNotifications: [],
@@ -132,6 +135,30 @@ function placeSupportRow(y: number, world: WorldState, _ledger: LedgerState) {
 	}
 }
 
+// ─── RNG ─────────────────────────────────────────────────────────────────────
+
+describe("sampleRng", () => {
+	it("produces the reference 100-value sequence from seed 1", () => {
+		const world = { rngState: 1, rngCallCount: 0 } as WorldState;
+		const expected = [
+			346, 130, 10982, 1090, 11656, 7117, 17595, 6415, 22948, 31126, 9004,
+			14558, 3571, 22879, 18492, 1360, 5412, 26721, 22463, 25047, 27119, 31441,
+			7190, 13985, 31214, 27509, 30252, 26571, 14779, 19816, 21681, 19651,
+			17995, 23593, 3734, 13310, 3979, 21995, 15561, 16092, 18489, 11288, 28466,
+			8664, 5892, 13863, 22766, 5364, 17639, 21151, 20427, 100, 25795, 8812,
+			15108, 12666, 12347, 19042, 19774, 9169, 5589, 26383, 9666, 10941, 13390,
+			7878, 13565, 1779, 16190, 32233, 53, 13429, 2285, 2422, 8333, 31937,
+			11636, 13268, 6460, 6458, 6936, 8160, 24842, 29142, 29667, 24115, 15116,
+			17418, 1156, 4279, 15008, 15859, 19561, 8297, 3755, 22981, 21275, 29040,
+			28690, 1401,
+		];
+		for (let i = 0; i < expected.length; i++) {
+			expect(sampleRng(world), `call ${i}`).toBe(expected[i]);
+		}
+		expect(world.rngCallCount).toBe(100);
+	});
+});
+
 // ─── Phase 1: Time model ──────────────────────────────────────────────────────
 
 describe("time model", () => {
@@ -140,8 +167,7 @@ describe("time model", () => {
 		expect(t.dayTick).toBe(0);
 		expect(t.daypartIndex).toBe(0);
 		expect(t.dayCounter).toBe(0);
-		expect(t.calendarPhaseFlag).toBe(0);
-		expect(t.starCount).toBe(1);
+		expect(t.weekendFlag).toBe(0);
 		expect(t.totalTicks).toBe(0);
 	});
 
@@ -173,10 +199,10 @@ describe("time model", () => {
 	});
 
 	it("sets incomeCheckpoint=true only at DAY_TICK_INCOME (0x08fc)", () => {
-		expect(DAY_TICK_INCOME).toBe(0x08fc);
+		expect(DAY_TICK_NEW_DAY).toBe(0x08fc);
 		let t = createTimeState();
 		// Advance to dayTick = DAY_TICK_INCOME - 1
-		for (let i = 0; i < DAY_TICK_INCOME - 1; i++) {
+		for (let i = 0; i < DAY_TICK_NEW_DAY - 1; i++) {
 			t = advanceOneTick(t).time;
 		}
 		// The next step (DAY_TICK_INCOME - 1 → DAY_TICK_INCOME - 1 is already t.dayTick)
@@ -186,28 +212,28 @@ describe("time model", () => {
 		// So let's check the tick just before too.
 		// Advance one more to reach DAY_TICK_INCOME:
 		const atIncome = advanceOneTick(t);
-		expect(atIncome.time.dayTick).toBe(DAY_TICK_INCOME);
+		expect(atIncome.time.dayTick).toBe(DAY_TICK_NEW_DAY);
 		expect(atIncome.incomeCheckpoint).toBe(true);
 		// The tick before should NOT have triggered it
 		// Roll back: advance from 0 to DAY_TICK_INCOME - 2
 		let t2 = createTimeState();
-		for (let i = 0; i < DAY_TICK_INCOME - 2; i++) {
+		for (let i = 0; i < DAY_TICK_NEW_DAY - 2; i++) {
 			t2 = advanceOneTick(t2).time;
 		}
 		const beforeIncome = advanceOneTick(t2);
-		expect(beforeIncome.time.dayTick).toBe(DAY_TICK_INCOME - 1);
+		expect(beforeIncome.time.dayTick).toBe(DAY_TICK_NEW_DAY - 1);
 		expect(beforeIncome.incomeCheckpoint).toBe(false);
 	});
 
 	it("increments dayCounter at DAY_TICK_INCOME", () => {
 		let t = createTimeState();
-		for (let i = 0; i < DAY_TICK_INCOME; i++) {
+		for (let i = 0; i < DAY_TICK_NEW_DAY; i++) {
 			t = advanceOneTick(t).time;
 		}
 		expect(t.dayCounter).toBe(1);
 	});
 
-	it("computes calendarPhaseFlag correctly", () => {
+	it("computes weekendFlag correctly", () => {
 		// flag = (dayCounter % 12) % 3 >= 2 ? 1 : 0
 		// day 0→0, 1→0, 2→1, 3→0, 4→0, 5→1, 6→0, 7→0, 8→1, 9→0, 10→0, 11→1
 		const expected = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
@@ -219,7 +245,7 @@ describe("time model", () => {
 			}
 			// After dayCounter = day, check the flag
 			if (t.dayCounter === day) {
-				expect(t.calendarPhaseFlag).toBe(expected[day]);
+				expect(t.weekendFlag).toBe(expected[day]);
 			}
 			// advance one full day
 			for (let i = 0; i < DAY_TICK_MAX; i++) {
@@ -234,7 +260,6 @@ describe("time model", () => {
 		expect(t.dayTick).toBe(0x9e5);
 		expect(t.daypartIndex).toBe(6);
 		expect(t.dayCounter).toBe(0);
-		expect(t.starCount).toBe(1);
 	});
 
 	it("preDay4 returns true for daypart < 4, false otherwise", () => {
@@ -266,9 +291,9 @@ describe("PlacedObjectRecord", () => {
 		expect(rec.objectTypeCode).toBe(3); // family code for hotelSingle
 		expect(rec.unitStatus).toBe(0x18); // init = vacant band (morning)
 		expect(rec.linkedRecordIndex).toBe(-1); // no sidecar for hotel
-		expect(rec.needsRefreshFlag).toBe(1); // init = 1 (dirty — picked up next sweep)
+
 		expect(rec.evalLevel).toBe(0xff); // init = 0xff (spec: operational score 0xff at placement)
-		expect(rec.evalActiveFlag).toBe(1); // init = 1 (first-activation latch)
+		expect(rec.occupiableFlag).toBe(1); // init = 1 (first-activation latch)
 		expect(rec.activationTickCount).toBe(0);
 		expect(rec.rentLevel).toBe(1); // family 3 → init = 1
 		expect(rec.vipFlag).toBe(false);
@@ -298,7 +323,7 @@ describe("PlacedObjectRecord", () => {
 		expect(result.accepted).toBe(true);
 		const rec = world.placedObjects[`0,${y}`];
 		expect(rec.unitStatus).toBe(0x10);
-		expect(rec.evalActiveFlag).toBe(1);
+		expect(rec.occupiableFlag).toBe(1);
 	});
 
 	it("stores placedObjects keyed by anchor position", () => {
@@ -528,9 +553,9 @@ describe("checkpoint dispatcher", () => {
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
-			needsRefreshFlag: 1,
+
 			evalLevel: -1,
-			evalActiveFlag: 1,
+			occupiableFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
@@ -626,9 +651,9 @@ describe("ledger: rebuildFacilityLedger", () => {
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
-			needsRefreshFlag: 1,
+
 			evalLevel: -1,
-			evalActiveFlag: 1,
+			occupiableFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
@@ -691,9 +716,9 @@ describe("ledger: doExpenseSweep", () => {
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
-			needsRefreshFlag: 1,
+
 			evalLevel: -1,
-			evalActiveFlag: 1,
+			occupiableFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 4, // family 6 (restaurant) → init = 4
 			evalScore: -1,
@@ -1090,9 +1115,9 @@ describe("handleRemoveTile", () => {
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
-			needsRefreshFlag: 1,
+
 			evalLevel: -1,
-			evalActiveFlag: 1,
+			occupiableFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
@@ -1661,8 +1686,8 @@ describe("selectBestRouteCandidate", () => {
 			unitStatus: 0,
 			auxValueOrTimer: 0,
 			linkedRecordIndex: -1,
-			needsRefreshFlag: 1,
-			evalActiveFlag: 1,
+
+			occupiableFlag: 1,
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
@@ -1692,8 +1717,8 @@ describe("selectBestRouteCandidate", () => {
 			unitStatus: 0,
 			auxValueOrTimer: 0,
 			linkedRecordIndex: -1,
-			needsRefreshFlag: 1,
-			evalActiveFlag: 1,
+
+			occupiableFlag: 1,
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
@@ -1707,8 +1732,8 @@ describe("selectBestRouteCandidate", () => {
 			unitStatus: 0,
 			auxValueOrTimer: 0,
 			linkedRecordIndex: -1,
-			needsRefreshFlag: 1,
-			evalActiveFlag: 1,
+
+			occupiableFlag: 1,
 			evalLevel: -1,
 			rentLevel: 4,
 			activationTickCount: 0,
@@ -2214,12 +2239,12 @@ describe("Phase 4 runtime sims", () => {
 	it("marks recycling adequate when the checkpoint tier meets the scaled requirement", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		const time = createTimeState();
 		setupOccupiedFloor(world, ledger);
 
 		handlePlaceTile(0, GROUND_Y + 1, "recyclingCenter", world, ledger);
 		ledger.populationLedger[7] = 300;
-		updateRecyclingCenterState(world, ledger, { ...time, starCount: 4 }, 5);
+		world.starCount = 4;
+		updateRecyclingCenterState(world, ledger, 5);
 
 		expect(world.gateFlags.recyclingAdequate).toBe(1);
 		expect(world.placedObjects[`0,${GROUND_Y + 1}`].unitStatus).toBe(1);
@@ -2236,6 +2261,7 @@ describe("Phase 4 runtime sims", () => {
 		handlePlaceTile(40, GROUND_Y - 1, "hotelSingle", world, ledger);
 		placeElevatorShaft(world, ledger, 0, 10, 15);
 		rebuildRuntimeSims(world);
+		world.starCount = 4;
 
 		const condoBefore = ledger.cashBalance;
 		for (let tick = 0; tick < 64; tick++) {
@@ -2244,7 +2270,6 @@ describe("Phase 4 runtime sims", () => {
 				dayTick: tick,
 				daypartIndex: 1,
 				dayCounter: 3,
-				starCount: 4,
 			});
 			populateCarrierRequests(world);
 			tickAllCarriers(world, {
@@ -2252,14 +2277,12 @@ describe("Phase 4 runtime sims", () => {
 				dayTick: tick,
 				daypartIndex: 1,
 				dayCounter: 3,
-				starCount: 4,
 			});
 			reconcileSimTransport(world, ledger, {
 				...createTimeState(),
 				dayTick: tick,
 				daypartIndex: 1,
 				dayCounter: 3,
-				starCount: 4,
 			});
 		}
 		expect(ledger.cashBalance).toBeGreaterThan(condoBefore);
@@ -2356,11 +2379,11 @@ describe("Phase 4 runtime sims", () => {
 			throw new Error("expected commercial venue sidecar");
 		}
 
+		world.starCount = 4;
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 2,
-			starCount: 4,
 		});
 
 		expect(officeEntity.stateCode).toBe(0x62);
@@ -2374,7 +2397,6 @@ describe("Phase 4 runtime sims", () => {
 			dayTick: 64,
 			dayCounter: 3,
 			daypartIndex: 2,
-			starCount: 4,
 		});
 		expect(officeEntity.stateCode).toBe(0x05);
 		expect(officeObject.unitStatus).toBe(2);
@@ -2480,12 +2502,12 @@ describe("Phase 4 runtime sims", () => {
 		const sim = world.sims.find((candidate) => candidate.familyCode === 7);
 		if (!sim) throw new Error("expected office sim");
 
+		world.starCount = 4;
 		const activeTime = {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
 			dayTick: 0,
-			starCount: 4,
 		};
 		advanceSimRefreshStride(world, ledger, activeTime);
 		expect(sim.stateCode).toBe(0x60); // rental/opening transit
@@ -2522,7 +2544,8 @@ describe("Phase 4 runtime sims", () => {
 
 		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
 		if (!office) throw new Error("expected office object");
-		office.evalActiveFlag = 1;
+		office.occupiableFlag = 1;
+		world.starCount = 4;
 
 		for (let dayTick = 0; dayTick < 16; dayTick++) {
 			advanceSimRefreshStride(world, ledger, {
@@ -2530,7 +2553,6 @@ describe("Phase 4 runtime sims", () => {
 				dayCounter: 3,
 				daypartIndex: 3,
 				dayTick,
-				starCount: 4,
 			});
 		}
 
@@ -2550,7 +2572,8 @@ describe("Phase 4 runtime sims", () => {
 		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
 		const sim = world.sims.find((candidate) => candidate.familyCode === 7);
 		if (!office || !sim) throw new Error("expected office runtime state");
-		office.evalActiveFlag = 1;
+		office.occupiableFlag = 1;
+		world.starCount = 4;
 		sim.stateCode = 0x00;
 		sim.selectedFloor = 10;
 		sim.destinationFloor = sim.floorAnchor;
@@ -2569,7 +2592,6 @@ describe("Phase 4 runtime sims", () => {
 				...createTimeState(),
 				dayCounter: 3,
 				daypartIndex: 1,
-				starCount: 4,
 			},
 			`${sim.floorAnchor}:${sim.homeColumn}:${sim.familyCode}:${sim.baseOffset}`,
 			sim.floorAnchor,
@@ -2577,7 +2599,7 @@ describe("Phase 4 runtime sims", () => {
 
 		expect(sim.stateCode).toBe(0x01);
 		expect(office.evalLevel).toBe(0xff);
-		expect(office.evalActiveFlag).toBe(1);
+		expect(office.occupiableFlag).toBe(1);
 	});
 
 	it("captures elapsed demand when a carrier trip completes", () => {
@@ -2600,6 +2622,7 @@ describe("Phase 4 runtime sims", () => {
 			source: 10,
 		};
 		sim.lastDemandTick = 10;
+		world.starCount = 4;
 
 		onCarrierArrival(
 			world,
@@ -2609,7 +2632,6 @@ describe("Phase 4 runtime sims", () => {
 				dayTick: 25,
 				dayCounter: 3,
 				daypartIndex: 1,
-				starCount: 4,
 			},
 			`${sim.floorAnchor}:${sim.homeColumn}:${sim.familyCode}:${sim.baseOffset}`,
 			sim.floorAnchor,
@@ -2630,6 +2652,7 @@ describe("Phase 4 runtime sims", () => {
 
 		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
 		if (!office) throw new Error("expected office object");
+		world.starCount = 4;
 
 		for (let dayTick = 0; dayTick < 16; dayTick++) {
 			advanceSimRefreshStride(world, ledger, {
@@ -2637,7 +2660,6 @@ describe("Phase 4 runtime sims", () => {
 				dayCounter: 3,
 				daypartIndex: 1,
 				dayTick,
-				starCount: 4,
 			});
 		}
 		populateCarrierRequests(world, {
@@ -2645,10 +2667,9 @@ describe("Phase 4 runtime sims", () => {
 			dayCounter: 3,
 			daypartIndex: 1,
 			dayTick: 16,
-			starCount: 4,
 		});
 
-		expect(office.evalActiveFlag).toBe(1);
+		expect(office.occupiableFlag).toBe(1);
 		expect(office.unitStatus).toBe(0x10);
 		expect(world.carriers).toHaveLength(0);
 		expect(world.sims.every((sim) => sim.route.mode === "idle")).toBe(true);
@@ -2677,7 +2698,7 @@ describe("Phase 4 runtime sims", () => {
 
 		const carrier = world.carriers[0];
 		if (!carrier) throw new Error("expected carrier");
-		expect(office.evalActiveFlag).toBe(1);
+		expect(office.occupiableFlag).toBe(1);
 		expect(office.unitStatus).toBe(0x10);
 		expect(carrier.pendingRoutes).toHaveLength(0);
 		expect(world.sims.every((sim) => sim.route.mode === "idle")).toBe(true);
@@ -2701,15 +2722,15 @@ describe("Phase 4 runtime sims", () => {
 		const office = world.placedObjects[`0,${GROUND_Y - 1}`];
 		if (!office) throw new Error("expected office object");
 		office.unitStatus = 2;
+		world.starCount = 4;
 
 		const endOfDayTime = {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 4,
 			dayTick: 0,
-			starCount: 4,
 		};
-		world.rngState = 31; // seed where first sampleRng output is divisible by 6
+		world.rngState = 3; // seed where first sampleRng output is divisible by 6
 		advanceSimRefreshStride(world, ledger, endOfDayTime);
 		expect(sim.stateCode).toBe(0x45);
 		expect(sim.selectedFloor).toBe(sim.floorAnchor);
@@ -2741,13 +2762,13 @@ describe("Phase 4 runtime sims", () => {
 		sim.stateCode = 0x05;
 		sim.selectedFloor = sim.floorAnchor;
 		office.unitStatus = 2;
+		world.starCount = 4;
 
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 3,
 			dayTick: 0,
-			starCount: 4,
 		});
 
 		expect(sim.stateCode).toBe(0x05);
@@ -2767,13 +2788,13 @@ describe("Phase 4 runtime sims", () => {
 		const sim = world.sims.find((candidate) => candidate.familyCode === 9);
 		if (!sim) throw new Error("expected condo sim");
 		const cashBefore = ledger.cashBalance;
+		world.starCount = 4;
 
 		const activeTime = {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
 			dayTick: 0,
-			starCount: 4,
 		};
 		advanceSimRefreshStride(world, ledger, activeTime);
 		expect(ledger.cashBalance).toBeGreaterThan(cashBefore);
@@ -2791,12 +2812,12 @@ describe("Phase 4 runtime sims", () => {
 
 		const sim = world.sims.find((candidate) => candidate.familyCode === 9);
 		if (!sim) throw new Error("expected condo sim");
+		world.starCount = 4;
 
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayCounter: 3,
 			daypartIndex: 1,
-			starCount: 4,
 		});
 
 		expect(sim.stateCode).toBe(0x27);
@@ -2817,7 +2838,7 @@ describe("Phase 4 runtime sims", () => {
 		const sim = world.sims.find((candidate) => candidate.familyCode === 9);
 		if (!condo || !sim) throw new Error("expected condo runtime state");
 		condo.unitStatus = 0;
-		condo.evalActiveFlag = 1;
+		condo.occupiableFlag = 1;
 		for (const sibling of world.sims.filter(
 			(candidate) => candidate.familyCode === 9,
 		)) {
@@ -2825,17 +2846,17 @@ describe("Phase 4 runtime sims", () => {
 			sibling.accumulatedTicks = 1_000;
 		}
 		const entityIndex = world.sims.indexOf(sim);
+		world.starCount = 4;
 
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: entityIndex % 16,
 			dayCounter: 3,
 			daypartIndex: 1,
-			starCount: 4,
 		});
 
 		expect(condo.evalLevel).toBe(0);
-		expect(condo.evalActiveFlag).toBe(0);
+		expect(condo.occupiableFlag).toBe(0);
 		expect(
 			world.sims
 				.filter((candidate) => candidate.familyCode === 9)
@@ -3000,9 +3021,9 @@ describe("Phase 4 runtime sims", () => {
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
-			needsRefreshFlag: 1,
+
 			evalLevel: -1,
-			evalActiveFlag: 1,
+			occupiableFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 1,
 			evalScore: -1,
@@ -3039,13 +3060,13 @@ describe("Phase 4 runtime sims", () => {
 		if (!hotel) throw new Error("expected hotel");
 		// Simulate check-in: set occupied-band unitStatus
 		hotel.unitStatus = 0;
+		world.starCount = 4;
 
 		const startCash = ledger.cashBalance;
 		advanceSimRefreshStride(world, ledger, {
 			...createTimeState(),
 			dayTick: 0,
 			daypartIndex: 4,
-			starCount: 4,
 		});
 		expect(hotel.unitStatus).toBe(0x10);
 		expect(ledger.cashBalance).toBe(startCash);
@@ -3054,7 +3075,6 @@ describe("Phase 4 runtime sims", () => {
 			...createTimeState(),
 			dayTick: 16,
 			daypartIndex: 4,
-			starCount: 4,
 		});
 		expect(hotel.unitStatus).toBe(1);
 
@@ -3062,7 +3082,6 @@ describe("Phase 4 runtime sims", () => {
 			...createTimeState(),
 			dayTick: 32,
 			daypartIndex: 4,
-			starCount: 4,
 		});
 		// daypartIndex >= 4 → checkout moves to 0x30 (evening turnover band)
 		expect(hotel.unitStatus).toBe(0x30);

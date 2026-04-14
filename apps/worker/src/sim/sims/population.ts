@@ -6,13 +6,13 @@ import {
 import type { CarrierRecord } from "../world";
 import {
 	GRID_HEIGHT,
+	GROUND_Y,
 	type PlacedObjectRecord,
 	type SimRecord,
 	type WorldState,
 	yToFloor,
 } from "../world";
 import {
-	BINARY_ALLOC_ORDER,
 	CATHEDRAL_FAMILIES,
 	COMMERCIAL_FAMILIES,
 	ENTITY_POPULATION_BY_TYPE,
@@ -30,13 +30,14 @@ function makeSim(
 	homeColumn: number,
 	baseOffset: number,
 	familyCode: number,
+	population: number,
 ): SimRecord {
 	return {
 		floorAnchor,
 		homeColumn,
 		baseOffset,
 		familyCode,
-		stateCode: initialStateForFamily(familyCode),
+		stateCode: initialStateForFamily(familyCode, baseOffset, population),
 		route: ROUTE_IDLE,
 		selectedFloor: floorAnchor,
 		originFloor: floorAnchor,
@@ -52,8 +53,15 @@ function makeSim(
 	};
 }
 
-function initialStateForFamily(familyCode: number): number {
-	if (HOTEL_FAMILIES.has(familyCode)) return STATE_HOTEL_PARKED;
+function initialStateForFamily(
+	familyCode: number,
+	baseOffset: number,
+	_population: number,
+): number {
+	if (HOTEL_FAMILIES.has(familyCode)) {
+		// Binary NIGHT_B handler: base_offset == 0 → HOTEL_PARKED, others → MORNING_GATE.
+		return baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+	}
 	if (CATHEDRAL_FAMILIES.has(familyCode)) return STATE_PARKED;
 	if (familyCode === FAMILY_OFFICE) return STATE_MORNING_GATE;
 	if (COMMERCIAL_FAMILIES.has(familyCode)) return STATE_MORNING_GATE;
@@ -122,19 +130,25 @@ export function rebuildRuntimeSims(world: WorldState): void {
 	);
 	const next: SimRecord[] = [];
 
-	// Sort by binary entity-type allocation order, then by grid position
-	// (y ascending, x ascending) within the same type, to match the
-	// reference binary's entity table layout.
-	const sortedEntries = Object.entries(world.placedObjects).sort(
-		([a, objA], [b, objB]) => {
-			const orderA = BINARY_ALLOC_ORDER[objA.objectTypeCode] ?? 99;
-			const orderB = BINARY_ALLOC_ORDER[objB.objectTypeCode] ?? 99;
-			if (orderA !== orderB) return orderA - orderB;
-			const [ax, ay] = a.split(",").map(Number);
-			const [bx, by] = b.split(",").map(Number);
-			return ay - by || ax - bx;
-		},
-	);
+	// Sort by binary floor-by-floor allocation order: above-grade floors
+	// ascending (y descending), then below-grade floors ascending (y ascending),
+	// then x ascending within the same floor. This matches the binary's
+	// entity table layout from _place_build_objects.
+	const sortedEntries = Object.entries(world.placedObjects).sort(([a], [b]) => {
+		const [ax, ay] = a.split(",").map(Number);
+		const [bx, by] = b.split(",").map(Number);
+		const aBelow = ay > GROUND_Y ? 1 : 0;
+		const bBelow = by > GROUND_Y ? 1 : 0;
+		if (aBelow !== bBelow) return aBelow - bBelow;
+		if (aBelow === 0) {
+			// Above-grade: floor ascending = y descending
+			if (ay !== by) return by - ay;
+		} else {
+			// Below-grade: floor ascending = y ascending
+			if (ay !== by) return ay - by;
+		}
+		return ax - bx;
+	});
 
 	for (const [key, object] of sortedEntries) {
 		const population = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 0;
@@ -143,7 +157,13 @@ export function rebuildRuntimeSims(world: WorldState): void {
 		const floorAnchor = yToFloor(y);
 
 		for (let baseOffset = 0; baseOffset < population; baseOffset++) {
-			const fresh = makeSim(floorAnchor, x, baseOffset, object.objectTypeCode);
+			const fresh = makeSim(
+				floorAnchor,
+				x,
+				baseOffset,
+				object.objectTypeCode,
+				population,
+			);
 			const prior = previous.get(simKey(fresh));
 			if (prior) {
 				next.push({ ...fresh, ...prior, floorAnchor, homeColumn: x });
@@ -188,7 +208,10 @@ export function resetSimRuntimeState(world: WorldState): void {
 		if (!object) continue;
 
 		if (HOTEL_FAMILIES.has(sim.familyCode)) {
-			sim.stateCode = STATE_HOTEL_PARKED;
+			// Hotel sims manage their own day-boundary transitions via
+			// NIGHT_B / CHECKOUT_QUEUE→TRANSITION→DEPARTURE. The binary's
+			// runtime reset does not overwrite hotel sim states.
+			continue;
 		} else if (sim.familyCode === FAMILY_CONDO) {
 			sim.stateCode =
 				object.unitStatus >= UNIT_STATUS_CONDO_VACANT

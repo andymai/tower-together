@@ -130,6 +130,32 @@ Use these delays:
 - Escalator-branch per-stop delay: `16`
 - Stairs-branch per-stop delay: `35`
 
+All values are loaded from resource table `0xff05` id `1000` at startup.
+
+### Stair / Escalator Transit Timing
+
+The per-stop delay for stairs (35) and escalators (16) is a **stress cost**, not a
+blocking wait. Route dispatch is instantaneous:
+
+1. `resolve_sim_route_between_floors` picks a direct stair/escalator segment.
+2. The sim's floor field (`entity[+7]`) is immediately set to the destination floor.
+   The sim is teleported — there is no per-tile walk loop.
+3. `add_delay_to_current_sim` adds `per_stop_delay × floors_traversed` to
+   `elapsed_packed`, where `floors_traversed = (mode_and_span >> 1) + 1`.
+4. `entity[+0xa]` (last-trip-tick) is stamped with the current `g_day_tick`.
+5. The sim enters a transit continuation state (e.g. `0x60` for office workers).
+
+The state transition from transit to arrived happens on the sim's **next entity
+refresh stride** (see TIME.md "Entity Refresh Stride"). Because each sim is
+serviced once per 16-tick window, transit always resolves in exactly one stride —
+16 ticks of wall-clock time — regardless of whether the transport is stairs or
+escalator.
+
+The difference between stairs and escalator manifests as **stress**: stairs adds 35
+to the elapsed accumulator per floor traversed, escalator adds 16. This feeds into
+the per-sim `accumulated_elapsed / trip_count` stress average (see PEOPLE.md
+"Stress / Trip-Counter Pipeline"). Higher stress degrades evaluation.
+
 Long-distance penalty (applied when `emit_distance_feedback` is set):
 
 - computed from `abs(height_metric_delta)` between the segment/carrier and entity

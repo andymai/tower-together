@@ -82,12 +82,9 @@ export function removeCashflowFromFamilyResource(
  * Charge operating expenses for all placed tiles (YEN #1002).
  * Called at checkpoint 0x09e5 every 3 days.
  */
-export function doExpenseSweep(
-	ledger: LedgerState,
-	world: WorldState,
-	starCount = 1,
-): void {
-	const parkingRate = PARKING_EXPENSE_RATE_BY_STAR[Math.min(starCount, 5)] ?? 0;
+export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
+	const parkingRate =
+		PARKING_EXPENSE_RATE_BY_STAR[Math.min(world.starCount, 5)] ?? 0;
 
 	const lobbyFloor = UNDERGROUND_FLOORS; // internal floor index of ground lobby
 	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
@@ -201,13 +198,12 @@ export function doLedgerRollover(
 	ledger: LedgerState,
 	world: WorldState,
 	dayCounter: number,
-	starCount = 1,
 ): void {
 	if (dayCounter % 3 !== 0) return;
 	ledger.cashBalanceCycleBase = ledger.cashBalance;
 	ledger.incomeLedger.fill(0);
 	ledger.expenseLedger.fill(0);
-	doExpenseSweep(ledger, world, starCount);
+	doExpenseSweep(ledger, world);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

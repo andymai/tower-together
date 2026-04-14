@@ -1,7 +1,14 @@
-import { addCashflowFromFamilyResource, type LedgerState } from "../ledger";
-import { FAMILY_CODE_TO_TILE } from "../resources";
+import type { LedgerState } from "../ledger";
+import { FAMILY_RESTAURANT, FAMILY_RETAIL } from "../resources";
 import type { TimeState } from "../time";
-import { type SimRecord, sampleRng, type WorldState } from "../world";
+import {
+	type CommercialVenueRecord,
+	type SimRecord,
+	sampleRng,
+	VENUE_DORMANT,
+	type WorldState,
+} from "../world";
+import { activateRetailShop } from "./facility-refunds";
 import {
 	clearSimRoute,
 	findObjectForSim,
@@ -18,7 +25,6 @@ import {
 	STATE_NIGHT_B,
 	STATE_PARKED,
 } from "./states";
-import { resetFacilitySimTripCounters } from "./trip-counters";
 
 export function processCommercialSim(
 	world: WorldState,
@@ -43,32 +49,53 @@ export function processCommercialSim(
 		return;
 	}
 
-	// --- Morning activation (same gate as office) ---
+	// --- Morning activation gate ---
+	// Binary: gate_object_family_10_state_handler (retail) and
+	// gate_object_family_6_0c_state_handler (restaurant / fast-food).
+	// Restaurant has a unique gate; fast-food and retail share one.
 	if (state === STATE_MORNING_GATE) {
-		if (time.calendarPhaseFlag !== 0) return;
-		if (object.evalActiveFlag === 0) return;
+		if (object.occupiableFlag === 0) return;
 
-		if (time.daypartIndex >= 3) return;
-		if (time.daypartIndex === 0) {
-			if (sampleRng(world) % 12 !== 0) return;
+		if (sim.familyCode === FAMILY_RESTAURANT) {
+			// Binary 1228:466d restaurant branch:
+			// dp4 → 1/12 RNG gate → dispatch; dp<5 → return;
+			// dp5 with dayTick<=2199 → dispatch; else return.
+			if (time.daypartIndex === 4) {
+				if (sampleRng(world) % 12 !== 0) return;
+			} else if (time.daypartIndex < 5) {
+				return;
+			} else if (time.dayTick > 2199) {
+				return;
+			}
+		} else {
+			// Binary 1228:3ed9 / 1228:466d fast-food+retail branch:
+			// dp>=5 → return; dayTick<241 → return;
+			// dp0-3 → 1/36 RNG gate; dp4 → 1/6 RNG gate.
+			if (time.daypartIndex >= 5) return;
+			if (time.dayTick < 0xf1) return;
+			if (time.daypartIndex <= 3) {
+				if (sampleRng(world) % 36 !== 0) return;
+			} else {
+				if (sampleRng(world) % 6 !== 0) return;
+			}
 		}
 
-		// Income (retail has a YEN_1001 entry; restaurant/fast-food do not)
-		if (
-			sim.baseOffset === 0 &&
-			object.auxValueOrTimer !== time.dayCounter + 1 &&
-			time.dayCounter % 3 === 0
-		) {
-			object.auxValueOrTimer = time.dayCounter + 1;
-			object.evalActiveFlag = 1;
-			resetFacilitySimTripCounters(world, sim);
-			const tileName = FAMILY_CODE_TO_TILE[sim.familyCode] ?? "";
-			addCashflowFromFamilyResource(
-				ledger,
-				tileName,
-				object.rentLevel,
-				object.objectTypeCode,
-			);
+		// Retail shop activation: binary `acquire_commercial_venue_slot`
+		// bumps active_count; the 0→1 transition flips availability
+		// DORMANT→PARTIAL and is picked up as a rent/population activation.
+		if (sim.familyCode === FAMILY_RETAIL && object.linkedRecordIndex >= 0) {
+			const record = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (record?.kind === "commercial_venue") {
+				if (record.currentPopulation === 0 && record.availabilityState === VENUE_DORMANT) {
+					activateRetailShop(object, record, ledger);
+				}
+				if (record.currentPopulation < 39) {
+					record.currentPopulation += 1;
+				}
+				record.lastAcquireTick = time.dayTick;
+			}
 		}
 
 		// Route to home floor
@@ -81,7 +108,6 @@ export function processCommercialSim(
 			time,
 		);
 		if (routeResult === -1) {
-			sim.stateCode = STATE_MORNING_GATE;
 			return;
 		}
 		sim.selectedFloor = LOBBY_FLOOR;

@@ -48,7 +48,6 @@ export function advanceOfficePresenceCounter(object: PlacedObjectRecord): void {
 	if (object.objectTypeCode !== FAMILY_OFFICE) return;
 	if (object.unitStatus > UNIT_STATUS_OFFICE_OCCUPIED) return;
 	object.unitStatus = object.unitStatus >= 8 ? 1 : object.unitStatus + 1;
-	object.needsRefreshFlag = 1;
 }
 
 function decrementOfficePresenceCounter(
@@ -61,7 +60,6 @@ function decrementOfficePresenceCounter(
 	if (object.unitStatus === 0 && time.daypartIndex >= 4) {
 		object.unitStatus = 8;
 	}
-	object.needsRefreshFlag = 1;
 }
 
 function activateOfficeCashflow(
@@ -71,8 +69,8 @@ function activateOfficeCashflow(
 ): void {
 	if (object.unitStatus <= UNIT_STATUS_OFFICE_OCCUPIED) return;
 	object.unitStatus = 0;
-	object.evalActiveFlag = 1;
-	object.needsRefreshFlag = 1;
+	object.occupiableFlag = 1;
+
 	resetFacilitySimTripCounters(world, sim);
 }
 
@@ -118,7 +116,7 @@ function runOfficeServiceEvaluation(
 	sim?: SimRecord,
 	object?: PlacedObjectRecord,
 ): void {
-	if (time.starCount !== 3 || time.dayCounter % 9 !== 3) return;
+	if (world.starCount !== 3 || time.dayCounter % 9 !== 3) return;
 	if (world.gateFlags.officeServiceOk !== 0) return;
 	if (
 		world.gateFlags.evalSimIndex >= 0 &&
@@ -139,8 +137,8 @@ export function processOfficeSim(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const object = findObjectForSim(world, sim);
-	if (!object) return;
+	const facility = findObjectForSim(world, sim);
+	if (!facility) return;
 
 	const state = sim.stateCode;
 
@@ -159,9 +157,9 @@ export function processOfficeSim(
 
 	// --- Morning activation (spec state 0x20) ---
 	if (state === STATE_MORNING_GATE) {
-		// Spec 0x20 gate: calendar_phase_flag must be 0
-		if (time.calendarPhaseFlag !== 0) return;
-		if (object.evalActiveFlag === 0) return;
+		// Spec 0x20 gate: must not be weekend
+		if (time.weekendFlag !== 0) return;
+		if (facility.occupiableFlag === 0) return;
 
 		// Spec 0x20 daypart gate: daypart 0 → 1/12 chance; dayparts 1–2 → dispatch;
 		// daypart >= 3 → no dispatch
@@ -170,28 +168,27 @@ export function processOfficeSim(
 			if (sampleRng(world) % 12 !== 0) return;
 		}
 
-		// 3-day cashflow (first sim triggers income once per 3-day cycle)
+		// 3-day cashflow (first sim to dispatch triggers income once per 3-day cycle)
 		if (
-			sim.baseOffset === 0 &&
-			object.auxValueOrTimer !== time.dayCounter + 1 &&
+			facility.auxValueOrTimer !== time.dayCounter + 1 &&
 			time.dayCounter % 3 === 0
 		) {
-			object.auxValueOrTimer = time.dayCounter + 1;
-			object.evalActiveFlag = 1;
+			facility.auxValueOrTimer = time.dayCounter + 1;
+			facility.occupiableFlag = 1;
 			resetFacilitySimTripCounters(world, sim);
 			addCashflowFromFamilyResource(
 				ledger,
 				"office",
-				object.rentLevel,
-				object.objectTypeCode,
+				facility.rentLevel,
+				facility.objectTypeCode,
 			);
 		}
 
 		// Office parking demand: (floorAnchor + homeColumn) % 4 === 1, unitStatus === 2
 		if (
-			time.starCount > 2 &&
+			world.starCount > 2 &&
 			(sim.floorAnchor + sim.homeColumn) % 4 === 1 &&
-			object.unitStatus === 2
+			facility.unitStatus === 2
 		) {
 			if (!tryAssignParkingService(world, time, sim)) {
 				world.pendingNotifications.push({
@@ -210,17 +207,17 @@ export function processOfficeSim(
 			time,
 		);
 		if (routeResult === -1) {
-			sim.stateCode = routeFailureStateForOffice(object);
+			sim.stateCode = routeFailureStateForOffice(facility);
 			return;
 		}
-		activateOfficeCashflow(world, object, sim);
+		activateOfficeCashflow(world, facility, sim);
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 0 || routeResult === 1 || routeResult === 2) {
 			sim.stateCode = STATE_MORNING_TRANSIT;
 			return;
 		}
-		advanceOfficePresenceCounter(object);
+		advanceOfficePresenceCounter(facility);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		sim.stateCode = nextOfficeMorningState(sim);
@@ -254,7 +251,7 @@ export function processOfficeSim(
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 3) {
-			advanceOfficePresenceCounter(object);
+			advanceOfficePresenceCounter(facility);
 			sim.destinationFloor = -1;
 			sim.selectedFloor = sim.floorAnchor;
 			sim.stateCode = STATE_AT_WORK;
@@ -296,7 +293,7 @@ export function processOfficeSim(
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 3) {
-			finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
+			finalizeOfficeFloorArrival(sim, facility, STATE_DEPARTURE);
 		} else {
 			sim.stateCode = STATE_AT_WORK_TRANSIT;
 		}
@@ -320,7 +317,7 @@ export function processOfficeSim(
 		}
 		sim.destinationFloor = sim.floorAnchor;
 		if (routeResult === 3) {
-			finalizeOfficeFloorArrival(sim, object, nextOfficeReturnState(sim));
+			finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
 		} else {
 			sim.stateCode = STATE_DWELL_RETURN_TRANSIT;
 		}
@@ -329,7 +326,7 @@ export function processOfficeSim(
 
 	// --- Venue selection ---
 	if (state === STATE_ACTIVE || state === STATE_ACTIVE_ALT) {
-		runOfficeServiceEvaluation(world, time, sim, object);
+		runOfficeServiceEvaluation(world, time, sim, facility);
 		// Gate: daypart ≥ 4 → evening departure
 		if (time.daypartIndex >= 4) {
 			sim.stateCode = STATE_DEPARTURE;
@@ -360,7 +357,7 @@ export function processOfficeSim(
 			if (routeResult === -1) {
 				// Spec §Route to Lobby Fails: fake-transit sentinel → eventually
 				// advance_office_presence_counter → STATE_DEPARTURE (0x05).
-				advanceOfficePresenceCounter(object);
+				advanceOfficePresenceCounter(facility);
 				sim.stateCode = STATE_DEPARTURE;
 				return;
 			}
@@ -400,7 +397,7 @@ export function processOfficeSim(
 		if (time.daypartIndex === 4 && sampleRng(world) % 6 !== 0) {
 			return;
 		}
-		decrementOfficePresenceCounter(object, time);
+		decrementOfficePresenceCounter(facility, time);
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -426,7 +423,7 @@ export function processOfficeSim(
 		return;
 	}
 
-	recomputeObjectOperationalStatus(world, time, sim, object);
+	recomputeObjectOperationalStatus(world, sim, facility);
 }
 
 export function handleOfficeSimArrival(
@@ -441,12 +438,8 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
-		// baseOffset 0 already fired income + routed in the morning gate;
-		// go straight to AT_WORK instead of re-entering COMMUTE (which would
-		// consume an extra RNG call and re-route from lobby).
-		const nextState =
-			sim.baseOffset === 0 ? STATE_AT_WORK : STATE_ACTIVE;
-		finalizeOfficeFloorArrival(sim, object, nextState);
+		// Binary puts base0 into COMMUTE (0x00), others into ACTIVE (0x01).
+		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState(sim));
 		return;
 	}
 

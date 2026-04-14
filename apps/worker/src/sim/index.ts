@@ -103,7 +103,7 @@ export class TowerSim {
 		const evalLevelBefore = new Map<string, number>();
 		const evalScoreBefore = new Map<string, number>();
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
-			evalBefore.set(key, record.evalActiveFlag);
+			evalBefore.set(key, record.occupiableFlag);
 			unitStatusBefore.set(key, record.unitStatus);
 			evalLevelBefore.set(key, record.evalLevel);
 			evalScoreBefore.set(key, record.evalScore);
@@ -147,7 +147,7 @@ export class TowerSim {
 			const prevEvalLevel = evalLevelBefore.get(key);
 			const prevEvalScore = evalScoreBefore.get(key);
 			if (
-				(prev !== undefined && prev !== record.evalActiveFlag) ||
+				(prev !== undefined && prev !== record.occupiableFlag) ||
 				(prevUnitStatus !== undefined &&
 					prevUnitStatus !== record.unitStatus) ||
 				(prevEvalLevel !== undefined && prevEvalLevel !== record.evalLevel) ||
@@ -159,7 +159,7 @@ export class TowerSim {
 					y,
 					tileType: this.world.cells[key] ?? "",
 					isAnchor: true,
-					evalActiveFlag: record.evalActiveFlag,
+					evalActiveFlag: record.occupiableFlag,
 					unitStatus: record.unitStatus,
 					evalLevel: record.evalLevel,
 					evalScore: record.evalScore,
@@ -357,6 +357,9 @@ export class TowerSim {
 	get cash(): number {
 		return this.ledger.cashBalance;
 	}
+	get rngCallCount(): number {
+		return this.world.rngCallCount;
+	}
 	get width(): number {
 		return this.world.width;
 	}
@@ -377,7 +380,7 @@ export class TowerSim {
 				isAnchor,
 				...(record
 					? {
-							evalActiveFlag: record.evalActiveFlag,
+							evalActiveFlag: record.occupiableFlag,
 							unitStatus: record.unitStatus,
 							evalLevel: record.evalLevel,
 							evalScore: record.evalScore,

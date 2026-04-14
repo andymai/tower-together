@@ -1,7 +1,7 @@
 // Day cycle constants
-export const DAY_TICK_MAX = 0x0a28; // 2600 ticks per day
-export const DAY_TICK_INCOME = 0x08fc; // 2300: checkpoint where dayCounter increments
-export const DAY_COUNTER_WRAP = 0x2ed4;
+export const DAY_TICK_MAX = 2600; // 2600 ticks per day
+export const DAY_TICK_NEW_DAY = 2300; // 2300: checkpoint where dayCounter increments
+export const DAY_COUNTER_WRAP = 11988; // 12 days/year * 999 years
 
 /**
  * Starting dayTick for a new game (from new_game_initializer at 0x10d8_07f6).
@@ -17,10 +17,8 @@ export interface TimeState {
 	daypartIndex: number;
 	/** Increments at checkpoint 0x08fc each day. Used for calendar logic. */
 	dayCounter: number;
-	/** (dayCounter % 12) % 3 >= 2 ? 1 : 0 */
-	calendarPhaseFlag: number;
-	/** 1–6 (6 = Tower). */
-	starCount: number;
+	/** dayCounter % 3 === 2 ? 1 : 0 */
+	weekendFlag: number;
 	/** Monotonically increasing tick counter since game start (for broadcast). */
 	totalTicks: number;
 }
@@ -31,8 +29,7 @@ export function createTimeState(): TimeState {
 		dayTick: 0,
 		daypartIndex: 0,
 		dayCounter: 0,
-		calendarPhaseFlag: 0,
-		starCount: 1,
+		weekendFlag: 0,
 		totalTicks: 0,
 	};
 }
@@ -46,15 +43,14 @@ export function createNewGameTimeState(): TimeState {
 		dayTick: NEW_GAME_DAY_TICK,
 		daypartIndex: Math.floor(NEW_GAME_DAY_TICK / 400), // = 6
 		dayCounter: 0,
-		calendarPhaseFlag: 0,
-		starCount: 1,
+		weekendFlag: 0,
 		totalTicks: 0,
 	};
 }
 
 /**
  * Advance time by one tick. Returns the new state and whether the
- * DAY_TICK_INCOME checkpoint was just crossed (triggers income collection).
+ * DAY_TICK_INCOME checkpoint was just crossed (triggers day change).
  */
 export function advanceOneTick(t: TimeState): {
 	time: TimeState;
@@ -63,29 +59,28 @@ export function advanceOneTick(t: TimeState): {
 	const totalTicks = t.totalTicks + 1;
 	let dayTick = t.dayTick + 1;
 	let dayCounter = t.dayCounter;
-	let calendarPhaseFlag = t.calendarPhaseFlag;
+	let weekendFlag = t.weekendFlag;
 	let incomeCheckpoint = false;
 
 	if (dayTick >= DAY_TICK_MAX) {
 		dayTick = 0;
 	}
 
-	if (dayTick === DAY_TICK_INCOME) {
+	if (dayTick === DAY_TICK_NEW_DAY) {
 		dayCounter = t.dayCounter + 1;
 		if (dayCounter >= DAY_COUNTER_WRAP) {
 			dayCounter = 0;
 		}
-		calendarPhaseFlag = (dayCounter % 12) % 3 >= 2 ? 1 : 0;
+		weekendFlag = dayCounter % 3 === 2 ? 1 : 0;
 		incomeCheckpoint = true;
 	}
 
 	return {
 		time: {
-			dayTick: dayTick,
+			dayTick,
 			daypartIndex: Math.floor(dayTick / 400),
-			dayCounter: dayCounter,
-			calendarPhaseFlag: calendarPhaseFlag,
-			starCount: t.starCount,
+			dayCounter,
+			weekendFlag,
 			totalTicks: totalTicks,
 		},
 		incomeCheckpoint,

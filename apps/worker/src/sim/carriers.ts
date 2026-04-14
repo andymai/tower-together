@@ -29,7 +29,7 @@ const QUEUE_CAPACITY = 40;
 const ACTIVE_SLOT_CAPACITY = 42;
 
 function getScheduleIndex(time: TimeState): number {
-	return time.calendarPhaseFlag * 7 + time.daypartIndex;
+	return time.weekendFlag * 7 + time.daypartIndex;
 }
 
 function speedTicks(mode: 0 | 1 | 2): number {
