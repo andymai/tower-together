@@ -1,6 +1,11 @@
 You are building a behavior-identical, tick-for-tick replica of SimTower, a 1993 Windows 3.1 game. The reimplementation is in TypeScript using Cloudflare Workers.
 - Our strategy is to make gameplay traces and ensure they match between the original binary and our reimplementation. The test is at `apps/worker/src/sim/trace.test.ts`.
+- Fix divergences in each trace in temporal order. A later divergence might represent a downstream consequence of an earlier divergence.
+- Don't worry about breaking existing behavior. You may have to make dramatic changes to the TypeScript code in order to fully match binary behavior.
 - There is a partial, imperfect spec in `specs/` for the simulation details.
 - Use both static and dynamic analysis of the original binary to understand its behavior and make the reimplementation match exactly.
 - Static analysis: use the `pyghidra` skill on analysis-2825a3c53f project (SIMTOWER.EX_).
 - Dynamic analysis: use `simtower/emulator.py` and add additional hooks to inspect whatever you want to inspect.
+
+Basic facts about the binary:
+- Days work a little strangely. Tick count ranges from 0-2599, and dayCounter increments at tick 2300. Day 0 starts at tick 2533 and then rolls over to tick 0 and up to tick 2299 before turning to day 1.
