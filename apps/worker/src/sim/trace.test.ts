@@ -365,8 +365,8 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	it("matches reference sim state counts by family", () => {
 		const entries = activeTraceEntries(simEntries);
 		if (entries.length === 0) return;
-		// Known divergence: mixed_elevator has sim state-count drift once
-		// elevator ridership begins (small per-sim routing divergence).
+		// Known divergence: elevator-bearing fixtures have sim state-count drift
+		// once elevator ridership begins (boarding/unload timing diverges).
 		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
@@ -400,8 +400,8 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 			(e): e is TraceEntry & { rng_calls: number } => e.rng_calls !== undefined,
 		);
 		if (entries.length < 2) return;
-		// Known divergence: mixed_elevator has small RNG delta drift from
-		// elevator routing/assignment paths.
+		// Known divergence: elevator-bearing fixtures have small RNG delta drift
+		// from elevator routing/assignment paths.
 		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
@@ -429,8 +429,8 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				Array.isArray(e.carriers) && e.carriers.length > 0,
 		);
 		if (entries.length === 0) return;
-		// Known divergence: mixed_elevator's targetFloor diverges once sims
-		// begin riding (TS dispatches differently than the binary).
+		// Known divergence: elevator-bearing fixtures have targetFloor drift once
+		// sims begin riding (TS dispatches differently than the binary).
 		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
@@ -472,14 +472,13 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		if (simEntries.length === 0) return;
 		// Known divergence: elevator fixture's TS cash is 10k higher than binary
 		// from tick 1 onward. Origin not yet root-caused.
-		if (fixtureName === "elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
 		for (const entry of simEntries) {
 			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
 			expect(
 				sim.cash,
-				`cash mismatch at day=${entry.day} tick=${entry.tick}`,
+				`cash mismatch at day=${entry.day} tick=${entry.tick} fx=${fixtureName}`,
 			).toBe(entry.cash);
 		}
 	});

@@ -2029,23 +2029,23 @@ describe("car state machine", () => {
 		expect(car.currentFloor).toBe(10);
 	});
 
-	it("car opens doors at target floor (doorWaitCounter set)", () => {
+	it("car opens doors at target floor (dwellCounter set)", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const carrier = world.carriers[0];
 		const car = carrier.cars[0];
 		enqueueCarrierRoute(carrier, "r1", 15, 10, 1);
-		// Run until car arrives and opens doors
-		let doors_opened = false;
+		// Run until car arrives at pickup floor and enters dwell
+		let doorsOpened = false;
 		for (let i = 0; i < 200; i++) {
 			tickAllCarriers(world, createTimeState());
-			if (car.currentFloor === 15 && car.doorWaitCounter > 0) {
-				doors_opened = true;
+			if (car.currentFloor === 15 && car.dwellCounter > 0) {
+				doorsOpened = true;
 				break;
 			}
 		}
-		expect(doors_opened).toBe(true);
+		expect(doorsOpened).toBe(true);
 	});
 
 	it("penalizes at-capacity departure floors in route scoring", () => {
@@ -2089,7 +2089,7 @@ describe("car state machine", () => {
 		carrier.serviceScheduleFlags[0] = 0;
 
 		tickAllCarriers(world, createTimeState());
-		expect(car.speedCounter).toBe(5);
+		expect(car.speedCounter).toBe(1);
 	});
 
 	it("assigns floor requests across multiple cars in the same shaft", () => {

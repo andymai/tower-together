@@ -41,6 +41,7 @@ export interface CarrierCar {
 	currentFloor: number;
 	doorWaitCounter: number;
 	speedCounter: number;
+	dwellCounter: number;
 	assignedCount: number;
 	pendingAssignmentCount: number;
 	/** 0 = upward (floor increases), 1 = downward. */

@@ -22,18 +22,12 @@ export type CarrierArrivalCallback = (
 	arrivalFloor: number,
 ) => void;
 
-const LOCAL_TICKS_PER_FLOOR = 8;
-const EXPRESS_TICKS_PER_FLOOR = 4;
 const DEPARTURE_SEQUENCE_TICKS = 5;
 const QUEUE_CAPACITY = 40;
 const ACTIVE_SLOT_CAPACITY = 42;
 
 function getScheduleIndex(time: TimeState): number {
 	return time.weekendFlag * 7 + time.daypartIndex;
-}
-
-function speedTicks(mode: 0 | 1 | 2): number {
-	return mode === 2 ? EXPRESS_TICKS_PER_FLOOR : LOCAL_TICKS_PER_FLOOR;
 }
 
 function createFloorQueue(): CarrierFloorQueue {
@@ -133,6 +127,7 @@ function resetCarToHome(carrier: CarrierRecord, car: CarrierCar): void {
 	car.prevFloor = homeFloor;
 	car.speedCounter = 0;
 	car.doorWaitCounter = 0;
+	car.dwellCounter = 0;
 	car.assignedCount = 0;
 	car.pendingAssignmentCount = 0;
 	car.departureFlag = 0;
@@ -226,6 +221,7 @@ export function makeCarrierCar(
 		currentFloor: homeFloor,
 		doorWaitCounter: 0,
 		speedCounter: 0,
+		dwellCounter: 0,
 		assignedCount: 0,
 		pendingAssignmentCount: 0,
 		directionFlag: 0,
@@ -850,13 +846,20 @@ function boardAndUnloadRoutes(
 	return changed;
 }
 
-function stepCarrierCar(
-	world: WorldState,
+/**
+ * Pass 1 of the per-tick carrier update, mirroring the binary's
+ * `advance_carrier_car_state` (1098:06fb). Runs before pass 2
+ * (`dispatchAndBoardCar`), which handles unload/boarding.
+ *
+ * State counters correspond to the binary's car struct fields:
+ *   doorWaitCounter ↔ -0x5d (stabilize after a motion step)
+ *   dwellCounter    ↔ -0x5c (dwell/boarding at a stop; 5 = just arrived)
+ */
+function advanceCarrierCarState(
 	car: CarrierCar,
 	carrier: CarrierRecord,
 	carIndex: number,
 	time: TimeState,
-	onArrival?: CarrierArrivalCallback,
 ): void {
 	if (!car.active) return;
 
@@ -868,71 +871,119 @@ function stepCarrierCar(
 		return;
 	}
 
+	// Stabilize branch (-0x5d): set by advance_car_position_one_step for
+	// motion modes 0/1. Counts down only while mode is still 0; if the
+	// newly-recomputed mode is non-zero, snap counter to 0 to allow motion.
 	if (car.doorWaitCounter > 0) {
 		if (computeCarMotionMode(carrier, car) === 0) car.doorWaitCounter--;
 		else car.doorWaitCounter = 0;
 		return;
 	}
 
+	// Dwell branch (-0x5c): counts down each tick. At the transition to 0,
+	// recompute target. If target changed, next tick's fall-through path
+	// will begin movement; otherwise fall-through will restart a dwell=5
+	// cycle. This mirrors the binary: the 5-tick cycle repeats until real
+	// work appears, at which point the target changes on a 5-tick boundary.
+	if (car.dwellCounter > 0) {
+		car.dwellCounter--;
+		if (car.dwellCounter === 0) {
+			car.prevFloor = car.currentFloor;
+			const expressFlag =
+				carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
+			const next = selectNextTarget(car, carrier, carIndex, expressFlag);
+			if (next >= 0 && next !== car.currentFloor) {
+				car.targetFloor = next;
+				car.directionFlag = next > car.currentFloor ? 0 : 1;
+				car.speedCounter = 1;
+			}
+		}
+		return;
+	}
+
+	// Pacing between movement steps. Binary moves 1 (or 3) floor per tick
+	// via advance_car_position_one_step; set speedCounter to 1 so we move
+	// every tick until reaching target.
 	if (car.speedCounter > 0) {
 		car.speedCounter--;
 		if (car.speedCounter === 0) {
 			car.prevFloor = car.currentFloor;
 			advanceCarPositionOneStep(carrier, car);
-			if (car.currentFloor === car.targetFloor) {
-				if (car.doorWaitCounter === 0)
-					car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
-				car.departureFlag = 0;
-			}
 			if (car.doorWaitCounter === 0 && car.currentFloor !== car.targetFloor) {
-				car.speedCounter = speedTicks(carrier.carrierMode);
+				car.speedCounter = 1;
 			}
 		}
 		return;
 	}
 
-	processUnitTravelQueue(world, carrier, car, carIndex, time);
-	if (boardAndUnloadRoutes(carrier, car, carIndex, onArrival)) {
-		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
+	// Both counters zero. Refresh schedule flag when stopped at an endpoint.
+	loadScheduleFlag(carrier, car, time);
+
+	// Binary Branch A (1098:06fb): level-triggered pin of -0x5c to 5 every
+	// tick a stopped car is at its target floor and has any door-opening
+	// reason (queued rider on this floor, or assigned_count != capacity).
+	// A fresh car at the lobby with assigned_count < capacity satisfies the
+	// OR on every tick, so -0x5c stays continuously pinned at 5 until the
+	// next reselect moves target off cur_floor. The countdown to reselect
+	// runs as a separate 5-tick cycle via Branch B.
+	const currentSlot = floorToSlot(carrier, car.currentFloor);
+	const hasFloorAssignment =
+		currentSlot >= 0 &&
+		(carrier.primaryRouteStatusByFloor[currentSlot] === carIndex + 1 ||
+			carrier.secondaryRouteStatusByFloor[currentSlot] === carIndex + 1);
+	const underCapacity = car.assignedCount < activeSlotLimit(carrier);
+	if (
+		car.targetFloor === car.currentFloor &&
+		(hasFloorAssignment || underCapacity)
+	) {
+		clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
+		car.dwellCounter = DEPARTURE_SEQUENCE_TICKS;
+		car.departureFlag = 0;
 		return;
 	}
 
-	loadScheduleFlag(carrier, car, time);
-	const next = selectNextTarget(
-		car,
-		carrier,
-		carIndex,
-		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0,
-	);
+	// Not at a servicable target. Reselect or depart toward a new target.
+	const expressFlag =
+		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
+	const next = selectNextTarget(car, carrier, carIndex, expressFlag);
 
 	if (next < 0 || next === car.currentFloor) {
-		// At target floor with no further targets: check if passengers waiting
-		const currentSlot = floorToSlot(carrier, car.currentFloor);
-		const waitingHere =
-			currentSlot >= 0 ? (car.waitingCount[currentSlot] ?? 0) > 0 : false;
-		if (waitingHere) {
-			// Passengers waiting: begin departure/boarding sequence
-			clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
-			car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
-			if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
-			car.departureFlag = 1;
-			return;
-		}
-		// Car has boarded passengers and should depart
 		if (car.assignedCount > 0 && shouldCarDepart(carrier, car, time)) {
 			car.speedCounter = 1;
 		}
 		return;
 	}
 
-	// Move toward next target
 	car.targetFloor = next;
 	car.directionFlag = next > car.currentFloor ? 0 : 1;
-	// Clear stale assignments at current floor before departing
 	clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
-	car.speedCounter = DEPARTURE_SEQUENCE_TICKS;
 	if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
 	car.departureFlag = 1;
+	car.speedCounter = 1;
+}
+
+/**
+ * Pass 2 of the per-tick carrier update, mirroring the binary's
+ * `dispatch_carrier_car_arrivals` + `process_unit_travel_queue`
+ * (1218:07a6 / 1218:0883). Runs after all cars have completed pass 1.
+ *
+ * The binary gates unload on -0x5c == 5 (first dwell tick). We fold boarding
+ * (which the binary runs unconditionally in its own helper) into the same
+ * call so it happens on the same tick as arrival.
+ */
+function dispatchAndBoardCar(
+	world: WorldState,
+	car: CarrierCar,
+	carrier: CarrierRecord,
+	carIndex: number,
+	time: TimeState,
+	onArrival?: CarrierArrivalCallback,
+): void {
+	if (!car.active) return;
+	// Boarding only happens when doors are open — i.e. during dwell.
+	if (car.dwellCounter === 0) return;
+	processUnitTravelQueue(world, carrier, car, carIndex, time);
+	boardAndUnloadRoutes(carrier, car, carIndex, onArrival);
 }
 
 export function tickAllCarriers(
@@ -944,35 +995,35 @@ export function tickAllCarriers(
 		carrier.completedRouteIds = [];
 		assignPendingFloorRequests(carrier);
 		syncAssignmentStatus(carrier);
+		// Pass 1: state advance for every car (binary `advance_carrier_car_state`).
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			stepCarrierCar(world, car, carrier, carIndex, time, onArrival);
+			advanceCarrierCarState(car, carrier, carIndex, time);
+		}
+		// Pass 2: unload + boarding for every car (binary
+		// `dispatch_carrier_car_arrivals` + `process_unit_travel_queue`).
+		for (const [carIndex, car] of carrier.cars.entries()) {
+			dispatchAndBoardCar(world, car, carrier, carIndex, time, onArrival);
 		}
 	}
 }
 
 /**
  * End-of-day carrier flush (checkpoint 0x9f6).
- * Drains all floor queues, clears pending routes, and resets every car to its
- * home floor. This prevents stale overnight passengers.
+ * Drains all floor queues and clears pending route tracking. The binary
+ * leaves per-car state (dwell counter, current/target floor, cycle phase)
+ * untouched at the day boundary — resetting mid-cycle would shift the
+ * reselect cadence and desynchronize dispatch from the binary.
  */
 export function flushCarriersEndOfDay(world: WorldState): void {
 	for (const carrier of world.carriers) {
-		// Drain floor queues
 		for (const queue of carrier.floorQueues.values()) {
 			queue.up.head = 0;
 			queue.up.count = 0;
 			queue.down.head = 0;
 			queue.down.count = 0;
 		}
-
-		// Clear pending and completed route tracking
 		carrier.pendingRoutes = [];
 		carrier.completedRouteIds = [];
-
-		// Reset every car to home floor
-		for (const car of carrier.cars) {
-			resetCarToHome(carrier, car);
-		}
 	}
 }
 
