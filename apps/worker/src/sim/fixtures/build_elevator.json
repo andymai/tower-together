@@ -13,6 +13,6 @@
 		{ "type": "office", "floor": 1, "left": 100 },
 		{ "type": "office", "floor": 2, "left": 100 },
 		{ "type": "office", "floor": 3, "left": 100 },
-		{ "type": "elevator", "bottom": 1, "top": 3, "left": 150 }
+		{ "type": "elevator", "bottom": 0, "top": 3, "left": 150 }
 	]
 }
