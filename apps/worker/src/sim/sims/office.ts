@@ -298,27 +298,36 @@ export function processOfficeSim(
 		return;
 	}
 
-	// --- At venue (spec state 0x22) ---
-	// Binary gate (PEOPLE.md:323): dayparts 0–1 → no-op; dayparts 2–3 → dispatch
-	// (release venue + route home); daypart ≥ 4 → force state 0x27 + release.
-	if (state === STATE_VENUE_TRIP) {
+	// --- At venue / routing home (spec states 0x22 & 0x62) ---
+	// Binary: `office_refresh_0x22_23` (1228:1f62) gates on daypart: ≥4 →
+	// PARKED+release; <2 → no-op. Otherwise dispatches `office_dispatch_0x22_62`
+	// (1228:24cd) which calls `route_sim_back_from_commercial_venue` (1238:0244).
+	// That fn gates on dwell via `release_commercial_venue_slot` (11b0:0fae)
+	// when state == 0x22 — the release fn returns success immediately when
+	// the sim has no commercial-venue slot (fake lunch), otherwise requires
+	// service_duration to elapse. It then resolves a route home and sets
+	// state → 0x62 on in-transit results. Both 0x22 and 0x62 dispatch to the
+	// same path so a sim already in transit re-drives the route each visit.
+	if (state === STATE_VENUE_TRIP || state === STATE_VENUE_HOME_TRANSIT) {
 		if (time.daypartIndex >= 4) {
 			sim.stateCode = STATE_PARKED;
 			releaseServiceRequest(world, sim);
 			return;
 		}
 		if (time.daypartIndex < 2) {
-			// Keep the elapsed clock running across strides while the sim waits
-			// for the dispatch daypart — rebaseSimElapsedFromClock zeros
-			// lastDemandTick on entry, so we re-stamp here to accumulate.
 			sim.lastDemandTick = time.dayTick;
 			return;
 		}
-		// Binary release_commercial_venue_slot (11b0:0fae) refuses to release
-		// until the minimum-stay timer has elapsed; keep the sim at the venue
-		// and re-stamp so rebaseSimElapsedFromClock keeps counting.
-		if (sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS) {
+		const isFakeLunch = sim.selectedFloor === LOBBY_FLOOR;
+		if (
+			state === STATE_VENUE_TRIP &&
+			!isFakeLunch &&
+			sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS
+		) {
 			sim.lastDemandTick = time.dayTick;
+			return;
+		}
+		if (sim.destinationFloor !== -1 && state === STATE_VENUE_HOME_TRANSIT) {
 			return;
 		}
 		const routeResult = resolveSimRouteBetweenFloors(
@@ -402,11 +411,9 @@ export function processOfficeSim(
 	if (
 		state === STATE_COMMUTE_TRANSIT ||
 		state === STATE_ACTIVE_TRANSIT ||
-		state === STATE_VENUE_TRIP_TRANSIT ||
 		state === STATE_DEPARTURE_TRANSIT ||
 		state === STATE_MORNING_TRANSIT ||
 		state === STATE_AT_WORK_TRANSIT ||
-		state === STATE_VENUE_HOME_TRANSIT ||
 		state === STATE_DWELL_RETURN_TRANSIT
 	) {
 		return;

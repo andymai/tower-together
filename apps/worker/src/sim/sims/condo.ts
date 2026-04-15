@@ -137,9 +137,9 @@ export function processCondoSim(
 				if (sampleRng(world) % 12 !== 0) return;
 			}
 			// dispatch_0x10: calendar_phase is not modeled; treat as ≠ 1.
-			// BP+0xe holds a baseOffset-derived workday flag; empirically
-			// baseOffset==2 → ACTIVE, others → COMMUTE (matches trace 6/3 split).
-			sim.stateCode = sim.baseOffset === 2 ? STATE_ACTIVE : STATE_COMMUTE;
+			// BP+0xe == sim.baseOffset; binary branches baseOffset==1 → ACTIVE,
+			// else COMMUTE.
+			sim.stateCode = sim.baseOffset === 1 ? STATE_ACTIVE : STATE_COMMUTE;
 			return;
 		}
 		case STATE_COMMUTE: {

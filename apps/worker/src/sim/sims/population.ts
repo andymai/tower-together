@@ -227,6 +227,12 @@ export function resetSimRuntimeState(world: WorldState): void {
 			sim.targetRoomFloor = -1;
 			sim.spawnFloor = sim.floorAnchor;
 			sim.postClaimCountdown = 0;
+		} else if (
+			sim.familyCode === FAMILY_OFFICE ||
+			COMMERCIAL_FAMILIES.has(sim.familyCode)
+		) {
+			// Spec TIME.md checkpoint 2500: family 6/7/10/12 → 0x20 (MORNING_GATE).
+			sim.stateCode = STATE_MORNING_GATE;
 		} else {
 			sim.stateCode = STATE_PARKED;
 		}
