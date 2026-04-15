@@ -17,7 +17,6 @@ import {
 	findObjectForSim,
 	findSiblingSims,
 	finishCommercialVenueDwell,
-	handleCommercialVenueArrival,
 	resolveSimRouteBetweenFloors,
 	tryAssignParkingService,
 } from "./index";
@@ -300,6 +299,13 @@ export function processHotelSim(
 					);
 				},
 			});
+			if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
+				// Hotel same-floor venue: binary writes state=0x22, not 0x62.
+				// service_duration-gated exit via STATE_VENUE_TRIP handler.
+				sim.stateCode = STATE_VENUE_TRIP;
+				sim.queueTick = time.dayTick;
+				return;
+			}
 			if (!dispatched) {
 				// Binary route_sim_to_commercial_venue (1238:0000) state-0x01 branch:
 				// when no venue is found, target defaults to lobby and the route
@@ -390,15 +396,29 @@ export function processHotelSim(
 			return;
 		}
 		case STATE_VENUE_TRIP:
-			// Binary 0x22 handler drives no-venue sims into 0x62 (DWELL) after a
-			// ~16-tick wait. Non-no-venue VENUE_TRIP (in-transit) is handled by
-			// dispatchSimArrival. `queueTick` carries the phase-start tick
-			// (lastDemandTick is clobbered every refresh by rebase).
+			// Binary shared 0x22/0x62 handler (1228:50ef): release_commercial_venue_slot
+			// returns 1 immediately for fake-lunch (slot<0); for real venue it gates
+			// on service_duration (elapsed ≥ get_commercial_venue_service_duration_ticks).
+			// On release, routes home; same-floor result (3) → state=0x01, else 0x62.
 			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
+				// Fake-lunch: release succeeds immediately. Next refresh (stride 16)
+				// routes to lobby; existing model routes same-floor → 0x62 then 0x04.
 				if (time.dayTick - sim.queueTick < 16) return;
 				sim.stateCode = COMMERCIAL_DWELL_STATE;
 				sim.queueTick = time.dayTick;
+				return;
 			}
+			// Real-venue dwell: stay in 0x22 until service_duration elapsed (~64t
+			// for single/restaurant). Then same-floor exit goes directly to
+			// STATE_CHECKOUT_QUEUE (binary 0x01 → immediate 0x04).
+			if (time.dayTick - sim.queueTick < 64) return;
+			if (sim.selectedFloor === sim.floorAnchor) {
+				sim.stateCode = STATE_CHECKOUT_QUEUE;
+				sim.venueReturnState = 0;
+				return;
+			}
+			sim.stateCode = COMMERCIAL_DWELL_STATE;
+			sim.queueTick = time.dayTick;
 			return;
 		case COMMERCIAL_DWELL_STATE:
 			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
@@ -467,14 +487,17 @@ export function handleHotelSimArrival(
 	}
 
 	if (
-		handleCommercialVenueArrival(
-			sim,
-			arrivalFloor,
-			STATE_ACTIVE,
-			time,
-			STATE_ACTIVE_TRANSIT,
-		)
+		sim.stateCode === STATE_ACTIVE_TRANSIT &&
+		arrivalFloor === sim.destinationFloor
 	) {
+		// Hotel arrival at a real commercial venue (binary 1228:4fab sets
+		// state=0x22 with queueTick = dayTick as phase-start, not 0x62). The
+		// 0x22 handler gates exit on service_duration via
+		// release_commercial_venue_slot (11b0:0fae).
+		sim.destinationFloor = -1;
+		sim.selectedFloor = arrivalFloor;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
 		return;
 	}
 
