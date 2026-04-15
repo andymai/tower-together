@@ -131,20 +131,17 @@ export function processCommercialSim(
 		}
 
 		record.remainingCapacity -= 1;
-		if (sim.familyCode === FAMILY_RETAIL) {
-			if (
-				record.currentPopulation === 0 &&
-				record.availabilityState === VENUE_DORMANT
-			) {
-				activateRetailShop(object, record, ledger);
-			}
-		}
 		if (record.currentPopulation < 39) {
 			record.currentPopulation += 1;
 		}
 		record.lastAcquireTick = time.dayTick;
 
-		// Route to home floor
+		// Route to home floor. Binary state-0x20 dispatch (1228:41cb) calls
+		// try_consume first, then resolve_sim_route_between_floors, then
+		// activates the retail shop on the success paths (route_result 0..3)
+		// only when the venue is still DORMANT. On route_result == -1 the
+		// binary reverts sim state fields and skips activation — capacity
+		// stays decremented but no cashflow is added.
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -155,6 +152,12 @@ export function processCommercialSim(
 		);
 		if (routeResult === -1) {
 			return;
+		}
+		if (
+			sim.familyCode === FAMILY_RETAIL &&
+			record.availabilityState === VENUE_DORMANT
+		) {
+			activateRetailShop(object, record, ledger);
 		}
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.destinationFloor = sim.floorAnchor;

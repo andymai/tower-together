@@ -262,19 +262,17 @@ export function selectBestRouteCandidate(
 	}
 
 	if (preferLocalMode) {
-		if (
-			delta === 1 ||
-			isFloorSpanWalkableForLocalRoute(world, fromFloor, toFloor)
-		) {
-			for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-				const cost = scoreLocalRouteSegment(segment, fromFloor, toFloor);
-				if (cost >= ROUTE_COST_INFINITE) continue;
-				bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
-			}
-			// Immediately accept a cheap direct local segment
-			if (bestSegment && bestSegment.cost < STAIRS_ROUTE_EXTRA_COST)
-				return bestSegment;
+		// Binary selector scans direct stairs/escalator segments unconditionally
+		// in index order 0..63; scoreLocalRouteSegment already rejects segments
+		// that don't cover both endpoints.
+		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
+			const cost = scoreLocalRouteSegment(segment, fromFloor, toFloor);
+			if (cost >= ROUTE_COST_INFINITE) continue;
+			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 		}
+		// Immediately accept a cheap direct local segment
+		if (bestSegment && bestSegment.cost < STAIRS_ROUTE_EXTRA_COST)
+			return bestSegment;
 
 		// Scan derived transfer zones only when no cheap direct segment exists
 		if (!bestSegment || bestSegment.cost >= STAIRS_ROUTE_EXTRA_COST) {

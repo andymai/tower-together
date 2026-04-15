@@ -24,7 +24,6 @@ import {
 	STATE_HOTEL_PARKED,
 	STATE_MORNING_GATE,
 	STATE_PARKED,
-	UNIT_STATUS_CONDO_VACANT,
 } from "./states";
 
 function makeSim(
@@ -70,6 +69,7 @@ function initialStateForFamily(
 	}
 	if (CATHEDRAL_FAMILIES.has(familyCode)) return STATE_PARKED;
 	if (familyCode === FAMILY_OFFICE) return STATE_MORNING_GATE;
+	if (familyCode === FAMILY_CONDO) return STATE_MORNING_GATE;
 	if (COMMERCIAL_FAMILIES.has(familyCode)) return STATE_MORNING_GATE;
 	if (familyCode === FAMILY_RECYCLING_CENTER_UPPER) return STATE_ACTIVE;
 	if (familyCode === FAMILY_HOUSEKEEPING) return HK_STATE_SEARCH;
@@ -219,16 +219,14 @@ export function resetSimRuntimeState(world: WorldState): void {
 			// NIGHT_B / CHECKOUT_QUEUE→TRANSITION→DEPARTURE. The binary's
 			// runtime reset does not overwrite hotel sim states.
 			continue;
+		} else if (sim.familyCode === FAMILY_CONDO) {
+			// Condos persist across day boundaries via CHECKOUT_QUEUE→TRANSITION.
+			continue;
 		} else if (sim.familyCode === FAMILY_HOUSEKEEPING) {
 			sim.stateCode = HK_STATE_SEARCH;
 			sim.targetRoomFloor = -1;
 			sim.spawnFloor = sim.floorAnchor;
 			sim.postClaimCountdown = 0;
-		} else if (sim.familyCode === FAMILY_CONDO) {
-			sim.stateCode =
-				object.unitStatus >= UNIT_STATUS_CONDO_VACANT
-					? STATE_PARKED
-					: STATE_ACTIVE;
 		} else {
 			sim.stateCode = STATE_PARKED;
 		}

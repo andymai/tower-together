@@ -37,6 +37,7 @@ import {
 	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
 	STATE_TRANSITION,
+	STATE_VENUE_TRIP,
 } from "./states";
 
 /**
@@ -88,6 +89,48 @@ function incrementStayPhase345(
 	} else {
 		object.unitStatus = (object.unitStatus + 1) & 0xff;
 	}
+}
+
+/**
+ * Binary no-venue path for hotel state-0x01 (route_sim_to_commercial_venue
+ * 1238:0000): when `pickAvailableVenue` returns null, origin=home floor,
+ * destination defaults to lobby. Resolver return drives the state:
+ *   1/2 → STATE_ACTIVE_TRANSIT (stairs / carrier ride to lobby)
+ *   3   → STATE_VENUE_TRIP directly (acquire_slot(0xb0)=3 fall-through)
+ *   0/-1 → STATE_CHECKOUT_QUEUE (Phase 4 will replace with sim+8=0xff retry)
+ * `venueReturnState = STATE_CHECKOUT_QUEUE` acts as the no-venue marker so
+ * the arrival + dwell handlers steer through 0x22 → 0x62 → 0x04.
+ */
+function routeHotelToLobbyNoVenue(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sim.floorAnchor,
+		LOBBY_FLOOR,
+		directionFlag,
+		time,
+	);
+	if (result === -1 || result === 0) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	sim.venueReturnState = STATE_CHECKOUT_QUEUE;
+	if (result === 3) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	sim.originFloor = sim.floorAnchor;
+	sim.selectedFloor = sim.floorAnchor;
+	sim.destinationFloor = LOBBY_FLOOR;
+	sim.stateCode = STATE_ACTIVE_TRANSIT;
 }
 
 function activateHotelStay(
@@ -246,12 +289,10 @@ export function processHotelSim(
 			) {
 				tryAssignParkingService(world, time, sim);
 			}
-			dispatchCommercialVenueVisit(world, time, sim, {
+			const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
 				venueFamilies: COMMERCIAL_FAMILIES,
 				returnState: STATE_ACTIVE,
 				tripState: STATE_ACTIVE_TRANSIT,
-				// Binary: venue failure → CHECKOUT_QUEUE (0x04) at 1228:33b2.
-				unavailableState: STATE_CHECKOUT_QUEUE,
 				onVenueReserved: () => {
 					object.activationTickCount = Math.min(
 						ACTIVATION_TICK_CAP,
@@ -259,6 +300,15 @@ export function processHotelSim(
 					);
 				},
 			});
+			if (!dispatched) {
+				// Binary route_sim_to_commercial_venue (1238:0000) state-0x01 branch:
+				// when no venue is found, target defaults to lobby and the route
+				// resolver runs anyway. On success (1/2) sim goes to ACTIVE_TRANSIT
+				// to lobby; same-floor resolve (3) + acquire_slot(0xb0)=3 writes
+				// state 0x22. venueReturnState=CHECKOUT_QUEUE so dwell completion
+				// lands in the expected terminal state.
+				routeHotelToLobbyNoVenue(world, time, sim);
+			}
 			return;
 		}
 		case STATE_MORNING_TRANSIT:
@@ -339,7 +389,28 @@ export function processHotelSim(
 			}
 			return;
 		}
+		case STATE_VENUE_TRIP:
+			// Binary 0x22 handler drives no-venue sims into 0x62 (DWELL) after a
+			// ~16-tick wait. Non-no-venue VENUE_TRIP (in-transit) is handled by
+			// dispatchSimArrival. `queueTick` carries the phase-start tick
+			// (lastDemandTick is clobbered every refresh by rebase).
+			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
+				if (time.dayTick - sim.queueTick < 16) return;
+				sim.stateCode = COMMERCIAL_DWELL_STATE;
+				sim.queueTick = time.dayTick;
+			}
+			return;
 		case COMMERCIAL_DWELL_STATE:
+			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
+				// Binary 0x62 no-venue dwell: per-family stride count matches the
+				// hotel departure countdown (single=1, twin/suite=2). Reference:
+				// single 1729→1745 (16t), twin 1753→1785 (32t).
+				const strides = sim.familyCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+				if (time.dayTick - sim.queueTick < 16 * strides) return;
+				sim.stateCode = STATE_CHECKOUT_QUEUE;
+				sim.venueReturnState = 0;
+				return;
+			}
 			finishCommercialVenueDwell(sim, time, STATE_ACTIVE);
 			return;
 		case STATE_NIGHT_B:
@@ -376,6 +447,22 @@ export function handleHotelSimArrival(
 			incrementStayPhase345(object, time);
 			sim.stateCode = hotelArrivalState(world, sim);
 		}
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_ACTIVE_TRANSIT &&
+		arrivalFloor === LOBBY_FLOOR &&
+		sim.venueReturnState === STATE_CHECKOUT_QUEUE
+	) {
+		// Binary state-0x41 reentry on arrival at lobby with no venue reserved
+		// (sim+6 = 0xb0 sentinel): resolve(lobby→lobby)=3 → acquire_slot=3 →
+		// sim+5 = 0x22. In TS we jump straight to STATE_VENUE_TRIP; the marker
+		// steers the DWELL handler to exit via STATE_CHECKOUT_QUEUE.
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
 		return;
 	}
 
