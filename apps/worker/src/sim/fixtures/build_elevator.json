@@ -1,0 +1,18 @@
+{
+	"config": {
+		"dump_interval": 1,
+		"max_ticks": 600
+	},
+	"floor_extent": {
+		"0": { "left": 80, "right": 240 },
+		"1": { "left": 80, "right": 240 },
+		"2": { "left": 80, "right": 240 },
+		"3": { "left": 80, "right": 240 }
+	},
+	"facilities": [
+		{ "type": "office", "floor": 1, "left": 100 },
+		{ "type": "office", "floor": 2, "left": 100 },
+		{ "type": "office", "floor": 3, "left": 100 },
+		{ "type": "elevator", "bottom": 1, "top": 3, "left": 150 }
+	]
+}
