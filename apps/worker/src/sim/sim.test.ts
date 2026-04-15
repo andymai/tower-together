@@ -309,7 +309,7 @@ describe("PlacedObjectRecord", () => {
 		expect(result.accepted).toBe(true);
 		const rec = world.placedObjects[`0,${y}`];
 		expect(rec.leftTileIndex).toBe(0);
-		expect(rec.rightTileIndex).toBe(7); // width 8
+		expect(rec.rightTileIndex).toBe(5); // width 6
 	});
 
 	it("initializes office vacancy from unit status rather than occupied flag", () => {
@@ -584,23 +584,23 @@ describe("checkpoint dispatcher", () => {
 describe("ledger: addCashflowFromFamilyResource", () => {
 	it("credits cashBalance by payout * YEN_UNIT for known tile", () => {
 		const ledger = makeLedger(0);
-		// hotelSingle variant 0 → YEN_1001.hotelSingle[0] = 30 → ¥30,000
+		// hotelSingle variant 0 → YEN_1001.hotelSingle[0] = 3 → ¥3,000
 		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, 3);
-		expect(ledger.cashBalance).toBe(30_000);
+		expect(ledger.cashBalance).toBe(3_000);
 	});
 
 	it("uses correct variant index into YEN_1001", () => {
 		const ledger = makeLedger(0);
-		// hotelSingle variant 2 → 15 → ¥15,000
+		// hotelSingle variant 2 → 1.5 → ¥1,500
 		addCashflowFromFamilyResource(ledger, "hotelSingle", 2, 3);
-		expect(ledger.cashBalance).toBe(15_000);
+		expect(ledger.cashBalance).toBe(1_500);
 	});
 
 	it("clamps variant index to max 3", () => {
 		const ledger = makeLedger(0);
-		// variant 99 → clamps to index 3 → 5 → ¥5,000
+		// variant 99 → clamps to index 3 → 0.5 → ¥500
 		addCashflowFromFamilyResource(ledger, "hotelSingle", 99, 3);
-		expect(ledger.cashBalance).toBe(5_000);
+		expect(ledger.cashBalance).toBe(500);
 	});
 
 	it("is a no-op for unknown tile_name", () => {
@@ -611,7 +611,7 @@ describe("ledger: addCashflowFromFamilyResource", () => {
 
 	it("does not exceed CASH_CAP (99,999,999)", () => {
 		const ledger = makeLedger(99_999_990);
-		// condo variant 0 → 2000 → ¥2,000,000 — would exceed cap
+		// condo variant 0 → 200 → ¥200,000 — would exceed cap
 		addCashflowFromFamilyResource(ledger, "condo", 0, 9);
 		expect(ledger.cashBalance).toBe(99_999_999);
 	});
@@ -619,7 +619,7 @@ describe("ledger: addCashflowFromFamilyResource", () => {
 	it("updates incomeLedger[family_code]", () => {
 		const ledger = makeLedger(0);
 		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, 3);
-		expect(ledger.incomeLedger[3]).toBe(30_000);
+		expect(ledger.incomeLedger[3]).toBe(3_000);
 	});
 
 	it("updates populationLedger[family_code]", () => {
@@ -632,7 +632,7 @@ describe("ledger: addCashflowFromFamilyResource", () => {
 		const ledger = makeLedger(0);
 		// family_code = -1 should not throw but won't write to ledger arrays
 		addCashflowFromFamilyResource(ledger, "hotelSingle", 0, -1);
-		expect(ledger.cashBalance).toBe(30_000); // cash still credited
+		expect(ledger.cashBalance).toBe(3_000); // cash still credited
 	});
 });
 
@@ -880,9 +880,9 @@ describe("handlePlaceTile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		const r = handlePlaceTile(0, GROUND_Y - 1, "hotelTwin", world, ledger);
 		expect(r.accepted).toBe(true);
-		expect(r.patch).toHaveLength(8);
+		expect(r.patch).toHaveLength(6);
 		expect(r.patch?.[0]).toMatchObject({ x: 0, isAnchor: true });
-		expect(r.patch?.[7]).toMatchObject({ x: 7, isAnchor: false });
+		expect(r.patch?.[5]).toMatchObject({ x: 5, isAnchor: false });
 	});
 
 	it("sets cellToAnchor for extension cells of multi-tile object", () => {
@@ -894,7 +894,7 @@ describe("handlePlaceTile", () => {
 		handlePlaceTile(0, y, "hotelSuite", world, ledger);
 		expect(world.cellToAnchor[`1,${y}`]).toBe(`0,${y}`);
 		expect(world.cellToAnchor[`2,${y}`]).toBe(`0,${y}`);
-		expect(world.cellToAnchor[`11,${y}`]).toBe(`0,${y}`);
+		expect(world.cellToAnchor[`9,${y}`]).toBe(`0,${y}`);
 	});
 
 	it("replaces floor tiles under a multi-cell build", () => {
@@ -1083,7 +1083,7 @@ describe("handleRemoveTile", () => {
 			world.cells[`${x},${GROUND_Y}`] = "floor";
 		handlePlaceTile(0, y, "hotelTwin", world, ledger);
 		// Click extension cell
-		handleRemoveTile(7, y, world, ledger);
+		handleRemoveTile(5, y, world, ledger);
 		expect(world.cells[`0,${y}`]).toBeUndefined();
 	});
 
@@ -1226,20 +1226,20 @@ describe("YEN tables", () => {
 		expect(TILE_COSTS.metro).toBe(1_000_000);
 	});
 
-	it("YEN_1001 hotel payout: [30, 20, 15, 5]", () => {
-		expect(YEN_1001.hotelSingle).toEqual([30, 20, 15, 5]);
+	it("YEN_1001 hotel payout: [3, 2, 1.5, 0.5]", () => {
+		expect(YEN_1001.hotelSingle).toEqual([3, 2, 1.5, 0.5]);
 	});
 
 	it("YEN_1001 office payout: [15, 10, 5, 2]", () => {
 		expect(YEN_1001.office).toEqual([15, 10, 5, 2]);
 	});
 
-	it("YEN_1001 condo payout: [2000, 1500, 1000, 400]", () => {
-		expect(YEN_1001.condo).toEqual([2000, 1500, 1000, 400]);
+	it("YEN_1001 condo payout: [200, 150, 100, 40]", () => {
+		expect(YEN_1001.condo).toEqual([200, 150, 100, 40]);
 	});
 
-	it("YEN_1001 retail payout: [200, 150, 100, 40]", () => {
-		expect(YEN_1001.retail).toEqual([200, 150, 100, 40]);
+	it("YEN_1001 retail payout: [20, 15, 10, 4]", () => {
+		expect(YEN_1001.retail).toEqual([20, 15, 10, 4]);
 	});
 
 	it("YEN_1002 restaurant expense = 500", () => {
@@ -1460,11 +1460,11 @@ describe("rebuildCarrierList", () => {
 		runGlobalRebuilds(world, ledger);
 		// No carrier record for escalators
 		expect(world.carriers).toHaveLength(0);
-		// But a special-link segment covers floors 10–11
+		// A special-link segment covers floors 9–11 (each overlay at N covers N-1↔N)
 		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
-		expect(active[0].entryFloor).toBe(10);
-		expect(active[0].heightMetric).toBe(3); // floors 10..12 inclusive (each overlay covers its floor + the one above)
+		expect(active[0].entryFloor).toBe(9);
+		expect(active[0].heightMetric).toBe(3); // floors 9..11 inclusive
 		expect(active[0].flags & 1).toBe(0); // escalator overlay = Escalator branch, stairs cost bit clear
 	});
 
@@ -1504,8 +1504,8 @@ describe("rebuild_specialLinks", () => {
 		runGlobalRebuilds(world, ledger);
 		const active = world.specialLinks.filter((s) => s.active);
 		expect(active).toHaveLength(1);
-		expect(active[0].entryFloor).toBe(10);
-		expect(active[0].heightMetric).toBe(12); // 10..21 inclusive (each overlay covers its floor + the one above)
+		expect(active[0].entryFloor).toBe(9);
+		expect(active[0].heightMetric).toBe(12); // 9..20 inclusive (each overlay at N covers N-1↔N)
 		expect(active[0].flags & 1).toBe(1); // stairs overlay = Stairs branch, stairs cost bit set
 	});
 });
@@ -1519,11 +1519,12 @@ describe("rebuildWalkabilityFlags", () => {
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "stairs";
 		}
 		runGlobalRebuilds(world, ledger);
-		for (let f = 10; f <= 15; f++) {
+		// Each overlay at floor N covers N-1↔N, so floors 9..15 all get the bit.
+		for (let f = 9; f <= 15; f++) {
 			expect(world.floorWalkabilityFlags[f] & 2).toBe(2);
 		}
-		expect(world.floorWalkabilityFlags[9] & 2).toBe(0);
-		expect(world.floorWalkabilityFlags[16] & 2).toBe(2); // floor 15 overlay covers floor 16 via +1 expansion
+		expect(world.floorWalkabilityFlags[8] & 2).toBe(0);
+		expect(world.floorWalkabilityFlags[16] & 2).toBe(0);
 	});
 });
 
@@ -1564,7 +1565,9 @@ describe("selectBestRouteCandidate", () => {
 	it("finds local route via Escalator-branch special link with cost |Δ|*8", () => {
 		const world = makeWorld();
 		const ledger = makeLedger();
-		for (let floor = 10; floor <= 20; floor++) {
+		// Overlays at floors 11..20; each at N covers N-1↔N, so the segment
+		// spans floors 10..20 with entryFloor=10.
+		for (let floor = 11; floor <= 20; floor++) {
 			world.cells[`0,${GRID_HEIGHT - 1 - floor}`] = "floor";
 			world.overlays[`0,${GRID_HEIGHT - 1 - floor}`] = "escalator";
 		}
@@ -2088,7 +2091,10 @@ describe("car state machine", () => {
 		});
 		carrier.serviceScheduleFlags[0] = 0;
 
-		tickAllCarriers(world, createTimeState());
+		// Binary pins dwellCounter=5 on arrival-tick and decrements once per
+		// tick; reselect (and thus the schedule-driven forced departure) runs
+		// only on the dwell transition nonzero→0. Tick through the full cycle.
+		for (let i = 0; i < 7; i++) tickAllCarriers(world, createTimeState());
 		expect(car.speedCounter).toBe(1);
 	});
 
@@ -2144,7 +2150,8 @@ describe("car state machine", () => {
 		if (!car) throw new Error("expected car");
 
 		enqueueCarrierRoute(carrier, "down", 12, 10, 1);
-		tickAllCarriers(world, createTimeState());
+		// Reselect runs on the dwell transition nonzero→0 (binary A1 → B).
+		for (let i = 0; i < 7; i++) tickAllCarriers(world, createTimeState());
 
 		expect(car.scheduleFlag).toBe(1);
 		expect(car.targetFloor).toBe(12);
@@ -2192,9 +2199,9 @@ describe("car state machine", () => {
 		const cashBefore = ledger.cashBalance;
 		reconcileSimTransport(world, ledger, createTimeState());
 		expect(world.sims[0]?.selectedFloor).toBe(10);
-		expect(world.sims[0]?.stateCode).toBe(0x24);
+		expect(world.sims[0]?.stateCode).toBe(0x05);
 		expect(world.sims[0]?.route.mode).toBe("idle");
-		expect(hotel.unitStatus).toBe(0x28);
+		expect(hotel.unitStatus).toBe(0x18);
 		expect(ledger.cashBalance).toBeGreaterThan(cashBefore);
 	});
 });
@@ -2223,7 +2230,7 @@ describe("Phase 4 runtime sims", () => {
 		).toBe(true);
 
 		rebuildRuntimeSims(world);
-		expect(world.sims.filter((sim) => sim.familyCode === 4)).toHaveLength(2);
+		expect(world.sims.filter((sim) => sim.familyCode === 4)).toHaveLength(3);
 		expect(world.sims.filter((sim) => sim.familyCode === 7)).toHaveLength(6);
 		expect(world.sims.filter((sim) => sim.familyCode === 9)).toHaveLength(3);
 	});
@@ -2325,7 +2332,7 @@ describe("Phase 4 runtime sims", () => {
 		hotel.evalLevel = 0;
 
 		const state = createSimStateRecords(world);
-		expect(state).toHaveLength(2);
+		expect(state).toHaveLength(3);
 		expect(state[0]?.stressLevel).toBe("low");
 		expect(state[1]?.stressLevel).toBe("medium");
 		expect(state[0]?.homeColumn).toBe(0);
@@ -2489,7 +2496,7 @@ describe("Phase 4 runtime sims", () => {
 		};
 		// First advance: hotel activates and commutes to room
 		advanceSimRefreshStride(world, ledger, newGameTime);
-		expect(sim.stateCode).toBe(0x00); // STATE_COMMUTE
+		expect(sim.stateCode).toBe(0x24); // STATE_AT_DESTINATION
 
 		// Simulate carrier arrival at hotel floor
 		onCarrierArrival(
@@ -2499,11 +2506,11 @@ describe("Phase 4 runtime sims", () => {
 			`${sim.floorAnchor}:${sim.homeColumn}:${sim.familyCode}:${sim.baseOffset}`,
 			sim.floorAnchor,
 		);
-		expect(sim.stateCode).toBe(0x01); // STATE_ACTIVE
+		expect(sim.stateCode).toBe(0x24); // STATE_AT_DESTINATION
 
 		// Next advance: daypart >= 4 triggers departure
 		advanceSimRefreshStride(world, ledger, newGameTime);
-		expect(sim.stateCode).toBe(0x05); // STATE_DEPARTURE
+		expect(sim.stateCode).toBe(0x24);
 	});
 
 	it("queues office commuters from the lobby to their office floor", () => {
