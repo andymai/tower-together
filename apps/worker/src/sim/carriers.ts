@@ -742,6 +742,17 @@ function selectNextTarget(
 		return car.homeFloor;
 	}
 
+	// When a normal-mode car has finished all work, the binary keeps it parked
+	// at home so the A1/B dwell cycle can continue without resetting the
+	// arrival latch on every 5→0 transition.
+	if (
+		expressDirectionFlag === 0 &&
+		car.nonemptyDestinationCount === 0 &&
+		car.pendingAssignmentCount === 0
+	) {
+		return car.homeFloor;
+	}
+
 	const underCapacity = car.assignedCount !== getCarCapacity(carrier);
 
 	function hasQueuedRider(floor: number): boolean {
@@ -930,7 +941,6 @@ function boardAndUnloadRoutes(
 			}
 		}
 	}
-
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
 		if (car.assignedCount >= getCarCapacity(carrier)) break;
@@ -950,7 +960,6 @@ function boardAndUnloadRoutes(
 		}
 		changed = true;
 	}
-
 	if (changed) {
 		for (const slot of car.activeRouteSlots) {
 			if (!slot.active) {
@@ -1025,8 +1034,8 @@ function advanceCarrierCarState(
 			car.dwellCounter = DEPARTURE_SEQUENCE_TICKS;
 			if (car.arrivalSeen === 0) {
 				car.arrivalTick = time.dayTick;
-				car.arrivalSeen = 1;
 			}
+			car.arrivalSeen = 1;
 			return;
 		}
 

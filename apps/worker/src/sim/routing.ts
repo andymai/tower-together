@@ -359,7 +359,9 @@ export function selectBestRouteCandidate(
 
 	// Compare preserved segment candidate against best carrier
 	if (bestSegment && bestCarrier) {
-		return bestSegment.cost < bestCarrier.cost ? bestSegment : bestCarrier;
+		// The binary scans direct local links before carriers and keeps the
+		// existing candidate on equal cost, so stairs/escalators win ties.
+		return bestSegment.cost <= bestCarrier.cost ? bestSegment : bestCarrier;
 	}
 	return bestSegment ?? bestCarrier;
 }
