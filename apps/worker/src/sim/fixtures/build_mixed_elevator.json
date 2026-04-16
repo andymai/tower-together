@@ -1,8 +1,4 @@
 {
-	"config": {
-		"dump_interval": 1,
-		"max_ticks": 2400
-	},
 	"floor_extent": {
 		"0": { "left": 50, "right": 260 },
 		"1": { "left": 50, "right": 260 },

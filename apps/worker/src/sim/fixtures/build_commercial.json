@@ -1,20 +1,16 @@
 {
-	"config": {
-		"dump_interval": 1,
-		"max_ticks": 2400
-	},
-	"floor_extent": {
-		"0": { "left": 60, "right": 250 },
-		"1": { "left": 60, "right": 250 },
-		"2": { "left": 60, "right": 250 }
-	},
-	"facilities": [
-		{ "type": "restaurant", "floor": 1, "left": 68 },
-		{ "type": "fast-food", "floor": 1, "left": 92 },
-		{ "type": "retail", "floor": 1, "left": 108 },
-		{ "type": "office", "floor": 2, "left": 68 },
-		{ "type": "office", "floor": 2, "left": 77 },
-		{ "type": "stairs", "floor": 1, "left": 70 },
-		{ "type": "stairs", "floor": 2, "left": 70 }
-	]
+  "floor_extent": {
+    "0": {"left": 60, "right": 250},
+    "1": {"left": 60, "right": 250},
+    "2": {"left": 60, "right": 250}
+  },
+  "facilities": [
+    {"type": "restaurant", "floor": 1, "left": 68},
+    {"type": "fast-food",  "floor": 1, "left": 92},
+    {"type": "retail",     "floor": 1, "left": 108},
+    {"type": "office",     "floor": 2, "left": 68},
+    {"type": "office",     "floor": 2, "left": 77},
+    {"type": "stairs",     "floor": 1, "left": 70},
+    {"type": "stairs",     "floor": 2, "left": 70}
+  ]
 }

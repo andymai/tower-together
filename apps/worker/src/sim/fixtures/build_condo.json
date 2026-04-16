@@ -1,19 +1,15 @@
 {
-	"config": {
-		"dump_interval": 1,
-		"max_ticks": 2900
-	},
-	"floor_extent": {
-		"0": { "left": 80, "right": 220 },
-		"1": { "left": 80, "right": 220 },
-		"2": { "left": 80, "right": 220 }
-	},
-	"facilities": [
-		{ "type": "condo", "floor": 1, "left": 88 },
-		{ "type": "condo", "floor": 1, "left": 104 },
-		{ "type": "condo", "floor": 2, "left": 88 },
-		{ "type": "office", "floor": 2, "left": 104 },
-		{ "type": "stairs", "floor": 1, "left": 92 },
-		{ "type": "stairs", "floor": 2, "left": 92 }
-	]
+  "floor_extent": {
+    "0": {"left": 80, "right": 220},
+    "1": {"left": 80, "right": 220},
+    "2": {"left": 80, "right": 220}
+  },
+  "facilities": [
+    {"type": "condo",  "floor": 1, "left": 88},
+    {"type": "condo",  "floor": 1, "left": 104},
+    {"type": "condo",  "floor": 2, "left": 88},
+    {"type": "office", "floor": 2, "left": 104},
+    {"type": "stairs", "floor": 1, "left": 92},
+    {"type": "stairs", "floor": 2, "left": 92}
+  ]
 }

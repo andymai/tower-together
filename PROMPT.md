@@ -1,4 +1,6 @@
 You are building a behavior-identical, tick-for-tick replica of SimTower, a 1993 Windows 3.1 game. The reimplementation is in TypeScript using Cloudflare Workers.
+
+INSTRUCTIONS (IMPORTANT):
 - Our strategy is to make gameplay traces and ensure they match between the original binary and our reimplementation. The test is at `apps/worker/src/sim/trace.test.ts`.
 - Fix divergences in each trace in temporal order. A later divergence might represent a downstream consequence of an earlier divergence.
 - When diagnosing a divergence, think about whether there might have been a hidden divergence in an earlier tick. If needed, create a bespoke script that checks other parts of the game state to ensure it matched up until the first observed divergence. You want to find the root cause.

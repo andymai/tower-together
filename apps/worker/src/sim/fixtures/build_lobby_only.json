@@ -1,10 +1,6 @@
 {
-	"config": {
-		"dump_interval": 1,
-		"max_ticks": 3100
-	},
-	"floor_extent": {
-		"0": { "left": 100, "right": 200 }
-	},
-	"facilities": []
+  "floor_extent": {
+    "0": {"left": 100, "right": 200}
+  },
+  "facilities": []
 }
