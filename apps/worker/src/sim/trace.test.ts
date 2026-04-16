@@ -68,6 +68,7 @@ interface TraceEntry {
 		recycling: boolean;
 		route: boolean;
 	};
+	sim_states: number[];
 	sims: Record<
 		string,
 		{
@@ -397,6 +398,24 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 					`family ${key} state counts mismatch at day=${entry.day} tick=${entry.tick}`,
 				).toEqual(refGroup.states);
 			}
+		}
+	});
+
+	it("matches reference sim states across all families", () => {
+		const entries = activeTraceEntries(simEntries);
+		if (entries.length === 0) return;
+		const sim = prepareFromTrace(spec, trace);
+
+		for (const entry of entries) {
+			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
+			const simStates = sim
+				.simsToArray()
+				.map((sm) => sm.stateCode)
+				.sort((a, b) => a - b);
+			expect(
+				simStates,
+				`all sim states mismatch at day=${entry.day} tick=${entry.tick}`,
+			).toEqual(entry.sim_states);
 		}
 	});
 

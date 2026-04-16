@@ -49,6 +49,12 @@ Bomb, fire, random-news, and VIP special visitor event systems.
 ### `routing.ts`
 Special-link rebuilds, walkability flags, transfer-group cache, and route candidate selection.
 
+### `sim.test.ts`
+Broad unit coverage for simulation commands, family behaviors, routing, carriers, and event/economy edge cases.
+
+### `trace.test.ts`
+Fixture-driven parity suite that builds towers from JSON specs and checks scalar fields, sim populations, sim states, RNG deltas, carriers, and cash against reference JSONL traces.
+
 ## Subpackages
 
 ### `sims/`
