@@ -235,7 +235,7 @@ function completeSimTransitEvent(
 
 function reserveVenue(record: CommercialVenueRecord): void {
 	record.todayVisitCount += 1;
-	record.visitCount = record.todayVisitCount;
+	record.visitCount += 1;
 }
 
 function beginCommercialVenueDwell(

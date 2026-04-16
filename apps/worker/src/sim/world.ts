@@ -317,11 +317,27 @@ export interface CommercialVenueRecord {
 	 */
 	eligibilityThreshold: number;
 	/**
-	 * Remaining daily slots (binary offset +0x06). Refilled to 10 at daypart 0
-	 * by rebuildCommercialVenueRuntime for fast-food and retail (restaurants
-	 * use a different mechanism). Decremented on each successful dispatch.
+	 * Remaining daily slots (binary offset +0x06). Refilled from the active
+	 * phase seed at daypart 0 by rebuildCommercialVenueRuntime for fast-food
+	 * and retail (restaurants use a separate midday mechanism). Decremented on
+	 * each successful dispatch.
 	 */
 	remainingCapacity: number;
+	/**
+	 * Phase A capacity seed (binary offset +0x03). Grows by +2 (low stress)
+	 * or +1 (medium stress) after each sim visit via clampVenueSeed, and is
+	 * consumed/cleared by the daily rebuild. Used when calendar_phase == 0.
+	 */
+	phaseASeed: number;
+	/**
+	 * Phase B capacity seed (binary offset +0x04). Used when calendar_phase != 0.
+	 */
+	phaseBSeed: number;
+	/**
+	 * Override capacity seed (binary offset +0x05). Used when
+	 * facility_progress_override is active.
+	 */
+	overrideSeed: number;
 }
 
 // CommercialVenueRecord.availabilityState values

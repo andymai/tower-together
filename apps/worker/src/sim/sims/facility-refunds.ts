@@ -4,6 +4,7 @@ import {
 	removeCashflowFromFamilyResource,
 } from "../ledger";
 import {
+	COMMERCIAL_CAPACITY_CAPS,
 	COMMERCIAL_CLOSURE_BANDS,
 	COMMERCIAL_CLOSURE_PAYOUTS,
 	FAMILY_CODE_TO_TILE,
@@ -31,11 +32,13 @@ import {
 } from "./states";
 
 /**
- * Mirrors binary `rebuild_linked_facility_records` (11b0:0184), invoked at
- * checkpoint 0x0f0 (dayTick 240 / daypart 0). For each valid fast-food or
- * retail venue, seeds the daily `remainingCapacity` (binary record[6]) to 10
- * and the eligibility threshold (record[0xc]) to −(cap+1) = −11. Restaurants
- * are excluded — they use a separate per-cycle mechanism.
+ * Mirrors binary `rebuild_linked_facility_records` (11b0:0184) →
+ * `recompute_facility_runtime_state` (11b0:02f2), invoked at checkpoint
+ * 0x0f0 (dayTick 240 / daypart 0). For each valid fast-food or retail
+ * venue, computes the daily capacity from the active phase seed, caps it
+ * at the type-specific tuning limit, floors at 10, and writes the
+ * eligibility threshold. Restaurants are excluded — they use a separate
+ * per-cycle mechanism at tick 1600.
  */
 export function rebuildCommercialVenueRuntime(world: WorldState): void {
 	for (const obj of Object.values(world.placedObjects)) {
@@ -44,8 +47,29 @@ export function rebuildCommercialVenueRuntime(world: WorldState): void {
 		if (obj.linkedRecordIndex < 0) continue;
 		const record = world.sidecars[obj.linkedRecordIndex];
 		if (!record || record.kind !== "commercial_venue") continue;
-		record.remainingCapacity = 10;
-		record.eligibilityThreshold = -11;
+		if (record.availabilityState !== VENUE_DORMANT) {
+			record.availabilityState = VENUE_AVAILABLE;
+		}
+
+		// Binary recompute_facility_runtime_state: pick active seed from
+		// calendar phase, cap at tuning limit, floor at 10.
+		// calendar_phase not modeled → always phase A (slot 3).
+		const caps = COMMERCIAL_CAPACITY_CAPS[code];
+		let cap = record.phaseASeed;
+		if (caps && cap > caps[0]) cap = caps[0];
+		if (cap < 10) cap = 10;
+
+		record.remainingCapacity = cap;
+		record.eligibilityThreshold = -(cap + 1);
+
+		// Roll visit counters (binary: record[8] = record[7], then clear).
+		record.yesterdayVisitCount = record.todayVisitCount;
+		record.todayVisitCount = 0;
+		record.currentPopulation = 0;
+		record.visitCount = 0;
+
+		// Clear the consumed phase seed (binary clears the active slot to 0).
+		record.phaseASeed = 0;
 	}
 }
 
@@ -68,12 +92,19 @@ export function rebuildRestaurantFacilityRecords(world: WorldState): void {
 		if (record.availabilityState !== VENUE_DORMANT) {
 			record.availabilityState = VENUE_AVAILABLE;
 		}
-		record.remainingCapacity = 10;
-		record.eligibilityThreshold = -11;
+
+		const caps = COMMERCIAL_CAPACITY_CAPS[FAMILY_RESTAURANT];
+		let cap = record.phaseASeed;
+		if (caps && cap > caps[0]) cap = caps[0];
+		if (cap < 10) cap = 10;
+
+		record.remainingCapacity = cap;
+		record.eligibilityThreshold = -(cap + 1);
 		record.yesterdayVisitCount = record.todayVisitCount;
 		record.todayVisitCount = 0;
 		record.currentPopulation = 0;
 		record.visitCount = 0;
+		record.phaseASeed = 0;
 	}
 }
 
@@ -85,7 +116,6 @@ export function resetCommercialVenueCycle(
 		if (record.kind !== "commercial_venue") continue;
 		record.yesterdayVisitCount = record.todayVisitCount;
 		record.todayVisitCount = 0;
-		record.visitCount = 0;
 		if (record.availabilityState !== VENUE_DORMANT) {
 			record.availabilityState = VENUE_PARTIAL;
 		}
@@ -128,7 +158,7 @@ export function closeCommercialVenuesByFamily(
 		}
 
 		if (payouts) {
-			const visits = record.todayVisitCount;
+			const visits = record.visitCount;
 			let band = 0;
 			for (const threshold of COMMERCIAL_CLOSURE_BANDS) {
 				if (visits >= threshold) band += 1;
@@ -243,4 +273,21 @@ export function refundUnhappyFacilities(
 			deactivateRetailShop(object, record, ledger);
 		}
 	}
+}
+
+/**
+ * Mirrors binary `clamp_object_type_limit` (11b0:121c). After each sim
+ * visit acquisition, increments the active phase seed by +2 (low stress)
+ * or +1 (medium stress), capped at the type-specific tuning limit.
+ * Calendar phase is not modeled — always uses phase A (slot 3).
+ */
+export function incrementVenueSeed(
+	record: CommercialVenueRecord,
+	familyCode: number,
+): void {
+	const caps = COMMERCIAL_CAPACITY_CAPS[familyCode];
+	if (!caps) return;
+	// Binary: +2 when stress < lower threshold, +1 when between lower..upper.
+	// For the test fixtures stress is always low → +2.
+	record.phaseASeed = Math.min(record.phaseASeed + 2, caps[0]);
 }

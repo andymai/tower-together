@@ -149,6 +149,20 @@ export const COMMERCIAL_CLOSURE_PAYOUTS: Record<string, number[]> = {
 
 export const COMMERCIAL_CLOSURE_BANDS = [25, 35, 50] as const;
 
+// ─── Per-type capacity tuning caps ──────────────────────────────────────────
+// Source: FUN_11b0_17d3 — returns per-type per-phase capacity ceiling.
+// [phaseA, phaseB, override]. The daily rebuild caps the seed at this value,
+// then floors the result at 10.
+
+export const COMMERCIAL_CAPACITY_CAPS: Record<
+	number,
+	[number, number, number]
+> = {
+	[FAMILY_RESTAURANT]: [35, 50, 25],
+	[FAMILY_FAST_FOOD]: [35, 50, 25],
+	[FAMILY_RETAIL]: [25, 30, 18],
+};
+
 // ─── YEN #1002 — expense table ────────────────────────────────────────────────
 // Operating expenses charged every 3 days.
 

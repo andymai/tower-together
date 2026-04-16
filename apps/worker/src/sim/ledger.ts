@@ -200,7 +200,37 @@ export function doLedgerRollover(
 	ledger.cashBalanceCycleBase = ledger.cashBalance;
 	ledger.incomeLedger.fill(0);
 	ledger.expenseLedger.fill(0);
-	doExpenseSweep(ledger, world);
+	// Binary: income from offices/retail is applied here via
+	// activate_office_cashflow / activate_retail_shop_cashflow, called from
+	// the 3-day checkpoint handler. The per-sim handler uses auxValueOrTimer
+	// as a once-per-cycle guard to avoid double-counting.
+	doThreeDayIncome(ledger, world, dayCounter);
+}
+
+/**
+ * Mirrors binary `activate_office_cashflow` + `activate_retail_shop_cashflow`.
+ * At the 3-day boundary, adds income for each active office and retail venue.
+ * Sets auxValueOrTimer so the per-sim handler won't double-fire.
+ */
+function doThreeDayIncome(
+	ledger: LedgerState,
+	world: WorldState,
+	dayCounter: number,
+): void {
+	for (const obj of Object.values(world.placedObjects)) {
+		const code = obj.objectTypeCode;
+		const tileName = _codeToTile(code);
+		if (!tileName) continue;
+		// Only office and retail receive 3-day income at this checkpoint.
+		if (code !== 7 /* FAMILY_OFFICE */ && code !== 10 /* FAMILY_RETAIL */)
+			continue;
+		// Retail must be activated (occupiableFlag set) to receive income.
+		if (code === 10 && obj.occupiableFlag === 0) continue;
+		// Guard: only fire once per 3-day cycle (same guard as the sim handler).
+		if (obj.auxValueOrTimer === dayCounter + 1) continue;
+		obj.auxValueOrTimer = dayCounter + 1;
+		addCashflowFromFamilyResource(ledger, tileName, obj.rentLevel, code);
+	}
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

@@ -153,6 +153,9 @@ function allocSidecar(
 			lastAcquireTick: 0,
 			eligibilityThreshold: 0,
 			remainingCapacity: 0,
+			phaseASeed: 10,
+			phaseBSeed: 10,
+			overrideSeed: 10,
 		};
 		record = r;
 	} else if (

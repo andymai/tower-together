@@ -497,8 +497,7 @@ describe("checkpoint dispatcher", () => {
 		const state = makeState();
 		// Set dayCounter to a multiple of 3 so rollover runs
 		state.time = { ...state.time, dayCounter: 3 };
-		const _cashBefore = state.ledger.cashBalance;
-		// Place a restaurant to generate an expense
+		// Place a restaurant (no 3-day income for restaurants)
 		for (let x = 0; x < GRID_WIDTH; x++)
 			state.world.cells[`${x},${GROUND_Y}`] = "floor";
 		handlePlaceTile(0, GROUND_Y - 1, "restaurant", state.world, state.ledger);
@@ -506,12 +505,12 @@ describe("checkpoint dispatcher", () => {
 		state.ledger.incomeLedger.fill(5);
 		state.ledger.expenseLedger.fill(5);
 		runCheckpoints(state, 0x9e4, 0x9e5);
-		// Expense sweep should have fired → cash decreased
-		expect(state.ledger.cashBalance).toBeLessThan(cashAfterBuild);
+		// No offices/retail → no income, cash unchanged
+		expect(state.ledger.cashBalance).toBe(cashAfterBuild);
 		// Rolling ledgers should be zeroed
 		expect(state.ledger.incomeLedger.every((v) => v === 0)).toBe(true);
-		expect(state.ledger.expenseLedger.some((v) => v > 0)).toBe(true);
-		// cycle base is saved before the fresh expense pass
+		expect(state.ledger.expenseLedger.every((v) => v === 0)).toBe(true);
+		// cycle base is saved before income pass
 		expect(state.ledger.cashBalanceCycleBase).toBe(cashAfterBuild);
 	});
 
@@ -745,7 +744,7 @@ describe("ledger: doExpenseSweep", () => {
 });
 
 describe("ledger: doLedgerRollover", () => {
-	it("runs expense sweep and resets rolling ledgers on a 3-day boundary", () => {
+	it("resets rolling ledgers on a 3-day boundary", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
@@ -756,9 +755,10 @@ describe("ledger: doLedgerRollover", () => {
 		ledger.expenseLedger[6] = 500;
 		const cashBefore = ledger.cashBalance;
 		doLedgerRollover(ledger, world, 3); // day 3 → 3 % 3 === 0
-		expect(ledger.cashBalance).toBeLessThan(cashBefore); // expense fired
+		// No offices/retail → no 3-day income; cash unchanged.
+		expect(ledger.cashBalance).toBe(cashBefore);
 		expect(ledger.incomeLedger[6]).toBe(0);
-		expect(ledger.expenseLedger[6]).toBeGreaterThan(0);
+		expect(ledger.expenseLedger[6]).toBe(0);
 		expect(ledger.cashBalanceCycleBase).toBe(cashBefore);
 	});
 
@@ -2259,7 +2259,8 @@ describe("Phase 4 runtime sims", () => {
 		resetCommercialVenueCycle(world, ledger);
 		expect(venue.yesterdayVisitCount).toBe(4);
 		expect(venue.todayVisitCount).toBe(0);
-		expect(venue.visitCount).toBe(0);
+		// visitCount is cumulative (binary offset +0x10) — NOT reset by cycle reset.
+		expect(venue.visitCount).toBe(4);
 		expect(venue.availabilityState).toBe(1);
 	});
 

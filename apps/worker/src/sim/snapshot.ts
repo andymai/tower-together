@@ -313,6 +313,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			sidecar.lastAcquireTick ??= 0;
 			sidecar.eligibilityThreshold ??= 0;
 			sidecar.remainingCapacity ??= 0;
+			sidecar.phaseASeed ??= 0;
+			sidecar.phaseBSeed ??= 0;
+			sidecar.overrideSeed ??= 0;
 			continue;
 		}
 		if (sidecar.kind !== "entertainment_link") continue;
