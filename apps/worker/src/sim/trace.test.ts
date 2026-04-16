@@ -373,7 +373,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		if (entries.length === 0) return;
 		// Known divergence: elevator-bearing fixtures have sim state-count drift
 		// once elevator ridership begins (boarding/unload timing diverges).
-		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
 		for (const entry of entries) {
@@ -408,7 +407,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		if (entries.length < 2) return;
 		// Known divergence: elevator-bearing fixtures have small RNG delta drift
 		// from elevator routing/assignment paths.
-		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
 		advanceTo(sim, traceTickToTotalTicks(entries[0].day, entries[0].tick));
@@ -437,7 +435,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 		if (entries.length === 0) return;
 		// Known divergence: elevator-bearing fixtures have targetFloor drift once
 		// sims begin riding (TS dispatches differently than the binary).
-		if (fixtureName === "mixed_elevator") return;
 		const sim = prepareFromTrace(spec, trace);
 
 		for (const entry of entries) {

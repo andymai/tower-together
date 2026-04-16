@@ -27,7 +27,7 @@ Names are ours; offsets reference the binary struct at
 | `arrivalTick` | -0x56..-0x53 | Timestamp of first arrival; compared against `g_dayTick` in `should_car_depart`. |
 | `pendingDestCount` | -0x52 | Pending destination queue length (touched by dispatch, not by A/B/C). |
 | `nearestWorkFloor` | -0x51 | Prefetched "nearest pending work" floor. Written at end of `recompute_car_target_and_direction`. |
-| `schedMode` | -0x50 | Schedule-driven mode byte from `carrier.servedFloorFlags[daypart + phase*7 - 0x22]`. 0 = bidirectional sweep, 1 = express-up, 2 = express-down. Read by target selector and direction updater. (Previously misnamed `schedMode`; the A1 write paints it from the schedule, not the door frame.) |
+| `schedMode` | -0x50 | Schedule-driven mode byte from `carrier.servedFloorFlags[daypart + isWeekend*7 - 0x22]`. 0 = bidirectional sweep, 1 = express-up, 2 = express-down. Read by target selector and direction updater. (Previously misnamed `schedMode`; the A1 write paints it from the schedule, not the door frame.) |
 
 ## Top-level branch selection
 
@@ -65,7 +65,7 @@ Actions (in order):
 
 1. If `curFloor == carrier.topServedFloor` or `== carrier.bottomServedFloor`,
    paint `schedMode` from `carrier.servedFloorFlags[daypartIndex +
-   phase*7 - 0x22]`.
+   isWeekend*7 - 0x22]`.
 2. Call `clear_floor_requests_on_arrival(carrier, car, curFloor)`.
 3. **`dwell = 5`**. (The only nonzero write to `dwell` in this function.)
 4. If `arrivalSeen == 0`, write `arrivalTick = g_dayTick`.
@@ -161,11 +161,11 @@ Key points:
 ```
 distToTarget = |curFloor - targetFloor|;
 distFromPrev = |curFloor - prevFloor|;
-if (carrier.carrierMode == 0) {                    // standard elevator
+if (carrier.carrierMode == 0) {                    // express elevator
     if (distToTarget < 2 || distFromPrev < 2) return 0;  // stop
     if (distToTarget > 4 && distFromPrev > 4) return 3;  // fast (±3/step)
     return 2;                                            // normal (±1)
-} else {                                           // express / escalator
+} else {                                           // standard/service
     if (distToTarget < 2) return 0;
     if (distFromPrev < 2) return 0;
     if (distToTarget < 4 || distFromPrev < 4) return 1;  // slow (±1 + stab=2)
@@ -176,7 +176,7 @@ if (carrier.carrierMode == 0) {                    // standard elevator
 So the mode depends only on `carrier.carrierMode`, `curFloor`, `targetFloor`,
 and `prevFloor`. Modes and their semantics:
 
-| Mode | Condition (std) | Condition (express) | Step | Stab set to |
+| Mode | Condition (express) | Condition (standard/service) | Step | Stab set to |
 |------|-----------------|---------------------|------|-------------|
 | 0 | either dist < 2 | either dist < 2 | ±1 | 5 (long stop) |
 | 1 | — | either dist < 4 | ±1 | 2 (slow) |
@@ -185,8 +185,8 @@ and `prevFloor`. Modes and their semantics:
 
 Mode 0 is the "approaching or leaving a stop" case — it's the only mode that
 arms a 5-tick post-motion stabilize, which is what gates A1 from firing for
-5 ticks after a step. Mode 3 is never selected for express carriers; mode 1
-is never selected for standard carriers.
+5 ticks after a step. Mode 3 is never selected for standard/service carriers; mode 1
+is never selected for express carriers.
 
 ## `should_car_depart` (1098:23a5)
 
@@ -194,7 +194,7 @@ Three-way gate with early-wins; returns nonzero ⇒ depart.
 
 ```
 if (assignedCount == carrier.assignmentCapacity)         return 1;  // full
-if (carrier.servedFloorFlags[daypart*7 + phase*7 - 0x14] == 0)
+if (carrier.servedFloorFlags[daypart*7 + isWeekend*7 - 0x14] == 0)
                                                          return 1;  // multiplier zero
 if (curFloor != carrier.reachabilityMasksByFloor[carIndex - 8]) {    // not at home
     if (!is_lobby_or_express_floor(curFloor))            return 1;
@@ -255,7 +255,7 @@ destination queue.
 if (arrivalTick == 0 && pendingDestCount == 0)
     return homeFloor;                          // idle: go home
 
-if (schedMode == 1) {                          // EXPRESS UP
+if (schedMode == 1) {                          // STD UP
     if (at top endpoint of current direction and stabilize==0)
         return topServedFloor;                 // head to top
     for (f = curFloor; f >= bottomServedFloor; f--) {
@@ -267,7 +267,7 @@ if (schedMode == 1) {                          // EXPRESS UP
     return topServedFloor;                     // fallback
 }
 
-if (schedMode == 2) {                          // EXPRESS DOWN (symmetric)
+if (schedMode == 2) {                          // STD DOWN (symmetric)
     if (at bottom endpoint of current direction and stabilize==0) {
         ...upward scan for work, then fallback bottomServedFloor
     }
@@ -638,8 +638,8 @@ void __cdecl16far advance_car_position_one_step(int carrier_index, int car_index
 ```c
 /* Returns motion mode based on distance to target and distance from previous
    stop. dist_to_target = |cur - tgt|, dist_from_prev = |cur - prev|. For
-   standard elevator (carrier_mode == 0): both<2 -> 0 (stop);
-   both>4 -> 3 (fast, +/-3/step); else -> 2 (normal). For express/escalator:
+   express elevator (carrier_mode == 0): both<2 -> 0 (stop);
+   both>4 -> 3 (fast, +/-3/step); else -> 2 (normal). For standard/service:
    either<2 -> 0; either<4 -> 1 (slow); else -> 2 (normal). */
 
 undefined2 __cdecl16far compute_car_motion_mode(int carrier_index, int car_index)
@@ -826,7 +826,7 @@ void __cdecl16far recompute_car_target_and_direction(int carrier_index, int car_
 ## `select_next_target_floor` @ 1098:1553
 
 ```c
-/* Next-target selector: runtime schedMode 1 means express-up fallback to
+/* Next-target selector: runtime schedMode 1 means -up fallback to
    topServedFloor, 2 means express-down fallback to bottomServedFloor, any
    other value uses normal bidirectional sweep. If no pending assignments
    and no special flag, returns the per-car home floor. */
@@ -1004,7 +1004,7 @@ int __cdecl16far find_nearest_work_floor(int carrier_index, int car_index)
 ## `reset_out_of_range_car` @ 1098:0192
 
 ```c
-/* Car reset copies header +0x20 + phase*7 + daypart into runtime schedMode
+/* Car reset copies header +0x20 + isWeekend*7 + daypart into runtime schedMode
    at car +0x2998. Note that new cars therefore start with schedMode 0 under
    placement defaults, not 5. */
 
@@ -1025,7 +1025,7 @@ void __cdecl16far reset_out_of_range_car(int carrier_index, int car_index, int p
   car[pendingDestCount]  = 0;
   car[nearestWorkFloor]  = home;
   car[schedMode] = carrier->servedFloorFlags[daypartIndex +
-                                             phase*7 - 0x22];
+                                             isWeekend*7 - 0x22];
 
   if (param_3 >= 0)
     car[routeSlotOwner] = (car_index + 1 == param_3);

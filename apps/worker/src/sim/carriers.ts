@@ -152,20 +152,17 @@ function computeCarMotionMode(
 ): 0 | 1 | 2 | 3 {
 	const distToTarget = Math.abs(car.currentFloor - car.targetFloor);
 	const distFromPrev = Math.abs(car.currentFloor - car.prevFloor);
-	// First leg: prevFloor === currentFloor, car needs to depart
-	const firstLeg = distFromPrev === 0 && distToTarget > 0;
 
-	// Express carriers (mode 0): stop within 2 floors, +/-3 when both > 4, +/-1 otherwise
+	// Binary 1098:209f. No firstLeg override — when distFromPrev < 2
+	// (including 0 on departure), binary returns mode 0 (stop, stab=5).
 	if (carrier.carrierMode === 0) {
-		if (firstLeg) return distToTarget > 4 ? 3 : 2;
+		// Express: stop within 2, fast (±3) when both > 4, normal otherwise
 		if (distToTarget < 2 || distFromPrev < 2) return 0;
 		if (distToTarget > 4 && distFromPrev > 4) return 3;
 		return 2;
 	}
 
-	// Standard (1) and Service (2): stop within 2 floors, slow-stop within 4, +/-1 otherwise.
-	// No firstLeg override — binary's short-trip (1-floor) motion uses mode 0
-	// (confirmed by dynamic trace: stab=5 written on 10→11 step).
+	// Standard (1) and Service (2): stop within 2, slow-stop within 4
 	if (distToTarget < 2 || distFromPrev < 2) return 0;
 	if (distToTarget < 4 || distFromPrev < 4) return 1;
 	return 2;
@@ -211,13 +208,14 @@ function recomputeCarTargetAndDirection(
 		return;
 	}
 	car.targetFloor = next;
-	updateCarDirectionFlag(carrier, car, carIndex);
+	updateCarDirectionFlag(carrier, car, carIndex, expressFlag);
 }
 
 function updateCarDirectionFlag(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
+	expressDirectionFlag: number,
 ): void {
 	const old = car.directionFlag;
 	const floor = car.currentFloor;
@@ -226,18 +224,19 @@ function updateCarDirectionFlag(
 		// Binary: direction = (cur < target) ? 1 (up) : 0 (down).
 		car.directionFlag = floor < car.targetFloor ? 1 : 0;
 	} else if (car.arrivalSeen !== 0) {
-		// Endpoint flips, bidirectional only (spec lines 950-965).
+		// Endpoint flips at top/bottom served floors.
 		if (floor === carrier.topServedFloor && car.directionFlag === 1) {
 			car.directionFlag = 0;
 		} else if (floor === carrier.bottomServedFloor && car.directionFlag === 0) {
 			car.directionFlag = 1;
-		} else {
+		} else if (expressDirectionFlag === 0) {
+			// Binary 1098:1d2f: bidirectional flip gated on schedMode == 0.
+			// Express modes (1, 2) skip this flip.
 			const slot = floorToSlot(carrier, floor);
 			if (slot >= 0) {
 				const upCalls = (carrier.primaryRouteStatusByFloor[slot] ?? 0) !== 0;
 				const downCalls =
 					(carrier.secondaryRouteStatusByFloor[slot] ?? 0) !== 0;
-				// Going down but only up-calls at this floor → flip up.
 				if (car.directionFlag === 0 && !downCalls && upCalls) {
 					car.directionFlag = 1;
 				} else if (car.directionFlag === 1 && !upCalls && downCalls) {
@@ -724,88 +723,132 @@ function processUnitTravelQueue(
 	syncAssignmentStatus(carrier);
 }
 
+/**
+ * Binary `select_next_target_floor` @ 1098:1553. Multi-phase directional
+ * scan that distinguishes queued riders (destination queue) from assignment
+ * slots (up/down call pickups) and gates assignment targets on capacity.
+ */
 function selectNextTarget(
 	car: CarrierCar,
 	carrier: CarrierRecord,
 	carIndex: number,
 	expressDirectionFlag: number,
 ): number {
-	// No pending work: return to home floor
-	if (car.pendingAssignmentCount === 0 && car.nonemptyDestinationCount === 0) {
+	// Binary idle check: arrivalTick == 0 && pendingDestCount == 0.
+	// Also gate on pendingAssignmentCount because dayTick can be 0 at the
+	// start of a day, making arrivalTick indistinguishable from "never set".
+	if (
+		car.arrivalTick === 0 &&
+		car.nonemptyDestinationCount === 0 &&
+		car.pendingAssignmentCount === 0
+	) {
 		return car.homeFloor;
 	}
 
-	// Build target set from active route slots and floor-assignment tables
-	const targetSet = new Set<number>();
-	const limit = activeSlotLimit(carrier);
+	const underCapacity = car.assignedCount !== getCarCapacity(carrier);
 
-	for (let index = 0; index < limit; index++) {
-		const slot = car.activeRouteSlots[index];
-		if (!slot?.active) continue;
-		targetSet.add(slot.boarded ? slot.destinationFloor : slot.sourceFloor);
-	}
-
-	for (
-		let floor = carrier.bottomServedFloor;
-		floor <= carrier.topServedFloor;
-		floor++
-	) {
+	function hasQueuedRider(floor: number): boolean {
 		const slot = floorToSlot(carrier, floor);
-		if (slot < 0) continue;
-		if ((car.destinationCountByFloor[slot] ?? 0) > 0) targetSet.add(floor);
-		if (
-			carrier.primaryRouteStatusByFloor[slot] === carIndex + 1 ||
-			carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1
-		) {
-			targetSet.add(floor);
-		}
+		return slot >= 0 && (car.destinationCountByFloor[slot] ?? 0) > 0;
+	}
+	function hasUpSlot(floor: number): boolean {
+		const slot = floorToSlot(carrier, floor);
+		return (
+			slot >= 0 && carrier.primaryRouteStatusByFloor[slot] === carIndex + 1
+		);
+	}
+	function hasDownSlot(floor: number): boolean {
+		const slot = floorToSlot(carrier, floor);
+		return (
+			slot >= 0 && carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1
+		);
 	}
 
-	// Express-direction-dependent scanning
+	// schedMode 1: express-up. Scan downward for work, fallback = top.
 	if (expressDirectionFlag === 1) {
-		// Express up: scan downward for assignments, fallback = top_served_floor
-		for (
-			let floor = car.currentFloor - 1;
-			floor >= carrier.bottomServedFloor;
-			floor--
-		) {
-			if (targetSet.has(floor)) return floor;
+		const gate =
+			(car.directionFlag !== 0 &&
+				(car.currentFloor !== carrier.topServedFloor ||
+					car.doorWaitCounter !== 0)) ||
+			(car.directionFlag === 0 &&
+				car.currentFloor === carrier.bottomServedFloor &&
+				car.doorWaitCounter === 0);
+		if (gate) {
+			for (let f = car.currentFloor; f >= carrier.bottomServedFloor; f--) {
+				if (hasQueuedRider(f)) return f;
+				if (underCapacity && (hasDownSlot(f) || hasUpSlot(f))) return f;
+			}
 		}
 		return carrier.topServedFloor;
 	}
 
+	// schedMode 2: express-down. Scan upward for work, fallback = bottom.
 	if (expressDirectionFlag === 2) {
-		// Express down: scan upward for assignments, fallback = bottom_served_floor
-		for (
-			let floor = car.currentFloor + 1;
-			floor <= carrier.topServedFloor;
-			floor++
-		) {
-			if (targetSet.has(floor)) return floor;
+		const gate =
+			(car.directionFlag === 0 &&
+				(car.currentFloor !== carrier.bottomServedFloor ||
+					car.doorWaitCounter !== 0)) ||
+			(car.directionFlag !== 0 &&
+				car.currentFloor === carrier.topServedFloor &&
+				car.doorWaitCounter === 0);
+		if (gate) {
+			for (let f = car.currentFloor; f <= carrier.topServedFloor; f++) {
+				if (hasQueuedRider(f)) return f;
+				if (underCapacity && (hasUpSlot(f) || hasDownSlot(f))) return f;
+			}
 		}
 		return carrier.bottomServedFloor;
 	}
 
-	// Normal: bidirectional sweep in current direction, wrap at endpoints
-	const dir = car.directionFlag === 1 ? 1 : -1;
-	for (
-		let floor = car.currentFloor + dir;
-		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
-		floor += dir
-	) {
-		if (targetSet.has(floor)) return floor;
+	// schedMode 0: bidirectional sweep
+	if (car.directionFlag === 0) {
+		// Going down — phase 1: cur→bottom for queued OR downSlot
+		for (let f = car.currentFloor; f >= carrier.bottomServedFloor; f--) {
+			if (hasQueuedRider(f)) return f;
+			if (underCapacity && hasDownSlot(f)) return f;
+		}
+		// Phase 2: bottom→cur for upSlot (capacity-gated)
+		if (underCapacity) {
+			for (let f = carrier.bottomServedFloor; f <= car.currentFloor; f++) {
+				if (hasUpSlot(f)) return f;
+			}
+		}
+		// Phase 3: cur+1→top for upSlot (capacity-gated) OR queued
+		for (let f = car.currentFloor + 1; f <= carrier.topServedFloor; f++) {
+			if (underCapacity && hasUpSlot(f)) return f;
+			if (hasQueuedRider(f)) return f;
+		}
+		// Phase 4: top→cur+1 for downSlot (capacity-gated)
+		if (underCapacity) {
+			for (let f = carrier.topServedFloor; f > car.currentFloor; f--) {
+				if (hasDownSlot(f)) return f;
+			}
+		}
+	} else {
+		// Going up — phase 1: cur→top for queued OR upSlot
+		for (let f = car.currentFloor; f <= carrier.topServedFloor; f++) {
+			if (hasQueuedRider(f)) return f;
+			if (underCapacity && hasUpSlot(f)) return f;
+		}
+		// Phase 2: top→cur for downSlot (capacity-gated)
+		if (underCapacity) {
+			for (let f = carrier.topServedFloor; f >= car.currentFloor; f--) {
+				if (hasDownSlot(f)) return f;
+			}
+		}
+		// Phase 3: cur-1→bottom for downSlot (capacity-gated) OR queued
+		for (let f = car.currentFloor - 1; f >= carrier.bottomServedFloor; f--) {
+			if (underCapacity && hasDownSlot(f)) return f;
+			if (hasQueuedRider(f)) return f;
+		}
+		// Phase 4: bottom→cur-1 for upSlot (capacity-gated)
+		if (underCapacity) {
+			for (let f = carrier.bottomServedFloor; f < car.currentFloor; f++) {
+				if (hasUpSlot(f)) return f;
+			}
+		}
 	}
 
-	// Wrap: reverse direction and scan from opposite endpoint back
-	for (
-		let floor = car.currentFloor - dir;
-		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
-		floor -= dir
-	) {
-		if (targetSet.has(floor)) return floor;
-	}
-
-	// No target found
 	return -1;
 }
 
@@ -991,10 +1034,24 @@ function advanceCarrierCarState(
 			return;
 		}
 
-		// A2 — motion step. Clear stale assignment for this floor, then advance
-		// one step (motion + arrivalSeen clear + stab arm happens inline).
-		clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
+		// A2 — motion step. Binary 1098:06fb A2 path: clear stale assignment,
+		// snapshot served-flag state at this floor, advance one step, then
+		// re-assign unassigned floor requests at the departed floor.
+		const departFloor = car.currentFloor;
+		clearStaleFloorAssignments(carrier, departFloor, carIndex);
+		const departSlot = floorToSlot(carrier, departFloor);
+		const queue = departSlot >= 0 ? carrier.floorQueues[departSlot] : null;
+		const hasUpRequest =
+			queue != null &&
+			!queue.up.isEmpty &&
+			(carrier.primaryRouteStatusByFloor[departSlot] ?? 0) === 0;
+		const hasDownRequest =
+			queue != null &&
+			!queue.down.isEmpty &&
+			(carrier.secondaryRouteStatusByFloor[departSlot] ?? 0) === 0;
 		advanceCarPositionOneStep(carrier, car, carIndex, time);
+		if (hasUpRequest) assignCarToFloorRequest(carrier, departFloor, 1);
+		if (hasDownRequest) assignCarToFloorRequest(carrier, departFloor, 0);
 		return;
 	}
 
