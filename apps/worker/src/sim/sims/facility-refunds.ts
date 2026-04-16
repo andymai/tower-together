@@ -12,11 +12,13 @@ import {
 	FAMILY_FAST_FOOD,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
+	OP_SCORE_THRESHOLDS,
 } from "../resources";
 import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
 	type PlacedObjectRecord,
+	type SimRecord,
 	VENUE_AVAILABLE,
 	VENUE_CLOSED,
 	VENUE_DORMANT,
@@ -325,15 +327,15 @@ export function refundUnhappyFacilities(
  * or +1 (medium stress), capped at the type-specific tuning limit.
  * The active slot is selected by `selectFacilityProgressSlot`.
  *
- * Stress thresholds (DS:0xe5ea/0xe5ec) are initialized at runtime from a
- * star-rating-dependent tuning table whose values are not in the static
- * binary. For low-star early-game towers, stress is always below the lower
- * threshold, yielding +2 every time. The increment will need adjustment
- * once the threshold values are extracted for higher star ratings.
+ * Stress is `compute_runtime_tile_stress_average` (1138:037b): average
+ * elapsed ticks per trip = accumulatedTicks / tripCount (0 when no trips).
+ * Thresholds from DS:0xe5ea/0xe5ec match OP_SCORE_THRESHOLDS: [80, 150]
+ * for stars 1–3, [80, 200] for stars 4–5.
  */
 export function incrementVenueSeed(
 	record: CommercialVenueRecord,
 	familyCode: number,
+	sim: SimRecord,
 	world: WorldState,
 	time: TimeState,
 ): void {
@@ -341,9 +343,14 @@ export function incrementVenueSeed(
 	if (!caps) return;
 	const slot = selectFacilityProgressSlot(world, time);
 	const current = readSeedForSlot(record, slot);
-	// Binary: +2 when stress < lower threshold, +1 when between lower..upper,
-	// +0 when stress >= upper threshold. Stress = 0x1000 / currentPopulation.
-	// Thresholds are star-dependent; for star 1-2 towers, always +2.
-	const increment = 2;
+
+	// Binary: stress = accumulated_elapsed / sample_count, or 0 if no trips.
+	const stress =
+		sim.tripCount > 0 ? Math.trunc(sim.accumulatedTicks / sim.tripCount) : 0;
+	const [lower, upper] = OP_SCORE_THRESHOLDS[Math.min(world.starCount, 5)] ?? [
+		80, 150,
+	];
+	const increment = stress < lower ? 2 : stress < upper ? 1 : 0;
+
 	writeSeedForSlot(record, slot, Math.min(current + increment, caps[0]));
 }

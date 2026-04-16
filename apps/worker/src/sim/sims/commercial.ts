@@ -137,7 +137,7 @@ export function processCommercialSim(
 		record.lastAcquireTick = time.dayTick;
 		record.todayVisitCount += 1;
 		record.visitCount += 1;
-		incrementVenueSeed(record, sim.familyCode, world, time);
+		incrementVenueSeed(record, sim.familyCode, sim, world, time);
 
 		// Route to home floor. Binary state-0x20 dispatch (1228:41cb) calls
 		// try_consume first, then resolve_sim_route_between_floors, then
