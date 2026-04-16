@@ -23,8 +23,8 @@ import {
 import {
 	ACTIVATION_TICK_CAP,
 	COMMERCIAL_DWELL_STATE,
-	COMMERCIAL_FAMILIES,
 	HOTEL_FAMILIES,
+	HOTEL_ROOM_SELECTOR,
 	LOBBY_FLOOR,
 	STATE_ACTIVE,
 	STATE_ACTIVE_TRANSIT,
@@ -181,14 +181,6 @@ export function checkoutHotelStay(
 	object: PlacedObjectRecord,
 ): void {
 	const siblings = findSiblingSims(world, sim);
-	const lastSibling = siblings.reduce(
-		(max, sibling) => Math.max(max, sibling.baseOffset),
-		0,
-	);
-	if (sim.baseOffset !== lastSibling) {
-		sim.stateCode = STATE_CHECKOUT_QUEUE;
-		return;
-	}
 
 	const tileName =
 		object.objectTypeCode === FAMILY_HOTEL_SINGLE
@@ -289,7 +281,7 @@ export function processHotelSim(
 				tryAssignParkingService(world, time, sim);
 			}
 			const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
-				venueFamilies: COMMERCIAL_FAMILIES,
+				venueFamilies: HOTEL_ROOM_SELECTOR,
 				returnState: STATE_ACTIVE,
 				tripState: STATE_ACTIVE_TRANSIT,
 				onVenueReserved: () => {

@@ -170,5 +170,17 @@ export const INVALID_FLOOR = 0xff;
 export const COMMERCIAL_VENUE_DWELL_TICKS = 60;
 // The binary encodes this as 0x62, which also has the transit bit set.
 export const COMMERCIAL_DWELL_STATE = STATE_VENUE_HOME_TRANSIT;
+/** Binary `select_random_commercial_venue_record_from_bucket` (11b0:1361)
+ * service_family_selector mapping: 0 = retail, 1 = restaurant, 2 = fast-food.
+ * The condo state-0x01/0x41 handler (1228:3b34–3b54) selects:
+ *   weekend_flag == 0               → 0 (retail)
+ *   weekend_flag != 0, slot % 4 == 0 → 1 (restaurant)
+ *   weekend_flag != 0, slot % 4 != 0 → 2 (fast-food) */
+export const CONDO_SELECTOR_RETAIL = new Set([FAMILY_RETAIL]);
 export const CONDO_SELECTOR_RESTAURANT = new Set([FAMILY_RESTAURANT]);
 export const CONDO_SELECTOR_FAST_FOOD = new Set([FAMILY_FAST_FOOD]);
+/** Binary hotel state-0x01 handler (1228:3126) pushes selector=1 (restaurant)
+ * into route_sim_to_commercial_venue, so hotel rooms only ever visit
+ * restaurants. Retail/fast-food buckets are reserved for the hotel-guest
+ * (family 0x21) path via `select_random_venue_bucket_for_hotel_guest`. */
+export const HOTEL_ROOM_SELECTOR = new Set([FAMILY_RESTAURANT]);

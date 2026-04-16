@@ -142,6 +142,8 @@ export interface SimRecord {
 	floorAnchor: number;
 	homeColumn: number;
 	baseOffset: number;
+	/** Per-floor local object index (binary sim+1 / BP+0xc): index of this sim's home object within its floor's object list, in placement (x-ascending) order. */
+	facilitySlot: number;
 	familyCode: number;
 	stateCode: number;
 	route: RouteState;

@@ -163,11 +163,14 @@ function pickAvailableVenue(
 	fromFloor: number,
 	allowedFamilies: Set<number>,
 ): VenueSelection | null {
-	// Binary: bucket_select_commercial_venue consults the pre-built per-family
-	// zone bucket table and picks uniformly at random. The call samples RNG
-	// unconditionally (even when the bucket has a single entry), so parity
-	// requires advancing the PRNG on every dispatch attempt.
-	const candidates: VenueSelection[] = [];
+	// Binary select_random_commercial_venue_record_from_bucket (11b0:1361):
+	// consults the per-family zone bucket built at placement time and picks
+	// uniformly at random. The bucket contains every placed venue of the
+	// family — availability, capacity, and route viability are all checked
+	// AFTER the RNG call. To match PRNG parity we mirror that shape: call
+	// sampleRng whenever the bucket has any entry, even if the chosen venue
+	// ends up rejected.
+	const bucket: VenueSelection[] = [];
 	for (const [key, object] of Object.entries(world.placedObjects)) {
 		if (!allowedFamilies.has(object.objectTypeCode)) continue;
 		if (object.linkedRecordIndex < 0) continue;
@@ -176,35 +179,37 @@ function pickAvailableVenue(
 			| undefined;
 		if (!record || record.kind !== "commercial_venue") continue;
 		if (record.ownerSubtypeIndex === INVALID_FLOOR) continue;
-		if (
-			record.availabilityState === VENUE_CLOSED ||
-			record.availabilityState === VENUE_DORMANT
-		)
-			continue;
-		if (record.todayVisitCount >= record.capacity) continue;
 
 		const [, y] = key.split(",").map(Number);
-		if (
-			!hasViableRouteBetweenFloors(
-				world,
-				fromFloor,
-				yToFloor(y),
-				object.leftTileIndex,
-			)
-		) {
-			continue;
-		}
-
-		candidates.push({
+		bucket.push({
 			record,
 			floor: yToFloor(y),
 			heightMetric: object.leftTileIndex,
 		});
 	}
 
-	if (candidates.length === 0) return null;
-	const pick = sampleRng(world) % candidates.length;
-	return candidates[pick];
+	if (bucket.length === 0) return null;
+	const picked = bucket[sampleRng(world) % bucket.length];
+
+	if (
+		picked.record.availabilityState === VENUE_CLOSED ||
+		picked.record.availabilityState === VENUE_DORMANT
+	) {
+		return null;
+	}
+	if (picked.record.todayVisitCount >= picked.record.capacity) return null;
+	if (
+		!hasViableRouteBetweenFloors(
+			world,
+			fromFloor,
+			picked.floor,
+			Math.floor(picked.heightMetric),
+		)
+	) {
+		return null;
+	}
+
+	return picked;
 }
 
 /**

@@ -32,11 +32,13 @@ function makeSim(
 	baseOffset: number,
 	familyCode: number,
 	population: number,
+	facilitySlot: number,
 ): SimRecord {
 	return {
 		floorAnchor,
 		homeColumn,
 		baseOffset,
+		facilitySlot,
 		familyCode,
 		stateCode: initialStateForFamily(familyCode, baseOffset, population),
 		route: ROUTE_IDLE,
@@ -157,11 +159,18 @@ export function rebuildRuntimeSims(world: WorldState): void {
 		return ax - bx;
 	});
 
+	// Per-floor object slot counter: each placed home object on a given floor
+	// consumes the next slot (in x-ascending placement order), matching the
+	// binary's entity.sim+1 / BP+0xc (floor_local_object_id).
+	const slotByFloor = new Map<number, number>();
+
 	for (const [key, object] of sortedEntries) {
 		const population = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 0;
 		if (population === 0) continue;
 		const [x, y] = key.split(",").map(Number);
 		const floorAnchor = yToFloor(y);
+		const facilitySlot = slotByFloor.get(floorAnchor) ?? 0;
+		slotByFloor.set(floorAnchor, facilitySlot + 1);
 
 		for (let baseOffset = 0; baseOffset < population; baseOffset++) {
 			const fresh = makeSim(
@@ -170,10 +179,17 @@ export function rebuildRuntimeSims(world: WorldState): void {
 				baseOffset,
 				object.objectTypeCode,
 				population,
+				facilitySlot,
 			);
 			const prior = previous.get(simKey(fresh));
 			if (prior) {
-				next.push({ ...fresh, ...prior, floorAnchor, homeColumn: x });
+				next.push({
+					...fresh,
+					...prior,
+					floorAnchor,
+					homeColumn: x,
+					facilitySlot,
+				});
 			} else {
 				fresh.tripCount = 0;
 				fresh.accumulatedTicks = 0;
@@ -233,6 +249,11 @@ export function resetSimRuntimeState(world: WorldState): void {
 		) {
 			// Spec TIME.md checkpoint 2500: family 6/7/10/12 → 0x20 (MORNING_GATE).
 			sim.stateCode = STATE_MORNING_GATE;
+		} else if (sim.familyCode === FAMILY_RECYCLING_CENTER_UPPER) {
+			// Spec TIME.md checkpoint 2500 lists resets for families
+			// 3/4/5/6/7/9/10/12/14/15/18/29/33/36 but not 20 (recycling/
+			// security tile). Stationary sims keep their current state.
+			continue;
 		} else {
 			sim.stateCode = STATE_PARKED;
 		}

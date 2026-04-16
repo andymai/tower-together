@@ -14,8 +14,10 @@ import {
 import {
 	CONDO_SELECTOR_FAST_FOOD,
 	CONDO_SELECTOR_RESTAURANT,
+	CONDO_SELECTOR_RETAIL,
 	LOBBY_FLOOR,
 	STATE_ACTIVE,
+	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK,
 	STATE_AT_WORK_TRANSIT,
 	STATE_CHECKOUT_QUEUE,
@@ -136,10 +138,18 @@ export function processCondoSim(
 				if (time.dayTick < 2567) return;
 				if (sampleRng(world) % 12 !== 0) return;
 			}
-			// dispatch_0x10: calendar_phase is not modeled; treat as ≠ 1.
-			// BP+0xe == sim.baseOffset; binary branches baseOffset==1 → ACTIVE,
-			// else COMMUTE.
-			sim.stateCode = sim.baseOffset === 1 ? STATE_ACTIVE : STATE_COMMUTE;
+			// dispatch_0x10 per FUN_1228_397b:
+			//   weekend_flag == 1 && BP+0xc % 2 != 0 → 0x04 (CHECKOUT_QUEUE)
+			//   weekend_flag == 1 && BP+0xc % 2 == 0 → 0x01 (ACTIVE)
+			//   weekend_flag != 1 && BP+0xe == 1     → 0x01 (ACTIVE)
+			//   weekend_flag != 1 && BP+0xe != 1     → 0x00 (COMMUTE)
+			// BP+0xc = facilitySlot (global condo index); BP+0xe = baseOffset.
+			if (time.weekendFlag === 1) {
+				sim.stateCode =
+					sim.facilitySlot % 2 !== 0 ? STATE_CHECKOUT_QUEUE : STATE_ACTIVE;
+			} else {
+				sim.stateCode = sim.baseOffset === 1 ? STATE_ACTIVE : STATE_COMMUTE;
+			}
 			return;
 		}
 		case STATE_COMMUTE: {
@@ -152,8 +162,28 @@ export function processCondoSim(
 			return;
 		}
 		case STATE_ACTIVE: {
-			// refresh_0x01 (non-calendar_phase==1 branch): daypart 0 + dayTick >= 241
-			// → 1/12 RNG; daypart 6 → skip; else dispatch.
+			// refresh_0x01 (1228:3681):
+			//   weekend_flag == 1 AND BP+8 (facilitySlot) % 4 == 0:
+			//     daypart 4: 1/6 RNG → dispatch (fallthrough)
+			//     daypart > 4: set state = 0x04 (CHECKOUT_QUEUE) directly, return
+			//     daypart < 4: return
+			//   else (non-weekend or slot%4 != 0):
+			//     daypart 0: dayTick > 240 AND 1/12 RNG → dispatch
+			//     daypart 6: skip
+			//     else: dispatch
+			if (time.weekendFlag === 1 && sim.facilitySlot % 4 === 0) {
+				if (time.daypartIndex === 4) {
+					if (sampleRng(world) % 6 === 0) {
+						dispatchCondoActive(world, time, sim);
+					}
+					return;
+				}
+				if (time.daypartIndex > 4) {
+					sim.stateCode = STATE_CHECKOUT_QUEUE;
+					return;
+				}
+				return;
+			}
 			if (time.daypartIndex === 6) return;
 			if (time.daypartIndex === 0) {
 				if (time.dayTick < 0xf1) return;
@@ -225,21 +255,69 @@ function dispatchCondoActive(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	// Selector: baseOffset % 4 == 0 → restaurant, else fast food.
-	// calendar_phase == 0 branch (restaurant always) is not modeled.
+	// dispatch_0x01 selector (1228:3b34-3b54):
+	//   weekend_flag == 0               → 0 (retail)
+	//   weekend_flag != 0, slot % 4 == 0 → 1 (restaurant)
+	//   weekend_flag != 0, slot % 4 != 0 → 2 (fast food)
 	const venueFamilies =
-		sim.baseOffset % 4 === 0
-			? CONDO_SELECTOR_RESTAURANT
-			: CONDO_SELECTOR_FAST_FOOD;
+		time.weekendFlag === 0
+			? CONDO_SELECTOR_RETAIL
+			: sim.facilitySlot % 4 === 0
+				? CONDO_SELECTOR_RESTAURANT
+				: CONDO_SELECTOR_FAST_FOOD;
+	// Per family-9 dispatch table (spec PEOPLE.md §0x22/0x62): on dwell complete /
+	// home arrival, INC unit_status → STATE_CHECKOUT_QUEUE. Re-entry to STATE_ACTIVE
+	// happens via STATE_TRANSITION (0x04 → 0x10 → 0x01), not directly off the dwell.
 	const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
 		venueFamilies,
-		returnState: STATE_ACTIVE,
-		unavailableState: STATE_CHECKOUT_QUEUE,
+		returnState: STATE_CHECKOUT_QUEUE,
+		tripState: STATE_ACTIVE_TRANSIT,
 		skipPenaltyOnUnavailable: true,
 	});
 	if (!dispatched) {
-		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		routeCondoToLobbyNoVenue(world, time, sim);
 	}
+}
+
+/**
+ * Binary route_sim_to_commercial_venue (1238:0000) state-0x01 branch: when
+ * `pickAvailableVenue` returns null, the helper still resolves a route from
+ * the home floor to the lobby and forces state=0x41 (no failure path is
+ * exposed to the family-9 dispatcher). Mirrors hotel's
+ * `routeHotelToLobbyNoVenue`. The `venueReturnState = STATE_CHECKOUT_QUEUE`
+ * marker steers `handleCondoSimArrival` to drop into STATE_VENUE_TRIP on
+ * lobby arrival, matching the binary's hidden 0x22 transition.
+ */
+function routeCondoToLobbyNoVenue(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sim.floorAnchor,
+		LOBBY_FLOOR,
+		directionFlag,
+		time,
+	);
+	if (result === -1 || result === 0) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	sim.venueReturnState = STATE_CHECKOUT_QUEUE;
+	if (result === 3) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	sim.originFloor = sim.floorAnchor;
+	sim.selectedFloor = sim.floorAnchor;
+	sim.destinationFloor = LOBBY_FLOOR;
+	sim.stateCode = STATE_ACTIVE_TRANSIT;
 }
 
 function dispatchCondoAtWork(
@@ -290,7 +368,7 @@ function dispatchCondoVenueTrip(
 export function handleCondoSimArrival(
 	sim: SimRecord,
 	arrivalFloor: number,
-	_time: TimeState,
+	time: TimeState,
 ): void {
 	if (sim.stateCode === STATE_MORNING_TRANSIT && arrivalFloor === LOBBY_FLOOR) {
 		sim.destinationFloor = -1;
@@ -305,21 +383,49 @@ export function handleCondoSimArrival(
 		return;
 	}
 	if (
+		sim.stateCode === STATE_ACTIVE_TRANSIT &&
+		arrivalFloor === LOBBY_FLOOR &&
+		sim.venueReturnState === STATE_CHECKOUT_QUEUE
+	) {
+		// No-venue fallback arrival: binary 1238:0000 state-0x01 lobby path
+		// (acquire_slot(-1)=3 fall-through) lands in state 0x22 (VENUE_TRIP).
+		// The existing 0x22/0x62 handler then unwinds via 0x04 (CHECKOUT_QUEUE).
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	if (sim.stateCode === STATE_ACTIVE_TRANSIT && arrivalFloor !== LOBBY_FLOOR) {
+		// Condo arrived at a real commercial venue: binary 1228:4fab writes
+		// state=0x22 (VENUE_TRIP) with queueTick latched for the dwell gate.
+		sim.destinationFloor = -1;
+		sim.selectedFloor = arrivalFloor;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	if (
 		sim.stateCode === STATE_AT_WORK_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// Spec PEOPLE.md §0x21/0x61: arrived → INC unit_status → 0x04. Re-entry
+		// to ACTIVE happens via STATE_TRANSITION (0x04 → 0x10 → 0x01).
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = STATE_ACTIVE;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
 	if (
 		sim.stateCode === STATE_VENUE_HOME_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// Binary family-9 dispatch table: state 0x22/0x62 fail/arrived →
+		// INC unit_status → 0x04 (CHECKOUT_QUEUE). Arrival here is the
+		// "arrived" branch.
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = STATE_ACTIVE;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
 }

@@ -129,8 +129,8 @@ export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 
 export const YEN_1001: Record<string, number[]> = {
 	hotelSingle: [3, 2, 1.5, 0.5],
-	hotelTwin: [3, 2, 1.5, 0.5],
-	hotelSuite: [3, 2, 1.5, 0.5],
+	hotelTwin: [4.5, 3, 2, 0.8],
+	hotelSuite: [9, 6, 4, 1.5],
 	office: [15, 10, 5, 2],
 	condo: [200, 150, 100, 40],
 	retail: [20, 15, 10, 4],

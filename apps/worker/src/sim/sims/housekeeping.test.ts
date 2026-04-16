@@ -85,6 +85,7 @@ function makeHousekeeper(floor: number, homeColumn = 0): SimRecord {
 		floorAnchor: floor,
 		homeColumn,
 		baseOffset: 0,
+		facilitySlot: 0,
 		familyCode: FAMILY_HOUSEKEEPING,
 		stateCode: HK_STATE_SEARCH,
 		route: { mode: "idle" },

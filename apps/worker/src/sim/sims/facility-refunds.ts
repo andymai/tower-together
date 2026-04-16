@@ -199,7 +199,6 @@ export function closeCommercialVenuesByFamily(
 			| undefined;
 		if (!record || record.kind !== "commercial_venue") continue;
 		if (record.availabilityState === VENUE_DORMANT) {
-			record.availabilityState = VENUE_CLOSED;
 			continue;
 		}
 
