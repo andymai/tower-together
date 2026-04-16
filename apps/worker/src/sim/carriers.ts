@@ -217,6 +217,7 @@ function updateCarDirectionFlag(
 	car: CarrierCar,
 	carIndex: number,
 	expressDirectionFlag: number,
+	clearRouteAssignmentsOnChange = true,
 ): void {
 	const old = car.directionFlag;
 	const floor = car.currentFloor;
@@ -248,7 +249,12 @@ function updateCarDirectionFlag(
 	}
 
 	if (car.directionFlag !== old) {
-		clearStaleFloorAssignments(carrier, floor, carIndex);
+		clearStaleFloorAssignments(
+			carrier,
+			floor,
+			carIndex,
+			clearRouteAssignmentsOnChange,
+		);
 	}
 }
 
@@ -342,6 +348,7 @@ export function makeCarrier(
 		floorQueues: Array.from({ length: numSlots }, () => createFloorQueue()),
 		pendingRoutes: [],
 		completedRouteIds: [],
+		suppressedFloorAssignments: [],
 		cars,
 	};
 }
@@ -560,6 +567,7 @@ function clearStaleFloorAssignments(
 	carrier: CarrierRecord,
 	floor: number,
 	carIndex: number,
+	clearRouteAssignments = false,
 ): void {
 	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
@@ -568,6 +576,17 @@ function clearStaleFloorAssignments(
 	}
 	if (carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1) {
 		carrier.secondaryRouteStatusByFloor[slot] = 0;
+	}
+	if (!clearRouteAssignments) return;
+	for (const route of carrier.pendingRoutes) {
+		if (route.boarded) continue;
+		if (route.assignedCarIndex !== carIndex) continue;
+		if (route.sourceFloor !== floor) continue;
+		const key = `${route.sourceFloor}:${route.directionFlag}`;
+		if (!carrier.suppressedFloorAssignments.includes(key)) {
+			carrier.suppressedFloorAssignments.push(key);
+		}
+		route.assignedCarIndex = -1;
 	}
 }
 
@@ -579,6 +598,11 @@ function assignCarToFloorRequest(
 ): void {
 	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
+	if (
+		carrier.suppressedFloorAssignments.includes(`${floor}:${directionFlag}`)
+	) {
+		return;
+	}
 	const table =
 		directionFlag === 1
 			? carrier.primaryRouteStatusByFloor
@@ -606,15 +630,22 @@ function assignCarToFloorRequest(
 		if (route.assignedCarIndex >= 0) continue; // already assigned
 		route.assignedCarIndex = carIndex;
 	}
-	syncAssignmentStatus(carrier);
 	if (assignedNewFloorRequest && recomputeTarget) {
-		recomputeCarTargetAndDirection(
-			carrier,
-			carrier.cars[carIndex],
-			carIndex,
-			undefined,
-		);
+		table[slot] = carIndex + 1;
+		carrier.cars[carIndex].pendingAssignmentCount += 1;
+		const car = carrier.cars[carIndex];
+		if (car.currentFloor !== floor) {
+			recomputeCarTargetAndDirection(carrier, car, carIndex, undefined);
+		} else if (
+			car.targetFloor === floor &&
+			car.arrivalSeen !== 0 &&
+			floor !== carrier.bottomServedFloor &&
+			floor !== carrier.topServedFloor
+		) {
+			updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
+		}
 	}
+	syncAssignmentStatus(carrier);
 }
 
 function assignPendingFloorRequests(carrier: CarrierRecord): void {
@@ -623,6 +654,11 @@ function assignPendingFloorRequests(carrier: CarrierRecord): void {
 		const queue = carrier.floorQueues[slot];
 		if (!queue) continue;
 		if (!queue.up.isEmpty) assignCarToFloorRequest(carrier, floor, 1);
+	}
+	for (let slot = carrier.floorQueues.length - 1; slot >= 0; slot--) {
+		const floor = carrier.bottomServedFloor + slot;
+		const queue = carrier.floorQueues[slot];
+		if (!queue) continue;
 		if (!queue.down.isEmpty) assignCarToFloorRequest(carrier, floor, 0);
 	}
 }
@@ -640,6 +676,33 @@ function processUnitTravelQueue(
 
 	let remainingSlots = Math.max(0, getCarCapacity(carrier) - car.assignedCount);
 	if (remainingSlots === 0) return;
+
+	if (
+		car.dwellCounter === 1 &&
+		car.pendingAssignmentCount === 1 &&
+		car.currentFloor === car.targetFloor &&
+		car.arrivalSeen !== 0 &&
+		car.prevFloor === car.currentFloor + 1 &&
+		carrier.pendingRoutes.some(
+			(route) =>
+				!route.boarded &&
+				route.assignedCarIndex === carIndex &&
+				route.sourceFloor === car.currentFloor &&
+				route.directionFlag === 1 &&
+				route.destinationFloor === car.currentFloor + 1,
+		)
+	) {
+		const slot = floorToSlot(carrier, car.currentFloor);
+		if (slot >= 0) {
+			const upCalls = (carrier.primaryRouteStatusByFloor[slot] ?? 0) !== 0;
+			const downCalls = (carrier.secondaryRouteStatusByFloor[slot] ?? 0) !== 0;
+			if (car.directionFlag === 0 && !downCalls && upCalls) {
+				car.directionFlag = 1;
+			} else if (car.directionFlag === 1 && !upCalls && downCalls) {
+				car.directionFlag = 0;
+			}
+		}
+	}
 
 	const floorQueue = getQueueState(carrier, car.currentFloor);
 
@@ -1096,6 +1159,7 @@ export function tickAllCarriers(
 		for (const [carIndex, car] of carrier.cars.entries()) {
 			dispatchAndBoardCar(world, car, carrier, carIndex, time, onArrival);
 		}
+		carrier.suppressedFloorAssignments = [];
 	}
 }
 
@@ -1181,6 +1245,7 @@ export function rebuildCarrierList(world: WorldState): void {
 				existing.expressDirectionFlags = new Array(14).fill(0);
 			}
 			existing.completedRouteIds ??= [];
+			existing.suppressedFloorAssignments ??= [];
 			if (existing.primaryRouteStatusByFloor.length !== numSlots) {
 				existing.primaryRouteStatusByFloor = new Array(numSlots).fill(0);
 				existing.secondaryRouteStatusByFloor = new Array(numSlots).fill(0);
@@ -1241,10 +1306,11 @@ export function enqueueCarrierRoute(
 ): boolean {
 	if (carrier.pendingRoutes.some((route) => route.simId === simId)) return true;
 	const floorQueue = getQueueState(carrier, sourceFloor);
-	if (
-		!floorQueue ||
-		!getDirectionQueue(floorQueue, directionFlag).push(simId)
-	) {
+	const directionQueue = floorQueue
+		? getDirectionQueue(floorQueue, directionFlag)
+		: null;
+	const wasDirectionQueueEmpty = directionQueue?.isEmpty ?? false;
+	if (!directionQueue?.push(simId)) {
 		const slot = floorToSlot(carrier, sourceFloor);
 		if (slot >= 0) {
 			const table =
@@ -1264,7 +1330,9 @@ export function enqueueCarrierRoute(
 		assignedCarIndex: -1,
 	};
 	carrier.pendingRoutes.push(route);
-	assignPendingFloorRequests(carrier);
+	if (wasDirectionQueueEmpty) {
+		assignCarToFloorRequest(carrier, sourceFloor, directionFlag, true);
+	}
 	syncAssignmentStatus(carrier);
 	return true;
 }

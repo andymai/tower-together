@@ -404,6 +404,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	initCarrierState(snapshot.world);
 	for (const carrier of snapshot.world.carriers) {
 		carrier.completedRouteIds ??= [];
+		carrier.suppressedFloorAssignments ??= [];
 		if (
 			!Array.isArray(carrier.dwellDelay) ||
 			carrier.dwellDelay.length !== 14

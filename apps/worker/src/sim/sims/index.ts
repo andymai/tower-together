@@ -124,10 +124,17 @@ function hasViableRouteBetweenFloors(
 	world: WorldState,
 	fromFloor: number,
 	toFloor: number,
+	targetHeightMetric = 0,
 ): boolean {
 	return (
 		fromFloor === toFloor ||
-		selectBestRouteCandidate(world, fromFloor, toFloor) !== null
+		selectBestRouteCandidate(
+			world,
+			fromFloor,
+			toFloor,
+			true,
+			targetHeightMetric,
+		) !== null
 	);
 }
 
@@ -148,6 +155,7 @@ function recomputeRoutesViableFlag(world: WorldState): void {
 interface VenueSelection {
 	record: CommercialVenueRecord;
 	floor: number;
+	heightMetric: number;
 }
 
 function pickAvailableVenue(
@@ -176,11 +184,22 @@ function pickAvailableVenue(
 		if (record.todayVisitCount >= record.capacity) continue;
 
 		const [, y] = key.split(",").map(Number);
-		if (!hasViableRouteBetweenFloors(world, fromFloor, yToFloor(y))) {
+		if (
+			!hasViableRouteBetweenFloors(
+				world,
+				fromFloor,
+				yToFloor(y),
+				object.leftTileIndex,
+			)
+		) {
 			continue;
 		}
 
-		candidates.push({ record, floor: yToFloor(y) });
+		candidates.push({
+			record,
+			floor: yToFloor(y),
+			heightMetric: object.leftTileIndex,
+		});
 	}
 
 	if (candidates.length === 0) return null;
@@ -516,12 +535,19 @@ function selectRouteForFamily(
 	fromFloor: number,
 	toFloor: number,
 	preferLocalMode: boolean,
+	targetHeightMetric: number,
 ): RouteCandidate | null {
 	if (
 		SHARED_ROUTE_SELECTOR_FAMILIES.has(familyCode) ||
 		CUSTOM_ROUTE_SELECTOR_FAMILIES.has(familyCode)
 	) {
-		return selectBestRouteCandidate(world, fromFloor, toFloor, preferLocalMode);
+		return selectBestRouteCandidate(
+			world,
+			fromFloor,
+			toFloor,
+			preferLocalMode,
+			targetHeightMetric,
+		);
 	}
 	return null;
 }
@@ -548,6 +574,7 @@ export function resolveSimRouteBetweenFloors(
 	destinationFloor: number,
 	directionFlag: number,
 	time: TimeState | undefined,
+	targetHeightMetric = sim.homeColumn,
 ): RouteResolution {
 	if (sourceFloor === destinationFloor) {
 		completeSimTransitEvent(sim, time);
@@ -564,6 +591,7 @@ export function resolveSimRouteBetweenFloors(
 		sourceFloor,
 		destinationFloor,
 		preferLocalMode,
+		targetHeightMetric,
 	);
 	if (!route) {
 		clearSimRoute(sim);

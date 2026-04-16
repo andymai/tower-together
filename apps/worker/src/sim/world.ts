@@ -121,6 +121,7 @@ export interface CarrierRecord {
 	floorQueues: CarrierFloorQueue[];
 	pendingRoutes: CarrierPendingRoute[];
 	completedRouteIds: string[];
+	suppressedFloorAssignments: string[];
 	cars: CarrierCar[];
 }
 

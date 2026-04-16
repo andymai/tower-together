@@ -152,10 +152,7 @@ export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
 
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
-		const units = Math.max(
-			1,
-			((Math.max(1, segment.heightMetric) >> 1) + 1) | 0,
-		);
+		const units = Math.max(1, (segment.flags >> 1) + 1);
 		// Escalator branch (bit 0 clear) → "stairs" expense key ($5,000);
 		// Stairs branch (bit 0 set) → "escalator" expense key ($0).
 		const expenseKey = (segment.flags & 1) === 0 ? "stairs" : "escalator";

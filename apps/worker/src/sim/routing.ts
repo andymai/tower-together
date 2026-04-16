@@ -72,7 +72,7 @@ export function rebuildSpecialLinks(world: WorldState): void {
 		world.specialLinks[segmentIndex++] = {
 			active: true,
 			flags: (span << 1) | (group.type === "stairs" ? 1 : 0),
-			heightMetric: span,
+			heightMetric: group.column,
 			entryFloor,
 			reservedByte: 0,
 			descendingLoadCounter: 0,
@@ -244,6 +244,7 @@ export function selectBestRouteCandidate(
 	fromFloor: number,
 	toFloor: number,
 	preferLocalMode = true,
+	targetHeightMetric = 0,
 ): RouteCandidate | null {
 	if (fromFloor === toFloor) return null;
 
@@ -266,7 +267,12 @@ export function selectBestRouteCandidate(
 		// in index order 0..63; scoreLocalRouteSegment already rejects segments
 		// that don't cover both endpoints.
 		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-			const cost = scoreLocalRouteSegment(segment, fromFloor, toFloor);
+			const cost = scoreLocalRouteSegment(
+				segment,
+				fromFloor,
+				toFloor,
+				targetHeightMetric,
+			);
 			if (cost >= ROUTE_COST_INFINITE) continue;
 			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 		}
@@ -291,6 +297,7 @@ export function selectBestRouteCandidate(
 							segment,
 							fromFloor,
 							adjacentFloor,
+							targetHeightMetric,
 						);
 						if (cost >= STAIRS_ROUTE_EXTRA_COST) continue;
 						bestSegment = tryCandidate(
@@ -311,7 +318,12 @@ export function selectBestRouteCandidate(
 		isFloorSpanWalkableForHousekeepingRoute(world, fromFloor, toFloor)
 	) {
 		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-			const cost = scoreHousekeepingRouteSegment(segment, fromFloor, toFloor);
+			const cost = scoreHousekeepingRouteSegment(
+				segment,
+				fromFloor,
+				toFloor,
+				targetHeightMetric,
+			);
 			if (cost >= ROUTE_COST_INFINITE) continue;
 			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
 		}
@@ -330,6 +342,7 @@ export function selectBestRouteCandidate(
 			carrier.carrierId,
 			fromFloor,
 			toFloor,
+			targetHeightMetric,
 		);
 		if (directCost < ROUTE_COST_INFINITE) {
 			bestCarrier = tryCandidate(
@@ -346,6 +359,7 @@ export function selectBestRouteCandidate(
 			fromFloor,
 			toFloor,
 			preferLocalMode,
+			targetHeightMetric,
 		);
 		if (transferCost < ROUTE_COST_INFINITE) {
 			bestCarrier = tryCandidate(
@@ -370,21 +384,23 @@ function scoreLocalRouteSegment(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
+	targetHeightMetric: number,
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
 	if (!segmentCoversFloor(segment, fromFloor)) return ROUTE_COST_INFINITE;
 	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
-	const delta = Math.abs(toFloor - fromFloor);
 	const isStairs = (segment.flags & 1) !== 0;
-	return isStairs ? delta * 8 + STAIRS_ROUTE_EXTRA_COST : delta * 8;
+	const distance = Math.abs(segment.heightMetric - targetHeightMetric) * 8;
+	return isStairs ? distance + STAIRS_ROUTE_EXTRA_COST : distance;
 }
 
 function scoreHousekeepingRouteSegment(
 	segment: WorldState["specialLinks"][number],
 	fromFloor: number,
 	toFloor: number,
+	targetHeightMetric: number,
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
 	if ((segment.flags & 1) === 0) return ROUTE_COST_INFINITE;
@@ -392,7 +408,10 @@ function scoreHousekeepingRouteSegment(
 	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
-	return Math.abs(toFloor - fromFloor) * 8 + STAIRS_ROUTE_EXTRA_COST;
+	return (
+		Math.abs(segment.heightMetric - targetHeightMetric) * 8 +
+		STAIRS_ROUTE_EXTRA_COST
+	);
 }
 
 function scoreCarrierDirectRoute(
@@ -400,6 +419,7 @@ function scoreCarrierDirectRoute(
 	carrierId: number,
 	fromFloor: number,
 	toFloor: number,
+	targetHeightMetric: number,
 ): number {
 	const carrier = world.carriers.find(
 		(candidate) => candidate.carrierId === carrierId,
@@ -412,10 +432,11 @@ function scoreCarrierDirectRoute(
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	const delta = Math.abs(toFloor - fromFloor);
-	return status === 0x28
-		? 1000 + delta * 8
-		: delta * 8 + STAIRS_ROUTE_EXTRA_COST;
+	const distance =
+		carrier.carrierMode === 0
+			? 0
+			: Math.abs(carrier.column - targetHeightMetric) * 8;
+	return status === 0x28 ? 1000 + distance : distance + STAIRS_ROUTE_EXTRA_COST;
 }
 
 function scoreCarrierTransferRoute(
@@ -424,6 +445,7 @@ function scoreCarrierTransferRoute(
 	fromFloor: number,
 	toFloor: number,
 	preferLocalMode: boolean,
+	targetHeightMetric: number,
 ): number {
 	const carrier = world.carriers.find(
 		(candidate) => candidate.carrierId === carrierId,
@@ -441,8 +463,11 @@ function scoreCarrierTransferRoute(
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	const delta = Math.abs(toFloor - fromFloor);
-	return status === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000;
+	const distance =
+		carrier.carrierMode === 0
+			? 0
+			: Math.abs(carrier.column - targetHeightMetric) * 8;
+	return status === 0x28 ? 6000 + distance : distance + 3000;
 }
 
 /**
