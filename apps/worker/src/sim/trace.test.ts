@@ -36,6 +36,12 @@ interface TraceCar {
 	currentFloor: number;
 	directionFlag: number;
 	targetFloor: number;
+	stabilizeCounter?: number;
+	dwellCounter?: number;
+	assignedCount?: number;
+	prevFloor?: number;
+	arrivalSeen?: number;
+	arrivalTick?: number;
 }
 interface TraceCarrier {
 	column: number;
@@ -455,14 +461,54 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 					refCarrier.cars.length,
 				);
 				for (let i = 0; i < refCarrier.cars.length; i++) {
+					const ours = cars[i];
+					const ref = refCarrier.cars[i];
 					expect(
-						cars[i].currentFloor,
+						ours.currentFloor,
 						`car ${i} currentFloor at ${k} ${ctx}`,
-					).toBe(refCarrier.cars[i].currentFloor);
+					).toBe(ref.currentFloor);
+					expect(ours.targetFloor, `car ${i} targetFloor at ${k} ${ctx}`).toBe(
+						ref.targetFloor,
+					);
 					expect(
-						cars[i].targetFloor,
-						`car ${i} targetFloor at ${k} ${ctx}`,
-					).toBe(refCarrier.cars[i].targetFloor);
+						ours.directionFlag,
+						`car ${i} directionFlag at ${k} ${ctx}`,
+					).toBe(ref.directionFlag);
+					if (ref.stabilizeCounter !== undefined) {
+						expect(
+							ours.doorWaitCounter,
+							`car ${i} stabilizeCounter at ${k} ${ctx}`,
+						).toBe(ref.stabilizeCounter);
+					}
+					if (ref.dwellCounter !== undefined) {
+						expect(
+							ours.dwellCounter,
+							`car ${i} dwellCounter at ${k} ${ctx}`,
+						).toBe(ref.dwellCounter);
+					}
+					if (ref.assignedCount !== undefined) {
+						expect(
+							ours.assignedCount,
+							`car ${i} assignedCount at ${k} ${ctx}`,
+						).toBe(ref.assignedCount);
+					}
+					if (ref.prevFloor !== undefined) {
+						expect(ours.prevFloor, `car ${i} prevFloor at ${k} ${ctx}`).toBe(
+							ref.prevFloor,
+						);
+					}
+					if (ref.arrivalSeen !== undefined) {
+						expect(
+							ours.arrivalSeen,
+							`car ${i} arrivalSeen at ${k} ${ctx}`,
+						).toBe(ref.arrivalSeen);
+					}
+					if (ref.arrivalTick !== undefined) {
+						expect(
+							ours.arrivalTick,
+							`car ${i} arrivalTick at ${k} ${ctx}`,
+						).toBe(ref.arrivalTick);
+					}
 				}
 			}
 		}

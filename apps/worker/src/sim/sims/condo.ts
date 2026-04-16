@@ -61,7 +61,7 @@ function dispatchCondoMorningGate(
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
-	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -196,7 +196,7 @@ function dispatchCondoCommute(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -247,7 +247,7 @@ function dispatchCondoAtWork(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -270,7 +270,7 @@ function dispatchCondoVenueTrip(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const directionFlag = sim.floorAnchor > sim.selectedFloor ? 0 : 1;
+	const directionFlag = sim.floorAnchor > sim.selectedFloor ? 1 : 0;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,

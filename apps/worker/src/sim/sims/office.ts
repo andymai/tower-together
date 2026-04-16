@@ -201,7 +201,7 @@ export function processOfficeSim(
 			sim,
 			LOBBY_FLOOR,
 			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 0 : 1,
+			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {
@@ -239,7 +239,7 @@ export function processOfficeSim(
 			sim,
 			LOBBY_FLOOR,
 			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 0 : 1,
+			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {
@@ -281,7 +281,7 @@ export function processOfficeSim(
 			sim,
 			LOBBY_FLOOR,
 			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 0 : 1,
+			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {
@@ -335,7 +335,7 @@ export function processOfficeSim(
 			sim,
 			sim.selectedFloor,
 			sim.floorAnchor,
-			sim.floorAnchor > sim.selectedFloor ? 0 : 1,
+			sim.floorAnchor > sim.selectedFloor ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {
@@ -431,7 +431,7 @@ export function processOfficeSim(
 			sim,
 			sim.floorAnchor,
 			LOBBY_FLOOR,
-			1,
+			0,
 			time,
 		);
 		if (routeResult === -1) {

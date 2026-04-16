@@ -300,7 +300,7 @@ export function dispatchCommercialVenueVisit(
 
 	// Route requirement: resolve route before reserving venue.
 	if (venue.floor !== sim.floorAnchor) {
-		const dirFlag = venue.floor > sim.floorAnchor ? 0 : 1;
+		const dirFlag = venue.floor > sim.floorAnchor ? 1 : 0;
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
@@ -432,7 +432,7 @@ function getElevatorDemand(sim: SimRecord): {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: sim.destinationFloor,
-			directionFlag: sim.destinationFloor > sim.selectedFloor ? 0 : 1,
+			directionFlag: sim.destinationFloor > sim.selectedFloor ? 1 : 0,
 		};
 	}
 
@@ -449,7 +449,7 @@ function getElevatorDemand(sim: SimRecord): {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: LOBBY_FLOOR,
-			directionFlag: 1,
+			directionFlag: 0,
 		};
 	}
 
@@ -457,7 +457,7 @@ function getElevatorDemand(sim: SimRecord): {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: sim.destinationFloor,
-			directionFlag: sim.destinationFloor > sim.selectedFloor ? 0 : 1,
+			directionFlag: sim.destinationFloor > sim.selectedFloor ? 1 : 0,
 		};
 	}
 
@@ -469,7 +469,7 @@ function getElevatorDemand(sim: SimRecord): {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: EVAL_ZONE_FLOOR,
-			directionFlag: 0,
+			directionFlag: 1,
 		};
 	}
 	// Cathedral guest: return routes to lobby
@@ -480,7 +480,7 @@ function getElevatorDemand(sim: SimRecord): {
 		return {
 			sourceFloor: sim.selectedFloor,
 			destinationFloor: LOBBY_FLOOR,
-			directionFlag: 1,
+			directionFlag: 0,
 		};
 	}
 
@@ -618,7 +618,7 @@ export function resolveSimRouteBetweenFloors(
 	sim.route = {
 		mode: "carrier",
 		carrierId: route.id,
-		direction: directionFlag === 0 ? "up" : "down",
+		direction: directionFlag === 1 ? "up" : "down",
 		source: sourceFloor,
 	};
 	sim.queueTick = time?.dayTick ?? sim.queueTick;

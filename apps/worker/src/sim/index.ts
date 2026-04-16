@@ -47,6 +47,12 @@ export interface CarrierCarStateRecord {
 	targetFloor: number;
 	speedCounter: number;
 	doorWaitCounter: number;
+	directionFlag: number;
+	dwellCounter: number;
+	assignedCount: number;
+	prevFloor: number;
+	arrivalSeen: number;
+	arrivalTick: number;
 }
 
 // ─── Step result ──────────────────────────────────────────────────────────────
@@ -411,6 +417,12 @@ export class TowerSim {
 				targetFloor: car.targetFloor,
 				speedCounter: car.speedCounter,
 				doorWaitCounter: car.doorWaitCounter,
+				directionFlag: car.directionFlag,
+				dwellCounter: car.dwellCounter,
+				assignedCount: car.assignedCount,
+				prevFloor: car.prevFloor,
+				arrivalSeen: car.arrivalSeen,
+				arrivalTick: car.arrivalTick,
 			})),
 		);
 	}

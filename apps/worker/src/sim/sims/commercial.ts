@@ -147,7 +147,7 @@ export function processCommercialSim(
 			sim,
 			LOBBY_FLOOR,
 			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 0 : 1,
+			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {

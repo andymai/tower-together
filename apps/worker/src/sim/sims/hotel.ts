@@ -105,7 +105,7 @@ function routeHotelToLobbyNoVenue(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -141,7 +141,7 @@ function activateHotelStay(
 	if (!object) return;
 
 	// Route requirement: actual route must succeed, not just structural check.
-	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 0 : 1;
+	const directionFlag = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,

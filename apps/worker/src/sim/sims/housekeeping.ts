@@ -92,7 +92,7 @@ function attemptRouteToFloor(
 	targetFloor: number,
 	time: TimeState,
 ): number {
-	const direction = targetFloor > sim.floorAnchor ? 0 : 1;
+	const direction = targetFloor > sim.floorAnchor ? 1 : 0;
 	return resolveSimRouteBetweenFloors(
 		world,
 		sim,

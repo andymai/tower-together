@@ -55,7 +55,7 @@ function getDirectionQueue(
 	queue: CarrierFloorQueue,
 	directionFlag: number,
 ): RingBuffer<string> {
-	return directionFlag === 0 ? queue.up : queue.down;
+	return directionFlag === 1 ? queue.up : queue.down;
 }
 
 function activeSlotLimit(carrier: CarrierRecord): number {
@@ -130,6 +130,9 @@ function resetCarToHome(carrier: CarrierRecord, car: CarrierCar): void {
 	car.dwellCounter = 0;
 	car.assignedCount = 0;
 	car.pendingAssignmentCount = 0;
+	car.directionFlag = 1;
+	car.arrivalSeen = 0;
+	car.arrivalTick = 0;
 	car.departureFlag = 0;
 	car.destinationCountByFloor.fill(0);
 	car.nonemptyDestinationCount = 0;
@@ -160,8 +163,9 @@ function computeCarMotionMode(
 		return 2;
 	}
 
-	// Standard (1) and Service (2): stop within 2 floors, slow-stop within 4, +/-1 otherwise
-	if (firstLeg) return 2;
+	// Standard (1) and Service (2): stop within 2 floors, slow-stop within 4, +/-1 otherwise.
+	// No firstLeg override — binary's short-trip (1-floor) motion uses mode 0
+	// (confirmed by dynamic trace: stab=5 written on 10→11 step).
 	if (distToTarget < 2 || distFromPrev < 2) return 0;
 	if (distToTarget < 4 || distFromPrev < 4) return 1;
 	return 2;
@@ -170,24 +174,81 @@ function computeCarMotionMode(
 function advanceCarPositionOneStep(
 	carrier: CarrierRecord,
 	car: CarrierCar,
+	carIndex: number,
+	time: TimeState,
 ): void {
-	const motionMode = computeCarMotionMode(carrier, car);
-	if (motionMode === 0) {
-		car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
-		return;
-	}
-	if (motionMode === 1) {
-		car.doorWaitCounter = 2;
-		return;
+	// Binary 1098:10e4. If already at target on entry, recompute target+direction
+	// first (prevFloor = cur latched before recompute). Then compute mode,
+	// possibly arm stabilize, step by ±1 or ±3, and clear arrivalSeen.
+	if (car.currentFloor === car.targetFloor) {
+		car.prevFloor = car.currentFloor;
+		recomputeCarTargetAndDirection(carrier, car, carIndex, time);
 	}
 
+	const motionMode = computeCarMotionMode(carrier, car);
+	if (motionMode === 0) car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
+	else if (motionMode === 1) car.doorWaitCounter = 2;
+
+	// Binary convention: direction==0 → down (cur -= step); direction!=0 → up.
 	const stepSize = motionMode === 3 ? 3 : 1;
-	const direction = car.targetFloor > car.currentFloor ? 1 : -1;
-	const nextFloor = car.currentFloor + direction * stepSize;
-	if (direction > 0) {
-		car.currentFloor = Math.min(nextFloor, car.targetFloor);
-	} else {
-		car.currentFloor = Math.max(nextFloor, car.targetFloor);
+	const stepDir = car.directionFlag === 0 ? -1 : 1;
+	car.currentFloor += stepDir * stepSize;
+
+	if (car.arrivalSeen !== 0) car.arrivalSeen = 0;
+}
+
+function recomputeCarTargetAndDirection(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	carIndex: number,
+	time: TimeState,
+): void {
+	const expressFlag =
+		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
+	const next = selectNextTarget(car, carrier, carIndex, expressFlag);
+	if (next < carrier.bottomServedFloor || next > carrier.topServedFloor) {
+		resetCarToHome(carrier, car);
+		return;
+	}
+	car.targetFloor = next;
+	updateCarDirectionFlag(carrier, car, carIndex);
+}
+
+function updateCarDirectionFlag(
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	carIndex: number,
+): void {
+	const old = car.directionFlag;
+	const floor = car.currentFloor;
+
+	if (floor !== car.targetFloor) {
+		// Binary: direction = (cur < target) ? 1 (up) : 0 (down).
+		car.directionFlag = floor < car.targetFloor ? 1 : 0;
+	} else if (car.arrivalSeen !== 0) {
+		// Endpoint flips, bidirectional only (spec lines 950-965).
+		if (floor === carrier.topServedFloor && car.directionFlag === 1) {
+			car.directionFlag = 0;
+		} else if (floor === carrier.bottomServedFloor && car.directionFlag === 0) {
+			car.directionFlag = 1;
+		} else {
+			const slot = floorToSlot(carrier, floor);
+			if (slot >= 0) {
+				const upCalls = (carrier.primaryRouteStatusByFloor[slot] ?? 0) !== 0;
+				const downCalls =
+					(carrier.secondaryRouteStatusByFloor[slot] ?? 0) !== 0;
+				// Going down but only up-calls at this floor → flip up.
+				if (car.directionFlag === 0 && !downCalls && upCalls) {
+					car.directionFlag = 1;
+				} else if (car.directionFlag === 1 && !upCalls && downCalls) {
+					car.directionFlag = 0;
+				}
+			}
+		}
+	}
+
+	if (car.directionFlag !== old) {
+		clearStaleFloorAssignments(carrier, floor, carIndex);
 	}
 }
 
@@ -224,13 +285,15 @@ export function makeCarrierCar(
 		dwellCounter: 0,
 		assignedCount: 0,
 		pendingAssignmentCount: 0,
-		directionFlag: 0,
+		directionFlag: 1,
 		targetFloor: homeFloor,
 		prevFloor: homeFloor,
 		homeFloor,
 		departureFlag: 0,
 		departureTimestamp: 0,
 		scheduleFlag: 0,
+		arrivalSeen: 0,
+		arrivalTick: 0,
 		waitingCount: new Array(numSlots).fill(0),
 		destinationCountByFloor: new Array(numSlots).fill(0),
 		nonemptyDestinationCount: 0,
@@ -274,7 +337,7 @@ export function makeCarrier(
 		primaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		secondaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		serviceScheduleFlags: new Array(14).fill(1),
-		dwellMultiplierFlags: new Array(14).fill(1),
+		dwellMultiplierFlags: new Array(14).fill(0),
 		expressDirectionFlags: new Array(14).fill(0),
 		waitingCarResponseThreshold: 4,
 		assignmentCapacity: mode === 0 ? 0x2a : 0x15,
@@ -350,7 +413,7 @@ function syncAssignmentStatus(carrier: CarrierRecord): void {
 		const slot = floorToSlot(carrier, route.sourceFloor);
 		if (slot < 0) continue;
 		const table =
-			route.directionFlag === 0
+			route.directionFlag === 1
 				? carrier.primaryRouteStatusByFloor
 				: carrier.secondaryRouteStatusByFloor;
 		if (table[slot] === 0x28) continue;
@@ -371,7 +434,7 @@ function pendingTargetsInDirection(
 		if (!slot?.active) continue;
 		const floor = slot.boarded ? slot.destinationFloor : slot.sourceFloor;
 		if (
-			directionFlag === 0
+			directionFlag === 1
 				? floor >= car.currentFloor
 				: floor <= car.currentFloor
 		) {
@@ -428,13 +491,13 @@ function findBestAvailableCarForFloor(
 		// and request lies ahead
 		const isSameDirectionForward =
 			car.directionFlag === directionFlag &&
-			(directionFlag === 0
+			(directionFlag === 1
 				? floor > car.currentFloor
 				: floor < car.currentFloor);
 
 		if (isSameDirectionForward) {
 			const cost =
-				directionFlag === 0
+				directionFlag === 1
 					? floor - car.currentFloor
 					: car.currentFloor - floor;
 			if (cost < bestForwardCost) {
@@ -446,14 +509,14 @@ function findBestAvailableCarForFloor(
 			let cost: number;
 			if (car.directionFlag === directionFlag) {
 				// Same direction but request is behind the sweep
-				if (directionFlag === 0) {
+				if (directionFlag === 1) {
 					cost = car.targetFloor - car.currentFloor + (car.targetFloor - floor);
 				} else {
 					cost = car.currentFloor - car.targetFloor + (floor - car.targetFloor);
 				}
 			} else {
 				// Opposite direction: distance via next turn floor
-				if (directionFlag === 0) {
+				if (directionFlag === 1) {
 					// Request is upward, car is going down
 					const turnFloor = car.targetFloor;
 					if (floor <= car.currentFloor) {
@@ -539,7 +602,7 @@ function assignCarToFloorRequest(
 	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
 	const table =
-		directionFlag === 0
+		directionFlag === 1
 			? carrier.primaryRouteStatusByFloor
 			: carrier.secondaryRouteStatusByFloor;
 
@@ -571,8 +634,8 @@ function assignPendingFloorRequests(carrier: CarrierRecord): void {
 		const floor = carrier.bottomServedFloor + slot;
 		const queue = carrier.floorQueues[slot];
 		if (!queue) continue;
-		if (!queue.up.isEmpty) assignCarToFloorRequest(carrier, floor, 0);
-		if (!queue.down.isEmpty) assignCarToFloorRequest(carrier, floor, 1);
+		if (!queue.up.isEmpty) assignCarToFloorRequest(carrier, floor, 1);
+		if (!queue.down.isEmpty) assignCarToFloorRequest(carrier, floor, 0);
 	}
 }
 
@@ -630,7 +693,8 @@ function processUnitTravelQueue(
 
 	if (
 		remainingSlots > 0 &&
-		!pendingTargetsInDirection(carrier, car, primaryDirection)
+		!pendingTargetsInDirection(carrier, car, primaryDirection) &&
+		pendingTargetsInDirection(carrier, car, primaryDirection === 0 ? 1 : 0)
 	) {
 		primaryDirection = primaryDirection === 0 ? 1 : 0;
 		car.directionFlag = primaryDirection;
@@ -715,7 +779,7 @@ function selectNextTarget(
 	}
 
 	// Normal: bidirectional sweep in current direction, wrap at endpoints
-	const dir = car.directionFlag === 0 ? 1 : -1;
+	const dir = car.directionFlag === 1 ? 1 : -1;
 	for (
 		let floor = car.currentFloor + dir;
 		floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
@@ -756,58 +820,66 @@ function shouldCarDepart(
 	car: CarrierCar,
 	time: TimeState,
 ): boolean {
+	// Binary 1098:23a5. Force-depart when full, when schedule multiplier is 0,
+	// or when stopped at a non-home, non-lobby/express floor. Otherwise wait
+	// until arrival-to-now delta exceeds multiplier * 30 ticks.
 	if (car.assignedCount >= getCarCapacity(carrier)) return true;
-	const scheduleIndex = getScheduleIndex(time);
-	if ((carrier.serviceScheduleFlags[scheduleIndex] ?? 1) === 0) {
-		return true;
+	const multiplier = carrier.dwellMultiplierFlags[getScheduleIndex(time)] ?? 1;
+	if (multiplier === 0) return true;
+	if (car.currentFloor !== car.homeFloor) {
+		const isLobbyOrExpress =
+			car.currentFloor === 10 ||
+			(car.currentFloor > 10 && (car.currentFloor - 10) % 15 === 0);
+		if (!isLobbyOrExpress) return true;
 	}
-	return (
-		Math.abs(time.dayTick - car.departureTimestamp) > car.scheduleFlag * 30
-	);
+	return Math.abs(time.dayTick - car.arrivalTick) > multiplier * 30;
 }
 
 function boardAndUnloadRoutes(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
+	allowUnload: boolean,
 	onArrival?: CarrierArrivalCallback,
 ): boolean {
 	let changed = false;
 	const limit = activeSlotLimit(carrier);
 	const arrivals: Array<{ routeId: string; floor: number }> = [];
 
-	for (let index = 0; index < limit; index++) {
-		const slot = car.activeRouteSlots[index];
-		if (!slot?.active || !slot.boarded) continue;
-		if (slot.destinationFloor !== car.currentFloor) continue;
-		const arrivedRouteId = slot.routeId;
-		const arrivedFloor = slot.destinationFloor;
-		car.assignedCount = Math.max(0, car.assignedCount - 1);
-		const destinationSlot = floorToSlot(carrier, slot.destinationFloor);
-		if (destinationSlot >= 0) {
-			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
-			car.destinationCountByFloor[destinationSlot] = Math.max(0, prev - 1);
-			if (prev === 1) {
-				car.nonemptyDestinationCount = Math.max(
-					0,
-					car.nonemptyDestinationCount - 1,
-				);
+	if (allowUnload) {
+		for (let index = 0; index < limit; index++) {
+			const slot = car.activeRouteSlots[index];
+			if (!slot?.active || !slot.boarded) continue;
+			if (slot.destinationFloor !== car.currentFloor) continue;
+			const arrivedRouteId = slot.routeId;
+			const arrivedFloor = slot.destinationFloor;
+			car.assignedCount = Math.max(0, car.assignedCount - 1);
+			const destinationSlot = floorToSlot(carrier, slot.destinationFloor);
+			if (destinationSlot >= 0) {
+				const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
+				car.destinationCountByFloor[destinationSlot] = Math.max(0, prev - 1);
+				if (prev === 1) {
+					car.nonemptyDestinationCount = Math.max(
+						0,
+						car.nonemptyDestinationCount - 1,
+					);
+				}
 			}
+			slot.active = false;
+			carrier.pendingRoutes = carrier.pendingRoutes.filter(
+				(candidate) => candidate.simId !== arrivedRouteId,
+			);
+			if (!carrier.completedRouteIds.includes(arrivedRouteId)) {
+				carrier.completedRouteIds.push(arrivedRouteId);
+			}
+			arrivals.push({ routeId: arrivedRouteId, floor: arrivedFloor });
+			changed = true;
 		}
-		slot.active = false;
-		carrier.pendingRoutes = carrier.pendingRoutes.filter(
-			(candidate) => candidate.simId !== arrivedRouteId,
-		);
-		if (!carrier.completedRouteIds.includes(arrivedRouteId)) {
-			carrier.completedRouteIds.push(arrivedRouteId);
-		}
-		arrivals.push({ routeId: arrivedRouteId, floor: arrivedFloor });
-		changed = true;
-	}
 
-	if (onArrival) {
-		for (const arrival of arrivals) {
-			onArrival(arrival.routeId, arrival.floor);
+		if (onArrival) {
+			for (const arrival of arrivals) {
+				onArrival(arrival.routeId, arrival.floor);
+			}
 		}
 	}
 
@@ -871,95 +943,64 @@ function advanceCarrierCarState(
 		return;
 	}
 
-	// Stabilize branch (-0x5d): set by advance_car_position_one_step for
-	// motion modes 0/1. Counts down only while mode is still 0; if the
-	// newly-recomputed mode is non-zero, snap counter to 0 to allow motion.
+	// Branch C (1098:06fb): stabilize countdown. While nonzero, the car is
+	// mid-motion-cycle. Decrement only if recomputed mode is still 0;
+	// otherwise snap to 0 (fast-cancel).
 	if (car.doorWaitCounter > 0) {
 		if (computeCarMotionMode(carrier, car) === 0) car.doorWaitCounter--;
 		else car.doorWaitCounter = 0;
 		return;
 	}
 
-	// Dwell branch (-0x5c): counts down each tick. At the transition to 0,
-	// recompute target. If target changed, next tick's fall-through path
-	// will begin movement; otherwise fall-through will restart a dwell=5
-	// cycle. This mirrors the binary: the 5-tick cycle repeats until real
-	// work appears, at which point the target changes on a 5-tick boundary.
-	if (car.dwellCounter > 0) {
-		car.dwellCounter--;
-		if (car.dwellCounter === 0) {
-			car.prevFloor = car.currentFloor;
-			const expressFlag =
-				carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
-			const next = selectNextTarget(car, carrier, carIndex, expressFlag);
-			if (next >= 0 && next !== car.currentFloor) {
-				car.targetFloor = next;
-				car.directionFlag = next > car.currentFloor ? 0 : 1;
-				car.speedCounter = 1;
+	if (car.dwellCounter === 0) {
+		// Branch A. A1 (arrival / idle-at-target) fires when target == cur and
+		// either the per-car destination queue has riders for this floor, or the
+		// car is not full. A1 is level-triggered: as long as the gate holds the
+		// next A1 fire (after B's 5-tick countdown) refreshes dwell back to 5.
+		const currentSlot = floorToSlot(carrier, car.currentFloor);
+		const hasQueuedRider =
+			currentSlot >= 0 && (car.destinationCountByFloor[currentSlot] ?? 0) > 0;
+		const underCapacity = car.assignedCount !== getCarCapacity(carrier);
+
+		if (
+			car.targetFloor === car.currentFloor &&
+			(hasQueuedRider || underCapacity)
+		) {
+			// A1
+			if (
+				car.currentFloor === carrier.topServedFloor ||
+				car.currentFloor === carrier.bottomServedFloor
+			) {
+				loadScheduleFlag(carrier, car, time);
 			}
-		}
-		return;
-	}
-
-	// Pacing between movement steps. Binary moves 1 (or 3) floor per tick
-	// via advance_car_position_one_step; set speedCounter to 1 so we move
-	// every tick until reaching target.
-	if (car.speedCounter > 0) {
-		car.speedCounter--;
-		if (car.speedCounter === 0) {
-			car.prevFloor = car.currentFloor;
-			advanceCarPositionOneStep(carrier, car);
-			if (car.doorWaitCounter === 0 && car.currentFloor !== car.targetFloor) {
-				car.speedCounter = 1;
+			clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
+			car.dwellCounter = DEPARTURE_SEQUENCE_TICKS;
+			if (car.arrivalSeen === 0) {
+				car.arrivalTick = time.dayTick;
+				car.arrivalSeen = 1;
 			}
+			car.departureFlag = 0;
+			return;
 		}
-		return;
-	}
 
-	// Both counters zero. Refresh schedule flag when stopped at an endpoint.
-	loadScheduleFlag(carrier, car, time);
-
-	// Binary Branch A (1098:06fb): level-triggered pin of -0x5c to 5 every
-	// tick a stopped car is at its target floor and has any door-opening
-	// reason (queued rider on this floor, or assigned_count != capacity).
-	// A fresh car at the lobby with assigned_count < capacity satisfies the
-	// OR on every tick, so -0x5c stays continuously pinned at 5 until the
-	// next reselect moves target off cur_floor. The countdown to reselect
-	// runs as a separate 5-tick cycle via Branch B.
-	const currentSlot = floorToSlot(carrier, car.currentFloor);
-	const hasFloorAssignment =
-		currentSlot >= 0 &&
-		(carrier.primaryRouteStatusByFloor[currentSlot] === carIndex + 1 ||
-			carrier.secondaryRouteStatusByFloor[currentSlot] === carIndex + 1);
-	const underCapacity = car.assignedCount < activeSlotLimit(carrier);
-	if (
-		car.targetFloor === car.currentFloor &&
-		(hasFloorAssignment || underCapacity)
-	) {
+		// A2 — motion step. Clear stale assignment for this floor, then advance
+		// one step (motion + arrivalSeen clear + stab arm happens inline).
 		clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
-		car.dwellCounter = DEPARTURE_SEQUENCE_TICKS;
-		car.departureFlag = 0;
+		advanceCarPositionOneStep(carrier, car, carIndex, time);
 		return;
 	}
 
-	// Not at a servicable target. Reselect or depart toward a new target.
-	const expressFlag =
-		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
-	const next = selectNextTarget(car, carrier, carIndex, expressFlag);
-
-	if (next < 0 || next === car.currentFloor) {
-		if (car.assignedCount > 0 && shouldCarDepart(carrier, car, time)) {
-			car.speedCounter = 1;
+	// Branch B — dwell countdown. Decrement unconditionally; on 0 transition,
+	// latch prevFloor, recompute target+direction, and check departure gate.
+	// If depart gate says "wait", pin dwell=1 so this path runs again next tick.
+	car.dwellCounter--;
+	if (car.dwellCounter === 0) {
+		car.prevFloor = car.currentFloor;
+		recomputeCarTargetAndDirection(carrier, car, carIndex, time);
+		if (!shouldCarDepart(carrier, car, time)) {
+			car.dwellCounter = 1;
 		}
-		return;
 	}
-
-	car.targetFloor = next;
-	car.directionFlag = next > car.currentFloor ? 0 : 1;
-	clearStaleFloorAssignments(carrier, car.currentFloor, carIndex);
-	if (car.departureFlag === 0) car.departureTimestamp = time.dayTick;
-	car.departureFlag = 1;
-	car.speedCounter = 1;
 }
 
 /**
@@ -980,10 +1021,17 @@ function dispatchAndBoardCar(
 	onArrival?: CarrierArrivalCallback,
 ): void {
 	if (!car.active) return;
-	// Boarding only happens when doors are open — i.e. during dwell.
-	if (car.dwellCounter === 0) return;
+	// Binary runs boarding (`process_unit_travel_queue`) unconditionally each
+	// tick; unload (`dispatch_carrier_car_arrivals`) is gated on -0x5c == 5
+	// (first dwell tick, written by Branch A). We mirror that split here.
 	processUnitTravelQueue(world, carrier, car, carIndex, time);
-	boardAndUnloadRoutes(carrier, car, carIndex, onArrival);
+	boardAndUnloadRoutes(
+		carrier,
+		car,
+		carIndex,
+		car.dwellCounter === DEPARTURE_SEQUENCE_TICKS,
+		onArrival,
+	);
 }
 
 export function tickAllCarriers(
@@ -1080,7 +1128,7 @@ export function rebuildCarrierList(world: WorldState): void {
 				!Array.isArray(existing.dwellMultiplierFlags) ||
 				existing.dwellMultiplierFlags.length !== 14
 			) {
-				existing.dwellMultiplierFlags = new Array(14).fill(1);
+				existing.dwellMultiplierFlags = new Array(14).fill(0);
 			}
 			if (
 				!Array.isArray(existing.expressDirectionFlags) ||
@@ -1156,7 +1204,7 @@ export function enqueueCarrierRoute(
 		const slot = floorToSlot(carrier, sourceFloor);
 		if (slot >= 0) {
 			const table =
-				directionFlag === 0
+				directionFlag === 1
 					? carrier.primaryRouteStatusByFloor
 					: carrier.secondaryRouteStatusByFloor;
 			table[slot] = 0x28;

@@ -408,7 +408,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 			!Array.isArray(carrier.dwellMultiplierFlags) ||
 			carrier.dwellMultiplierFlags.length !== 14
 		) {
-			carrier.dwellMultiplierFlags = new Array(14).fill(1);
+			carrier.dwellMultiplierFlags = new Array(14).fill(0);
 		}
 		for (const route of carrier.pendingRoutes ?? []) {
 			route.assignedCarIndex ??= -1;

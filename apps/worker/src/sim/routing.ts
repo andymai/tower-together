@@ -408,7 +408,7 @@ function scoreCarrierDirectRoute(
 	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
-		toFloor > fromFloor ? 0 : 1,
+		toFloor > fromFloor ? 1 : 0,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
 	return status === 0x28
@@ -437,7 +437,7 @@ function scoreCarrierTransferRoute(
 	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
-		toFloor > fromFloor ? 0 : 1,
+		toFloor > fromFloor ? 1 : 0,
 	);
 	const delta = Math.abs(toFloor - fromFloor);
 	return status === 0x28 ? 6000 + delta * 8 : delta * 8 + 3000;
@@ -686,7 +686,7 @@ function getFloorSlotStatus(
 ): number {
 	const slot = floor - carrier.bottomServedFloor;
 	const table =
-		directionFlag === 0
+		directionFlag === 1
 			? carrier.primaryRouteStatusByFloor
 			: carrier.secondaryRouteStatusByFloor;
 	if (slot < 0 || slot >= table.length) return 0;
