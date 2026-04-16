@@ -655,6 +655,11 @@ function processUnitTravelQueue(
 
 	const floorQueue = getQueueState(carrier, car.currentFloor);
 
+	// Binary 1218:0351: pop cap per direction is 1 unless dwellCounter == 1
+	// exactly (then cap = remainingSlots). For dwell == 3/5/etc the car boards
+	// at most one rider per direction per tick.
+	const popCap = car.dwellCounter === 1 ? remainingSlots : 1;
+
 	function drainDirection(directionFlag: number): void {
 		if (!floorQueue) return;
 		const buf = getDirectionQueue(floorQueue, directionFlag);
@@ -668,7 +673,10 @@ function processUnitTravelQueue(
 					route.assignedCarIndex === carIndex &&
 					!hasActiveSlot(car, route.simId),
 			);
-		for (const route of assignedRoutes.slice(0, remainingSlots)) {
+		for (const route of assignedRoutes.slice(
+			0,
+			Math.min(popCap, remainingSlots),
+		)) {
 			buf.pop();
 			const resolvedFloor = resolveTransferFloor(
 				world,
@@ -1021,10 +1029,14 @@ function dispatchAndBoardCar(
 	onArrival?: CarrierArrivalCallback,
 ): void {
 	if (!car.active) return;
-	// Binary runs boarding (`process_unit_travel_queue`) unconditionally each
-	// tick; unload (`dispatch_carrier_car_arrivals`) is gated on -0x5c == 5
-	// (first dwell tick, written by Branch A). We mirror that split here.
-	processUnitTravelQueue(world, carrier, car, carIndex, time);
+	// Binary `process_unit_travel_queue` (1218:0351) gates the queue pop on
+	// `(car[-0x5c] & 1) != 0` — only runs when dwellCounter is odd. This
+	// creates the 1-tick lag between route enqueue (at dwell=4) and boarding
+	// (at dwell=3). Unload (`dispatch_carrier_car_arrivals`) is gated on
+	// dwell == 5 (first dwell tick).
+	if ((car.dwellCounter & 1) !== 0) {
+		processUnitTravelQueue(world, carrier, car, carIndex, time);
+	}
 	boardAndUnloadRoutes(
 		carrier,
 		car,
