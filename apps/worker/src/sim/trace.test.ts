@@ -198,14 +198,6 @@ function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 	sim.freeBuild = false;
 }
 
-function buildTowerFromSpec(spec: BuildSpec): TowerSim {
-	const sim = TowerSim.create("trace-test", "Trace Test");
-	placeTilesFromSpec(sim, spec);
-	// Advance 100 ticks: dayTick 2533 → day boundary at tick 67 → dayTick=33.
-	for (let i = 0; i < 100; i++) sim.step();
-	return sim;
-}
-
 /** Compute the 32-bit LCG state after N calls starting from a given seed. */
 function computeRngState(seed: number, calls: number): number {
 	let state = seed;
@@ -235,32 +227,11 @@ function advanceTo(sim: TowerSim, targetTotalTicks: number): void {
 	while (sim.simTime < targetTotalTicks) sim.step();
 }
 
-function countSimsByFamily(
-	sims: Array<{ familyCode: number }>,
-): Map<number, number> {
-	const counts = new Map<number, number>();
-	for (const sim of sims) {
-		counts.set(sim.familyCode, (counts.get(sim.familyCode) ?? 0) + 1);
-	}
-	return counts;
-}
-
 /** Sum of all sim counts across families in a trace entry. */
 function traceSimTotal(entry: TraceEntry): number {
 	let total = 0;
 	for (const group of Object.values(entry.sims)) total += group.count;
 	return total;
-}
-
-/**
- * Filter trace entries to only those with named sim families (not hex-coded
- * pre-categorization entries) that have sims.
- */
-function activeTraceEntries(trace: TraceEntry[]): TraceEntry[] {
-	return trace.filter((e) => {
-		const keys = Object.keys(e.sims);
-		return keys.length > 0 && keys.some((k) => !k.startsWith("0x"));
-	});
 }
 
 // ─── Test fixtures ──────────────────────────────────────────────────────────
@@ -282,18 +253,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	// Entry 0 is the day -1 / tick 2533 baseline; simulation entries start at index 1.
 	const simEntries = trace.slice(1);
 
-	it("builds tower and runs full trace without crashing", () => {
-		const sim = buildTowerFromSpec(spec);
-		expect(sim.simTime).toBe(100);
-
-		for (const entry of simEntries) {
-			const targetTicks = traceTickToTotalTicks(entry.day, entry.tick);
-			if (targetTicks > sim.simTime) {
-				advanceTo(sim, targetTicks);
-			}
-		}
-	});
-
 	// Fields in the fixture that this suite does NOT currently check, because the
 	// sim has no direct mapping for them yet:
 	//   - calendar_phase       (global 12-day phase counter; not modeled in TimeState)
@@ -301,13 +260,18 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	//   - population           (onsite occupancy roll-up; separate from sim count)
 	//   - stress_avg/min/max   (per-sim stress aggregated by family)
 	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
-	it("matches reference scalar fields at each trace tick", () => {
+	it("matches full reference trace", () => {
 		if (simEntries.length === 0) return;
 		const sim = prepareFromTrace(spec, trace);
+
+		let prevSimCalls: number | undefined;
+		let prevTraceCalls: number | undefined;
 
 		for (const entry of simEntries) {
 			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
 			const ctx = `day=${entry.day} tick=${entry.tick}`;
+
+			// ── Scalar fields ──────────────────────────────────────────────
 			const snap = sim.saveState();
 			expect(snap.time.daypartIndex, `daypart mismatch at ${ctx}`).toBe(
 				entry.daypart,
@@ -327,221 +291,148 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				snap.world.gateFlags.routesViable !== 0,
 				`gates.route at ${ctx}`,
 			).toBe(entry.gates.route);
-			// No security-gate flag is currently modeled; fixtures we run always
-			// have gates.security === false, so we assert that invariant.
 			expect(entry.gates.security, `unexpected gates.security at ${ctx}`).toBe(
 				false,
 			);
-		}
-	});
 
-	it("matches reference sim total at each trace tick", () => {
-		const entries = activeTraceEntries(simEntries);
-		if (entries.length === 0) return;
-		const sim = prepareFromTrace(spec, trace);
+			// ── Cash ───────────────────────────────────────────────────────
+			expect(sim.cash, `cash mismatch at ${ctx} fx=${fixtureName}`).toBe(
+				entry.cash,
+			);
 
-		for (const entry of entries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			expect(
-				sim.simsToArray().length,
-				`sim total mismatch at day=${entry.day} tick=${entry.tick}`,
-			).toBe(traceSimTotal(entry));
-		}
-	});
+			// ── Sim counts & states (only for entries with named families) ─
+			const simKeys = Object.keys(entry.sims);
+			const isActive =
+				simKeys.length > 0 && simKeys.some((k) => !k.startsWith("0x"));
+			if (isActive) {
+				const simArray = sim.simsToArray();
 
-	it("matches reference sim counts by family", () => {
-		const entries = activeTraceEntries(simEntries);
-		if (entries.length === 0) return;
-		const sim = prepareFromTrace(spec, trace);
-
-		for (const entry of entries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			const byFamily = countSimsByFamily(sim.simsToArray());
-
-			for (const [key, refGroup] of Object.entries(entry.sims)) {
-				const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
-				if (familyCode === undefined) continue;
-				expect(
-					byFamily.get(familyCode) ?? 0,
-					`family ${key} count mismatch at day=${entry.day} tick=${entry.tick}`,
-				).toBe(refGroup.count);
-			}
-		}
-	});
-
-	it("matches reference sim state counts by family", () => {
-		const entries = activeTraceEntries(simEntries);
-		if (entries.length === 0) return;
-		// Known divergence: elevator-bearing fixtures have sim state-count drift
-		// once elevator ridership begins (boarding/unload timing diverges).
-		const sim = prepareFromTrace(spec, trace);
-
-		for (const entry of entries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			const byFamilyState = new Map<number, Map<number, number>>();
-			for (const sm of sim.simsToArray()) {
-				let m = byFamilyState.get(sm.familyCode);
-				if (!m) {
-					m = new Map();
-					byFamilyState.set(sm.familyCode, m);
-				}
-				m.set(sm.stateCode, (m.get(sm.stateCode) ?? 0) + 1);
-			}
-			for (const [key, refGroup] of Object.entries(entry.sims)) {
-				const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
-				if (familyCode === undefined) continue;
-				const ourStates = byFamilyState.get(familyCode) ?? new Map();
-				const ourObj: Record<string, number> = {};
-				for (const [st, cnt] of ourStates) ourObj[String(st)] = cnt;
-				expect(
-					ourObj,
-					`family ${key} state counts mismatch at day=${entry.day} tick=${entry.tick}`,
-				).toEqual(refGroup.states);
-			}
-		}
-	});
-
-	it("matches reference sim states across all families", () => {
-		const entries = activeTraceEntries(simEntries);
-		if (entries.length === 0) return;
-		const sim = prepareFromTrace(spec, trace);
-
-		for (const entry of entries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			const simStates = sim
-				.simsToArray()
-				.map((sm) => sm.stateCode)
-				.sort((a, b) => a - b);
-			expect(
-				simStates,
-				`all sim states mismatch at day=${entry.day} tick=${entry.tick}`,
-			).toEqual(entry.sim_states);
-		}
-	});
-
-	it("matches reference RNG call deltas between trace entries", () => {
-		const entries = simEntries.filter(
-			(e): e is TraceEntry & { rng_calls: number } => e.rng_calls !== undefined,
-		);
-		if (entries.length < 2) return;
-		// Known divergence: elevator-bearing fixtures have small RNG delta drift
-		// from elevator routing/assignment paths.
-		const sim = prepareFromTrace(spec, trace);
-
-		advanceTo(sim, traceTickToTotalTicks(entries[0].day, entries[0].tick));
-		let prevSimCalls = sim.rngCallCount;
-		let prevTraceCalls = entries[0].rng_calls;
-
-		for (let i = 1; i < entries.length; i++) {
-			const entry = entries[i];
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			const simDelta = sim.rngCallCount - prevSimCalls;
-			const traceDelta = entry.rng_calls - prevTraceCalls;
-			expect(
-				simDelta,
-				`rng_calls delta mismatch at day=${entry.day} tick=${entry.tick}: sim=${simDelta} trace=${traceDelta}`,
-			).toBe(traceDelta);
-			prevSimCalls = sim.rngCallCount;
-			prevTraceCalls = entry.rng_calls;
-		}
-	});
-
-	it("matches reference carrier car positions", () => {
-		const entries = simEntries.filter(
-			(e): e is TraceEntry & { carriers: TraceCarrier[] } =>
-				Array.isArray(e.carriers) && e.carriers.length > 0,
-		);
-		if (entries.length === 0) return;
-		// Known divergence: elevator-bearing fixtures have targetFloor drift once
-		// sims begin riding (TS dispatches differently than the binary).
-		const sim = prepareFromTrace(spec, trace);
-
-		for (const entry of entries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			const ctx = `day=${entry.day} tick=${entry.tick}`;
-			const ourCarriers = sim.carriersToArray();
-			// Group our flat records back by column+mode
-			const ourByCol = new Map<string, typeof ourCarriers>();
-			for (const rec of ourCarriers) {
-				const k = `${rec.column}:${rec.carrierMode}`;
-				const list = ourByCol.get(k) ?? [];
-				list.push(rec);
-				ourByCol.set(k, list);
-			}
-			for (const refCarrier of entry.carriers) {
-				const k = `${refCarrier.column}:${refCarrier.mode}`;
-				const cars = ourByCol.get(k);
-				expect(cars, `carrier ${k} missing at ${ctx}`).toBeDefined();
-				if (!cars) continue;
-				expect(cars.length, `car count for ${k} at ${ctx}`).toBe(
-					refCarrier.cars.length,
+				// Total sim count
+				expect(simArray.length, `sim total mismatch at ${ctx}`).toBe(
+					traceSimTotal(entry),
 				);
-				for (let i = 0; i < refCarrier.cars.length; i++) {
-					const ours = cars[i];
-					const ref = refCarrier.cars[i];
+
+				// Per-family counts and state counts
+				const byFamily = new Map<number, number>();
+				const byFamilyState = new Map<number, Map<number, number>>();
+				for (const sm of simArray) {
+					byFamily.set(sm.familyCode, (byFamily.get(sm.familyCode) ?? 0) + 1);
+					let m = byFamilyState.get(sm.familyCode);
+					if (!m) {
+						m = new Map();
+						byFamilyState.set(sm.familyCode, m);
+					}
+					m.set(sm.stateCode, (m.get(sm.stateCode) ?? 0) + 1);
+				}
+
+				for (const [key, refGroup] of Object.entries(entry.sims)) {
+					const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
+					if (familyCode === undefined) continue;
 					expect(
-						ours.currentFloor,
-						`car ${i} currentFloor at ${k} ${ctx}`,
-					).toBe(ref.currentFloor);
-					expect(ours.targetFloor, `car ${i} targetFloor at ${k} ${ctx}`).toBe(
-						ref.targetFloor,
+						byFamily.get(familyCode) ?? 0,
+						`family ${key} count mismatch at ${ctx}`,
+					).toBe(refGroup.count);
+					const ourStates = byFamilyState.get(familyCode) ?? new Map();
+					const ourObj: Record<string, number> = {};
+					for (const [st, cnt] of ourStates) ourObj[String(st)] = cnt;
+					expect(
+						ourObj,
+						`family ${key} state counts mismatch at ${ctx}`,
+					).toEqual(refGroup.states);
+				}
+
+				// All sim states
+				const simStates = simArray.map((sm) => sm.stateCode);
+				expect(simStates, `all sim states mismatch at ${ctx}`).toEqual(
+					entry.sim_states,
+				);
+			}
+
+			// ── RNG call deltas ────────────────────────────────────────────
+			if (entry.rng_calls !== undefined) {
+				if (prevSimCalls !== undefined && prevTraceCalls !== undefined) {
+					const simDelta = sim.rngCallCount - prevSimCalls;
+					const traceDelta = entry.rng_calls - prevTraceCalls;
+					expect(
+						simDelta,
+						`rng_calls delta mismatch at ${ctx}: sim=${simDelta} trace=${traceDelta}`,
+					).toBe(traceDelta);
+				}
+				prevSimCalls = sim.rngCallCount;
+				prevTraceCalls = entry.rng_calls;
+			}
+
+			// ── Carrier car positions ──────────────────────────────────────
+			if (Array.isArray(entry.carriers) && entry.carriers.length > 0) {
+				const ourCarriers = sim.carriersToArray();
+				const ourByCol = new Map<string, typeof ourCarriers>();
+				for (const rec of ourCarriers) {
+					const k = `${rec.column}:${rec.carrierMode}`;
+					const list = ourByCol.get(k) ?? [];
+					list.push(rec);
+					ourByCol.set(k, list);
+				}
+				for (const refCarrier of entry.carriers) {
+					const k = `${refCarrier.column}:${refCarrier.mode}`;
+					const cars = ourByCol.get(k);
+					expect(cars, `carrier ${k} missing at ${ctx}`).toBeDefined();
+					if (!cars) continue;
+					expect(cars.length, `car count for ${k} at ${ctx}`).toBe(
+						refCarrier.cars.length,
 					);
-					expect(
-						ours.directionFlag,
-						`car ${i} directionFlag at ${k} ${ctx}`,
-					).toBe(ref.directionFlag);
-					if (ref.stabilizeCounter !== undefined) {
+					for (let i = 0; i < refCarrier.cars.length; i++) {
+						const ours = cars[i];
+						const ref = refCarrier.cars[i];
 						expect(
-							ours.doorWaitCounter,
-							`car ${i} stabilizeCounter at ${k} ${ctx}`,
-						).toBe(ref.stabilizeCounter);
-					}
-					if (ref.dwellCounter !== undefined) {
+							ours.currentFloor,
+							`car ${i} currentFloor at ${k} ${ctx}`,
+						).toBe(ref.currentFloor);
 						expect(
-							ours.dwellCounter,
-							`car ${i} dwellCounter at ${k} ${ctx}`,
-						).toBe(ref.dwellCounter);
-					}
-					if (ref.assignedCount !== undefined) {
+							ours.targetFloor,
+							`car ${i} targetFloor at ${k} ${ctx}`,
+						).toBe(ref.targetFloor);
 						expect(
-							ours.assignedCount,
-							`car ${i} assignedCount at ${k} ${ctx}`,
-						).toBe(ref.assignedCount);
-					}
-					if (ref.prevFloor !== undefined) {
-						expect(ours.prevFloor, `car ${i} prevFloor at ${k} ${ctx}`).toBe(
-							ref.prevFloor,
-						);
-					}
-					if (ref.arrivalSeen !== undefined) {
-						expect(
-							ours.arrivalSeen,
-							`car ${i} arrivalSeen at ${k} ${ctx}`,
-						).toBe(ref.arrivalSeen);
-					}
-					if (ref.arrivalTick !== undefined) {
-						expect(
-							ours.arrivalTick,
-							`car ${i} arrivalTick at ${k} ${ctx}`,
-						).toBe(ref.arrivalTick);
+							ours.directionFlag,
+							`car ${i} directionFlag at ${k} ${ctx}`,
+						).toBe(ref.directionFlag);
+						if (ref.stabilizeCounter !== undefined) {
+							expect(
+								ours.doorWaitCounter,
+								`car ${i} stabilizeCounter at ${k} ${ctx}`,
+							).toBe(ref.stabilizeCounter);
+						}
+						if (ref.dwellCounter !== undefined) {
+							expect(
+								ours.dwellCounter,
+								`car ${i} dwellCounter at ${k} ${ctx}`,
+							).toBe(ref.dwellCounter);
+						}
+						if (ref.assignedCount !== undefined) {
+							expect(
+								ours.assignedCount,
+								`car ${i} assignedCount at ${k} ${ctx}`,
+							).toBe(ref.assignedCount);
+						}
+						if (ref.prevFloor !== undefined) {
+							expect(ours.prevFloor, `car ${i} prevFloor at ${k} ${ctx}`).toBe(
+								ref.prevFloor,
+							);
+						}
+						if (ref.arrivalSeen !== undefined) {
+							expect(
+								ours.arrivalSeen,
+								`car ${i} arrivalSeen at ${k} ${ctx}`,
+							).toBe(ref.arrivalSeen);
+						}
+						if (ref.arrivalTick !== undefined) {
+							expect(
+								ours.arrivalTick,
+								`car ${i} arrivalTick at ${k} ${ctx}`,
+							).toBe(ref.arrivalTick);
+						}
 					}
 				}
 			}
-		}
-	});
-
-	it("matches reference cash", () => {
-		if (simEntries.length === 0) return;
-		// Known divergence: elevator fixture's TS cash is 10k higher than binary
-		// from tick 1 onward. Origin not yet root-caused.
-		const sim = prepareFromTrace(spec, trace);
-
-		for (const entry of simEntries) {
-			advanceTo(sim, traceTickToTotalTicks(entry.day, entry.tick));
-			expect(
-				sim.cash,
-				`cash mismatch at day=${entry.day} tick=${entry.tick} fx=${fixtureName}`,
-			).toBe(entry.cash);
 		}
 	});
 });
