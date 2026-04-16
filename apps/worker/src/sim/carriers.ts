@@ -133,7 +133,6 @@ function resetCarToHome(carrier: CarrierRecord, car: CarrierCar): void {
 	car.directionFlag = 1;
 	car.arrivalSeen = 0;
 	car.arrivalTick = 0;
-	car.departureFlag = 0;
 	car.destinationCountByFloor.fill(0);
 	car.nonemptyDestinationCount = 0;
 	for (const slot of car.activeRouteSlots) {
@@ -288,8 +287,6 @@ export function makeCarrierCar(
 		targetFloor: homeFloor,
 		prevFloor: homeFloor,
 		homeFloor,
-		departureFlag: 0,
-		departureTimestamp: 0,
 		scheduleFlag: 0,
 		arrivalSeen: 0,
 		arrivalTick: 0,
@@ -336,7 +333,7 @@ export function makeCarrier(
 		primaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		secondaryRouteStatusByFloor: new Array(numSlots).fill(0),
 		serviceScheduleFlags: new Array(14).fill(1),
-		dwellMultiplierFlags: new Array(14).fill(0),
+		dwellDelay: new Array(14).fill(0),
 		expressDirectionFlags: new Array(14).fill(0),
 		waitingCarResponseThreshold: 4,
 		assignmentCapacity: mode === 0 ? 0x2a : 0x15,
@@ -863,7 +860,7 @@ function loadScheduleFlag(
 	) {
 		return;
 	}
-	car.scheduleFlag = carrier.dwellMultiplierFlags[getScheduleIndex(time)] ?? 1;
+	car.scheduleFlag = carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
 }
 
 function shouldCarDepart(
@@ -875,7 +872,7 @@ function shouldCarDepart(
 	// or when stopped at a non-home, non-lobby/express floor. Otherwise wait
 	// until arrival-to-now delta exceeds multiplier * 30 ticks.
 	if (car.assignedCount >= getCarCapacity(carrier)) return true;
-	const multiplier = carrier.dwellMultiplierFlags[getScheduleIndex(time)] ?? 1;
+	const multiplier = carrier.dwellDelay[getScheduleIndex(time)] ?? 1;
 	if (multiplier === 0) return true;
 	if (car.currentFloor !== car.homeFloor) {
 		const isLobbyOrExpress =
@@ -1030,7 +1027,6 @@ function advanceCarrierCarState(
 				car.arrivalTick = time.dayTick;
 				car.arrivalSeen = 1;
 			}
-			car.departureFlag = 0;
 			return;
 		}
 
@@ -1194,10 +1190,10 @@ export function rebuildCarrierList(world: WorldState): void {
 				existing.serviceScheduleFlags = new Array(14).fill(1);
 			}
 			if (
-				!Array.isArray(existing.dwellMultiplierFlags) ||
-				existing.dwellMultiplierFlags.length !== 14
+				!Array.isArray(existing.dwellDelay) ||
+				existing.dwellDelay.length !== 14
 			) {
-				existing.dwellMultiplierFlags = new Array(14).fill(0);
+				existing.dwellDelay = new Array(14).fill(0);
 			}
 			if (
 				!Array.isArray(existing.expressDirectionFlags) ||

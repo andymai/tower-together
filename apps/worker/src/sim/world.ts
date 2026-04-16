@@ -49,8 +49,6 @@ export interface CarrierCar {
 	targetFloor: number;
 	prevFloor: number;
 	homeFloor: number;
-	departureFlag: number;
-	departureTimestamp: number;
 	scheduleFlag: number;
 	/** Binary -0x57: latch set once car reaches a target; gates A1 dwell write. */
 	arrivalSeen: number;
@@ -110,7 +108,7 @@ export interface CarrierRecord {
 	 * Distinct from `serviceScheduleFlags` which is the schedule-enable byte.
 	 * Default = 1.
 	 */
-	dwellMultiplierFlags: number[];
+	dwellDelay: number[];
 	/**
 	 * 14 entries: 7 dayparts × 2 calendar phases. Controls alternate-direction
 	 * queue drain behavior per daypart. 0 = normal (both directions),
