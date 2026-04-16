@@ -260,7 +260,7 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	//   - population           (onsite occupancy roll-up; separate from sim count)
 	//   - stress_avg/min/max   (per-sim stress aggregated by family)
 	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
-	it("matches full reference trace", () => {
+	it.concurrent("matches full reference trace", () => {
 		if (simEntries.length === 0) return;
 		const sim = prepareFromTrace(spec, trace);
 
