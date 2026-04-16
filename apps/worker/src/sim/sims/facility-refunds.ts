@@ -32,6 +32,40 @@ import {
 } from "./states";
 
 /**
+ * Mirrors binary `select_facility_progress_slot` (11b0:1870). Selects
+ * which seed slot to use: override (5) when facilityProgressOverride is
+ * active, phaseB (4) when calendarPhaseFlag is set (weekendFlag, i.e.
+ * dayCounter % 3 === 2), otherwise phaseA (3).
+ */
+export function selectFacilityProgressSlot(
+	world: WorldState,
+	time: TimeState,
+): 3 | 4 | 5 {
+	if (world.gateFlags.facilityProgressOverride !== 0) return 5;
+	if (time.weekendFlag !== 0) return 4;
+	return 3;
+}
+
+function readSeedForSlot(
+	record: CommercialVenueRecord,
+	slot: 3 | 4 | 5,
+): number {
+	if (slot === 5) return record.overrideSeed;
+	if (slot === 4) return record.phaseBSeed;
+	return record.phaseASeed;
+}
+
+function writeSeedForSlot(
+	record: CommercialVenueRecord,
+	slot: 3 | 4 | 5,
+	value: number,
+): void {
+	if (slot === 5) record.overrideSeed = value;
+	else if (slot === 4) record.phaseBSeed = value;
+	else record.phaseASeed = value;
+}
+
+/**
  * Mirrors binary `rebuild_linked_facility_records` (11b0:0184) →
  * `recompute_facility_runtime_state` (11b0:02f2), invoked at checkpoint
  * 0x0f0 (dayTick 240 / daypart 0). For each valid fast-food or retail
@@ -40,7 +74,11 @@ import {
  * eligibility threshold. Restaurants are excluded — they use a separate
  * per-cycle mechanism at tick 1600.
  */
-export function rebuildCommercialVenueRuntime(world: WorldState): void {
+export function rebuildCommercialVenueRuntime(
+	world: WorldState,
+	time: TimeState,
+): void {
+	const slot = selectFacilityProgressSlot(world, time);
 	for (const obj of Object.values(world.placedObjects)) {
 		const code = obj.objectTypeCode;
 		if (code !== FAMILY_FAST_FOOD && code !== FAMILY_RETAIL) continue;
@@ -51,9 +89,10 @@ export function rebuildCommercialVenueRuntime(world: WorldState): void {
 			record.availabilityState = VENUE_AVAILABLE;
 		}
 
-		// Binary recompute_facility_runtime_state: pick active seed from
-		// calendar phase, cap at tuning limit, floor at 10.
-		// calendar_phase not modeled → always phase A (slot 3).
+		// Binary recompute_facility_runtime_state: capacity always comes from
+		// phaseASeed (offset +3), regardless of the active calendar slot.
+		// The active slot determines which seed is CLEARED (and which is
+		// incremented by visits via clamp_object_type_limit).
 		const caps = COMMERCIAL_CAPACITY_CAPS[code];
 		let cap = record.phaseASeed;
 		if (caps && cap > caps[0]) cap = caps[0];
@@ -68,8 +107,8 @@ export function rebuildCommercialVenueRuntime(world: WorldState): void {
 		record.currentPopulation = 0;
 		record.visitCount = 0;
 
-		// Clear the consumed phase seed (binary clears the active slot to 0).
-		record.phaseASeed = 0;
+		// Clear the active calendar slot (not necessarily phaseA).
+		writeSeedForSlot(record, slot, 0);
 	}
 }
 
@@ -81,7 +120,11 @@ export function rebuildCommercialVenueRuntime(world: WorldState): void {
  * not DORMANT), refills remainingCapacity (floor 10), resets eligibility
  * threshold to -(cap+1), and rolls visit counters.
  */
-export function rebuildRestaurantFacilityRecords(world: WorldState): void {
+export function rebuildRestaurantFacilityRecords(
+	world: WorldState,
+	time: TimeState,
+): void {
+	const slot = selectFacilityProgressSlot(world, time);
 	for (const obj of Object.values(world.placedObjects)) {
 		if (obj.objectTypeCode !== FAMILY_RESTAURANT) continue;
 		if (obj.linkedRecordIndex < 0) continue;
@@ -93,6 +136,7 @@ export function rebuildRestaurantFacilityRecords(world: WorldState): void {
 			record.availabilityState = VENUE_AVAILABLE;
 		}
 
+		// Capacity always from phaseASeed; active slot is cleared.
 		const caps = COMMERCIAL_CAPACITY_CAPS[FAMILY_RESTAURANT];
 		let cap = record.phaseASeed;
 		if (caps && cap > caps[0]) cap = caps[0];
@@ -104,7 +148,7 @@ export function rebuildRestaurantFacilityRecords(world: WorldState): void {
 		record.todayVisitCount = 0;
 		record.currentPopulation = 0;
 		record.visitCount = 0;
-		record.phaseASeed = 0;
+		writeSeedForSlot(record, slot, 0);
 	}
 }
 
@@ -279,15 +323,27 @@ export function refundUnhappyFacilities(
  * Mirrors binary `clamp_object_type_limit` (11b0:121c). After each sim
  * visit acquisition, increments the active phase seed by +2 (low stress)
  * or +1 (medium stress), capped at the type-specific tuning limit.
- * Calendar phase is not modeled — always uses phase A (slot 3).
+ * The active slot is selected by `selectFacilityProgressSlot`.
+ *
+ * Stress thresholds (DS:0xe5ea/0xe5ec) are initialized at runtime from a
+ * star-rating-dependent tuning table whose values are not in the static
+ * binary. For low-star early-game towers, stress is always below the lower
+ * threshold, yielding +2 every time. The increment will need adjustment
+ * once the threshold values are extracted for higher star ratings.
  */
 export function incrementVenueSeed(
 	record: CommercialVenueRecord,
 	familyCode: number,
+	world: WorldState,
+	time: TimeState,
 ): void {
 	const caps = COMMERCIAL_CAPACITY_CAPS[familyCode];
 	if (!caps) return;
-	// Binary: +2 when stress < lower threshold, +1 when between lower..upper.
-	// For the test fixtures stress is always low → +2.
-	record.phaseASeed = Math.min(record.phaseASeed + 2, caps[0]);
+	const slot = selectFacilityProgressSlot(world, time);
+	const current = readSeedForSlot(record, slot);
+	// Binary: +2 when stress < lower threshold, +1 when between lower..upper,
+	// +0 when stress >= upper threshold. Stress = 0x1000 / currentPopulation.
+	// Thresholds are star-dependent; for star 1-2 towers, always +2.
+	const increment = 2;
+	writeSeedForSlot(record, slot, Math.min(current + increment, caps[0]));
 }

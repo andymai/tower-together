@@ -48,6 +48,12 @@ export interface SimState {
 // ─── Checkpoint bodies ────────────────────────────────────────────────────────
 
 function checkpointStartOfDay(_s: SimState): void {
+	// Binary: update_periodic_facility_progress_override — every 8th day
+	// (dayCounter % 8 === 4), if tower is below 5 stars, enable the override
+	// seed slot. Cleared at midday (0x640).
+	if (_s.time.dayCounter % 8 === 4 && _s.world.starCount < 5) {
+		_s.world.gateFlags.facilityProgressOverride = 1;
+	}
 	// Activate cathedral guest sims
 	activateEvalSims(_s.world);
 }
@@ -59,7 +65,7 @@ function checkpointRecyclingReset(_s: SimState): void {
 function checkpointFacilityLedgerRebuild(s: SimState): void {
 	checkDailyEvents(s.world, s.ledger, s.time);
 	rebuildFacilityLedger(s.ledger, s.world);
-	rebuildCommercialVenueRuntime(s.world);
+	rebuildCommercialVenueRuntime(s.world, s.time);
 	seedEntertainmentBudgets(s.world);
 }
 
@@ -84,11 +90,13 @@ function checkpointEntertainmentPhase1(_s: SimState): void {
 }
 
 function checkpointMidday(_s: SimState): void {
+	// Binary: clear_facility_progress_override — disable override seed slot.
+	_s.world.gateFlags.facilityProgressOverride = 0;
 	// Spec execution order at checkpoint 0x640:
 	// 0. rebuild_type6_facility_records (binary 1208:xxx): restaurant per-cycle
 	//    seeding — reopens restaurants, refills remainingCapacity to 10, resets
 	//    eligibility threshold, rolls visit counters.
-	rebuildRestaurantFacilityRecords(_s.world);
+	rebuildRestaurantFacilityRecords(_s.world, _s.time);
 	// 1. Spread existing cockroach infestations
 	spreadCockroachInfestation(_s.world, _s.time);
 	// 2. Recompute hotel status + handle vacancy expiry + refresh occupancy
