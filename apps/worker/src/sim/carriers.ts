@@ -197,10 +197,12 @@ function recomputeCarTargetAndDirection(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
-	time: TimeState,
+	time?: TimeState,
 ): void {
 	const expressFlag =
-		carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
+		time !== undefined
+			? (carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0)
+			: car.scheduleFlag;
 	const next = selectNextTarget(car, carrier, carIndex, expressFlag);
 	if (next < carrier.bottomServedFloor || next > carrier.topServedFloor) {
 		resetCarToHome(carrier, car);
@@ -419,27 +421,6 @@ function syncAssignmentStatus(carrier: CarrierRecord): void {
 	}
 }
 
-function pendingTargetsInDirection(
-	carrier: CarrierRecord,
-	car: CarrierCar,
-	directionFlag: number,
-): boolean {
-	const limit = activeSlotLimit(carrier);
-	for (let index = 0; index < limit; index++) {
-		const slot = car.activeRouteSlots[index];
-		if (!slot?.active) continue;
-		const floor = slot.boarded ? slot.destinationFloor : slot.sourceFloor;
-		if (
-			directionFlag === 1
-				? floor >= car.currentFloor
-				: floor <= car.currentFloor
-		) {
-			return true;
-		}
-	}
-	return false;
-}
-
 function findBestAvailableCarForFloor(
 	carrier: CarrierRecord,
 	floor: number,
@@ -594,6 +575,7 @@ function assignCarToFloorRequest(
 	carrier: CarrierRecord,
 	floor: number,
 	directionFlag: number,
+	recomputeTarget = false,
 ): void {
 	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
@@ -605,6 +587,7 @@ function assignCarToFloorRequest(
 	// If a car is already assigned, reuse it for any new unassigned routes.
 	// Only search for the best car when no assignment exists yet.
 	let carIndex: number;
+	let assignedNewFloorRequest = false;
 	const existing = table[slot] ?? 0;
 	if (existing > 0 && existing !== 0x28) {
 		carIndex = existing - 1;
@@ -613,6 +596,7 @@ function assignCarToFloorRequest(
 	} else {
 		carIndex = findBestAvailableCarForFloor(carrier, floor, directionFlag);
 		if (carIndex < 0) return;
+		assignedNewFloorRequest = true;
 	}
 
 	for (const route of carrier.pendingRoutes) {
@@ -623,6 +607,14 @@ function assignCarToFloorRequest(
 		route.assignedCarIndex = carIndex;
 	}
 	syncAssignmentStatus(carrier);
+	if (assignedNewFloorRequest && recomputeTarget) {
+		recomputeCarTargetAndDirection(
+			carrier,
+			carrier.cars[carIndex],
+			carIndex,
+			undefined,
+		);
+	}
 }
 
 function assignPendingFloorRequests(carrier: CarrierRecord): void {
@@ -692,30 +684,8 @@ function processUnitTravelQueue(
 		}
 	}
 
-	let primaryDirection = car.directionFlag;
+	const primaryDirection = car.directionFlag;
 	drainDirection(primaryDirection);
-
-	if (
-		remainingSlots > 0 &&
-		!pendingTargetsInDirection(carrier, car, primaryDirection) &&
-		pendingTargetsInDirection(carrier, car, primaryDirection === 0 ? 1 : 0)
-	) {
-		primaryDirection = primaryDirection === 0 ? 1 : 0;
-		car.directionFlag = primaryDirection;
-		drainDirection(primaryDirection);
-	}
-
-	// Gate alternate-direction drain on expressDirectionFlags:
-	// 0 = normal (both), 1 = express-to-top (up only), 2 = express-to-bottom (down only)
-	const expressDir = carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
-	const allowAlternate =
-		expressDir === 0 ||
-		(expressDir === 1 && primaryDirection === 0) ||
-		(expressDir === 2 && primaryDirection === 1);
-
-	if (remainingSlots > 0 && allowAlternate) {
-		drainDirection(primaryDirection === 0 ? 1 : 0);
-	}
 
 	syncAssignmentStatus(carrier);
 }
@@ -1055,8 +1025,8 @@ function advanceCarrierCarState(
 			!queue.down.isEmpty &&
 			(carrier.secondaryRouteStatusByFloor[departSlot] ?? 0) === 0;
 		advanceCarPositionOneStep(carrier, car, carIndex, time);
-		if (hasUpRequest) assignCarToFloorRequest(carrier, departFloor, 1);
-		if (hasDownRequest) assignCarToFloorRequest(carrier, departFloor, 0);
+		if (hasUpRequest) assignCarToFloorRequest(carrier, departFloor, 1, true);
+		if (hasDownRequest) assignCarToFloorRequest(carrier, departFloor, 0, true);
 		return;
 	}
 

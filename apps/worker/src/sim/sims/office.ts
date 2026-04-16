@@ -234,20 +234,24 @@ export function processOfficeSim(
 			if (time.daypartIndex < 3) return;
 			if (sampleRng(world) % 12 !== 0) return;
 		}
+		const sourceFloor = sim.baseOffset === 0 ? sim.floorAnchor : LOBBY_FLOOR;
+		const destinationFloor =
+			sim.baseOffset === 0 ? LOBBY_FLOOR : sim.floorAnchor;
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
-			LOBBY_FLOOR,
-			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+			sourceFloor,
+			destinationFloor,
+			destinationFloor > sourceFloor ? 1 : 0,
 			time,
 		);
 		if (routeResult === -1) {
 			sim.stateCode = STATE_NIGHT_B;
 			return;
 		}
-		sim.selectedFloor = LOBBY_FLOOR;
-		sim.destinationFloor = sim.floorAnchor;
+		decrementOfficePresenceCounter(facility, time);
+		sim.selectedFloor = sourceFloor;
+		sim.destinationFloor = destinationFloor;
 		if (routeResult === 3) {
 			advanceOfficePresenceCounter(facility);
 			sim.destinationFloor = -1;
@@ -503,6 +507,17 @@ export function handleOfficeSimArrival(
 		arrivalFloor === sim.floorAnchor
 	) {
 		finalizeOfficeFloorArrival(sim, object, STATE_AT_WORK);
+		return;
+	}
+
+	if (
+		sim.stateCode === STATE_COMMUTE_TRANSIT &&
+		sim.baseOffset === 0 &&
+		arrivalFloor === LOBBY_FLOOR
+	) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_AT_WORK;
 		return;
 	}
 
