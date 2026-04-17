@@ -29,6 +29,7 @@ interface BuildSpec {
 		left: number;
 		bottom?: number;
 		top?: number;
+		cars?: number;
 	}>;
 }
 
@@ -182,6 +183,10 @@ function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 					tileType: "elevator",
 				});
 			}
+			const numCars = fac.cars ?? 1;
+			for (let i = 1; i < numCars; i++) {
+				sim.submitCommand({ type: "add_elevator_car", x: fac.left });
+			}
 			continue;
 		}
 		const tileType = FIXTURE_TILE_MAP[fac.type];
@@ -219,6 +224,26 @@ function prepareFromTrace(spec: BuildSpec, trace: TraceEntry[]): TowerSim {
 		snap.world.rngState = computeRngState(1, trace[0].rng_calls);
 	}
 	snap.world.eventState.disableNewsEvents = true;
+	// `add_elevator_car` leaves every car parked at bottomServedFloor. The
+	// Python emulator spaces cars evenly across the span initially but all
+	// cars fall back to the bottom-served floor once their post-arrival dwell
+	// expires. Mirror that by patching currentFloor/targetFloor/prevFloor to
+	// the evenly-spaced home while leaving homeFloor at bottomServedFloor.
+	for (const fac of spec.facilities) {
+		const numCars = fac.cars ?? 1;
+		if (numCars <= 1) continue;
+		const carrier = snap.world.carriers.find((c) => c.column === fac.left);
+		if (!carrier || carrier.cars.length < numCars) continue;
+		const bottom = carrier.bottomServedFloor;
+		const span = carrier.topServedFloor - bottom;
+		for (let c = 1; c < numCars; c++) {
+			const distributed = bottom + Math.floor((span * c) / (numCars - 1));
+			const car = carrier.cars[c];
+			car.currentFloor = distributed;
+			car.targetFloor = distributed;
+			car.prevFloor = distributed;
+		}
+	}
 	return TowerSim.fromSnapshot(snap);
 	// No pre-advance — the test loop drives advancement through the day boundary.
 }
@@ -239,11 +264,13 @@ function traceSimTotal(entry: TraceEntry): number {
 const FIXTURE_NAMES = [
 	"commercial",
 	"condo",
+	"dense_office",
 	"elevator",
 	"hotel",
 	"lobby_only",
 	"mixed",
 	"mixed_elevator",
+	"mixed_multicar",
 	"offices",
 ];
 

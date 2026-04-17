@@ -1,0 +1,53 @@
+{
+	"config": {
+		"max_ticks": 600
+	},
+	"floor_extent": {
+		"0": { "left": 80, "right": 200 },
+		"1": { "left": 80, "right": 200 },
+		"2": { "left": 80, "right": 200 },
+		"3": { "left": 80, "right": 200 },
+		"4": { "left": 80, "right": 200 },
+		"5": { "left": 80, "right": 200 },
+		"6": { "left": 80, "right": 200 }
+	},
+	"facilities": [
+		{ "type": "office", "floor": 1, "left": 110 },
+		{ "type": "office", "floor": 1, "left": 119 },
+		{ "type": "office", "floor": 1, "left": 128 },
+		{ "type": "office", "floor": 1, "left": 137 },
+		{ "type": "office", "floor": 1, "left": 146 },
+		{ "type": "office", "floor": 1, "left": 155 },
+		{ "type": "office", "floor": 2, "left": 110 },
+		{ "type": "office", "floor": 2, "left": 119 },
+		{ "type": "office", "floor": 2, "left": 128 },
+		{ "type": "office", "floor": 2, "left": 137 },
+		{ "type": "office", "floor": 2, "left": 146 },
+		{ "type": "office", "floor": 2, "left": 155 },
+		{ "type": "office", "floor": 3, "left": 110 },
+		{ "type": "office", "floor": 3, "left": 119 },
+		{ "type": "office", "floor": 3, "left": 128 },
+		{ "type": "office", "floor": 3, "left": 137 },
+		{ "type": "office", "floor": 3, "left": 146 },
+		{ "type": "office", "floor": 3, "left": 155 },
+		{ "type": "office", "floor": 4, "left": 110 },
+		{ "type": "office", "floor": 4, "left": 119 },
+		{ "type": "office", "floor": 4, "left": 128 },
+		{ "type": "office", "floor": 4, "left": 137 },
+		{ "type": "office", "floor": 4, "left": 146 },
+		{ "type": "office", "floor": 4, "left": 155 },
+		{ "type": "office", "floor": 5, "left": 110 },
+		{ "type": "office", "floor": 5, "left": 119 },
+		{ "type": "office", "floor": 5, "left": 128 },
+		{ "type": "office", "floor": 5, "left": 137 },
+		{ "type": "office", "floor": 5, "left": 146 },
+		{ "type": "office", "floor": 5, "left": 155 },
+		{ "type": "office", "floor": 6, "left": 110 },
+		{ "type": "office", "floor": 6, "left": 119 },
+		{ "type": "office", "floor": 6, "left": 128 },
+		{ "type": "office", "floor": 6, "left": 137 },
+		{ "type": "office", "floor": 6, "left": 146 },
+		{ "type": "office", "floor": 6, "left": 155 },
+		{ "type": "elevator", "bottom": 0, "top": 6, "left": 100 }
+	]
+}
