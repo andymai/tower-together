@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 80" width="160" height="80">
+  <!-- Back wall - dark navy -->
+  <rect x="0" y="0" width="160" height="76" fill="#3a4858"/>
+
+  <!-- Baseboard -->
+  <rect x="0" y="72" width="160" height="4" fill="#202830"/>
+
+  <!-- Floor - dark tile -->
+  <rect x="0" y="76" width="160" height="4" fill="#405060"/>
+
+  <!-- Ceiling light -->
+  <rect x="70" y="0" width="20" height="3" fill="#888878"/>
+  <rect x="74" y="3" width="12" height="2" fill="#d0d0b0"/>
+
+  <!-- Security shield emblem on wall -->
+  <path d="M 16 10 L 28 10 L 28 22 Q 28 26 22 28 Q 16 26 16 22 Z" fill="#a8b0b8"/>
+  <path d="M 18 12 L 26 12 L 26 22 Q 26 24 22 26 Q 18 24 18 22 Z" fill="#d0d0d0"/>
+  <rect x="21" y="15" width="2" height="8" fill="#4a5868"/>
+  <rect x="19" y="17" width="6" height="2" fill="#4a5868"/>
+
+  <!-- Monitor bank on wall -->
+  <rect x="38" y="10" width="72" height="32" fill="#1a2028" rx="1"/>
+  <!-- Individual monitors -->
+  <rect x="40" y="12" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="41" y="13" width="20" height="11" fill="#4080a0"/>
+  <!-- CCTV view 1 - hallway -->
+  <rect x="42" y="20" width="18" height="4" fill="#305868"/>
+  <circle cx="50" cy="18" r="1.5" fill="#8ac0d0"/>
+
+  <rect x="64" y="12" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="65" y="13" width="20" height="11" fill="#405838"/>
+  <rect x="66" y="20" width="18" height="4" fill="#304828"/>
+  <rect x="72" y="15" width="2" height="6" fill="#80a060"/>
+
+  <rect x="88" y="12" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="89" y="13" width="20" height="11" fill="#60486a"/>
+  <rect x="90" y="20" width="18" height="4" fill="#483050"/>
+
+  <rect x="40" y="27" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="41" y="28" width="20" height="11" fill="#204050"/>
+  <rect x="44" y="32" width="4" height="7" fill="#506878"/>
+  <rect x="52" y="34" width="4" height="5" fill="#506878"/>
+
+  <rect x="64" y="27" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="65" y="28" width="20" height="11" fill="#4a3030"/>
+  <circle cx="75" cy="33" r="2" fill="#d8a050"/>
+
+  <rect x="88" y="27" width="22" height="13" fill="#2a4050" rx="1"/>
+  <rect x="89" y="28" width="20" height="11" fill="#306868"/>
+  <rect x="92" y="34" width="14" height="5" fill="#205858"/>
+
+  <!-- Clock -->
+  <circle cx="140" cy="20" r="10" fill="#d0d0c8"/>
+  <circle cx="140" cy="20" r="8" fill="#f0f0e8"/>
+  <line x1="140" y1="20" x2="140" y2="14" stroke="#202020" stroke-width="1"/>
+  <line x1="140" y1="20" x2="144" y2="22" stroke="#202020" stroke-width="1"/>
+  <circle cx="140" cy="20" r="1" fill="#202020"/>
+
+  <!-- Console desk -->
+  <rect x="34" y="52" width="92" height="6" fill="#4a3828" rx="1"/>
+  <rect x="34" y="58" width="92" height="14" fill="#3a2a1c"/>
+  <rect x="36" y="60" width="88" height="10" fill="#4a3828" rx="1"/>
+
+  <!-- Keyboard on desk -->
+  <rect x="50" y="48" width="30" height="4" fill="#2a2420" rx="1"/>
+  <rect x="52" y="49" width="26" height="2" fill="#484038"/>
+  <!-- Desk monitor (smaller, angled forward) -->
+  <rect x="88" y="42" width="18" height="10" fill="#2a2420" rx="1"/>
+  <rect x="89" y="43" width="16" height="7" fill="#4080a0"/>
+  <rect x="96" y="52" width="4" height="2" fill="#2a2420"/>
+
+  <!-- Radio / walkie on desk -->
+  <rect x="36" y="44" width="6" height="10" fill="#303030" rx="1"/>
+  <rect x="37" y="45" width="4" height="3" fill="#d04040"/>
+  <rect x="38" y="40" width="2" height="5" fill="#505050"/>
+
+  <!-- Coffee mug -->
+  <rect x="112" y="46" width="6" height="6" fill="#4a2020" rx="1"/>
+  <rect x="118" y="47" width="2" height="4" fill="#4a2020"/>
+
+  <!-- Security guard chair -->
+  <rect x="72" y="58" width="16" height="10" fill="#2a2a2a" rx="2"/>
+  <rect x="74" y="68" width="12" height="4" fill="#2a2a2a" rx="1"/>
+  <rect x="79" y="70" width="2" height="4" fill="#202020"/>
+  <!-- Chair back -->
+  <rect x="72" y="48" width="16" height="12" fill="#2a2a2a" rx="2"/>
+
+  <!-- Filing cabinet left -->
+  <rect x="4" y="40" width="14" height="32" fill="#586878" rx="1"/>
+  <rect x="6" y="42" width="10" height="8" fill="#4a5868"/>
+  <rect x="6" y="52" width="10" height="8" fill="#4a5868"/>
+  <rect x="6" y="62" width="10" height="8" fill="#4a5868"/>
+  <rect x="9" y="45" width="4" height="1" fill="#808878"/>
+  <rect x="9" y="55" width="4" height="1" fill="#808878"/>
+  <rect x="9" y="65" width="4" height="1" fill="#808878"/>
+
+  <!-- Security guard standing (right) -->
+  <!-- Head -->
+  <circle cx="138" cy="50" r="3" fill="#d8b090"/>
+  <!-- Hat -->
+  <rect x="135" y="45" width="6" height="3" fill="#1a2028"/>
+  <rect x="134" y="47" width="8" height="1" fill="#202830"/>
+  <!-- Body/uniform -->
+  <rect x="135" y="53" width="6" height="12" fill="#2a3848" rx="1"/>
+  <!-- Badge -->
+  <rect x="137" y="55" width="2" height="2" fill="#d8c040"/>
+  <!-- Legs -->
+  <rect x="135" y="65" width="2" height="7" fill="#202830"/>
+  <rect x="139" y="65" width="2" height="7" fill="#202830"/>
+  <!-- Arms -->
+  <rect x="132" y="54" width="3" height="8" fill="#2a3848"/>
+  <rect x="141" y="54" width="3" height="8" fill="#2a3848"/>
+</svg>

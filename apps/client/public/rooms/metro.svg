@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Back wall - subway tile (pale cream) -->
+  <rect x="0" y="0" width="80" height="50" fill="#e0d8c8"/>
+
+  <!-- Subway tile grid -->
+  <g stroke="#c8c0b0" stroke-width="0.5" fill="none">
+    <line x1="0" y1="10" x2="80" y2="10"/>
+    <line x1="0" y1="20" x2="80" y2="20"/>
+    <line x1="0" y1="30" x2="80" y2="30"/>
+    <line x1="0" y1="40" x2="80" y2="40"/>
+    <line x1="10" y1="0" x2="10" y2="50"/>
+    <line x1="20" y1="10" x2="20" y2="40"/>
+    <line x1="30" y1="0" x2="30" y2="50"/>
+    <line x1="40" y1="10" x2="40" y2="40"/>
+    <line x1="50" y1="0" x2="50" y2="50"/>
+    <line x1="60" y1="10" x2="60" y2="40"/>
+    <line x1="70" y1="0" x2="70" y2="50"/>
+  </g>
+
+  <!-- Platform edge (dark strip) -->
+  <rect x="0" y="50" width="80" height="2" fill="#404048"/>
+
+  <!-- Platform floor -->
+  <rect x="0" y="52" width="80" height="20" fill="#787880"/>
+  <!-- Safety stripe at edge -->
+  <rect x="0" y="52" width="80" height="2" fill="#d8c040"/>
+
+  <!-- Tracks area -->
+  <rect x="0" y="72" width="80" height="4" fill="#303038"/>
+  <rect x="0" y="76" width="80" height="4" fill="#1a1a20"/>
+  <!-- Rails -->
+  <rect x="0" y="74" width="80" height="1" fill="#a8a8a8"/>
+  <rect x="0" y="78" width="80" height="1" fill="#a8a8a8"/>
+
+  <!-- Metro sign -->
+  <circle cx="14" cy="12" r="6" fill="#c04040"/>
+  <rect x="8" y="10" width="12" height="4" fill="#e0e0e0"/>
+  <rect x="10" y="11" width="8" height="2" fill="#404040"/>
+
+  <!-- Station name banner -->
+  <rect x="24" y="8" width="46" height="10" fill="#2a3848" rx="1"/>
+  <rect x="26" y="10" width="42" height="6" fill="#4060a0"/>
+  <rect x="30" y="12" width="4" height="2" fill="#f0f0e8"/>
+  <rect x="36" y="12" width="6" height="2" fill="#f0f0e8"/>
+  <rect x="44" y="12" width="4" height="2" fill="#f0f0e8"/>
+  <rect x="50" y="12" width="6" height="2" fill="#f0f0e8"/>
+  <rect x="58" y="12" width="4" height="2" fill="#f0f0e8"/>
+  <rect x="64" y="12" width="4" height="2" fill="#f0f0e8"/>
+
+  <!-- Departure board -->
+  <rect x="6" y="24" width="22" height="14" fill="#1a1a1a" rx="1"/>
+  <rect x="7" y="25" width="20" height="4" fill="#d04040"/>
+  <rect x="8" y="30" width="12" height="1.5" fill="#e0b040"/>
+  <rect x="21" y="30" width="5" height="1.5" fill="#e0b040"/>
+  <rect x="8" y="33" width="14" height="1.5" fill="#e0b040"/>
+  <rect x="8" y="36" width="10" height="1.5" fill="#e0b040"/>
+
+  <!-- Ticket machine -->
+  <rect x="60" y="26" width="14" height="20" fill="#506878" rx="1"/>
+  <rect x="62" y="28" width="10" height="6" fill="#202828"/>
+  <rect x="63" y="29" width="8" height="4" fill="#60a080"/>
+  <rect x="64" y="36" width="6" height="3" fill="#202020"/>
+  <rect x="62" y="41" width="10" height="3" fill="#808880"/>
+
+  <!-- Train arriving (right edge, partial) -->
+  <rect x="56" y="54" width="24" height="20" fill="#a84040" rx="1"/>
+  <rect x="56" y="54" width="24" height="3" fill="#802828"/>
+  <!-- Train window -->
+  <rect x="60" y="58" width="8" height="8" fill="#4080a0" rx="1"/>
+  <rect x="70" y="58" width="8" height="8" fill="#4080a0" rx="1"/>
+  <!-- Door -->
+  <rect x="76" y="58" width="2" height="14" fill="#c8c8c0"/>
+  <!-- Train front detail -->
+  <rect x="56" y="68" width="24" height="2" fill="#802828"/>
+  <!-- Light beam from front -->
+  <rect x="56" y="62" width="2" height="3" fill="#f0e098"/>
+
+  <!-- Passenger waiting -->
+  <circle cx="38" cy="58" r="2.5" fill="#e0b898"/>
+  <rect x="36" y="60" width="5" height="8" fill="#4060a0"/>
+  <rect x="36" y="68" width="2" height="4" fill="#202020"/>
+  <rect x="39" y="68" width="2" height="4" fill="#202020"/>
+
+  <!-- Passenger 2 -->
+  <circle cx="46" cy="58" r="2.5" fill="#c89878"/>
+  <rect x="44" y="60" width="5" height="8" fill="#a04040"/>
+  <rect x="44" y="68" width="2" height="4" fill="#303020"/>
+  <rect x="47" y="68" width="2" height="4" fill="#303020"/>
+</svg>

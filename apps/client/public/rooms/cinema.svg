@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 80" width="480" height="80">
+  <!-- Back wall - deep theater red -->
+  <rect x="0" y="0" width="480" height="76" fill="#481018"/>
+
+  <!-- Baseboard -->
+  <rect x="0" y="72" width="480" height="4" fill="#280808"/>
+
+  <!-- Floor - dark aisle -->
+  <rect x="0" y="76" width="480" height="4" fill="#3a1818"/>
+
+  <!-- Screen (large center, shows frame) -->
+  <rect x="100" y="6" width="280" height="44" fill="#1a1818" rx="1"/>
+  <rect x="104" y="10" width="272" height="36" fill="#2a2828"/>
+  <!-- Movie scene on screen -->
+  <!-- Sky -->
+  <rect x="104" y="10" width="272" height="18" fill="#3a4868"/>
+  <!-- Horizon / ground -->
+  <rect x="104" y="28" width="272" height="18" fill="#58382a"/>
+  <!-- Silhouette mountains -->
+  <path d="M 104 28 L 140 16 L 170 24 L 210 14 L 240 24 L 280 18 L 320 26 L 360 16 L 376 22 L 376 28 Z" fill="#20283a"/>
+  <!-- Figure silhouette -->
+  <rect x="230" y="22" width="4" height="12" fill="#10141c"/>
+  <circle cx="232" cy="21" r="2" fill="#10141c"/>
+  <!-- Title text bar -->
+  <rect x="180" y="38" width="120" height="4" fill="#d8c048"/>
+  <rect x="186" y="39" width="40" height="2" fill="#2a1a18"/>
+  <rect x="230" y="39" width="32" height="2" fill="#2a1a18"/>
+  <rect x="266" y="39" width="28" height="2" fill="#2a1a18"/>
+
+  <!-- Red velvet curtains on sides of screen -->
+  <path d="M 82 4 L 100 4 L 100 50 Q 92 46 82 50 Z" fill="#8a1020"/>
+  <rect x="82" y="4" width="2" height="46" fill="#a82028"/>
+  <rect x="86" y="4" width="2" height="46" fill="#6a0c18"/>
+  <rect x="90" y="4" width="2" height="46" fill="#a82028"/>
+  <rect x="94" y="4" width="2" height="46" fill="#6a0c18"/>
+
+  <path d="M 380 4 L 398 4 L 398 50 Q 388 46 380 50 Z" fill="#8a1020"/>
+  <rect x="382" y="4" width="2" height="46" fill="#a82028"/>
+  <rect x="386" y="4" width="2" height="46" fill="#6a0c18"/>
+  <rect x="390" y="4" width="2" height="46" fill="#a82028"/>
+  <rect x="394" y="4" width="2" height="46" fill="#6a0c18"/>
+
+  <!-- Curtain rod/valance across top -->
+  <rect x="80" y="2" width="320" height="4" fill="#6a0c18"/>
+  <rect x="80" y="0" width="320" height="2" fill="#8a1020"/>
+
+  <!-- Sconce wall lights -->
+  <rect x="40" y="20" width="4" height="2" fill="#a89048"/>
+  <path d="M 36 22 L 48 22 L 46 30 L 38 30 Z" fill="#e0c868"/>
+  <circle cx="42" cy="26" r="2" fill="#ffe098"/>
+
+  <rect x="436" y="20" width="4" height="2" fill="#a89048"/>
+  <path d="M 432 22 L 444 22 L 442 30 L 434 30 Z" fill="#e0c868"/>
+  <circle cx="438" cy="26" r="2" fill="#ffe098"/>
+
+  <!-- Audience rows of seats (tiered) -->
+  <!-- Row 1 back row (behind) -->
+  <g>
+    <rect x="20" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="34" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="48" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="62" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <!-- Heads -->
+    <circle cx="26" cy="52" r="3" fill="#a87858"/>
+    <circle cx="40" cy="52" r="3" fill="#d8b090"/>
+    <circle cx="54" cy="52" r="3" fill="#8a6848"/>
+    <circle cx="68" cy="52" r="3" fill="#c89878"/>
+  </g>
+
+  <g>
+    <rect x="82" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="96" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+  </g>
+
+  <g>
+    <rect x="120" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="134" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="148" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="162" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="176" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <!-- Heads in front row -->
+    <circle cx="126" cy="58" r="3" fill="#c89878"/>
+    <circle cx="140" cy="58" r="3" fill="#e0b898"/>
+    <circle cx="154" cy="58" r="3" fill="#8a6848"/>
+    <circle cx="168" cy="58" r="3" fill="#d8b090"/>
+    <circle cx="182" cy="58" r="3" fill="#a87858"/>
+  </g>
+
+  <g>
+    <rect x="200" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="214" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="228" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="242" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="256" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <circle cx="206" cy="58" r="3" fill="#c89878"/>
+    <circle cx="220" cy="58" r="3" fill="#8a6848"/>
+    <circle cx="234" cy="58" r="3" fill="#e0b898"/>
+    <circle cx="248" cy="58" r="3" fill="#d8b090"/>
+    <circle cx="262" cy="58" r="3" fill="#a87858"/>
+  </g>
+
+  <g>
+    <rect x="280" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="294" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="308" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="322" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="336" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <circle cx="286" cy="58" r="3" fill="#8a6848"/>
+    <circle cx="300" cy="58" r="3" fill="#c89878"/>
+    <circle cx="314" cy="58" r="3" fill="#d8b090"/>
+    <circle cx="328" cy="58" r="3" fill="#e0b898"/>
+    <circle cx="342" cy="58" r="3" fill="#a87858"/>
+  </g>
+
+  <g>
+    <rect x="362" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+    <rect x="376" y="58" width="12" height="14" fill="#8a2030" rx="2"/>
+  </g>
+
+  <g>
+    <rect x="410" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="424" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="438" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <rect x="452" y="52" width="12" height="10" fill="#6a1828" rx="2"/>
+    <circle cx="416" cy="52" r="3" fill="#d8b090"/>
+    <circle cx="430" cy="52" r="3" fill="#8a6848"/>
+    <circle cx="444" cy="52" r="3" fill="#c89878"/>
+    <circle cx="458" cy="52" r="3" fill="#e0b898"/>
+  </g>
+
+  <!-- Projector beam from back -->
+  <path d="M 240 0 L 180 50 L 300 50 Z" fill="#f8f0b8" opacity="0.08"/>
+</svg>

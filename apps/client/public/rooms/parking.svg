@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Back wall - concrete garage -->
+  <rect x="0" y="0" width="80" height="72" fill="#7a7a76"/>
+
+  <!-- Concrete panel seams -->
+  <rect x="0" y="32" width="80" height="1" fill="#585854"/>
+
+  <!-- Baseboard -->
+  <rect x="0" y="72" width="80" height="4" fill="#484844"/>
+
+  <!-- Floor - asphalt -->
+  <rect x="0" y="76" width="80" height="4" fill="#484844"/>
+  <!-- Parking space division stripe -->
+  <rect x="38" y="76" width="2" height="4" fill="#d8c040"/>
+
+  <!-- Ceiling fluorescent -->
+  <rect x="20" y="0" width="40" height="3" fill="#c8c8b8"/>
+  <rect x="24" y="3" width="32" height="2" fill="#a8a8a0"/>
+
+  <!-- Support pillar -->
+  <rect x="38" y="6" width="4" height="60" fill="#8a8a86"/>
+  <rect x="38" y="6" width="4" height="2" fill="#6a6a66"/>
+  <rect x="38" y="64" width="4" height="2" fill="#6a6a66"/>
+
+  <!-- "P" sign on wall -->
+  <rect x="8" y="8" width="14" height="14" fill="#2a5090" rx="1"/>
+  <rect x="12" y="12" width="4" height="6" fill="#f0f0e8"/>
+  <rect x="12" y="12" width="6" height="2" fill="#f0f0e8"/>
+  <rect x="16" y="14" width="2" height="2" fill="#f0f0e8"/>
+
+  <!-- Wall arrow sign -->
+  <rect x="58" y="10" width="16" height="8" fill="#d8c040" rx="1"/>
+  <path d="M 62 14 L 68 14 L 68 12 L 72 15 L 68 18 L 68 16 L 62 16 Z" fill="#202020"/>
+
+  <!-- Parking space numbers painted on wall -->
+  <rect x="14" y="38" width="4" height="8" fill="#e0e0d0"/>
+  <rect x="14" y="38" width="4" height="2" fill="#e0e0d0"/>
+  <rect x="14" y="42" width="4" height="1" fill="#e0e0d0"/>
+  <rect x="14" y="46" width="4" height="1" fill="#e0e0d0"/>
+
+  <rect x="60" y="38" width="2" height="8" fill="#e0e0d0"/>
+  <rect x="64" y="38" width="4" height="8" fill="#e0e0d0"/>
+  <rect x="64" y="38" width="4" height="2" fill="#e0e0d0"/>
+  <rect x="64" y="42" width="4" height="1" fill="#e0e0d0"/>
+  <rect x="64" y="46" width="4" height="1" fill="#e0e0d0"/>
+
+  <!-- Car 1 (left parking space) -->
+  <!-- Car body -->
+  <rect x="4" y="56" width="32" height="14" fill="#a03838" rx="3"/>
+  <!-- Car top / cabin -->
+  <rect x="10" y="50" width="20" height="10" fill="#882828" rx="3"/>
+  <!-- Windshield -->
+  <rect x="12" y="52" width="6" height="6" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <rect x="22" y="52" width="6" height="6" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <!-- Headlight -->
+  <rect x="4" y="60" width="3" height="3" fill="#f0e090" rx="1"/>
+  <!-- Taillight -->
+  <rect x="33" y="60" width="3" height="3" fill="#d04040" rx="1"/>
+  <!-- Door line -->
+  <line x1="20" y1="60" x2="20" y2="68" stroke="#6a1818" stroke-width="0.5"/>
+  <!-- Wheels -->
+  <circle cx="10" cy="70" r="3" fill="#202020"/>
+  <circle cx="10" cy="70" r="1.5" fill="#606060"/>
+  <circle cx="30" cy="70" r="3" fill="#202020"/>
+  <circle cx="30" cy="70" r="1.5" fill="#606060"/>
+
+  <!-- Car 2 (right parking space) -->
+  <rect x="44" y="56" width="32" height="14" fill="#2a5090" rx="3"/>
+  <rect x="50" y="50" width="20" height="10" fill="#20407a" rx="3"/>
+  <rect x="52" y="52" width="6" height="6" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <rect x="62" y="52" width="6" height="6" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <rect x="44" y="60" width="3" height="3" fill="#f0e090" rx="1"/>
+  <rect x="73" y="60" width="3" height="3" fill="#d04040" rx="1"/>
+  <line x1="60" y1="60" x2="60" y2="68" stroke="#183058" stroke-width="0.5"/>
+  <circle cx="50" cy="70" r="3" fill="#202020"/>
+  <circle cx="50" cy="70" r="1.5" fill="#606060"/>
+  <circle cx="70" cy="70" r="3" fill="#202020"/>
+  <circle cx="70" cy="70" r="1.5" fill="#606060"/>
+</svg>
