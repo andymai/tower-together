@@ -25,3 +25,4 @@ For the main occupiable / rentable families, the target level of detail is:
 - `EVALUATION.md`: cathedral guests and Tower advancement
 - `HOTEL.md`: hotel room families and hotel-guest venue visits
 - `HOUSEKEEPING.md`: housekeeping helper family
+- `MEDICAL.md`: family `13`, medical facility that office workers demand at star `>= 3`
