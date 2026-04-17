@@ -270,6 +270,50 @@ The placed-object record fields involved:
 | +0x16 | 1 | eval level | 1 (hotel/office/condo/retail) or 4 (others) | unchanged |
 | +0x17 | 1 | rebuild countdown | 12 (0x0C) | 0 |
 
+## Family Codes
+
+Authoritative family-code → display-name mapping, decoded from SIMTOWER.EXE
+resource STRL #710 (custom type `0x7f06`). The resource begins with a 2-byte
+header `00 30`; from offset 2 it is a flat concatenation of pascal-prefixed
+strings indexed by family code (length-0 entries are placeholders for unused
+slots).
+
+| Family | Hex | Name | Notes |
+|---:|---|---|---|
+| 0 | 0x00 | Floor | |
+| 1 | 0x01 | Elevator | |
+| 3 | 0x03 | Single Room | hotel |
+| 4 | 0x04 | Twin Room | hotel |
+| 5 | 0x05 | Hotel Suite | hotel |
+| 6 | 0x06 | Restaurant | commercial, noise source |
+| 7 | 0x07 | Office | |
+| 9 | 0x09 | Condo | |
+| 10 | 0x0A | Retail Shop | commercial, noise source |
+| 11 | 0x0B | Parking Space | |
+| 12 | 0x0C | Fast Food | commercial, noise source |
+| 13 | 0x0D | Medical Center | |
+| 14 | 0x0E | Security | |
+| 15 | 0x0F | Housekeeping | |
+| 17 | 0x11 | SECOM | |
+| 18 | 0x12 | Movie Theater | entertainment, noise source |
+| 20 | 0x14 | Recycling Center | |
+| 22 | 0x16 | Stairs | |
+| 24 | 0x18 | Lobby | |
+| 27 | 0x1B | Escalator | |
+| 29 | 0x1D | Party Hall | entertainment, noise source |
+| 31 | 0x1F | Metro Station | |
+| 34 | 0x22 | Movie Theater (stacked variant) | entertainment |
+| 36 | 0x24 | Cathedral | |
+| 41 | 0x29 | structures | catch-all label |
+| 43 | 0x2B | Service Elevator | |
+| 44 | 0x2C | Parking Ramp | |
+| 47 | 0x2F | Burned Area | |
+
+YEN resources (custom type `0x7f0b`) are indexed by these same family codes:
+
+- **YEN #1001** — payout table: 16-byte rows of 4 × u32 big-endian per family.
+- **YEN #1002** — expense table: flat u32 big-endian array indexed by family code.
+
 ## Family Index
 
 - `facility/HOTEL.md`
