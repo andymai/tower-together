@@ -142,15 +142,17 @@ function clearCarrierSlotsForRemovedSims(
 
 // Binary place_object_on_floor maintains a 10-entry FIFO of pending sim-slot
 // reservations. Each placement (a) first-fit allocates a contiguous block of
-// 6 sim-record slots, (b) writes placeholder records tagged with the facility's
-// (floor, facilitySlot), (c) enqueues the block. When the queue is about to
-// exceed 10 entries, the oldest is finalized: office placeholders promote to
-// live sims; medical placeholders are zeroed, freeing their slots for a later
-// placement's first-fit to reclaim. This is what causes ~one office per
-// medical to end up with sim indices earlier than its nominal placement order.
-// See medical-allocation.md for the empirical derivation.
+// sim-record slots sized to its population (6 for medical, which reserves
+// slots but fills none), (b) writes placeholder records tagged with the
+// facility's (floor, facilitySlot), (c) enqueues the block. When the queue
+// is about to exceed 10 entries, the oldest is finalized: occupant placeholders
+// promote to live sims in place; medical placeholders are zeroed, freeing
+// their slots for a later placement's first-fit to reclaim. This is what
+// causes ~one office per medical to end up with sim indices earlier than its
+// nominal placement order. See medical-allocation.md for the empirical
+// derivation.
 const PLACEMENT_QUEUE_SIZE = 10;
-const PLACEMENT_SLOT_WIDTH = 6;
+const MEDICAL_SLOT_WIDTH = 6;
 
 interface QueueEntry {
 	slotIndices: number[];
@@ -211,9 +213,10 @@ export function rebuildRuntimeSims(world: WorldState): void {
 		const facilitySlot = slotByFloor.get(floorAnchor) ?? 0;
 		slotByFloor.set(floorAnchor, facilitySlot + 1);
 
-		const start = firstFitSlot(occupied, PLACEMENT_SLOT_WIDTH);
+		const slotWidth = isMedical ? MEDICAL_SLOT_WIDTH : population;
+		const start = firstFitSlot(occupied, slotWidth);
 		const slotIndices: number[] = [];
-		for (let j = 0; j < PLACEMENT_SLOT_WIDTH; j++) {
+		for (let j = 0; j < slotWidth; j++) {
 			const idx = start + j;
 			while (slots.length <= idx) {
 				slots.push(null);
@@ -221,7 +224,7 @@ export function rebuildRuntimeSims(world: WorldState): void {
 			}
 			occupied[idx] = true;
 			slotIndices.push(idx);
-			if (isMedical || j >= population) {
+			if (isMedical) {
 				slots[idx] = null;
 				continue;
 			}
