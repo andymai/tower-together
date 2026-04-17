@@ -209,7 +209,15 @@ export function recomputeObjectOperationalStatus(
 			refreshOccupiedFlagAndTripCounters(world, sim, object);
 		}
 	} else if (object.occupiableFlag === 0 && object.evalLevel > 0) {
-		object.occupiableFlag = 1;
+		// Binary recompute_object_operational_status: hotels with unitStatus > 0x27
+		// (dormant/checkout bands) do NOT re-acquire occupiableFlag here — they
+		// stay at 0 until their unitStatus drops below 0x28.
+		if (
+			!HOTEL_FAMILIES.has(object.objectTypeCode) ||
+			object.unitStatus <= 0x27
+		) {
+			object.occupiableFlag = 1;
+		}
 	} else if (object.objectTypeCode === FAMILY_CONDO && object.evalLevel === 0) {
 		refreshOccupiedFlagAndTripCounters(world, sim, object);
 	}

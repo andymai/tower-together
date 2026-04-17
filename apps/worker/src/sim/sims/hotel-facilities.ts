@@ -132,6 +132,10 @@ export function updateHotelOperationalAndOccupancy(
 		const object = findObjectForSim(world, sim);
 		if (!object || !HOTEL_FAMILIES.has(object.objectTypeCode)) continue;
 		if (sim.baseOffset !== 0) continue;
+		// Binary update_hotel_operational_and_pairings pass 2: rooms with
+		// unitStatus >= 0x28 (dormant / post-checkout) keep their current
+		// occupiableFlag. Fresh rooms run through the donor/flag update path.
+		if (object.unitStatus >= 0x28) continue;
 		if (object.evalLevel > 0 && object.evalLevel !== 0xff) {
 			object.occupiableFlag = 1;
 			continue;
