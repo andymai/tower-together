@@ -12,6 +12,7 @@ import {
 	resolveSimRouteBetweenFloors,
 } from "./index";
 import {
+	COMMERCIAL_VENUE_DWELL_TICKS,
 	CONDO_SELECTOR_FAST_FOOD,
 	CONDO_SELECTOR_RESTAURANT,
 	CONDO_SELECTOR_RETAIL,
@@ -213,6 +214,16 @@ export function processCondoSim(
 		case STATE_VENUE_TRIP: {
 			// refresh_0x22: daypart > 2 → dispatch.
 			if (time.daypartIndex <= 2) return;
+			// Binary release_commercial_venue_slot (11b0:0fae) gates the exit on
+			// `dayTick - queueTick >= service_duration` for real venues. Fake-lunch
+			// (venueReturnState=CHECKOUT_QUEUE, no reserved slot) releases
+			// immediately. Until the dwell elapses, the dispatch is a no-op.
+			if (
+				sim.venueReturnState !== STATE_CHECKOUT_QUEUE &&
+				time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
+			) {
+				return;
+			}
 			dispatchCondoVenueTrip(world, time, sim);
 			return;
 		}
@@ -399,10 +410,15 @@ export function handleCondoSimArrival(
 	if (sim.stateCode === STATE_ACTIVE_TRANSIT && arrivalFloor !== LOBBY_FLOOR) {
 		// Condo arrived at a real commercial venue: binary 1228:4fab writes
 		// state=0x22 (VENUE_TRIP) with queueTick latched for the dwell gate.
+		// Clear venueReturnState so the 0x22 handler treats this as real-venue
+		// (binary release_commercial_venue_slot gates on service_duration when
+		// facilitySlot >= 0; stale CHECKOUT_QUEUE marker from a prior fake-lunch
+		// must not short-circuit the dwell).
 		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.queueTick = time.dayTick;
+		sim.venueReturnState = 0;
 		return;
 	}
 	if (
