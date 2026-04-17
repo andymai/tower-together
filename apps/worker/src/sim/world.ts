@@ -253,6 +253,9 @@ export interface GateFlags {
 	officePlaced: number;
 	/** Updated by office-service evaluation every 9th day. */
 	officeServiceOk: number;
+	/** Daily "office medical service ok" flag; latched at day-start (star > 2),
+	 * cleared on any failed medical trip, gates star 3→4 and 4→5 advancement. */
+	officeServiceOkMedical: number;
 	/** Set by update_recycling_center_state. */
 	recyclingAdequate: number;
 	/** Set by the facility rebuild pipeline once enough routes exist. */
@@ -277,6 +280,7 @@ export function createGateFlags(): GateFlags {
 		metroPlaced: 0,
 		officePlaced: 0,
 		officeServiceOk: 0,
+		officeServiceOkMedical: 0,
 		recyclingAdequate: 0,
 		routesViable: 0,
 		vipSuiteFloor: 0xffff, // −1: no VIP suite
@@ -383,10 +387,50 @@ export interface EntertainmentLinkRecord {
 	activeRuntimeCount: number;
 }
 
+export interface MedicalCenterRecord {
+	kind: "medical_center";
+	/** 0xff = invalid / demolished. */
+	ownerSubtypeIndex: number;
+	/** Count of office-worker sims currently queued at this center. */
+	pendingVisitorsCount: number;
+}
+
 export type SidecarRecord =
 	| CommercialVenueRecord
 	| ServiceRequestEntry
-	| EntertainmentLinkRecord;
+	| EntertainmentLinkRecord
+	| MedicalCenterRecord;
+
+/**
+ * Global medical service-request slot. Binary allocates 10 fixed slots of
+ * (source_floor, subtype_index, retry_counter, _pad); first-fit scan on
+ * allocation, retry counter overflows at 0x28 (40) forcing the visit to
+ * resolve.
+ */
+export interface MedicalServiceSlot {
+	active: boolean;
+	/** Sim key (simKey()) of the queued office worker. */
+	simId: string;
+	/** Floor the worker is queued from. */
+	sourceFloor: number;
+	/** Sidecar index of the target medical center. */
+	targetSidecarIndex: number;
+	/** Per-tick retry counter; hits 40 → forced serve. */
+	retryCounter: number;
+}
+
+export const MAX_MEDICAL_SERVICE_SLOTS = 10;
+export const MEDICAL_RETRY_OVERFLOW = 0x28;
+
+export function createMedicalServiceSlots(): MedicalServiceSlot[] {
+	return Array.from({ length: MAX_MEDICAL_SERVICE_SLOTS }, () => ({
+		active: false,
+		simId: "",
+		sourceFloor: -1,
+		targetSidecarIndex: -1,
+		retryCounter: 0,
+	}));
+}
 
 // ─── Event state ─────────────────────────────────────────────────────────────
 
@@ -495,6 +539,8 @@ export interface WorldState {
 	transferGroupCache: number[];
 	/** Sidecar indices of uncovered parking spaces feeding the demand log. */
 	parkingDemandLog: number[];
+	/** Global medical service-request slots (10 fixed slots, first-fit). */
+	medicalServiceSlots: MedicalServiceSlot[];
 	/** LCG state for general-purpose simulation randomness. */
 	rngState: number;
 	/** Cumulative count of sampleRng calls (for trace alignment). */

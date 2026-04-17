@@ -13,6 +13,7 @@ import { createNewGameTimeState, type TimeState } from "./time";
 import {
 	createEventState,
 	createGateFlags,
+	createMedicalServiceSlots,
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	MAX_SPECIAL_LINK_RECORDS,
@@ -84,6 +85,7 @@ export function createInitialSnapshot(
 			transferGroupEntries: createEmptyTransferGroupEntries(),
 			transferGroupCache: new Array(GRID_HEIGHT).fill(0),
 			parkingDemandLog: [],
+			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
 			rngState: 1,
 			rngCallCount: 0,
@@ -172,6 +174,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			transferGroupEntries: [],
 			transferGroupCache: [],
 			parkingDemandLog: [],
+			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
 			rngState: 1,
 			rngCallCount: 0,
@@ -306,6 +309,13 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.ledger.expenseLedger ??= new Array(256).fill(0);
 	snapshot.world.gateFlags.family345SaleCount ??= 0;
 	snapshot.world.gateFlags.newspaperTrigger ??= 0;
+	snapshot.world.gateFlags.officeServiceOkMedical ??= 0;
+	if (
+		!Array.isArray(snapshot.world.medicalServiceSlots) ||
+		snapshot.world.medicalServiceSlots.length === 0
+	) {
+		snapshot.world.medicalServiceSlots = createMedicalServiceSlots();
+	}
 
 	for (const sidecar of snapshot.world.sidecars) {
 		if (sidecar.kind === "commercial_venue") {
@@ -316,6 +326,10 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			sidecar.phaseASeed ??= 0;
 			sidecar.phaseBSeed ??= 0;
 			sidecar.overrideSeed ??= 0;
+			continue;
+		}
+		if (sidecar.kind === "medical_center") {
+			sidecar.pendingVisitorsCount ??= 0;
 			continue;
 		}
 		if (sidecar.kind !== "entertainment_link") continue;
@@ -507,6 +521,9 @@ export function serializeSimState(
 			) as WorldState["transferGroupEntries"],
 			transferGroupCache: [...world.transferGroupCache],
 			parkingDemandLog: [...world.parkingDemandLog],
+			medicalServiceSlots: JSON.parse(
+				JSON.stringify(world.medicalServiceSlots),
+			) as WorldState["medicalServiceSlots"],
 			starCount: world.starCount,
 			rngState: world.rngState,
 			rngCallCount: world.rngCallCount,

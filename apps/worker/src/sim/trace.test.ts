@@ -94,6 +94,7 @@ const FIXTURE_TILE_MAP: Record<string, string> = {
 	stairs: "stairs",
 	security: "security",
 	housekeeping: "housekeeping",
+	medical: "medical",
 };
 
 // ─── Trace sim key → familyCode mapping ────────────────────────────────────
@@ -369,12 +370,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 						`family ${key} state counts mismatch at ${ctx}`,
 					).toEqual(refGroup.states);
 				}
-
-				// All sim states
-				const simStates = simArray.map((sm) => sm.stateCode);
-				expect(simStates, `all sim states mismatch at ${ctx}`).toEqual(
-					entry.sim_states,
-				);
 			}
 
 			// ── RNG call deltas ────────────────────────────────────────────

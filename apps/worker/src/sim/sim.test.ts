@@ -61,6 +61,14 @@ import {
 	resolveSimRouteBetweenFloors,
 } from "./sims";
 import {
+	invalidateMedicalSlotsForSidecar,
+	MEDICAL_NOTIFICATION_MESSAGE,
+	processMedicalSim,
+	STATE_MEDICAL_DWELL,
+	STATE_MEDICAL_TRIP_TRANSIT,
+	tryStartMedicalTrip,
+} from "./sims/medical";
+import {
 	advanceOneTick,
 	createNewGameTimeState,
 	createTimeState,
@@ -72,10 +80,15 @@ import {
 import {
 	createEventState,
 	createGateFlags,
+	createMedicalServiceSlots,
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	GROUND_Y,
 	isValidLobbyY,
+	MAX_MEDICAL_SERVICE_SLOTS,
+	MEDICAL_RETRY_OVERFLOW,
+	type MedicalCenterRecord,
+	type SimRecord,
 	sampleRng,
 	UNDERGROUND_FLOORS,
 	type WorldState,
@@ -109,6 +122,7 @@ function makeWorld(_opts?: { cash?: number }): WorldState {
 		rngCallCount: 0,
 		eventState: createEventState(),
 		parkingDemandLog: [],
+		medicalServiceSlots: createMedicalServiceSlots(),
 		pendingNotifications: [],
 		pendingPrompts: [],
 	};
@@ -3139,5 +3153,268 @@ describe("Phase 4 runtime sims", () => {
 		expect(hotel.unitStatus).toBe(0x30);
 		expect(ledger.cashBalance).toBeGreaterThan(startCash);
 		expect(world.gateFlags.family345SaleCount).toBe(1);
+	});
+});
+
+// ─── Medical Center (family 0x0d) ────────────────────────────────────────────
+
+describe("medical center", () => {
+	/**
+	 * Place a medical-center sidecar + PlacedObjectRecord at the given floor
+	 * and return the sidecar index.
+	 */
+	function placeMedicalCenter(world: WorldState, floor: number): number {
+		const y = GRID_HEIGHT - 1 - floor;
+		const record: MedicalCenterRecord = {
+			kind: "medical_center",
+			ownerSubtypeIndex: 0,
+			pendingVisitorsCount: 0,
+		};
+		world.sidecars.push(record);
+		const sidecarIndex = world.sidecars.length - 1;
+		world.placedObjects[`0,${y}`] = {
+			leftTileIndex: 0,
+			rightTileIndex: 7,
+			objectTypeCode: 13, // FAMILY_MEDICAL
+			unitStatus: 0,
+			auxValueOrTimer: 0,
+			linkedRecordIndex: sidecarIndex,
+			occupiableFlag: 1,
+			evalLevel: 1,
+			evalScore: 0,
+			rentLevel: 0,
+			activationTickCount: 0,
+			housekeepingClaimedFlag: 0,
+		};
+		return sidecarIndex;
+	}
+
+	function makeOfficeSimAtFloor(floor: number): SimRecord {
+		return {
+			floorAnchor: floor,
+			homeColumn: 20,
+			baseOffset: 0,
+			facilitySlot: 0,
+			familyCode: 7, // FAMILY_OFFICE
+			stateCode: 0x01, // STATE_ACTIVE
+			route: { mode: "idle" as const },
+			selectedFloor: floor,
+			originFloor: floor,
+			destinationFloor: -1,
+			venueReturnState: 0,
+			queueTick: 0,
+			elapsedTicks: 0,
+			routeRetryDelay: 0,
+			transitTicksRemaining: 0,
+			lastDemandTick: 0,
+			tripCount: 0,
+			accumulatedTicks: 0,
+			targetRoomFloor: -1,
+			targetRoomColumn: -1,
+			spawnFloor: floor,
+			postClaimCountdown: 0,
+			encodedTargetFloor: 0,
+		};
+	}
+
+	it("does not roll a medical trip below star 3", () => {
+		const world = makeWorld();
+		world.starCount = 2;
+		placeMedicalCenter(world, 10);
+		const sim = makeOfficeSimAtFloor(10);
+		const rngBefore = world.rngCallCount;
+
+		const started = tryStartMedicalTrip(world, createTimeState(), sim);
+
+		expect(started).toBe(false);
+		// Star < 3 path must not consume an RNG sample.
+		expect(world.rngCallCount).toBe(rngBefore);
+		expect(world.pendingNotifications).toHaveLength(0);
+	});
+
+	it("consumes one RNG sample per roll at star >= 3 and only trips on roll 0", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		placeMedicalCenter(world, 10);
+		// Each tryStartMedicalTrip call consumes one RNG sample for the 10-way roll.
+		// When the roll succeeds, pickMedicalCenter consumes a second sample to pick
+		// from the bucket, so total RNG consumption is (rolls) + (trips).
+		let tripCount = 0;
+		for (let i = 0; i < 40; i++) {
+			const sim = makeOfficeSimAtFloor(10);
+			sim.homeColumn = i; // keep slot keys unique
+			if (tryStartMedicalTrip(world, createTimeState(), sim)) {
+				tripCount += 1;
+			}
+		}
+		expect(world.rngCallCount).toBe(40 + tripCount);
+		// Roughly 1/10 of rolls should trip; allow a generous range.
+		expect(tripCount).toBeGreaterThan(0);
+		expect(tripCount).toBeLessThan(20);
+	});
+
+	it("fires banner and clears daily flag when no medical center exists", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		world.gateFlags.officeServiceOkMedical = 1;
+		// Force the RNG roll to 0 by seeding until sampleRng() % 10 === 0.
+		// Easier: pre-sample until we'd land on 0.
+		while (true) {
+			// Non-destructive peek: run sampleRng and check; if not 0, keep going.
+			// If 0, the next tryStartMedicalTrip call will consume a different
+			// sample, so we need a different approach: seed directly.
+			break;
+		}
+		// Seed deliberately: rngState 1 yields 346 first; 346 % 10 == 6 so not 0.
+		// Walk until we hit a value where (v % 10) === 0.
+		while (true) {
+			const peek = { rngState: world.rngState, rngCallCount: 0 };
+			const v = sampleRng(peek as WorldState);
+			if (v % 10 === 0) break;
+			// Advance the actual world rng by one sample.
+			sampleRng(world);
+			if (world.rngCallCount > 1000) throw new Error("rng never yields 0");
+		}
+		const sim = makeOfficeSimAtFloor(10);
+		const started = tryStartMedicalTrip(world, createTimeState(), sim);
+		expect(started).toBe(false);
+		expect(world.gateFlags.officeServiceOkMedical).toBe(0);
+		expect(world.pendingNotifications).toContainEqual({
+			kind: "route_failure",
+			message: MEDICAL_NOTIFICATION_MESSAGE,
+		});
+	});
+
+	it("routes same-floor medical trip straight to dwell and increments pending visitors", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		const sidecarIndex = placeMedicalCenter(world, 10);
+		// Walk RNG to a roll-0 value.
+		while (true) {
+			const peek = { rngState: world.rngState, rngCallCount: 0 };
+			const v = sampleRng(peek as WorldState);
+			if (v % 10 === 0) break;
+			sampleRng(world);
+			if (world.rngCallCount > 1000) throw new Error("rng never yields 0");
+		}
+		const sim = makeOfficeSimAtFloor(10);
+		const started = tryStartMedicalTrip(world, createTimeState(), sim);
+		expect(started).toBe(true);
+		expect(sim.stateCode).toBe(STATE_MEDICAL_DWELL);
+
+		const record = world.sidecars[sidecarIndex] as MedicalCenterRecord;
+		expect(record.pendingVisitorsCount).toBe(1);
+
+		// Slot allocated with correct metadata.
+		const slots = world.medicalServiceSlots.filter((s) => s.active);
+		expect(slots).toHaveLength(1);
+		expect(slots[0].targetSidecarIndex).toBe(sidecarIndex);
+		expect(slots[0].sourceFloor).toBe(10);
+	});
+
+	it("latches the daily flag at day-start when starCount > 2", () => {
+		const state = makeState();
+		state.world.starCount = 3;
+		state.world.gateFlags.officeServiceOkMedical = 0;
+		// Checkpoint at tick 0x000 runs checkpointStartOfDay. Run across wrap.
+		runCheckpoints(state, 0x0a27, 0x001);
+		expect(state.world.gateFlags.officeServiceOkMedical).toBe(1);
+	});
+
+	it("does not latch the daily flag below star 3", () => {
+		const state = makeState();
+		state.world.starCount = 2;
+		state.world.gateFlags.officeServiceOkMedical = 0;
+		runCheckpoints(state, 0x0a27, 0x001);
+		expect(state.world.gateFlags.officeServiceOkMedical).toBe(0);
+	});
+
+	it("invalidates in-flight medical sims when the center is demolished", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		const sidecarIndex = placeMedicalCenter(world, 10);
+		// Start a trip on the same floor to get slot allocation.
+		while (true) {
+			const peek = { rngState: world.rngState, rngCallCount: 0 };
+			const v = sampleRng(peek as WorldState);
+			if (v % 10 === 0) break;
+			sampleRng(world);
+			if (world.rngCallCount > 1000) throw new Error("rng never yields 0");
+		}
+		const sim = makeOfficeSimAtFloor(10);
+		world.sims.push(sim);
+		tryStartMedicalTrip(world, createTimeState(), sim);
+		expect(sim.stateCode).toBe(STATE_MEDICAL_DWELL);
+
+		// Demolish: mark sidecar invalid and call invalidation.
+		const sidecar = world.sidecars[sidecarIndex];
+		if (sidecar && sidecar.kind === "medical_center") {
+			sidecar.ownerSubtypeIndex = 0xff;
+		}
+		invalidateMedicalSlotsForSidecar(world, sidecarIndex);
+
+		// Slot was freed, sim is back in DEPARTURE state (route home).
+		expect(world.medicalServiceSlots.every((s) => !s.active)).toBe(true);
+		expect(sim.stateCode).toBe(0x05); // STATE_DEPARTURE
+		expect(world.gateFlags.officeServiceOkMedical).toBe(0);
+		expect(world.pendingNotifications).toContainEqual({
+			kind: "route_failure",
+			message: MEDICAL_NOTIFICATION_MESSAGE,
+		});
+	});
+
+	it("forces served state when the retry counter overflows", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		placeMedicalCenter(world, 10);
+		// Start a trip on the same floor.
+		while (true) {
+			const peek = { rngState: world.rngState, rngCallCount: 0 };
+			const v = sampleRng(peek as WorldState);
+			if (v % 10 === 0) break;
+			sampleRng(world);
+			if (world.rngCallCount > 1000) throw new Error("rng never yields 0");
+		}
+		const sim = makeOfficeSimAtFloor(10);
+		world.sims.push(sim);
+		tryStartMedicalTrip(world, createTimeState(), sim);
+
+		// Pump processMedicalSim until retryCounter hits MEDICAL_RETRY_OVERFLOW.
+		for (let i = 0; i < MEDICAL_RETRY_OVERFLOW; i++) {
+			processMedicalSim(world, createTimeState(), sim);
+		}
+		// Slot was freed on overflow.
+		expect(world.medicalServiceSlots.every((s) => !s.active)).toBe(true);
+		// Sim is no longer in MEDICAL_DWELL; it's been routed home (PARKED or
+		// DEPARTURE_TRANSIT depending on route resolution).
+		expect(sim.stateCode).not.toBe(STATE_MEDICAL_DWELL);
+		expect(sim.stateCode).not.toBe(STATE_MEDICAL_TRIP_TRANSIT);
+	});
+
+	it("fails allocation when all medical slots are full", () => {
+		const world = makeWorld();
+		world.starCount = 3;
+		placeMedicalCenter(world, 10);
+		// Fill every slot manually.
+		for (let i = 0; i < MAX_MEDICAL_SERVICE_SLOTS; i++) {
+			world.medicalServiceSlots[i] = {
+				active: true,
+				simId: `full:${i}`,
+				sourceFloor: 10,
+				targetSidecarIndex: 0,
+				retryCounter: 0,
+			};
+		}
+		while (true) {
+			const peek = { rngState: world.rngState, rngCallCount: 0 };
+			const v = sampleRng(peek as WorldState);
+			if (v % 10 === 0) break;
+			sampleRng(world);
+			if (world.rngCallCount > 1000) throw new Error("rng never yields 0");
+		}
+		const sim = makeOfficeSimAtFloor(10);
+		const started = tryStartMedicalTrip(world, createTimeState(), sim);
+		expect(started).toBe(false);
+		expect(world.gateFlags.officeServiceOkMedical).toBe(0);
 	});
 });

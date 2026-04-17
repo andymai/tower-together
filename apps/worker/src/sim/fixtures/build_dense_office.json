@@ -18,6 +18,7 @@
 		{ "type": "office", "floor": 1, "left": 137 },
 		{ "type": "office", "floor": 1, "left": 146 },
 		{ "type": "office", "floor": 1, "left": 155 },
+		{ "type": "medical", "floor": 1, "left": 170 },
 		{ "type": "office", "floor": 2, "left": 110 },
 		{ "type": "office", "floor": 2, "left": 119 },
 		{ "type": "office", "floor": 2, "left": 128 },

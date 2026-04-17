@@ -35,6 +35,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	security: 8, // family 0x0e
 	metro: 4, // family 0x1f (3-floor stack in binary; TS stub)
 	housekeeping: 15, // family 0x0f
+	medical: 26, // family 0x0d
 };
 
 /** One-time construction cost in dollars. */
@@ -63,6 +64,7 @@ export const TILE_COSTS: Record<string, number> = {
 	security: 100_000,
 	metro: 1_000_000,
 	housekeeping: 50_000,
+	medical: 500_000,
 };
 
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
@@ -87,6 +89,7 @@ export const FAMILY_PARKING = 24;
 export const FAMILY_PARTY_HALL = 29;
 export const FAMILY_FIRE_SUPPRESSOR = 40;
 export const FAMILY_HOUSEKEEPING = 15;
+export const FAMILY_MEDICAL = 13;
 
 // ─── Family code ↔ tile name mappings ────────────────────────────────────────
 
@@ -110,6 +113,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_PARTY_HALL]: "partyHall",
 	[FAMILY_FIRE_SUPPRESSOR]: "fireSuppressor",
 	[FAMILY_HOUSEKEEPING]: "housekeeping",
+	[FAMILY_MEDICAL]: "medical",
 };
 
 export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {

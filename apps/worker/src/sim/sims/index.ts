@@ -38,6 +38,13 @@ export {
 	updateHotelOperationalAndOccupancy,
 } from "./hotel-facilities";
 
+import {
+	handleMedicalSimArrival,
+	processMedicalSim,
+	STATE_MEDICAL_DWELL,
+	STATE_MEDICAL_TRIP,
+	STATE_MEDICAL_TRIP_TRANSIT,
+} from "./medical";
 import { handleOfficeSimArrival, processOfficeSim } from "./office";
 import { clearSimRoute, simKey } from "./population";
 import { maybeApplyDistanceFeedback } from "./scoring";
@@ -462,7 +469,15 @@ export function advanceSimRefreshStride(
 				processHotelSim(world, ledger, time, sim);
 				break;
 			case FAMILY_OFFICE:
-				processOfficeSim(world, ledger, time, sim);
+				if (
+					sim.stateCode === STATE_MEDICAL_TRIP ||
+					sim.stateCode === STATE_MEDICAL_TRIP_TRANSIT ||
+					sim.stateCode === STATE_MEDICAL_DWELL
+				) {
+					processMedicalSim(world, time, sim);
+				} else {
+					processOfficeSim(world, ledger, time, sim);
+				}
 				break;
 			case FAMILY_CONDO:
 				processCondoSim(world, ledger, time, sim);
@@ -791,6 +806,10 @@ function dispatchSimArrival(
 			handleHotelSimArrival(world, ledger, time, sim, arrivalFloor);
 			return;
 		case FAMILY_OFFICE:
+			if (sim.stateCode === STATE_MEDICAL_TRIP_TRANSIT) {
+				handleMedicalSimArrival(world, sim, arrivalFloor);
+				return;
+			}
 			handleOfficeSimArrival(world, time, sim, arrivalFloor);
 			return;
 		case FAMILY_CONDO:

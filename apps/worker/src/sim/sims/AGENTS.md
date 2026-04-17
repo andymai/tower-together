@@ -39,3 +39,6 @@ Office-family sim state machine: morning activation, worker commute/service-dema
 
 ### `condo.ts`
 Condo-family sim state machine: occupant activation, restaurant/fast-food venue selection, sale accounting, operational refresh, and condo-specific arrival handling.
+
+### `medical.ts`
+Medical-center (family 0x0d) service-request queue and office-worker trip state machine: zone-bucketed target selection, slot allocation, daily flag gating, retry overflow, and demolition invalidation.

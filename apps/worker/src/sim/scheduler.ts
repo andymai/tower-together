@@ -49,19 +49,24 @@ export interface SimState {
 
 // ─── Checkpoint bodies ────────────────────────────────────────────────────────
 
-function checkpointStartOfDay(_s: SimState): void {
+function checkpointStartOfDay(s: SimState): void {
 	// Binary: update_periodic_facility_progress_override — every 8th day
 	// (dayCounter % 8 === 4), if tower is below 5 stars, enable the override
 	// seed slot. Cleared at midday (0x640).
-	if (_s.time.dayCounter % 8 === 4 && _s.world.starCount < 5) {
-		_s.world.gateFlags.facilityProgressOverride = 1;
+	if (s.time.dayCounter % 8 === 4 && s.world.starCount < 5) {
+		s.world.gateFlags.facilityProgressOverride = 1;
+	}
+	// Medical daily flag: latched to 1 at day-start when starCount > 2.
+	// Cleared by failed medical trips during the day; gates star 3→4 and 4→5.
+	if (s.world.starCount > 2) {
+		s.world.gateFlags.officeServiceOkMedical = 1;
 	}
 	// Activate cathedral guest sims
-	activateEvalSims(_s.world);
+	activateEvalSims(s.world);
 }
 
-function checkpointRecyclingReset(_s: SimState): void {
-	resetRecyclingCenterDutyTier(_s.world);
+function checkpointRecyclingReset(s: SimState): void {
+	resetRecyclingCenterDutyTier(s.world);
 }
 
 function checkpointFacilityLedgerRebuild(s: SimState): void {

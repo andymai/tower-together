@@ -27,11 +27,13 @@ import {
 	rebuildParkingDemandLog,
 	rebuildRuntimeSims,
 } from "./sims";
+import { invalidateMedicalSlotsForSidecar } from "./sims/medical";
 import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
 	GRID_WIDTH,
 	isValidLobbyY,
+	type MedicalCenterRecord,
 	type PlacedObjectRecord,
 	type ServiceRequestEntry,
 	sampleRng,
@@ -167,6 +169,13 @@ function allocSidecar(
 			ownerSubtypeIndex: x,
 			floorIndex: tileType === "parking" ? yToFloor(y) : undefined,
 			coverageFlag: 0,
+		};
+		record = r;
+	} else if (tileType === "medical") {
+		const r: MedicalCenterRecord = {
+			kind: "medical_center",
+			ownerSubtypeIndex: x,
+			pendingVisitorsCount: 0,
 		};
 		record = r;
 	} else if (tileType === "cinema" || tileType === "partyHall") {
@@ -794,6 +803,10 @@ export function handleRemoveTile(
 	const rec = world.placedObjects[anchorKey];
 	if (rec) {
 		if (rec.linkedRecordIndex >= 0) {
+			const sidecar = world.sidecars[rec.linkedRecordIndex];
+			if (sidecar?.kind === "medical_center") {
+				invalidateMedicalSlotsForSidecar(world, rec.linkedRecordIndex);
+			}
 			freeSidecar(rec.linkedRecordIndex, world);
 		}
 		delete world.placedObjects[anchorKey];

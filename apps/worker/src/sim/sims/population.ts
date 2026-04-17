@@ -1,6 +1,7 @@
 import {
 	FAMILY_CONDO,
 	FAMILY_HOUSEKEEPING,
+	FAMILY_MEDICAL,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_SECURITY,
@@ -139,11 +140,42 @@ function clearCarrierSlotsForRemovedSims(
 	}
 }
 
+// Binary place_object_on_floor maintains a 10-entry FIFO of pending sim-slot
+// reservations. Each placement (a) first-fit allocates a contiguous block of
+// 6 sim-record slots, (b) writes placeholder records tagged with the facility's
+// (floor, facilitySlot), (c) enqueues the block. When the queue is about to
+// exceed 10 entries, the oldest is finalized: office placeholders promote to
+// live sims; medical placeholders are zeroed, freeing their slots for a later
+// placement's first-fit to reclaim. This is what causes ~one office per
+// medical to end up with sim indices earlier than its nominal placement order.
+// See medical-allocation.md for the empirical derivation.
+const PLACEMENT_QUEUE_SIZE = 10;
+const PLACEMENT_SLOT_WIDTH = 6;
+
+interface QueueEntry {
+	slotIndices: number[];
+	zeroOnFinalize: boolean;
+}
+
+function firstFitSlot(occupied: boolean[], width: number): number {
+	let run = 0;
+	let runStart = -1;
+	for (let i = 0; i < occupied.length; i++) {
+		if (!occupied[i]) {
+			if (run === 0) runStart = i;
+			run++;
+			if (run === width) return runStart;
+		} else {
+			run = 0;
+		}
+	}
+	return occupied.length;
+}
+
 export function rebuildRuntimeSims(world: WorldState): void {
 	const previous = new Map(
 		world.sims.map((sim) => [simKey(sim), sim] as const),
 	);
-	const next: SimRecord[] = [];
 
 	// Sort by binary floor-by-floor allocation order: above-grade floors
 	// ascending (y descending), then below-grade floors ascending (y ascending),
@@ -156,55 +188,80 @@ export function rebuildRuntimeSims(world: WorldState): void {
 		const bBelow = by > GROUND_Y ? 1 : 0;
 		if (aBelow !== bBelow) return aBelow - bBelow;
 		if (aBelow === 0) {
-			// Above-grade: floor ascending = y descending
 			if (ay !== by) return by - ay;
 		} else {
-			// Below-grade: floor ascending = y ascending
 			if (ay !== by) return ay - by;
 		}
 		return ax - bx;
 	});
 
-	// Per-floor object slot counter: each placed home object on a given floor
-	// consumes the next slot (in x-ascending placement order), matching the
-	// binary's entity.sim+1 / BP+0xc (floor_local_object_id).
 	const slotByFloor = new Map<number, number>();
+	const slots: (SimRecord | null)[] = [];
+	const occupied: boolean[] = [];
+	const queue: QueueEntry[] = [];
 
 	for (const [key, object] of sortedEntries) {
-		const population = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 0;
-		if (population === 0) continue;
+		const familyCode = object.objectTypeCode;
+		const isMedical = familyCode === FAMILY_MEDICAL;
+		const population = ENTITY_POPULATION_BY_TYPE[familyCode] ?? 0;
+		if (population === 0 && !isMedical) continue;
+
 		const [x, y] = key.split(",").map(Number);
 		const floorAnchor = yToFloor(y);
 		const facilitySlot = slotByFloor.get(floorAnchor) ?? 0;
 		slotByFloor.set(floorAnchor, facilitySlot + 1);
 
-		for (let baseOffset = 0; baseOffset < population; baseOffset++) {
+		const start = firstFitSlot(occupied, PLACEMENT_SLOT_WIDTH);
+		const slotIndices: number[] = [];
+		for (let j = 0; j < PLACEMENT_SLOT_WIDTH; j++) {
+			const idx = start + j;
+			while (slots.length <= idx) {
+				slots.push(null);
+				occupied.push(false);
+			}
+			occupied[idx] = true;
+			slotIndices.push(idx);
+			if (isMedical || j >= population) {
+				slots[idx] = null;
+				continue;
+			}
 			const fresh = makeSim(
 				floorAnchor,
 				x,
-				baseOffset,
-				object.objectTypeCode,
+				j,
+				familyCode,
 				population,
 				facilitySlot,
 			);
 			const prior = previous.get(simKey(fresh));
 			if (prior) {
-				next.push({
+				slots[idx] = {
 					...fresh,
 					...prior,
 					floorAnchor,
 					homeColumn: x,
 					facilitySlot,
-				});
+				};
 			} else {
 				fresh.tripCount = 0;
 				fresh.accumulatedTicks = 0;
-				next.push(fresh);
+				slots[idx] = fresh;
+			}
+		}
+
+		queue.push({ slotIndices, zeroOnFinalize: isMedical });
+		if (queue.length > PLACEMENT_QUEUE_SIZE) {
+			const oldest = queue.shift();
+			if (oldest?.zeroOnFinalize) {
+				for (const i of oldest.slotIndices) {
+					occupied[i] = false;
+					slots[i] = null;
+				}
 			}
 		}
 	}
 
-	world.sims = next;
+	world.sims = slots.filter((s): s is SimRecord => s !== null);
 }
 
 export function cleanupSimsForRemovedTile(

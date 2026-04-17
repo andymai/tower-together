@@ -17,6 +17,7 @@ import {
 	resolveSimRouteBetweenFloors,
 	tryAssignParkingService,
 } from "./index";
+import { tryStartMedicalTrip } from "./medical";
 import {
 	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
@@ -358,8 +359,14 @@ export function processOfficeSim(
 	// --- Venue selection ---
 	if (state === STATE_ACTIVE || state === STATE_ACTIVE_ALT) {
 		runOfficeServiceEvaluation(world, time, sim, facility);
-		// Gate: daypart ≥ 4 → evening departure
+		// Gate: daypart ≥ 4 → evening departure (with optional medical trip)
 		if (time.daypartIndex >= 4) {
+			// Per spec/facility/MEDICAL.md: at the end-of-workday transition, if
+			// starCount >= 3 the worker has a 1-in-10 chance of taking a medical
+			// trip instead of going straight home. tryStartMedicalTrip handles
+			// the gate + RNG + routing; returns true iff the sim is now on a
+			// medical trip.
+			if (tryStartMedicalTrip(world, time, sim)) return;
 			sim.stateCode = STATE_DEPARTURE;
 			sim.destinationFloor = LOBBY_FLOOR;
 			sim.selectedFloor = sim.floorAnchor;

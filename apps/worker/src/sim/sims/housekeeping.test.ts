@@ -4,6 +4,7 @@ import { createTimeState, type TimeState } from "../time";
 import {
 	createEventState,
 	createGateFlags,
+	createMedicalServiceSlots,
 	floorToY,
 	GRID_HEIGHT,
 	GRID_WIDTH,
@@ -50,6 +51,7 @@ function makeWorld(): WorldState {
 		rngCallCount: 0,
 		eventState: createEventState(),
 		parkingDemandLog: [],
+		medicalServiceSlots: createMedicalServiceSlots(),
 		pendingNotifications: [],
 		pendingPrompts: [],
 	};
