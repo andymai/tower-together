@@ -32,7 +32,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	recyclingCenterUpper: 2, // family 0x14 upper slice
 	recyclingCenterLower: 2, // family 0x15 lower slice
 	parking: 4, // family 0x18
-	security: 4, // family 0x0e (named "metro" in earlier analysis — binary code 14 is security)
+	metro: 4, // family 0x0e
 	housekeeping: 15, // family 0x0f
 };
 
@@ -59,7 +59,7 @@ export const TILE_COSTS: Record<string, number> = {
 	recyclingCenterUpper: 500_000,
 	recyclingCenterLower: 0,
 	parking: 5_000,
-	security: 1_000_000,
+	metro: 1_000_000,
 	housekeeping: 50_000,
 };
 
@@ -100,7 +100,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_CONDO]: "condo",
 	[FAMILY_FAST_FOOD]: "fastFood",
 	[FAMILY_RETAIL]: "retail",
-	[FAMILY_METRO]: "security",
+	[FAMILY_METRO]: "metro",
 	[FAMILY_CINEMA]: "cinema",
 	[FAMILY_RECYCLING_CENTER_UPPER]: "recyclingCenterUpper",
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
@@ -116,7 +116,9 @@ export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
 	vipSuite: "hotelSuite",
 };
 
-export const LEGACY_TILE_ALIASES: Record<string, string> = {};
+export const LEGACY_TILE_ALIASES: Record<string, string> = {
+	security: "recyclingCenterUpper",
+};
 
 export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 	Object.entries(FAMILY_CODE_TO_TILE).map(([k, v]) => [v, Number(k)]),
@@ -171,13 +173,13 @@ export const COMMERCIAL_CAPACITY_CAPS: Record<
 // trace scale (YEN_1001 uses the same raw/10 convention).
 export const YEN_1002: Record<string, number> = {
 	elevatorLocal: 10, // family 1, per active car per 3-day period
-	security: 20, // family 14
+	metro: 20, // family 14
 	housekeeping: 10, // family 15
-	recyclingCenterUpper: 50, // family 20
+	recyclingCenterUpper: 50, // family 20 (user-facing "security office")
 	recyclingCenterLower: 0, // family 21
 	stairs: 0, // family 22
 	escalator: 5, // family 27
-	metro: 100, // family 31
+	// family 31 raw=1000 — pending identification; no tile name maps to 31
 	elevatorExpress: 20, // family 42
 	elevatorService: 10, // family 43
 };

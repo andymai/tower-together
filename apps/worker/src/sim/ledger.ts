@@ -260,7 +260,7 @@ const CODE_TO_TILE: Record<number, string> = {
 	9: "condo",
 	10: "retail",
 	12: "fastFood",
-	14: "security",
+	14: "metro",
 	15: "housekeeping",
 	18: "cinema",
 	20: "recyclingCenterUpper",
