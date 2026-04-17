@@ -81,14 +81,6 @@ export function GameDebugPanel({
 				<span>Peak car load</span>
 				<strong>{metrics.peakCarLoad}</strong>
 			</div>
-			<div style={styles.debugRow}>
-				<span>Trip state `0x22`</span>
-				<strong>{metrics.state22Sims}</strong>
-			</div>
-			<div style={styles.debugRow}>
-				<span>Checkout `0x04/0x05`</span>
-				<strong>{metrics.checkoutQueueSims}</strong>
-			</div>
 		</div>
 	);
 }

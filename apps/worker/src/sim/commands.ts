@@ -229,7 +229,7 @@ function hasMisalignedAdjacentOverlay(
 	world: WorldState,
 	x: number,
 	y: number,
-	type: "elevator" | "escalator",
+	type: "elevator",
 	width: number,
 ): boolean {
 	for (const adjacentY of [y - 1, y + 1]) {
@@ -492,12 +492,11 @@ export function handlePlaceTile(
 		);
 	}
 
-	// ── Elevator / Escalator: overlay on a floor/lobby tile ─────────────────────
+	// ── Elevator: overlay on a floor/lobby tile ─────────────────────────────────
 	if (
 		normalizedTileType === "elevator" ||
 		normalizedTileType === "elevatorExpress" ||
-		normalizedTileType === "elevatorService" ||
-		normalizedTileType === "escalator"
+		normalizedTileType === "elevatorService"
 	) {
 		const patch: CellPatch[] = [];
 		const overlayWidth = TILE_WIDTHS[normalizedTileType] ?? 1;
@@ -570,29 +569,42 @@ export function handlePlaceTile(
 		return { accepted: true, patch };
 	}
 
-	// ── Stairs: overlay on existing base tiles ────────────────────────────────
-	if (normalizedTileType === "stairs") {
-		const overlayWidth = TILE_WIDTHS.stairs ?? 1;
+	// ── Stairs / Escalator: bridge overlay on existing base tiles ─────────────
+	if (normalizedTileType === "stairs" || normalizedTileType === "escalator") {
+		const overlayWidth = TILE_WIDTHS[normalizedTileType] ?? 1;
 		if (x + overlayWidth - 1 >= GRID_WIDTH) {
 			return { accepted: false, reason: "Out of bounds" };
 		}
+		const baseRequiredLabel =
+			normalizedTileType === "stairs" ? "Stairs" : "Escalators";
 		for (let dx = 0; dx < overlayWidth; dx++) {
 			const key = `${x + dx},${y}`;
 			if (!world.cells[key] && !world.cellToAnchor[key]) {
-				return { accepted: false, reason: "Stairs require a base tile" };
+				return {
+					accepted: false,
+					reason: `${baseRequiredLabel} require a base tile`,
+				};
 			}
 			if (world.overlays[key] || world.overlayToAnchor[key]) {
 				return { accepted: false, reason: "Cell already has an overlay" };
 			}
 		}
-		world.overlays[`${x},${y}`] = "stairs";
+		world.overlays[`${x},${y}`] = normalizedTileType;
 		for (let dx = 1; dx < overlayWidth; dx++) {
 			world.overlayToAnchor[`${x + dx},${y}`] = `${x},${y}`;
 		}
 		runGlobalRebuilds(world, ledger);
 		return {
 			accepted: true,
-			patch: [{ x, y, tileType: "stairs", isAnchor: true, isOverlay: true }],
+			patch: [
+				{
+					x,
+					y,
+					tileType: normalizedTileType,
+					isAnchor: true,
+					isOverlay: true,
+				},
+			],
 		};
 	}
 

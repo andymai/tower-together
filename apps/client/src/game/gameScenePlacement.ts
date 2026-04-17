@@ -105,7 +105,8 @@ export function getHoverBounds(
 
 	const width = selectedTool !== "empty" ? (TILE_WIDTHS[selectedTool] ?? 1) : 1;
 	const x = anchorX(cursorX, selectedTool);
-	const heightCells = selectedTool === "stairs" ? 2 : 1;
+	const heightCells =
+		selectedTool === "stairs" || selectedTool === "escalator" ? 2 : 1;
 	const startX = Math.max(0, x);
 	const endX = Math.min(GRID_WIDTH - 1, x + width - 1);
 	const startY = Math.max(0, y - heightCells + 1);
@@ -177,7 +178,7 @@ function cellsAvailable(
 	selectedTool: string,
 	grid: Map<string, string>,
 ): boolean {
-	if (selectedTool === "stairs") return false;
+	if (selectedTool === "stairs" || selectedTool === "escalator") return false;
 	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return false;
 
 	const needsSupport = selectedTool !== "lobby";

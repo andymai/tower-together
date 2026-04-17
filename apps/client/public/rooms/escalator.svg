@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160">
+  <!--
+    Bounds match the stairs parallelogram (same diagonal geometry):
+    width  = TILE_WIDTHS.escalator * TILE_WIDTH (8 tiles)
+    height = TILE_HEIGHT + TILE_HEIGHT/3 (floor to 1/3 up next floor)
+    edgeW  = width / 6  → 40 in this viewBox
+  -->
+  <defs>
+    <linearGradient id="escFill" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b8c4b0"/>
+      <stop offset="100%" stop-color="#dce4d2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Parallelogram body (belt surface) -->
+  <polygon points="0,160 40,160 240,0 200,0"
+           fill="url(#escFill)" stroke="#2d3a2a" stroke-width="2"
+           stroke-linejoin="miter"/>
+
+  <!-- Moving treads: short segments perpendicular to the slope,
+       spaced evenly along the diagonal. Slope = 160 rise / 200 run,
+       so a 24-unit horizontal stride per tread gives even spacing. -->
+  <g stroke="#2d3a2a" stroke-width="1.5" stroke-linecap="butt" fill="none">
+    <line x1="16"  y1="152" x2="56"  y2="152"/>
+    <line x1="40"  y1="132" x2="80"  y2="132"/>
+    <line x1="64"  y1="112" x2="104" y2="112"/>
+    <line x1="88"  y1="92"  x2="128" y2="92"/>
+    <line x1="112" y1="72"  x2="152" y2="72"/>
+    <line x1="136" y1="52"  x2="176" y2="52"/>
+    <line x1="160" y1="32"  x2="200" y2="32"/>
+    <line x1="184" y1="12"  x2="224" y2="12"/>
+  </g>
+
+  <!-- Handrails: two thick diagonals along the parallelogram edges -->
+  <line x1="0"   y1="160" x2="200" y2="0"
+        stroke="#1c2418" stroke-width="4" stroke-linecap="round"/>
+  <line x1="40"  y1="160" x2="240" y2="0"
+        stroke="#1c2418" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Upward direction arrow near mid-belt -->
+  <g fill="#f4f1e6" stroke="#2d3a2a" stroke-width="1" stroke-linejoin="miter">
+    <polygon points="118,94 134,82 130,88 138,82 134,94 130,88"/>
+  </g>
+</svg>

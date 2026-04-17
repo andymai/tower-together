@@ -491,6 +491,15 @@ export class GameScene extends Phaser.Scene {
 			width: 2 * TILE_HEIGHT * s,
 			height: TILE_HEIGHT * s,
 		});
+		// Stairs / escalator render as a parallelogram bridging the placement
+		// floor and 1/3 up the floor above; load at that extended height.
+		const bridgeH = (TILE_HEIGHT + TILE_HEIGHT / 3) * s;
+		for (const bridge of ["stairs", "escalator"]) {
+			this.load.svg(`room_${bridge}`, `/rooms/${bridge}.svg`, {
+				width: (TILE_WIDTHS[bridge] ?? 1) * TILE_WIDTH * s,
+				height: bridgeH,
+			});
+		}
 		// Banner SVGs share the same 9:4 aspect ratio.
 		// Load at high resolution for crisp rendering when zoomed in.
 		const bannerW = 180 * 4;
@@ -707,8 +716,8 @@ export class GameScene extends Phaser.Scene {
 		const shaftRows = new Map<string, number[]>();
 		for (const [key, type] of this.overlayGrid) {
 			const [x, y] = key.split(",").map(Number);
-			if (type === "stairs") {
-				this.drawStairs(g, x, y);
+			if (type === "stairs" || type === "escalator") {
+				this.drawBridgeOverlay(g, type, x, y);
 			} else {
 				const shaftKey = `${type}:${x}`;
 				const rows = shaftRows.get(shaftKey);
@@ -889,32 +898,43 @@ export class GameScene extends Phaser.Scene {
 		this.carLabels.push(label);
 	}
 
-	/** Draw stairs bridging the floor at (gx,gy) and the floor above (gy-1).
-	 *  Rendered as a filled parallelogram starting at the bottom of the lower
-	 *  floor and ending 1/3 of the way up the upper floor. */
-	private drawStairs(
+	/** Draw a stairs or escalator overlay bridging the floor at (gx,gy) and
+	 *  the floor above (gy-1). Rendered as an SVG sprite whose transparent
+	 *  regions leave the underlying cells visible; the asset's parallelogram
+	 *  fills its viewBox, matching the bridge's bounding box exactly. Falls
+	 *  back to a filled parallelogram if the texture is not yet loaded. */
+	private drawBridgeOverlay(
 		g: Phaser.GameObjects.Graphics,
+		type: "stairs" | "escalator",
 		gx: number,
 		gy: number,
 	): void {
-		const stairWidth = TILE_WIDTHS.stairs ?? 1;
-		const cellW = TILE_WIDTH * stairWidth - 2; // total pixel width with 1px margin
-		const startX = gx * TILE_WIDTH + 1;
-
-		// Bottom of lower floor (gy) to 1/3 up the upper floor (gy-1)
+		const width = TILE_WIDTHS[type] ?? 1;
+		const cellW = TILE_WIDTH * width;
+		const startX = gx * TILE_WIDTH;
 		const bottomY = (gy + 1) * TILE_HEIGHT;
 		const topY = gy * TILE_HEIGHT - TILE_HEIGHT / 3;
+		const heightPx = bottomY - topY;
 
-		// Parallelogram: outside corners are bottom-left and top-right.
-		// edgeW controls thickness perpendicular to the diagonal.
+		const texKey = `room_${type}`;
+		if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
+			const sprite = this.add.sprite(startX, topY, texKey);
+			sprite.setOrigin(0, 0);
+			sprite.setDisplaySize(cellW, heightPx);
+			sprite.setDepth(1.75);
+			sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+			this.roomSprites.push(sprite);
+			return;
+		}
+
+		// Fallback: filled parallelogram matching the SVG's internal shape.
 		const edgeW = cellW / 6;
-
 		g.fillStyle(0xffffff, 1);
 		g.beginPath();
-		g.moveTo(startX, bottomY); // bottom-left
-		g.lineTo(startX + edgeW, bottomY); // bottom-right
-		g.lineTo(startX + cellW, topY); // top-right
-		g.lineTo(startX + cellW - edgeW, topY); // top-left
+		g.moveTo(startX, bottomY);
+		g.lineTo(startX + edgeW, bottomY);
+		g.lineTo(startX + cellW, topY);
+		g.lineTo(startX + cellW - edgeW, topY);
 		g.closePath();
 		g.fillPath();
 	}
