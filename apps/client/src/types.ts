@@ -43,7 +43,7 @@ export type TileType =
 	| "condo"
 	// Entertainment
 	| "cinema"
-	| "entertainment"
+	| "partyHall"
 	// Services
 	| "recyclingCenter"
 	| "recyclingCenterUpper"

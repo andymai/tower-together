@@ -1,10 +1,10 @@
 import type { LedgerState } from "./ledger";
-import { FAMILY_CINEMA, FAMILY_ENTERTAINMENT } from "./resources";
+import { FAMILY_CINEMA, FAMILY_PARTY_HALL } from "./resources";
 import { STATE_ACTIVE, STATE_ARRIVED, STATE_PARKED } from "./sims/states";
 import type { PlacedObjectRecord, WorldState } from "./world";
 
 const ENTERTAINMENT_FAMILY_PAIRED = FAMILY_CINEMA;
-const ENTERTAINMENT_FAMILY_SINGLE = FAMILY_ENTERTAINMENT;
+const ENTERTAINMENT_FAMILY_SINGLE = FAMILY_PARTY_HALL;
 
 /**
  * Paired-link budget tiers indexed by `linkAgeCounter / 3`.

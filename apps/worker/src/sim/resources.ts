@@ -26,7 +26,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	condo: 16,
 	// Entertainment (families 0x12/0x1d)
 	cinema: 24,
-	entertainment: 24,
+	partyHall: 24,
 	// Services
 	recyclingCenter: 2, // virtual two-floor stack placement
 	recyclingCenterUpper: 2, // family 0x14 upper slice
@@ -55,7 +55,7 @@ export const TILE_COSTS: Record<string, number> = {
 	office: 40_000,
 	condo: 80_000,
 	cinema: 500_000,
-	entertainment: 100_000,
+	partyHall: 100_000,
 	recyclingCenter: 500_000, // combined cost
 	recyclingCenterUpper: 500_000,
 	recyclingCenterLower: 0,
@@ -84,7 +84,7 @@ export const FAMILY_CINEMA = 18;
 export const FAMILY_RECYCLING_CENTER_UPPER = 20;
 export const FAMILY_RECYCLING_CENTER_LOWER = 21;
 export const FAMILY_PARKING = 24;
-export const FAMILY_ENTERTAINMENT = 29;
+export const FAMILY_PARTY_HALL = 29;
 export const FAMILY_FIRE_SUPPRESSOR = 40;
 export const FAMILY_HOUSEKEEPING = 15;
 
@@ -107,7 +107,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_RECYCLING_CENTER_UPPER]: "recyclingCenterUpper",
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
 	[FAMILY_PARKING]: "parking",
-	[FAMILY_ENTERTAINMENT]: "entertainment",
+	[FAMILY_PARTY_HALL]: "partyHall",
 	[FAMILY_FIRE_SUPPRESSOR]: "fireSuppressor",
 	[FAMILY_HOUSEKEEPING]: "housekeeping",
 };

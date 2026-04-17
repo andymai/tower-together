@@ -48,7 +48,7 @@ export const TILE_COLORS: Record<string, number> = {
 	office: 0xa8b7c4,
 	condo: 0xe7cf6b,
 	cinema: 0xc040a0,
-	entertainment: 0xa040c0,
+	partyHall: 0xa040c0,
 	recyclingCenterUpper: 0xc04040,
 	recyclingCenterLower: 0x8cb0c0,
 	parking: 0x707080,

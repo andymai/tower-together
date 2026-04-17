@@ -1220,7 +1220,7 @@ describe("YEN tables", () => {
 		expect(TILE_COSTS.office).toBe(40_000);
 		expect(TILE_COSTS.condo).toBe(80_000);
 		expect(TILE_COSTS.cinema).toBe(500_000);
-		expect(TILE_COSTS.entertainment).toBe(100_000);
+		expect(TILE_COSTS.partyHall).toBe(100_000);
 		expect(TILE_COSTS.recyclingCenter).toBe(500_000);
 		expect(TILE_COSTS.recyclingCenterUpper).toBe(500_000);
 		expect(TILE_COSTS.recyclingCenterLower).toBe(0);

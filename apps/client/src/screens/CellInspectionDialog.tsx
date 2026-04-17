@@ -21,7 +21,7 @@ const FAMILY_LABELS: Record<number, string> = {
 	18: "Cinema",
 	20: "Security",
 	21: "Housekeeping",
-	29: "Entertainment",
+	29: "Party Hall",
 };
 
 const HOTEL_FAMILIES = new Set([3, 4, 5]);

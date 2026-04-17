@@ -169,13 +169,13 @@ function allocSidecar(
 			coverageFlag: 0,
 		};
 		record = r;
-	} else if (tileType === "cinema" || tileType === "entertainment") {
+	} else if (tileType === "cinema" || tileType === "partyHall") {
 		const r: EntertainmentLinkRecord = {
 			kind: "entertainment_link",
 			ownerSubtypeIndex: x,
 			pairedSubtypeIndex: 0xff,
 			familySelectorOrSingleLinkFlag:
-				tileType === "entertainment" ? sampleRng(world) % 14 : 0xff,
+				tileType === "partyHall" ? sampleRng(world) % 14 : 0xff,
 			linkAgeCounter: 0,
 			upperBudget: 0,
 			lowerBudget: 0,

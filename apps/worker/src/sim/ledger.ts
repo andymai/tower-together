@@ -284,7 +284,7 @@ const CODE_TO_TILE: Record<number, string> = {
 	20: "recyclingCenterUpper",
 	21: "recyclingCenterLower",
 	24: "parking",
-	29: "entertainment",
+	29: "partyHall",
 	31: "hotelSingle",
 	32: "hotelTwin",
 	33: "hotelSuite",
