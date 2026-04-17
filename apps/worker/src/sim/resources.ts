@@ -32,7 +32,8 @@ export const TILE_WIDTHS: Record<string, number> = {
 	recyclingCenterUpper: 2, // family 0x14 upper slice
 	recyclingCenterLower: 2, // family 0x15 lower slice
 	parking: 4, // family 0x18
-	metro: 4, // family 0x0e
+	security: 8, // family 0x0e
+	metro: 4, // family 0x1f (3-floor stack in binary; TS stub)
 	housekeeping: 15, // family 0x0f
 };
 
@@ -59,6 +60,7 @@ export const TILE_COSTS: Record<string, number> = {
 	recyclingCenterUpper: 500_000,
 	recyclingCenterLower: 0,
 	parking: 5_000,
+	security: 100_000,
 	metro: 1_000_000,
 	housekeeping: 50_000,
 };
@@ -77,7 +79,7 @@ export const FAMILY_OFFICE = 7;
 export const FAMILY_CONDO = 9;
 export const FAMILY_RETAIL = 10;
 export const FAMILY_FAST_FOOD = 12;
-export const FAMILY_METRO = 14;
+export const FAMILY_SECURITY = 14;
 export const FAMILY_CINEMA = 18;
 export const FAMILY_RECYCLING_CENTER_UPPER = 20;
 export const FAMILY_RECYCLING_CENTER_LOWER = 21;
@@ -100,7 +102,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_CONDO]: "condo",
 	[FAMILY_FAST_FOOD]: "fastFood",
 	[FAMILY_RETAIL]: "retail",
-	[FAMILY_METRO]: "metro",
+	[FAMILY_SECURITY]: "security",
 	[FAMILY_CINEMA]: "cinema",
 	[FAMILY_RECYCLING_CENTER_UPPER]: "recyclingCenterUpper",
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
@@ -116,9 +118,7 @@ export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
 	vipSuite: "hotelSuite",
 };
 
-export const LEGACY_TILE_ALIASES: Record<string, string> = {
-	security: "recyclingCenterUpper",
-};
+export const LEGACY_TILE_ALIASES: Record<string, string> = {};
 
 export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 	Object.entries(FAMILY_CODE_TO_TILE).map(([k, v]) => [v, Number(k)]),
@@ -173,13 +173,12 @@ export const COMMERCIAL_CAPACITY_CAPS: Record<
 // trace scale (YEN_1001 uses the same raw/10 convention).
 export const YEN_1002: Record<string, number> = {
 	elevatorLocal: 10, // family 1, per active car per 3-day period
-	metro: 20, // family 14
+	security: 20, // family 14
 	housekeeping: 10, // family 15
-	recyclingCenterUpper: 50, // family 20 (user-facing "security office")
+	recyclingCenterUpper: 50, // family 20
 	recyclingCenterLower: 0, // family 21
 	stairs: 0, // family 22
 	escalator: 5, // family 27
-	// family 31 raw=1000 — pending identification; no tile name maps to 31
 	elevatorExpress: 20, // family 42
 	elevatorService: 10, // family 43
 };

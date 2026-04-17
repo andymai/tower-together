@@ -677,16 +677,16 @@ describe("ledger: rebuildFacilityLedger", () => {
 });
 
 describe("ledger: doExpenseSweep", () => {
-	it("charges YEN_1002 * 1000 per metro tile per sweep", () => {
+	it("charges YEN_1002 * 1000 per security tile per sweep", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handlePlaceTile(0, y, "metro", world, ledger);
+		handlePlaceTile(0, y, "security", world, ledger);
 		const cashAfterBuild = ledger.cashBalance;
 		doExpenseSweep(ledger, world);
-		// metro expense = 20 * 1000 = 20,000
+		// security expense = 20 * 1000 = 20,000
 		expect(cashAfterBuild - ledger.cashBalance).toBe(20_000);
 	});
 
@@ -696,7 +696,7 @@ describe("ledger: doExpenseSweep", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handlePlaceTile(0, y, "metro", world, ledger);
+		handlePlaceTile(0, y, "security", world, ledger);
 		const rec = world.placedObjects[`0,${y}`];
 		doExpenseSweep(ledger, world);
 		expect(ledger.expenseLedger[rec.objectTypeCode]).toBeGreaterThan(0);
@@ -711,7 +711,7 @@ describe("ledger: doExpenseSweep", () => {
 		world.placedObjects[`0,${y}`] = {
 			leftTileIndex: 0,
 			rightTileIndex: 1,
-			objectTypeCode: 14, // metro
+			objectTypeCode: 14, // security
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
@@ -1244,8 +1244,8 @@ describe("YEN tables", () => {
 		expect(YEN_1001.retail).toEqual([20, 15, 10, 4]);
 	});
 
-	it("YEN_1002 metro expense = 20 (raw binary 200 / 10)", () => {
-		expect(YEN_1002.metro).toBe(20);
+	it("YEN_1002 security expense = 20 (raw binary 200 / 10)", () => {
+		expect(YEN_1002.security).toBe(20);
 	});
 
 	it("YEN_1002 recycling-center upper expense = 50 (raw 500)", () => {

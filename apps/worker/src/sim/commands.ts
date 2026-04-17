@@ -6,7 +6,6 @@ import {
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
-	FAMILY_METRO,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
@@ -284,14 +283,9 @@ export function runGlobalRebuilds(
 	world.gateFlags.metroPlaced = 0;
 	world.gateFlags.vipSuiteFloor = 0xffff;
 	world.gateFlags.recyclingCenterCount = 0;
-	for (const [key, object] of Object.entries(world.placedObjects)) {
+	for (const object of Object.values(world.placedObjects)) {
 		if (object.objectTypeCode === FAMILY_OFFICE)
 			world.gateFlags.officePlaced = 1;
-		if (object.objectTypeCode === FAMILY_METRO) {
-			world.gateFlags.metroPlaced = 1;
-			const [, y] = key.split(",").map(Number);
-			world.gateFlags.vipSuiteFloor = world.height - 1 - y;
-		}
 		if (object.objectTypeCode === FAMILY_RECYCLING_CENTER_UPPER)
 			world.gateFlags.recyclingCenterCount += 1;
 	}

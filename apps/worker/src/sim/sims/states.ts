@@ -9,6 +9,7 @@ import {
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
+	FAMILY_SECURITY,
 } from "../resources";
 import type { RouteState } from "../world";
 
@@ -80,6 +81,7 @@ export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_RETAIL]: 48,
 	[FAMILY_FAST_FOOD]: 48,
 	[FAMILY_RECYCLING_CENTER_UPPER]: 6,
+	[FAMILY_SECURITY]: 6,
 	// Housekeeping helpers (family 0x0f).
 	[FAMILY_HOUSEKEEPING]: 3,
 	// Cathedral guest sims: 5 floor types x 8 slots = 40 guests.

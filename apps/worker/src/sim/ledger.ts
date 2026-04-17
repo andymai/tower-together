@@ -5,7 +5,12 @@ import {
 	YEN_1001,
 	YEN_1002,
 } from "./resources";
-import { UNDERGROUND_FLOORS, type WorldState, yToFloor } from "./world";
+import {
+	UNDERGROUND_FLOORS,
+	VENUE_DORMANT,
+	type WorldState,
+	yToFloor,
+} from "./world";
 
 // ─── Three-ledger money model ─────────────────────────────────────────────────
 //
@@ -237,6 +242,19 @@ export function activateThreeDayCashflow(
 		if (obj.objectTypeCode === FAMILY_RETAIL) {
 			if (obj.auxValueOrTimer === guard) continue;
 			if (obj.occupiableFlag !== 1) continue;
+			// Binary activate_family_cashflow_if_operational (1138:0bad) gates
+			// family 10 on the linked CommercialVenueRecord.availability_state
+			// being >= 0 (signed). VENUE_DORMANT (0xff → -1) is excluded.
+			const sidecar =
+				obj.linkedRecordIndex >= 0
+					? world.sidecars[obj.linkedRecordIndex]
+					: undefined;
+			if (
+				sidecar?.kind !== "commercial_venue" ||
+				sidecar.availabilityState === VENUE_DORMANT
+			) {
+				continue;
+			}
 			obj.auxValueOrTimer = guard;
 			addCashflowFromFamilyResource(
 				ledger,
@@ -260,7 +278,7 @@ const CODE_TO_TILE: Record<number, string> = {
 	9: "condo",
 	10: "retail",
 	12: "fastFood",
-	14: "metro",
+	14: "security",
 	15: "housekeeping",
 	18: "cinema",
 	20: "recyclingCenterUpper",

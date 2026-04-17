@@ -1,6 +1,5 @@
 import { applyRemoveElevatorCar } from "./commands";
 import type { LedgerState } from "./ledger";
-import { FAMILY_METRO } from "./resources";
 import type { TimeState } from "./time";
 import {
 	type EventState,
@@ -568,24 +567,9 @@ export function tickVipSpecialVisitor(
 
 	if (world.gateFlags.metroPlaced === 0) return;
 
-	// Sweep metro stack objects and toggle the display-only aux word.
-	let activated = false;
-	for (const record of Object.values(world.placedObjects)) {
-		if (record.objectTypeCode !== FAMILY_METRO) continue;
-		if (record.auxValueOrTimer === 0) {
-			record.auxValueOrTimer = 2; // activate special visitor
-
-			activated = true;
-		} else {
-			record.auxValueOrTimer = 0; // clear
-		}
-	}
-	if (activated) {
-		world.pendingNotifications.push({
-			kind: "event",
-			message: "0x271a",
-		});
-	}
+	// TODO: Metro is a 3-floor stack in the binary (codes 0x1f/0x20/0x21); the
+	// metro_floor DS variable drives VIP eligibility. TS doesn't yet model the
+	// metro stack, so this sweep is inert — metroPlaced never gets set.
 }
 
 // TODO: Spec documents viewport-sampling with 6 buckets, per-family eligibility

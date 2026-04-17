@@ -105,7 +105,7 @@ const TRACE_SIM_KEY_TO_FAMILY: Record<string, number> = {
 	single: 3,
 	twin: 4,
 	suite: 5,
-	security: 20,
+	security: 14,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

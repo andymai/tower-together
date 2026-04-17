@@ -3,6 +3,7 @@ import {
 	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
 	FAMILY_RECYCLING_CENTER_UPPER,
+	FAMILY_SECURITY,
 } from "../resources";
 import type { CarrierRecord } from "../world";
 import {
@@ -73,7 +74,11 @@ function initialStateForFamily(
 	if (familyCode === FAMILY_OFFICE) return STATE_MORNING_GATE;
 	if (familyCode === FAMILY_CONDO) return STATE_MORNING_GATE;
 	if (COMMERCIAL_FAMILIES.has(familyCode)) return STATE_MORNING_GATE;
-	if (familyCode === FAMILY_RECYCLING_CENTER_UPPER) return STATE_ACTIVE;
+	if (
+		familyCode === FAMILY_RECYCLING_CENTER_UPPER ||
+		familyCode === FAMILY_SECURITY
+	)
+		return STATE_ACTIVE;
 	if (familyCode === FAMILY_HOUSEKEEPING) return HK_STATE_SEARCH;
 	return STATE_PARKED;
 }
@@ -249,10 +254,11 @@ export function resetSimRuntimeState(world: WorldState): void {
 		) {
 			// Spec TIME.md checkpoint 2500: family 6/7/10/12 → 0x20 (MORNING_GATE).
 			sim.stateCode = STATE_MORNING_GATE;
-		} else if (sim.familyCode === FAMILY_RECYCLING_CENTER_UPPER) {
-			// Spec TIME.md checkpoint 2500 lists resets for families
-			// 3/4/5/6/7/9/10/12/14/15/18/29/33/36 but not 20 (recycling/
-			// security tile). Stationary sims keep their current state.
+		} else if (
+			sim.familyCode === FAMILY_RECYCLING_CENTER_UPPER ||
+			sim.familyCode === FAMILY_SECURITY
+		) {
+			// Stationary sims keep their current state across day boundaries.
 			continue;
 		} else {
 			sim.stateCode = STATE_PARKED;
