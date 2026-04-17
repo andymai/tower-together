@@ -428,11 +428,17 @@ function syncAssignmentStatus(carrier: CarrierRecord): void {
 	}
 }
 
+// Mirrors binary find_best_available_car_for_floor (1098:0dfc).
+// Binary returns (int return_value, int *param_4). The caller
+// assign_car_to_floor_request gates all its writes on `return_value != 0`.
+// Cases that return 0 (fullAssign=false): A/B (same-floor, doors closed,
+// scheduleFlag||dirMatch), C (idle-home candidate already at floor), D (dead).
+// Normal path and degenerate: return 1 with param_4 set (fullAssign=true).
 function findBestAvailableCarForFloor(
 	carrier: CarrierRecord,
 	floor: number,
 	directionFlag: number,
-): number {
+): { carIndex: number; fullAssign: boolean } {
 	let bestIdleHomeCost = Number.POSITIVE_INFINITY;
 	let bestIdleHomeIndex = -1;
 	let bestForwardCost = Number.POSITIVE_INFINITY;
@@ -444,19 +450,17 @@ function findBestAvailableCarForFloor(
 		if (!car.active) continue;
 		if (car.assignedCount >= getCarCapacity(carrier)) continue;
 
-		// Immediate early-accept: car at floor with doors closed and either
-		// schedule byte nonzero or direction already matches
-		if (
-			car.currentFloor === floor &&
-			car.doorWaitCounter === 0 &&
-			(car.scheduleFlag !== 0 || car.directionFlag === directionFlag)
-		) {
-			return carIndex;
+		// Cases A/B: car at floor with doors closed, and either scheduleFlag is
+		// set or direction already matches. Binary returns 0 immediately.
+		if (car.currentFloor === floor && car.doorWaitCounter === 0) {
+			if (car.scheduleFlag !== 0 || car.directionFlag === directionFlag) {
+				return { carIndex, fullAssign: false };
+			}
+			// else fall through to idle-home / forward / wrap accumulation
 		}
 
 		const distance = Math.abs(car.currentFloor - floor);
 
-		// Idle-home candidate: at home, no assignments, doors closed
 		const isIdleHome =
 			car.pendingAssignmentCount === 0 &&
 			car.nonemptyDestinationCount === 0 &&
@@ -464,68 +468,61 @@ function findBestAvailableCarForFloor(
 			car.currentFloor === car.homeFloor;
 
 		if (isIdleHome) {
-			const cost = distance;
-			if (cost < bestIdleHomeCost) {
-				bestIdleHomeCost = cost;
+			// Case C: idle-home candidate already at floor
+			if (distance === 0) return { carIndex, fullAssign: false };
+			if (distance < bestIdleHomeCost) {
+				bestIdleHomeCost = distance;
 				bestIdleHomeIndex = carIndex;
 			}
+			continue;
 		}
 
-		// Same-direction forward candidate: moving in requested direction
-		// and request lies ahead
-		const isSameDirectionForward =
-			car.directionFlag === directionFlag &&
-			(directionFlag === 1
-				? floor > car.currentFloor
-				: floor < car.currentFloor);
-
-		if (isSameDirectionForward) {
-			const cost =
+		if (car.directionFlag === directionFlag) {
+			const forward =
 				directionFlag === 1
 					? floor - car.currentFloor
 					: car.currentFloor - floor;
-			if (cost < bestForwardCost) {
-				bestForwardCost = cost;
-				bestForwardIndex = carIndex;
-			}
-		} else {
-			// Wrap/reversal candidate
-			let cost: number;
-			if (car.directionFlag === directionFlag) {
-				// Same direction but request is behind the sweep
-				if (directionFlag === 1) {
-					cost = car.targetFloor - car.currentFloor + (car.targetFloor - floor);
-				} else {
-					cost = car.currentFloor - car.targetFloor + (floor - car.targetFloor);
+			if (forward >= 0) {
+				if (forward < bestForwardCost) {
+					bestForwardCost = forward;
+					bestForwardIndex = carIndex;
 				}
-			} else {
-				// Opposite direction: distance via next turn floor
-				if (directionFlag === 1) {
-					// Request is upward, car is going down
-					const turnFloor = car.targetFloor;
-					if (floor <= car.currentFloor) {
-						cost = Math.abs(car.currentFloor - floor);
-					} else {
-						cost = car.currentFloor - turnFloor + (floor - turnFloor);
-					}
-				} else {
-					// Request is downward, car is going up
-					const turnFloor = car.targetFloor;
-					if (floor >= car.currentFloor) {
-						cost = Math.abs(floor - car.currentFloor);
-					} else {
-						cost = turnFloor - car.currentFloor + (turnFloor - floor);
-					}
-				}
+				continue;
 			}
+			// Past sweep end: wrap
+			const cost =
+				directionFlag === 1
+					? car.targetFloor - car.currentFloor + (car.targetFloor - floor)
+					: car.currentFloor - car.targetFloor + (floor - car.targetFloor);
 			if (cost < bestWrapCost) {
 				bestWrapCost = cost;
 				bestWrapIndex = carIndex;
 			}
+			continue;
+		}
+
+		// Opposite direction: wrap via turn floor
+		const turnFloor = car.targetFloor;
+		let cost: number;
+		if (directionFlag === 1) {
+			if (floor <= car.currentFloor) {
+				cost = Math.abs(car.currentFloor - floor);
+			} else {
+				cost = car.currentFloor - turnFloor + (floor - turnFloor);
+			}
+		} else {
+			if (floor >= car.currentFloor) {
+				cost = Math.abs(floor - car.currentFloor);
+			} else {
+				cost = turnFloor - car.currentFloor + (turnFloor - floor);
+			}
+		}
+		if (cost < bestWrapCost) {
+			bestWrapCost = cost;
+			bestWrapIndex = carIndex;
 		}
 	}
 
-	// Select best moving candidate: prefer forward over wrap/reversal
 	let bestMovingCost: number;
 	let bestMovingIndex: number;
 	if (bestForwardIndex >= 0) {
@@ -536,21 +533,22 @@ function findBestAvailableCarForFloor(
 		bestMovingIndex = bestWrapIndex;
 	}
 
-	// Threshold tie-break between moving and idle-home
 	if (bestIdleHomeIndex >= 0 && bestMovingIndex >= 0) {
 		if (
 			bestMovingCost - bestIdleHomeCost <
 			carrier.waitingCarResponseThreshold
 		) {
-			return bestMovingIndex;
+			return { carIndex: bestMovingIndex, fullAssign: true };
 		}
-		return bestIdleHomeIndex;
+		return { carIndex: bestIdleHomeIndex, fullAssign: true };
 	}
-	if (bestIdleHomeIndex >= 0) return bestIdleHomeIndex;
-	if (bestMovingIndex >= 0) return bestMovingIndex;
+	if (bestIdleHomeIndex >= 0)
+		return { carIndex: bestIdleHomeIndex, fullAssign: true };
+	if (bestMovingIndex >= 0)
+		return { carIndex: bestMovingIndex, fullAssign: true };
 
-	// Degenerate fallback: write car index 0 (binary quirk)
-	return 0;
+	// Degenerate: binary writes param_4=0 and returns 1
+	return { carIndex: 0, fullAssign: true };
 }
 
 function clearSimRouteById(world: WorldState, simId: string): void {
@@ -611,63 +609,40 @@ function assignCarToFloorRequest(
 	// If a car is already assigned, reuse it for any new unassigned routes.
 	// Only search for the best car when no assignment exists yet.
 	let carIndex: number;
-	let assignedNewFloorRequest = false;
+	let fullAssign = false;
 	const existing = table[slot] ?? 0;
 	if (existing > 0 && existing !== 0x28) {
 		carIndex = existing - 1;
 	} else if (existing === 0x28) {
 		return; // queue-full sentinel — skip
 	} else {
-		carIndex = findBestAvailableCarForFloor(carrier, floor, directionFlag);
+		const result = findBestAvailableCarForFloor(carrier, floor, directionFlag);
+		carIndex = result.carIndex;
 		if (carIndex < 0) return;
-		assignedNewFloorRequest = true;
+		fullAssign = result.fullAssign;
 	}
 
-	const selectedCar = carrier.cars[carIndex];
-	// Binary find_best_available_car_for_floor cases A/B (1098:0e92 / 0eb1):
-	// when the selected car is already at the source with doors closed and
-	// either has a pending assignment or matches the requested direction, the
-	// selector returns 0 with no param_4 or table write. The car will board
-	// the queued sim naturally when it next opens doors.
-	const caseAB =
-		assignedNewFloorRequest &&
-		selectedCar.currentFloor === floor &&
-		selectedCar.doorWaitCounter === 0 &&
-		selectedCar.arrivalSeen !== 0 &&
-		(selectedCar.pendingAssignmentCount > 0 ||
-			selectedCar.directionFlag === directionFlag);
-
-	if (!caseAB) {
-		for (const route of carrier.pendingRoutes) {
-			if (route.boarded) continue;
-			if (route.sourceFloor !== floor || route.directionFlag !== directionFlag)
-				continue;
-			if (route.assignedCarIndex >= 0) continue; // already assigned
-			route.assignedCarIndex = carIndex;
-		}
+	// Binary gates all writes below on the selector's return value != 0.
+	// Cases A/B/C (fullAssign=false) skip route assignment, pri/sec table
+	// write, pac increment, and target/direction recompute. The car will pick
+	// up the queued sim during its next odd-dwell tick via process_unit_travel_queue.
+	if (!fullAssign) {
+		syncAssignmentStatus(carrier);
+		return;
 	}
-	if (assignedNewFloorRequest && recomputeTarget) {
+
+	for (const route of carrier.pendingRoutes) {
+		if (route.boarded) continue;
+		if (route.sourceFloor !== floor || route.directionFlag !== directionFlag)
+			continue;
+		if (route.assignedCarIndex >= 0) continue;
+		route.assignedCarIndex = carIndex;
+	}
+	if (recomputeTarget) {
 		const car = carrier.cars[carIndex];
-		if (caseAB) {
-			// Binary case A/B: no table write or param_4 write, but the selector
-			// still triggers a direction-flag refresh so endpoint flips fire.
-			if (car.targetFloor === floor && car.arrivalSeen !== 0) {
-				updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
-			}
-		} else {
-			table[slot] = carIndex + 1;
-			car.pendingAssignmentCount += 1;
-			if (car.currentFloor !== floor) {
-				recomputeCarTargetAndDirection(carrier, car, carIndex, undefined);
-			} else if (
-				car.targetFloor === floor &&
-				car.arrivalSeen !== 0 &&
-				floor !== carrier.bottomServedFloor &&
-				floor !== carrier.topServedFloor
-			) {
-				updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
-			}
-		}
+		table[slot] = carIndex + 1;
+		car.pendingAssignmentCount += 1;
+		recomputeCarTargetAndDirection(carrier, car, carIndex, undefined);
 	}
 	syncAssignmentStatus(carrier);
 }
@@ -701,46 +676,36 @@ function processUnitTravelQueue(
 	let remainingSlots = Math.max(0, getCarCapacity(carrier) - car.assignedCount);
 	if (remainingSlots === 0) return;
 
+	const floorQueueState = getQueueState(carrier, car.currentFloor);
+	if (!floorQueueState) return;
+	const floorQueue: CarrierFloorQueue = floorQueueState;
+
+	// Binary 1218:0351 flip-during-dwell: when the car's current-direction
+	// queue is empty, no routes are in-flight (pac==0), and no onboard riders
+	// (ndc==0), check the opposite direction. If that queue has entries, flip
+	// the car's direction flag and drain from the flipped direction.
+	const qCurBuf = getDirectionQueue(floorQueue, car.directionFlag);
 	if (
-		car.dwellCounter === 1 &&
-		car.pendingAssignmentCount === 1 &&
-		car.currentFloor === car.targetFloor &&
-		car.arrivalSeen !== 0 &&
-		car.prevFloor === car.currentFloor + 1 &&
-		carrier.pendingRoutes.some(
-			(route) =>
-				!route.boarded &&
-				route.assignedCarIndex === carIndex &&
-				route.sourceFloor === car.currentFloor &&
-				route.directionFlag === 1 &&
-				route.destinationFloor === car.currentFloor + 1,
-		)
+		qCurBuf.size === 0 &&
+		car.pendingAssignmentCount === 0 &&
+		car.nonemptyDestinationCount === 0
 	) {
-		const slot = floorToSlot(carrier, car.currentFloor);
-		if (slot >= 0) {
-			const upCalls = (carrier.primaryRouteStatusByFloor[slot] ?? 0) !== 0;
-			const downCalls = (carrier.secondaryRouteStatusByFloor[slot] ?? 0) !== 0;
-			if (car.directionFlag === 0 && !downCalls && upCalls) {
-				car.directionFlag = 1;
-			} else if (car.directionFlag === 1 && !upCalls && downCalls) {
-				car.directionFlag = 0;
-			}
+		const oppositeDirection = car.directionFlag === 1 ? 0 : 1;
+		const qOppBuf = getDirectionQueue(floorQueue, oppositeDirection);
+		if (qOppBuf.size !== 0) {
+			car.directionFlag = oppositeDirection;
 		}
 	}
 
-	const floorQueue = getQueueState(carrier, car.currentFloor);
-
 	// Binary 1218:0351: pop cap per direction is 1 unless dwellCounter == 1
-	// exactly (then cap = remainingSlots). For dwell == 3/5/etc the car boards
-	// at most one rider per direction per tick.
+	// exactly (then cap = remainingSlots).
 	const popCap = car.dwellCounter === 1 ? remainingSlots : 1;
 
 	function drainDirection(directionFlag: number): void {
-		if (!floorQueue) return;
 		const buf = getDirectionQueue(floorQueue, directionFlag);
-		// Allow unassigned routes (ci=-1) to board this car too: the binary's
-		// case A/B path leaves new requests unassigned when a car was already at
-		// source, but the car still picks up queued sims on its next dwell.
+		// Binary drains directly from the floor queue; we also accept routes
+		// with ci=-1 (unassigned by cases A/B/C) and routes previously
+		// assigned to this car index.
 		const assignedRoutes = buf
 			.peekAll()
 			.map((routeId) => findRoute(carrier, routeId))
@@ -777,6 +742,12 @@ function processUnitTravelQueue(
 
 	const primaryDirection = car.directionFlag;
 	drainDirection(primaryDirection);
+
+	// Binary: alternate-direction opportunistic drain when scheduleFlag != 0.
+	if (car.scheduleFlag !== 0 && remainingSlots > 0) {
+		const oppositeDirection = primaryDirection === 1 ? 0 : 1;
+		drainDirection(oppositeDirection);
+	}
 
 	syncAssignmentStatus(carrier);
 }
