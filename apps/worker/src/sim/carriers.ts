@@ -1228,6 +1228,32 @@ export function initCarrierState(world: WorldState): void {
 	world.transferGroupCache ??= new Array(GRID_HEIGHT).fill(0);
 }
 
+/**
+ * Mirrors the binary's pop_unit_queue_request + pendingRoute removal triggered
+ * by `dispatch_queued_route_until_request` (1218:1981) when
+ * `maybe_dispatch_queued_route_after_wait` (1228:15a0) times the sim out from
+ * a carrier ride. Removes the sim's pending route and any matching floor-queue
+ * entry, then resyncs derived car state.
+ */
+export function evictCarrierRoute(carrier: CarrierRecord, simId: string): void {
+	const route = findRoute(carrier, simId);
+	if (!route) return;
+	const floorQueue = getQueueState(carrier, route.sourceFloor);
+	if (floorQueue) {
+		const buf = getDirectionQueue(floorQueue, route.directionFlag);
+		const remaining: string[] = [];
+		while (!buf.isEmpty) {
+			const popped = buf.pop();
+			if (popped !== simId) remaining.push(popped as string);
+		}
+		for (const id of remaining) buf.push(id);
+	}
+	carrier.pendingRoutes = carrier.pendingRoutes.filter(
+		(candidate) => candidate.simId !== simId,
+	);
+	syncAssignmentStatus(carrier);
+}
+
 export function enqueueCarrierRoute(
 	carrier: CarrierRecord,
 	simId: string,

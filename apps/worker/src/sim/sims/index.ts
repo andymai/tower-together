@@ -1,4 +1,4 @@
-import { enqueueCarrierRoute } from "../carriers";
+import { enqueueCarrierRoute, evictCarrierRoute } from "../carriers";
 import { handleCathedralSimArrival, processCathedralSim } from "../cathedral";
 import type { LedgerState } from "../ledger";
 import {
@@ -62,6 +62,7 @@ import {
 	STATE_EVAL_OUTBOUND,
 	STATE_EVAL_RETURN,
 	STATE_MORNING_TRANSIT,
+	STATE_NIGHT_B,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP,
 	STATE_VENUE_TRIP_TRANSIT,
@@ -109,7 +110,7 @@ export {
 	resetFacilitySimTripCounters,
 } from "./trip-counters";
 
-import type { TimeState } from "../time";
+import { DAY_TICK_MAX, type TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
 	type SimRecord,
@@ -371,6 +372,52 @@ export function handleCommercialVenueArrival(
 	return true;
 }
 
+// Binary g_route_delay_table_base @ 1288:e5ee. Loaded by
+// load_startup_tuning_resource_table (1198:0005) from resource type 0xff05
+// id 1000 word 0 = 300 ticks.
+const ROUTE_WAIT_TIMEOUT_TICKS = 300;
+
+// Binary family-7 dispatch_sim_behavior jumptable at 1228:1c51. Entries for
+// states {0x45, 0x60, 0x61, 0x62, 0x63} all point to handler 1228:193d, which
+// unconditionally writes sim[+5] = 0x26 (NIGHT_B). Entries for {0x40, 0x41,
+// 0x42} point to a different handler (1228:1989) — not yet decoded.
+const OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES = new Set<number>([
+	STATE_DEPARTURE_TRANSIT,
+	STATE_MORNING_TRANSIT,
+	STATE_AT_WORK_TRANSIT,
+	STATE_VENUE_HOME_TRANSIT,
+	STATE_DWELL_RETURN_TRANSIT,
+]);
+
+function maybeFireOfficeWaitTimeout(
+	world: WorldState,
+	sim: SimRecord,
+	time: TimeState,
+): void {
+	if (sim.familyCode !== FAMILY_OFFICE) return;
+	if (sim.route.mode !== "carrier") return;
+	if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+	if (sim.lastDemandTick <= 0) return;
+	// Day-tick wraps 0..DAY_TICK_MAX-1; the binary uses 16-bit unsigned
+	// subtraction so a stamp from before rollover compares correctly.
+	const elapsed =
+		(time.dayTick - sim.lastDemandTick + DAY_TICK_MAX) % DAY_TICK_MAX;
+	if (elapsed <= ROUTE_WAIT_TIMEOUT_TICKS) return;
+	const carrierId = sim.route.carrierId;
+	const carrier = world.carriers.find((c) => c.carrierId === carrierId);
+	if (!carrier) return;
+	// Binary: maybe_dispatch_queued_route_after_wait (1228:15a0) only fires
+	// for sims still waiting in the floor queue — sim.field_8 < 0x40 means
+	// "not yet boarded". Once the carrier picks the sim up, it rides to its
+	// destination and the arrival handler transitions state naturally.
+	const route = carrier.pendingRoutes.find((r) => r.simId === simKey(sim));
+	if (!route || route.boarded) return;
+	evictCarrierRoute(carrier, simKey(sim));
+	sim.stateCode = STATE_NIGHT_B;
+	sim.destinationFloor = -1;
+	clearSimRoute(sim);
+}
+
 export function advanceSimRefreshStride(
 	world: WorldState,
 	ledger: LedgerState,
@@ -382,9 +429,23 @@ export function advanceSimRefreshStride(
 	for (let index = 0; index < world.sims.length; index++) {
 		if (index % ENTITY_REFRESH_STRIDE !== stride) continue;
 		const sim = world.sims[index];
-		// Spec: dispatch_sim_behavior calls rebase_sim_elapsed_from_clock every tick.
-		rebaseSimElapsedFromClock(sim, time);
+		// Binary: refresh_runtime_entities_for_tick_stride (1228:0d64) does NOT
+		// call rebase_sim_elapsed_from_clock for sims that are still on a
+		// carrier — rebase only fires in dispatch_sim_behavior (1228:186c)
+		// reached via the route-queue drainer. Skipping rebase for on-carrier
+		// sims preserves sim.field_10 (lastDemandTick) so
+		// maybe_dispatch_queued_route_after_wait can fire after the
+		// 300-tick threshold elapses.
+		if (sim.route.mode !== "carrier") {
+			rebaseSimElapsedFromClock(sim, time);
+		}
 		finalizePendingRouteLeg(sim);
+		// Binary: refresh_object_family_office_state_handler (1228:1cb5) for
+		// state >= 0x40 + on-carrier sims calls maybe_dispatch_queued_route_after_wait
+		// (1228:15a0). After 300 ticks (g_route_delay_table_base, loaded from
+		// resource type 0xff05 id 1000 word 0), it dispatches to the family-7
+		// state-0x60 handler at 1228:193d which writes sim[+5] = 0x26 (NIGHT_B).
+		maybeFireOfficeWaitTimeout(world, sim, time);
 		// Binary: sims with the transit flag (0x40) are not in the family dispatch
 		// tables. Skip the state machine for sims actively in transit — the
 		// arrival handler (reconcileSimTransport) will fire later this tick.
@@ -640,10 +701,12 @@ export function resolveSimRouteBetweenFloors(
 		directionFlag,
 	);
 	if (!queued) {
-		// Queue full: sim remains parked here and retries after a short delay.
+		// Queue full: sim remains parked here and retries at its next stride slot
+		// (binary re-dispatches every 16 ticks). 5-tick elapsed penalty mirrors
+		// g_waiting_state_delay in binary's resolve_sim_route_between_floors.
 		sim.route = { mode: "queued", source: sourceFloor };
 		sim.destinationFloor = destinationFloor;
-		sim.routeRetryDelay = 5;
+		sim.routeRetryDelay = 16;
 		addDelayToCurrentSim(sim, 5);
 		return 0;
 	}
@@ -741,10 +804,6 @@ export function populateCarrierRequests(
 	world: WorldState,
 	time?: TimeState,
 ): void {
-	for (const sim of world.sims) {
-		if (sim.routeRetryDelay > 0) sim.routeRetryDelay -= 1;
-	}
-
 	const activeDemandIds = new Set<string>();
 	for (const sim of world.sims) {
 		// Sims already in-transit on a carrier or segment are active demand —
@@ -756,11 +815,11 @@ export function populateCarrierRequests(
 		if (!shouldSeedElevatorDemand(sim)) continue;
 		const demand = getElevatorDemand(sim);
 		if (!demand) continue;
-		activeDemandIds.add(simKey(sim));
-		// Returns -1/0/1/2/3 per ROUTING.md. We don't need to branch here yet
-		// because each return code already leaves the sim in the correct
-		// in-transit / wait / unrouted state.
-		resolveSimRouteBetweenFloors(
+		// Returns -1/0/1/2/3 per ROUTING.md. Only preserve sim's route (via
+		// activeDemandIds) when resolve produced an active leg. Queue-full (0)
+		// leaves sim in "queued" mode; letting Step 4 reset it to idle allows
+		// the retryDelay countdown to drive the retry at the next stride cycle.
+		const result = resolveSimRouteBetweenFloors(
 			world,
 			sim,
 			demand.sourceFloor,
@@ -768,6 +827,7 @@ export function populateCarrierRequests(
 			demand.directionFlag,
 			time,
 		);
+		if (result !== 0) activeDemandIds.add(simKey(sim));
 	}
 
 	for (const carrier of world.carriers) {
@@ -797,6 +857,13 @@ export function populateCarrierRequests(
 		if (!activeDemandIds.has(simKey(sim))) {
 			sim.route = ROUTE_IDLE;
 		}
+	}
+
+	// Decrement retryDelay AFTER seeding. Any retryDelay set during this
+	// populate call is preserved this tick so that stride-set and populate-set
+	// queue-fulls both retry exactly 16 ticks later at the next stride cycle.
+	for (const sim of world.sims) {
+		if (sim.routeRetryDelay > 0) sim.routeRetryDelay -= 1;
 	}
 }
 
