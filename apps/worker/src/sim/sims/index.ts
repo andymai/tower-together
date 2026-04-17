@@ -49,6 +49,9 @@ import {
 	ENTITY_REFRESH_STRIDE,
 	EVAL_ZONE_FLOOR,
 	EVALUATABLE_FAMILIES,
+	HK_STATE_ROUTE_TO_CANDIDATE,
+	HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT,
+	HK_STATE_ROUTE_TO_TARGET,
 	INVALID_FLOOR,
 	LOBBY_FLOOR,
 	ROUTE_IDLE,
@@ -737,6 +740,15 @@ export function resolveSimRouteBetweenFloors(
 }
 
 function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
+	if (sim.familyCode === FAMILY_HOUSEKEEPING) {
+		// HK routing states reuse low state codes (1/3/4) that collide with
+		// hotel-family state values, so gate on family first.
+		return (
+			sim.stateCode === HK_STATE_ROUTE_TO_CANDIDATE ||
+			sim.stateCode === HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT ||
+			sim.stateCode === HK_STATE_ROUTE_TO_TARGET
+		);
+	}
 	return (
 		sim.stateCode === STATE_COMMUTE ||
 		sim.stateCode === STATE_COMMUTE_TRANSIT ||

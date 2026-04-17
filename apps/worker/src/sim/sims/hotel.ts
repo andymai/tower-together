@@ -225,6 +225,12 @@ export function processHotelSim(
 	const object = findObjectForSim(world, sim);
 	if (!object) return;
 
+	// Binary `refresh_runtime_entities_for_tick_stride` (1228:0d64) gates the
+	// family 3/4/5 handler on `base_offset > 0` — the first occupant (sim+2==0)
+	// is never refreshed, so its state persists (e.g. STATE_ARRIVED set by
+	// housekeeping's `activate_selected_vacant_unit` stays put).
+	if (sim.baseOffset === 0) return;
+
 	switch (sim.stateCode) {
 		case STATE_HOTEL_PARKED:
 			// Binary: state 0x24 is NOT in the hotel jump table — it's a no-op.

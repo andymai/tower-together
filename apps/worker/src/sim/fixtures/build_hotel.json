@@ -14,6 +14,7 @@
 		{ "type": "twin", "floor": 2, "left": 98 },
 		{ "type": "suite", "floor": 3, "left": 90 },
 		{ "type": "suite", "floor": 3, "left": 106 },
+		{ "type": "housekeeping", "floor": 1, "left": 110 },
 		{ "type": "stairs", "floor": 1, "left": 94 },
 		{ "type": "stairs", "floor": 2, "left": 94 },
 		{ "type": "stairs", "floor": 3, "left": 94 }

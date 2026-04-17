@@ -55,6 +55,7 @@ function makeSim(
 		tripCount: 0,
 		accumulatedTicks: 0,
 		targetRoomFloor: -1,
+		targetRoomColumn: -1,
 		spawnFloor: floorAnchor,
 		postClaimCountdown: 0,
 		encodedTargetFloor: 0,

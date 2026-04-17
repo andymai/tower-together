@@ -101,6 +101,7 @@ function makeHousekeeper(floor: number, homeColumn = 0): SimRecord {
 		tripCount: 0,
 		accumulatedTicks: 0,
 		targetRoomFloor: HK_SEARCHING_SENTINEL,
+		targetRoomColumn: -1,
 		spawnFloor: floor,
 		postClaimCountdown: 0,
 		encodedTargetFloor: 0,
@@ -117,18 +118,23 @@ describe("housekeeping helper", () => {
 		const sim = makeHousekeeper(12);
 		world.sims.push(sim);
 		processHousekeepingSim(world, timeAt(100), sim);
-		expect(sim.stateCode).toBe(HK_STATE_SEARCH);
+		// Binary state-0: find_matching returns -1 → sim+6 = -1 → state = 1.
+		// Observable effect: no room claim occurred and target remains sentinel.
 		expect(sim.targetRoomFloor).toBe(HK_SEARCHING_SENTINEL);
+		expect(sim.postClaimCountdown).toBe(0);
 	});
 
 	it("skips rooms whose floor does not match the claimant's floor-class (%6)", () => {
 		const world = makeWorld();
-		// Spawn floor 12 → floorClass = 0. Add a turnover room on floor 13 (class 1).
-		addHotelRoom(world, 20, 13, 0x28);
+		// baseOffset=0 → floorClass = 0. Add a turnover room on floor 13 (class 1).
+		const room = addHotelRoom(world, 20, 13, 0x28);
 		const sim = makeHousekeeper(12);
 		world.sims.push(sim);
 		processHousekeepingSim(world, timeAt(100), sim);
-		expect(sim.stateCode).toBe(HK_STATE_SEARCH);
+		// No matching candidate → state transitions to HK_STATE_ROUTE_TO_CANDIDATE
+		// but room is not claimed.
+		expect(room.housekeepingClaimedFlag).toBe(0);
+		expect(sim.targetRoomFloor).toBe(HK_SEARCHING_SENTINEL);
 	});
 
 	it("claims a same-floor turnover room immediately before the cutoff", () => {
@@ -142,9 +148,10 @@ describe("housekeeping helper", () => {
 		expect(sim.targetRoomFloor).toBe(12);
 		expect(sim.postClaimCountdown).toBe(HK_POST_CLAIM_COUNTDOWN);
 		expect(room.housekeepingClaimedFlag).toBe(1);
-		expect(room.unitStatus).toBeGreaterThanOrEqual(2);
-		expect(room.unitStatus).toBeLessThanOrEqual(14);
-		expect(sim.encodedTargetFloor).toBe((0 - 12) * 0x400);
+		// Binary `activate_selected_vacant_unit` (1158:02e2): unit_status is 0x18
+		// pre-daypart-4, 0x20 otherwise. The test's timeAt(100) is daypart 0.
+		expect(room.unitStatus).toBe(0x18);
+		expect(sim.targetRoomColumn).toBe(20);
 	});
 
 	it("refuses to promote once day_tick has reached the cutoff (1500)", () => {
@@ -191,7 +198,9 @@ describe("housekeeping helper", () => {
 		processHousekeepingSim(world, timeAt(50), sim);
 		expect(sim.postClaimCountdown).toBe(3);
 
-		for (let i = 1; i <= 3; i++) {
+		// Binary state-2 is check-before-decrement, so 4 strides in state 2 for
+		// a starting countdown of 3 (values 3→2→1→0 then exit on the 4th).
+		for (let i = 1; i <= 4; i++) {
 			processHousekeepingSim(world, timeAt(50 + i), sim);
 		}
 		expect(sim.stateCode).toBe(HK_STATE_SEARCH);

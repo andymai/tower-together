@@ -83,7 +83,7 @@ export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_RECYCLING_CENTER_UPPER]: 6,
 	[FAMILY_SECURITY]: 6,
 	// Housekeeping helpers (family 0x0f).
-	[FAMILY_HOUSEKEEPING]: 3,
+	[FAMILY_HOUSEKEEPING]: 6,
 	// Cathedral guest sims: 5 floor types x 8 slots = 40 guests.
 	36: 8, // 0x24
 	37: 8, // 0x25

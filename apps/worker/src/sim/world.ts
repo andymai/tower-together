@@ -162,6 +162,8 @@ export interface SimRecord {
 	accumulatedTicks: number;
 	/** Housekeeping helper (family 0x0f): selected hotel room's floor, with -1 as the searching sentinel. */
 	targetRoomFloor: number;
+	/** Housekeeping helper: leftTileIndex (column) of the claimed room. Paired with targetRoomFloor to uniquely identify the room at cleanup time, mirroring binary sim+0xc (the floor-local object id written by find_matching_vacant_unit_floor). */
+	targetRoomColumn: number;
 	/** Housekeeping helper: recorded spawn floor used as the candidate-search seed and modulo class. */
 	spawnFloor: number;
 	/** Housekeeping helper: 3-tick post-claim countdown. */

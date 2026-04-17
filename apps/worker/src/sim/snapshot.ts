@@ -436,6 +436,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 		sim.routeRetryDelay ??= 0;
 		sim.elapsedTicks ??= 0;
 		sim.targetRoomFloor ??= -1;
+		sim.targetRoomColumn ??= -1;
 		sim.spawnFloor ??= sim.floorAnchor;
 		sim.postClaimCountdown ??= 0;
 		sim.encodedTargetFloor ??= 0;

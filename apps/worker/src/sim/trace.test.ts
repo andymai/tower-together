@@ -93,6 +93,7 @@ const FIXTURE_TILE_MAP: Record<string, string> = {
 	suite: "hotelSuite",
 	stairs: "stairs",
 	security: "security",
+	housekeeping: "housekeeping",
 };
 
 // ─── Trace sim key → familyCode mapping ────────────────────────────────────
@@ -107,6 +108,7 @@ const TRACE_SIM_KEY_TO_FAMILY: Record<string, number> = {
 	twin: 4,
 	suite: 5,
 	security: 14,
+	housekeeping: 15,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

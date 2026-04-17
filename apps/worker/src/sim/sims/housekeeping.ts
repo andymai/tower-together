@@ -3,7 +3,6 @@ import type { TimeState } from "../time";
 import {
 	type PlacedObjectRecord,
 	type SimRecord,
-	sampleRng,
 	type WorldState,
 	yToFloor,
 } from "../world";
@@ -19,6 +18,8 @@ import {
 	HK_STATE_ROUTE_TO_TARGET,
 	HK_STATE_SEARCH,
 	HOTEL_FAMILIES,
+	STATE_ARRIVED,
+	STATE_HOTEL_PARKED,
 } from "./states";
 
 const HOTEL_TURNOVER_STATUS = new Set([0x28, 0x30]);
@@ -92,11 +93,15 @@ function attemptRouteToFloor(
 	targetFloor: number,
 	time: TimeState,
 ): number {
-	const direction = targetFloor > sim.floorAnchor ? 1 : 0;
+	// Binary `sim+0` is the HK helper's *current* floor (updated on arrival).
+	// TS splits that into two fields: `floorAnchor` stays fixed as the tile
+	// linkage key (required by `rebuildRuntimeSims`), while `selectedFloor`
+	// tracks current position as the HK helper roams.
+	const direction = targetFloor > sim.selectedFloor ? 1 : 0;
 	return resolveSimRouteBetweenFloors(
 		world,
 		sim,
-		sim.floorAnchor,
+		sim.selectedFloor,
 		targetFloor,
 		direction,
 		time,
@@ -105,13 +110,29 @@ function attemptRouteToFloor(
 
 function promoteClaim(
 	world: WorldState,
+	time: TimeState,
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
-	// Spec: randomized trip counter in 2..14 inclusive (rand() % 13 + 2).
-	object.unitStatus = (sampleRng(world) % 13) + 2;
+	// Binary `activate_selected_vacant_unit` (1158:02e2): the cleaned-room
+	// unit_status is 0x18 while daypart_index < 4, and 0x20 otherwise, i.e.
+	// the same morning/evening VACANT bucket `place_object` would have picked
+	// when the room was first placed. The room is *not* re-randomized to the
+	// occupied trip-counter band — that happens when the new guest arrives.
+	object.unitStatus = time.daypartIndex < 4 ? 0x18 : 0x20;
 	object.housekeepingClaimedFlag = 1;
-	sim.encodedTargetFloor = (0 - sim.targetRoomFloor) * 0x400;
+	sim.targetRoomColumn = object.leftTileIndex;
+	// The binary also flips the first guest occupant of the cleaned room to
+	// state 3 (ARRIVED) so the hotel-family state machine picks up the new
+	// occupancy on its next stride.
+	const newOccupant = world.sims.find(
+		(candidate) =>
+			candidate.familyCode === object.objectTypeCode &&
+			candidate.floorAnchor === sim.targetRoomFloor &&
+			candidate.homeColumn === object.leftTileIndex &&
+			candidate.baseOffset === 0,
+	);
+	if (newOccupant) newOccupant.stateCode = STATE_ARRIVED;
 	sim.postClaimCountdown = HK_POST_CLAIM_COUNTDOWN;
 	sim.stateCode = HK_STATE_COUNTDOWN;
 }
@@ -119,7 +140,31 @@ function promoteClaim(
 function resetToSearch(sim: SimRecord): void {
 	sim.stateCode = HK_STATE_SEARCH;
 	sim.targetRoomFloor = HK_SEARCHING_SENTINEL;
+	sim.targetRoomColumn = -1;
 	sim.postClaimCountdown = 0;
+}
+
+/**
+ * Binary `flag_selected_unit_unavailable` (1158:04e2): called when the HK
+ * helper's post-claim countdown (sim+10) reaches 0 in state 2. Looks up the
+ * first occupant (base_offset=0) of the claimed hotel-family room and writes
+ * stateCode = 0x24 (STATE_HOTEL_PARKED) so the hotel state machine picks up
+ * the room on its next stride, and sets the object's "dirty" byte to 1.
+ */
+function flagSelectedUnitUnavailable(world: WorldState, sim: SimRecord): void {
+	if (sim.targetRoomFloor < 0 || sim.targetRoomColumn < 0) return;
+	const y = world.height - 1 - sim.targetRoomFloor;
+	const room = world.placedObjects[`${sim.targetRoomColumn},${y}`];
+	if (!room) return;
+	if (!HOTEL_FAMILIES.has(room.objectTypeCode)) return;
+	const firstOccupant = world.sims.find(
+		(candidate) =>
+			candidate.familyCode === room.objectTypeCode &&
+			candidate.floorAnchor === sim.targetRoomFloor &&
+			candidate.homeColumn === room.leftTileIndex &&
+			candidate.baseOffset === 0,
+	);
+	if (firstOccupant) firstOccupant.stateCode = STATE_HOTEL_PARKED;
 }
 
 function findRoomAtFloor(
@@ -149,45 +194,73 @@ export function processHousekeepingSim(
 
 	switch (sim.stateCode) {
 		case HK_STATE_SEARCH: {
-			// Initial search entry: reset target sentinel and seed spawn floor
-			// from the sim's current floor on first use.
-			sim.targetRoomFloor = HK_SEARCHING_SENTINEL;
+			// Binary state-0 handler only progresses while day_tick < 1500.
+			if (time.dayTick >= HK_CLAIM_DAY_TICK_CUTOFF) return;
 			if (sim.spawnFloor < 0) sim.spawnFloor = sim.floorAnchor;
 
+			// Binary `find_matching_vacant_unit_floor` (1158:0000) uses
+			// `get_current_sim_state_word(sim)` — the u16 at sim+2, populated by
+			// `initialize_runtime_entities_for_object_span` with the occupant's
+			// span index (0..population-1). For housekeeping (pop=6), this is the
+			// TS `baseOffset` field, which ranges 0..5 and acts as the floor-class
+			// filter: each of the 6 HK helpers in a tile services a distinct
+			// `floor % 6` residue.
 			const floorClass =
-				((sim.spawnFloor % HK_FLOOR_CLASS_MOD) + HK_FLOOR_CLASS_MOD) %
+				((sim.baseOffset % HK_FLOOR_CLASS_MOD) + HK_FLOOR_CLASS_MOD) %
 				HK_FLOOR_CLASS_MOD;
 			const candidate = findVacantHotelRoomForClaim(
 				world,
 				sim.spawnFloor,
 				floorClass,
 			);
-			if (!candidate) return;
-
-			// Commit candidate: spawn_floor holds the selected candidate floor,
-			// target_room_floor is committed here for later claim-promotion.
-			sim.spawnFloor = candidate.floor;
+			if (!candidate) {
+				// Binary state-0: find_matching returns -1 → sim+6 = -1 → state = 1.
+				// State 1 will next stride route from current_floor to sim+7 (spawn);
+				// same-floor → reset → state 0, producing the observed 0↔1 oscillation.
+				sim.targetRoomFloor = HK_SEARCHING_SENTINEL;
+				sim.stateCode = HK_STATE_ROUTE_TO_CANDIDATE;
+				return;
+			}
+			// Binary falls through to the state-0/3 shared route resolution in the
+			// same stride: state becomes 3 and the route to the target floor is
+			// initiated immediately (result 0/1/2 → state 3, result 3 → claim,
+			// result -1 → reset). Mirror that by advancing to state 3 and running
+			// the state-3 body on the current stride.
 			sim.targetRoomFloor = candidate.floor;
+			sim.stateCode = HK_STATE_ROUTE_TO_TARGET;
+			tryClaimOnCurrentFloor(world, time, sim);
+			return;
+		}
 
-			const result = attemptRouteToFloor(world, sim, candidate.floor, time);
+		case HK_STATE_ROUTE_TO_CANDIDATE: {
+			// Binary state-1 handler: route toward spawn_floor. Same-floor
+			// arrival with no committed target resets; same-floor arrival with
+			// a valid target advances to state 3 (claim).
+			if (sim.selectedFloor === sim.spawnFloor) {
+				if (sim.targetRoomFloor === HK_SEARCHING_SENTINEL) {
+					resetToSearch(sim);
+					return;
+				}
+				sim.stateCode = HK_STATE_ROUTE_TO_TARGET;
+				tryClaimOnCurrentFloor(world, time, sim);
+				return;
+			}
+			const result = attemptRouteToFloor(world, sim, sim.spawnFloor, time);
 			if (result === -1) {
 				resetToSearch(sim);
 				return;
 			}
 			if (result === 3) {
-				// Same-floor: jump straight into claim evaluation.
 				sim.stateCode = HK_STATE_ROUTE_TO_TARGET;
 				tryClaimOnCurrentFloor(world, time, sim);
 				return;
 			}
-			sim.stateCode =
-				result === 0
-					? HK_STATE_ROUTE_TO_CANDIDATE
-					: HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT;
+			if (result !== 0) {
+				sim.stateCode = HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT;
+			}
 			return;
 		}
 
-		case HK_STATE_ROUTE_TO_CANDIDATE:
 		case HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT:
 			// In transit; arrival handler advances to HK_STATE_ROUTE_TO_TARGET.
 			return;
@@ -197,10 +270,15 @@ export function processHousekeepingSim(
 			return;
 
 		case HK_STATE_COUNTDOWN: {
-			sim.postClaimCountdown -= 1;
-			if (sim.postClaimCountdown <= 0) {
-				resetToSearch(sim);
+			// Binary state-2 (1228:602b case 2): `if (sim+10 != 0) { sim+10--;
+			// return; } else { flag_unavailable; sim+5 = 0; }`. The check-first
+			// order gives 4 strides in state 2 for a starting value of 3, not 3.
+			if (sim.postClaimCountdown !== 0) {
+				sim.postClaimCountdown -= 1;
+				return;
 			}
+			flagSelectedUnitUnavailable(world, sim);
+			resetToSearch(sim);
 			return;
 		}
 
@@ -214,7 +292,7 @@ function tryClaimOnCurrentFloor(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	if (sim.floorAnchor !== sim.targetRoomFloor) {
+	if (sim.selectedFloor !== sim.targetRoomFloor) {
 		const result = attemptRouteToFloor(world, sim, sim.targetRoomFloor, time);
 		if (result === -1) {
 			resetToSearch(sim);
@@ -232,7 +310,7 @@ function tryClaimOnCurrentFloor(
 		resetToSearch(sim);
 		return;
 	}
-	promoteClaim(world, sim, room);
+	promoteClaim(world, time, sim, room);
 }
 
 export function handleHousekeepingSimArrival(
