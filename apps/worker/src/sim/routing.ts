@@ -712,12 +712,11 @@ function getFloorSlotStatus(
 	directionFlag: number,
 ): number {
 	const slot = floor - carrier.bottomServedFloor;
-	const table =
-		directionFlag === 1
-			? carrier.primaryRouteStatusByFloor
-			: carrier.secondaryRouteStatusByFloor;
-	if (slot < 0 || slot >= table.length) return 0;
-	return table[slot] ?? 0;
+	if (slot < 0 || slot >= carrier.floorQueues.length) return 0;
+	const queue = carrier.floorQueues[slot];
+	if (!queue) return 0;
+	const directionQueue = directionFlag === 1 ? queue.up : queue.down;
+	return directionQueue.size >= 40 ? 0x28 : 0;
 }
 
 function carrierCoversFloor(
