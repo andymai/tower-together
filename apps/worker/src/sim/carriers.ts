@@ -623,26 +623,50 @@ function assignCarToFloorRequest(
 		assignedNewFloorRequest = true;
 	}
 
-	for (const route of carrier.pendingRoutes) {
-		if (route.boarded) continue;
-		if (route.sourceFloor !== floor || route.directionFlag !== directionFlag)
-			continue;
-		if (route.assignedCarIndex >= 0) continue; // already assigned
-		route.assignedCarIndex = carIndex;
+	const selectedCar = carrier.cars[carIndex];
+	// Binary find_best_available_car_for_floor cases A/B (1098:0e92 / 0eb1):
+	// when the selected car is already at the source with doors closed and
+	// either has a pending assignment or matches the requested direction, the
+	// selector returns 0 with no param_4 or table write. The car will board
+	// the queued sim naturally when it next opens doors.
+	const caseAB =
+		assignedNewFloorRequest &&
+		selectedCar.currentFloor === floor &&
+		selectedCar.doorWaitCounter === 0 &&
+		selectedCar.arrivalSeen !== 0 &&
+		(selectedCar.pendingAssignmentCount > 0 ||
+			selectedCar.directionFlag === directionFlag);
+
+	if (!caseAB) {
+		for (const route of carrier.pendingRoutes) {
+			if (route.boarded) continue;
+			if (route.sourceFloor !== floor || route.directionFlag !== directionFlag)
+				continue;
+			if (route.assignedCarIndex >= 0) continue; // already assigned
+			route.assignedCarIndex = carIndex;
+		}
 	}
 	if (assignedNewFloorRequest && recomputeTarget) {
-		table[slot] = carIndex + 1;
-		carrier.cars[carIndex].pendingAssignmentCount += 1;
 		const car = carrier.cars[carIndex];
-		if (car.currentFloor !== floor) {
-			recomputeCarTargetAndDirection(carrier, car, carIndex, undefined);
-		} else if (
-			car.targetFloor === floor &&
-			car.arrivalSeen !== 0 &&
-			floor !== carrier.bottomServedFloor &&
-			floor !== carrier.topServedFloor
-		) {
-			updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
+		if (caseAB) {
+			// Binary case A/B: no table write or param_4 write, but the selector
+			// still triggers a direction-flag refresh so endpoint flips fire.
+			if (car.targetFloor === floor && car.arrivalSeen !== 0) {
+				updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
+			}
+		} else {
+			table[slot] = carIndex + 1;
+			car.pendingAssignmentCount += 1;
+			if (car.currentFloor !== floor) {
+				recomputeCarTargetAndDirection(carrier, car, carIndex, undefined);
+			} else if (
+				car.targetFloor === floor &&
+				car.arrivalSeen !== 0 &&
+				floor !== carrier.bottomServedFloor &&
+				floor !== carrier.topServedFloor
+			) {
+				updateCarDirectionFlag(carrier, car, carIndex, car.scheduleFlag, false);
+			}
 		}
 	}
 	syncAssignmentStatus(carrier);
@@ -714,6 +738,9 @@ function processUnitTravelQueue(
 	function drainDirection(directionFlag: number): void {
 		if (!floorQueue) return;
 		const buf = getDirectionQueue(floorQueue, directionFlag);
+		// Allow unassigned routes (ci=-1) to board this car too: the binary's
+		// case A/B path leaves new requests unassigned when a car was already at
+		// source, but the car still picks up queued sims on its next dwell.
 		const assignedRoutes = buf
 			.peekAll()
 			.map((routeId) => findRoute(carrier, routeId))
@@ -721,7 +748,8 @@ function processUnitTravelQueue(
 				(route): route is NonNullable<typeof route> =>
 					route !== undefined &&
 					!route.boarded &&
-					route.assignedCarIndex === carIndex &&
+					(route.assignedCarIndex === carIndex ||
+						route.assignedCarIndex === -1) &&
 					!hasActiveSlot(car, route.simId),
 			);
 		for (const route of assignedRoutes.slice(
@@ -980,8 +1008,10 @@ function boardAndUnloadRoutes(
 		if (!slot?.active || slot.boarded) continue;
 		const route = findRoute(carrier, slot.routeId);
 		if (!route || route.boarded) continue;
-		if (route.assignedCarIndex !== carIndex) continue;
+		if (route.assignedCarIndex !== carIndex && route.assignedCarIndex !== -1)
+			continue;
 		if (route.sourceFloor !== car.currentFloor) continue;
+		route.assignedCarIndex = carIndex;
 		route.boarded = true;
 		slot.boarded = true;
 		car.assignedCount += 1;
