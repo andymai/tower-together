@@ -501,20 +501,24 @@ function findBestAvailableCarForFloor(
 			continue;
 		}
 
-		// Opposite direction: wrap via turn floor
+		// Opposite direction: wrap via turn floor. Binary 1098:0fe0 branches on
+		// (request floor vs turnFloor), not (request floor vs currentFloor): if
+		// the request lies on the car's return leg past its reversal point, cost
+		// is the wrap distance; otherwise the car passes the request going the
+		// wrong way and the cost is the direct separation.
 		const turnFloor = car.targetFloor;
 		let cost: number;
 		if (directionFlag === 1) {
-			if (floor <= car.currentFloor) {
-				cost = Math.abs(car.currentFloor - floor);
+			if (turnFloor < floor) {
+				cost = car.currentFloor + floor - 2 * turnFloor;
 			} else {
-				cost = car.currentFloor - turnFloor + (floor - turnFloor);
+				cost = car.currentFloor - floor;
 			}
 		} else {
-			if (floor >= car.currentFloor) {
-				cost = Math.abs(floor - car.currentFloor);
+			if (floor < turnFloor) {
+				cost = 2 * turnFloor - car.currentFloor - floor;
 			} else {
-				cost = turnFloor - car.currentFloor + (turnFloor - floor);
+				cost = floor - car.currentFloor;
 			}
 		}
 		if (cost < bestWrapCost) {
