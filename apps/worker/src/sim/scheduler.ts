@@ -10,6 +10,8 @@ import {
 } from "./entertainment";
 import { checkDailyEvents } from "./events";
 import {
+	activateThreeDayCashflow,
+	doExpenseSweep,
 	doLedgerRollover,
 	type LedgerState,
 	rebuildFacilityLedger,
@@ -146,6 +148,8 @@ function checkpointRuntimeRefresh(_s: SimState): void {
 function checkpointLedgerRollover(s: SimState): void {
 	doLedgerRollover(s.ledger, s.world, s.time.dayCounter);
 	if (s.time.dayCounter % 3 === 0) {
+		activateThreeDayCashflow(s.world, s.ledger, s.time.dayCounter);
+		doExpenseSweep(s.ledger, s.world);
 		refundUnhappyFacilities(s.world, s.ledger, s.time);
 	}
 }

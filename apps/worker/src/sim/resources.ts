@@ -32,7 +32,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	recyclingCenterUpper: 2, // family 0x14 upper slice
 	recyclingCenterLower: 2, // family 0x15 lower slice
 	parking: 4, // family 0x18
-	metro: 4, // family 0x0e; SPEC.md marks this as a resource-icon-derived width
+	security: 4, // family 0x0e (named "metro" in earlier analysis — binary code 14 is security)
 	housekeeping: 15, // family 0x0f
 };
 
@@ -59,7 +59,7 @@ export const TILE_COSTS: Record<string, number> = {
 	recyclingCenterUpper: 500_000,
 	recyclingCenterLower: 0,
 	parking: 5_000,
-	metro: 1_000_000,
+	security: 1_000_000,
 	housekeeping: 50_000,
 };
 
@@ -100,7 +100,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_CONDO]: "condo",
 	[FAMILY_FAST_FOOD]: "fastFood",
 	[FAMILY_RETAIL]: "retail",
-	[FAMILY_METRO]: "metro",
+	[FAMILY_METRO]: "security",
 	[FAMILY_CINEMA]: "cinema",
 	[FAMILY_RECYCLING_CENTER_UPPER]: "recyclingCenterUpper",
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
@@ -116,9 +116,7 @@ export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
 	vipSuite: "hotelSuite",
 };
 
-export const LEGACY_TILE_ALIASES: Record<string, string> = {
-	security: "recyclingCenterUpper",
-};
+export const LEGACY_TILE_ALIASES: Record<string, string> = {};
 
 export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
 	Object.entries(FAMILY_CODE_TO_TILE).map(([k, v]) => [v, Number(k)]),
@@ -166,17 +164,22 @@ export const COMMERCIAL_CAPACITY_CAPS: Record<
 // ─── YEN #1002 — expense table ────────────────────────────────────────────────
 // Operating expenses charged every 3 days.
 
+// Binary-verified YEN resource #1002. Raw table (family code → value):
+// [1]=100, [14]=200, [15]=100, [20]=500, [22]=0, [27]=50, [31]=1000,
+// [42]=200, [43]=100, [44]=100 (all others 0). Values here are raw/10 so
+// that `value * YEN_UNIT (=1000)` matches the binary's cash_balance × 100
+// trace scale (YEN_1001 uses the same raw/10 convention).
 export const YEN_1002: Record<string, number> = {
-	restaurant: 500,
-	fastFood: 50,
-	retail: 1000,
-	recyclingCenterUpper: 200,
-	recyclingCenterLower: 100,
-	elevatorLocal: 100, // per unit per 3-day period
-	elevatorExpress: 200,
-	elevatorService: 100,
-	escalator: 0,
-	stairs: 50,
+	elevatorLocal: 10, // family 1, per active car per 3-day period
+	security: 20, // family 14
+	housekeeping: 10, // family 15
+	recyclingCenterUpper: 50, // family 20
+	recyclingCenterLower: 0, // family 21
+	stairs: 0, // family 22
+	escalator: 5, // family 27
+	metro: 100, // family 31
+	elevatorExpress: 20, // family 42
+	elevatorService: 10, // family 43
 };
 
 // ─── Operational score thresholds ─────────────────────────────────────────────

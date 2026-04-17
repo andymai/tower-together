@@ -1,4 +1,10 @@
-import { PARKING_EXPENSE_RATE_BY_STAR, YEN_1001, YEN_1002 } from "./resources";
+import {
+	FAMILY_OFFICE,
+	FAMILY_RETAIL,
+	PARKING_EXPENSE_RATE_BY_STAR,
+	YEN_1001,
+	YEN_1002,
+} from "./resources";
 import { UNDERGROUND_FLOORS, type WorldState, yToFloor } from "./world";
 
 // ─── Three-ledger money model ─────────────────────────────────────────────────
@@ -152,11 +158,12 @@ export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
 
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
-		const units = Math.max(1, (segment.flags >> 1) + 1);
-		// Escalator branch (bit 0 clear) → "stairs" expense key ($5,000);
-		// Stairs branch (bit 0 set) → "escalator" expense key ($0).
-		const expenseKey = (segment.flags & 1) === 0 ? "stairs" : "escalator";
-		const typeCode = (segment.flags & 1) === 0 ? 0x1b : 0x16;
+		const units = Math.max(1, segment.flags >> 1);
+		// Binary: bit 0 clear → escalator (family 0x1b, YEN=50);
+		// bit 0 set → stairs (family 0x16, YEN=0).
+		const isStairs = (segment.flags & 1) === 1;
+		const expenseKey = isStairs ? "stairs" : "escalator";
+		const typeCode = isStairs ? 0x16 : 0x1b;
 		const rate = YEN_1002[expenseKey];
 		if (!rate) continue;
 		const amount = rate * YEN_UNIT * units;
@@ -193,43 +200,51 @@ export function rebuildFacilityLedger(
  */
 export function doLedgerRollover(
 	ledger: LedgerState,
-	world: WorldState,
+	_world: WorldState,
 	dayCounter: number,
 ): void {
 	if (dayCounter % 3 !== 0) return;
 	ledger.cashBalanceCycleBase = ledger.cashBalance;
 	ledger.incomeLedger.fill(0);
 	ledger.expenseLedger.fill(0);
-	// Binary: income from offices/retail is applied here via
-	// activate_office_cashflow / activate_retail_shop_cashflow, called from
-	// the 3-day checkpoint handler. The per-sim handler uses auxValueOrTimer
-	// as a once-per-cycle guard to avoid double-counting.
-	doThreeDayIncome(ledger, world, dayCounter);
 }
 
 /**
- * Mirrors binary `activate_office_cashflow` + `activate_retail_shop_cashflow`.
- * At the 3-day boundary, adds income for each active office and retail venue.
- * Sets auxValueOrTimer so the per-sim handler won't double-fire.
+ * Mirrors binary `recompute_all_operational_status_and_cashflow` at the 3-day
+ * checkpoint. Offices activate unconditionally; retail activates only once its
+ * occupiableFlag has been set (by the lazy per-sim activateRetailShop path).
+ * Both share auxValueOrTimer with the per-sim handlers as a once-per-cycle
+ * guard.
  */
-function doThreeDayIncome(
-	ledger: LedgerState,
+export function activateThreeDayCashflow(
 	world: WorldState,
+	ledger: LedgerState,
 	dayCounter: number,
 ): void {
+	const guard = dayCounter + 1;
 	for (const obj of Object.values(world.placedObjects)) {
-		const code = obj.objectTypeCode;
-		const tileName = _codeToTile(code);
-		if (!tileName) continue;
-		// Only office and retail receive 3-day income at this checkpoint.
-		if (code !== 7 /* FAMILY_OFFICE */ && code !== 10 /* FAMILY_RETAIL */)
+		if (obj.objectTypeCode === FAMILY_OFFICE) {
+			if (obj.auxValueOrTimer === guard) continue;
+			obj.auxValueOrTimer = guard;
+			addCashflowFromFamilyResource(
+				ledger,
+				"office",
+				obj.rentLevel,
+				FAMILY_OFFICE,
+			);
 			continue;
-		// Retail must be activated (occupiableFlag set) to receive income.
-		if (code === 10 && obj.occupiableFlag === 0) continue;
-		// Guard: only fire once per 3-day cycle (same guard as the sim handler).
-		if (obj.auxValueOrTimer === dayCounter + 1) continue;
-		obj.auxValueOrTimer = dayCounter + 1;
-		addCashflowFromFamilyResource(ledger, tileName, obj.rentLevel, code);
+		}
+		if (obj.objectTypeCode === FAMILY_RETAIL) {
+			if (obj.auxValueOrTimer === guard) continue;
+			if (obj.occupiableFlag !== 1) continue;
+			obj.auxValueOrTimer = guard;
+			addCashflowFromFamilyResource(
+				ledger,
+				"retail",
+				obj.rentLevel,
+				FAMILY_RETAIL,
+			);
+		}
 	}
 }
 
@@ -245,7 +260,8 @@ const CODE_TO_TILE: Record<number, string> = {
 	9: "condo",
 	10: "retail",
 	12: "fastFood",
-	14: "metro",
+	14: "security",
+	15: "housekeeping",
 	18: "cinema",
 	20: "recyclingCenterUpper",
 	21: "recyclingCenterLower",

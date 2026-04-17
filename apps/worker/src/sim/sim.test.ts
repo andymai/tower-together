@@ -677,17 +677,17 @@ describe("ledger: rebuildFacilityLedger", () => {
 });
 
 describe("ledger: doExpenseSweep", () => {
-	it("charges YEN_1002 * 1000 per restaurant per sweep", () => {
+	it("charges YEN_1002 * 1000 per security tile per sweep", () => {
 		const world = makeWorld();
 		const ledger = makeLedger(10_000_000);
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handlePlaceTile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "security", world, ledger);
 		const cashAfterBuild = ledger.cashBalance;
 		doExpenseSweep(ledger, world);
-		// restaurant expense = 500 * 1000 = 500,000
-		expect(cashAfterBuild - ledger.cashBalance).toBe(500_000);
+		// security expense = 20 * 1000 = 20,000
+		expect(cashAfterBuild - ledger.cashBalance).toBe(20_000);
 	});
 
 	it("updates expenseLedger for the charged type", () => {
@@ -696,7 +696,7 @@ describe("ledger: doExpenseSweep", () => {
 		const y = GROUND_Y - 1;
 		for (let x = 0; x < GRID_WIDTH; x++)
 			world.cells[`${x},${GROUND_Y}`] = "floor";
-		handlePlaceTile(0, y, "restaurant", world, ledger);
+		handlePlaceTile(0, y, "security", world, ledger);
 		const rec = world.placedObjects[`0,${y}`];
 		doExpenseSweep(ledger, world);
 		expect(ledger.expenseLedger[rec.objectTypeCode]).toBeGreaterThan(0);
@@ -711,7 +711,7 @@ describe("ledger: doExpenseSweep", () => {
 		world.placedObjects[`0,${y}`] = {
 			leftTileIndex: 0,
 			rightTileIndex: 1,
-			objectTypeCode: 6, // restaurant
+			objectTypeCode: 14, // security
 			unitStatus: 0,
 			linkedRecordIndex: -1,
 			auxValueOrTimer: 0,
@@ -719,7 +719,7 @@ describe("ledger: doExpenseSweep", () => {
 			evalLevel: -1,
 			occupiableFlag: 1,
 			activationTickCount: 0,
-			rentLevel: 4, // family 6 (restaurant) → init = 4
+			rentLevel: 4,
 			evalScore: -1,
 			housekeepingClaimedFlag: 0,
 		};
@@ -737,8 +737,9 @@ describe("ledger: doExpenseSweep", () => {
 		const cashBefore = ledger.cashBalance;
 		doExpenseSweep(ledger, world);
 
+		// local=10, express=20, service=10 (YEN_1002 units × YEN_UNIT=1000)
 		expect(cashBefore - ledger.cashBalance).toBe(
-			(2 * 100 + 1 * 200 + 3 * 100) * 1000,
+			(2 * 10 + 1 * 20 + 3 * 10) * 1000,
 		);
 	});
 });
@@ -1224,7 +1225,7 @@ describe("YEN tables", () => {
 		expect(TILE_COSTS.recyclingCenterUpper).toBe(500_000);
 		expect(TILE_COSTS.recyclingCenterLower).toBe(0);
 		expect(TILE_COSTS.parking).toBe(5_000);
-		expect(TILE_COSTS.metro).toBe(1_000_000);
+		expect(TILE_COSTS.security).toBe(1_000_000);
 	});
 
 	it("YEN_1001 hotel payout: [3, 2, 1.5, 0.5]", () => {
@@ -1243,40 +1244,32 @@ describe("YEN tables", () => {
 		expect(YEN_1001.retail).toEqual([20, 15, 10, 4]);
 	});
 
-	it("YEN_1002 restaurant expense = 500", () => {
-		expect(YEN_1002.restaurant).toBe(500);
+	it("YEN_1002 security expense = 20 (raw binary 200 / 10)", () => {
+		expect(YEN_1002.security).toBe(20);
 	});
 
-	it("YEN_1002 fastFood expense = 50", () => {
-		expect(YEN_1002.fastFood).toBe(50);
+	it("YEN_1002 recycling-center upper expense = 50 (raw 500)", () => {
+		expect(YEN_1002.recyclingCenterUpper).toBe(50);
 	});
 
-	it("YEN_1002 retail expense = 1000", () => {
-		expect(YEN_1002.retail).toBe(1000);
+	it("YEN_1002 elevatorLocal expense = 10 (raw 100)", () => {
+		expect(YEN_1002.elevatorLocal).toBe(10);
 	});
 
-	it("YEN_1002 recycling-center upper expense = 200", () => {
-		expect(YEN_1002.recyclingCenterUpper).toBe(200);
+	it("YEN_1002 elevatorExpress expense = 20 (raw 200)", () => {
+		expect(YEN_1002.elevatorExpress).toBe(20);
 	});
 
-	it("YEN_1002 recycling-center lower expense = 100", () => {
-		expect(YEN_1002.recyclingCenterLower).toBe(100);
+	it("YEN_1002 elevatorService expense = 10 (raw 100)", () => {
+		expect(YEN_1002.elevatorService).toBe(10);
 	});
 
-	it("YEN_1002 elevatorLocal expense = 100", () => {
-		expect(YEN_1002.elevatorLocal).toBe(100);
+	it("YEN_1002 escalator expense = 5 (raw 50)", () => {
+		expect(YEN_1002.escalator).toBe(5);
 	});
 
-	it("YEN_1002 elevatorExpress expense = 200", () => {
-		expect(YEN_1002.elevatorExpress).toBe(200);
-	});
-
-	it("YEN_1002 elevatorService expense = 100", () => {
-		expect(YEN_1002.elevatorService).toBe(100);
-	});
-
-	it("YEN_1002 escalator expense = 0", () => {
-		expect(YEN_1002.escalator).toBe(0);
+	it("YEN_1002 stairs expense = 0 (raw 0)", () => {
+		expect(YEN_1002.stairs).toBe(0);
 	});
 });
 
