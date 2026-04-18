@@ -418,6 +418,34 @@ export function processOfficeSim(
 		return;
 	}
 
+	// --- Morning dispatch retry: queue-full sims parked in 0x60 ---
+	// Binary: refresh dispatch for state 0x60 re-invokes the 0x20 handler
+	// (jump table at 1228:2aac maps both 0x20 and 0x60 to 1228:213c). Reaching
+	// processOfficeSim with MORNING_TRANSIT + route.mode=idle means resolve
+	// returned queue-full on a prior stride and populate reset the route; retry
+	// resolve here to mirror the binary's retry cadence.
+	if (state === STATE_MORNING_TRANSIT && sim.route.mode === "idle") {
+		const routeResult = resolveSimRouteBetweenFloors(
+			world,
+			sim,
+			LOBBY_FLOOR,
+			sim.floorAnchor,
+			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+			time,
+		);
+		if (routeResult === -1) {
+			sim.stateCode = routeFailureStateForOffice(facility);
+			return;
+		}
+		if (routeResult === 3) {
+			advanceOfficePresenceCounter(facility);
+			sim.destinationFloor = -1;
+			sim.selectedFloor = sim.floorAnchor;
+			sim.stateCode = nextOfficeMorningState(sim);
+		}
+		return;
+	}
+
 	// --- In transit — arrival handled by dispatchSimArrival ---
 	if (
 		state === STATE_COMMUTE_TRANSIT ||
