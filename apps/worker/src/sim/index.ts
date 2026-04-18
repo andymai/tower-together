@@ -228,7 +228,7 @@ export class TowerSim {
 					this.time,
 				);
 			case "add_elevator_car":
-				return handleAddElevatorCar(cmd.x, this.world);
+				return handleAddElevatorCar(cmd.x, cmd.y, this.world);
 			case "remove_elevator_car":
 				return handleRemoveElevatorCar(cmd.x, this.world);
 		}

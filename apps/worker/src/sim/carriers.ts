@@ -645,7 +645,9 @@ function processUnitTravelQueue(
 				`[drain] dt=${time.dayTick} car.fl=${car.currentFloor} dw=${car.dwellCounter} dir=${directionFlag} qLen=${buf.size} popCap=${popCap} remSlots=${remainingSlots} queue=[${peek
 					.map((id: string) => {
 						const r = findRoute(carrier, id);
-						return r ? `${id}→${r.destinationFloor}(ci=${r.assignedCarIndex}${r.boarded ? "B" : ""})` : id;
+						return r
+							? `${id}→${r.destinationFloor}(ci=${r.assignedCarIndex}${r.boarded ? "B" : ""})`
+							: id;
 					})
 					.join(",")}]`,
 			);

@@ -57,7 +57,7 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 				rentLevel: msg.rentLevel,
 			};
 		case "add_elevator_car":
-			return { type: "add_elevator_car", x: msg.x };
+			return { type: "add_elevator_car", x: msg.x, y: msg.y };
 		case "remove_elevator_car":
 			return { type: "remove_elevator_car", x: msg.x };
 		case "join_tower":

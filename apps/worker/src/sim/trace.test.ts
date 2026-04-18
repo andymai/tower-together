@@ -188,7 +188,11 @@ function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 			}
 			const numCars = fac.cars ?? 1;
 			for (let i = 1; i < numCars; i++) {
-				sim.submitCommand({ type: "add_elevator_car", x: fac.left });
+				sim.submitCommand({
+					type: "add_elevator_car",
+					x: fac.left,
+					y: GROUND_Y - bottom,
+				});
 			}
 			continue;
 		}

@@ -59,7 +59,7 @@ interface Props {
 	sims: SimStateData[];
 	onClose: () => void;
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
-	onAddElevatorCar: (x: number) => void;
+	onAddElevatorCar: (x: number, y: number) => void;
 	onRemoveElevatorCar: (x: number) => void;
 	onInspectCell: (x: number, y: number) => void;
 	onPatchInspectedCell: (updater: (cell: CellInfoData) => CellInfoData) => void;
@@ -186,7 +186,7 @@ export function CellInspectionDialog({
 									}}
 									disabled={inspectedCell.carrierInfo.carCount >= 8}
 									onClick={() => {
-										onAddElevatorCar(inspectedCell.x);
+										onAddElevatorCar(inspectedCell.x, inspectedCell.y);
 										onInspectCell(inspectedCell.x, inspectedCell.y);
 									}}
 								>

@@ -42,7 +42,7 @@ interface UseTowerSessionResult {
 	setSpeedMultiplier: (multiplier: 1 | 3 | 10) => void;
 	setFreeBuild: (enabled: boolean) => void;
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
-	addElevatorCar: (x: number) => void;
+	addElevatorCar: (x: number, y: number) => void;
 	removeElevatorCar: (x: number) => void;
 	reconnect: () => void;
 }
@@ -214,7 +214,7 @@ export function useTowerSession({
 				tileType === "elevator" &&
 				sceneRef.current?.hasElevatorOverlayAt(x, y)
 			) {
-				socket.send({ type: "add_elevator_car", x });
+				socket.send({ type: "add_elevator_car", x, y });
 				return;
 			}
 
@@ -282,8 +282,8 @@ export function useTowerSession({
 	);
 
 	const addElevatorCar = useCallback(
-		(x: number) => {
-			socket.send({ type: "add_elevator_car", x });
+		(x: number, y: number) => {
+			socket.send({ type: "add_elevator_car", x, y });
 		},
 		[socket],
 	);

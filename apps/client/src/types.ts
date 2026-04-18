@@ -176,6 +176,6 @@ export type ClientMessage =
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "query_cell"; x: number; y: number }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
-	| { type: "add_elevator_car"; x: number }
+	| { type: "add_elevator_car"; x: number; y: number }
 	| { type: "remove_elevator_car"; x: number }
 	| { type: "set_free_build"; enabled: boolean };

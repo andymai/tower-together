@@ -70,7 +70,7 @@ export type SimCommand =
 	| { type: "remove_tile"; x: number; y: number }
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
-	| { type: "add_elevator_car"; x: number }
+	| { type: "add_elevator_car"; x: number; y: number }
 	| { type: "remove_elevator_car"; x: number };
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
@@ -1030,6 +1030,7 @@ export function handleSetRentLevel(
 
 export function handleAddElevatorCar(
 	x: number,
+	y: number,
 	world: WorldState,
 ): CommandResult {
 	const carrier = world.carriers.find((c) => c.column === x);
@@ -1040,21 +1041,25 @@ export function handleAddElevatorCar(
 	if (activeCars >= 8) {
 		return { accepted: false, reason: "Maximum 8 cars per shaft" };
 	}
+	const homeFloor = Math.min(
+		carrier.topServedFloor,
+		Math.max(carrier.bottomServedFloor, yToFloor(y)),
+	);
 	// Activate first inactive car
 	for (const car of carrier.cars) {
 		if (!car.active) {
 			car.active = true;
-			car.currentFloor = carrier.bottomServedFloor;
-			car.targetFloor = carrier.bottomServedFloor;
-			car.prevFloor = carrier.bottomServedFloor;
-			car.homeFloor = carrier.bottomServedFloor;
+			car.currentFloor = homeFloor;
+			car.targetFloor = homeFloor;
+			car.prevFloor = homeFloor;
+			car.homeFloor = homeFloor;
 			return { accepted: true, patch: [] };
 		}
 	}
 	// All existing cars are active — add a new one
 	const newCar = makeCarrierCar(
 		carrier.topServedFloor - carrier.bottomServedFloor + 1,
-		carrier.bottomServedFloor,
+		homeFloor,
 	);
 	carrier.cars.push(newCar);
 	return { accepted: true, patch: [] };
