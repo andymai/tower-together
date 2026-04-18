@@ -87,7 +87,15 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	fastFood: {
 		files: ["fastFood.svg", "fastFood1.svg", "fastFood2.svg", "fastFood3.svg"],
 	},
-	retail: { files: ["retail.svg"] },
+	retail: {
+		files: [
+			"retail.svg",
+			"retail1.svg",
+			"retail2.svg",
+			"retail3.svg",
+			"retail4.svg",
+		],
+	},
 	hotelSingle: {
 		files: ["hotelSingle.svg", "hotelSingle1.svg", "hotelSingle2.svg"],
 		dirtyFiles: [
