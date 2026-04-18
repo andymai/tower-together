@@ -29,6 +29,8 @@ export type TileType =
 	| "lobby"
 	| "stairs"
 	| "elevator"
+	| "elevatorExpress"
+	| "elevatorService"
 	| "escalator"
 	// Hotels
 	| "hotelSingle"

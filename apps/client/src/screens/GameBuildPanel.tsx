@@ -37,13 +37,6 @@ interface ToolEntry {
 const CATEGORIES: ToolEntry[][] = [
 	[
 		{
-			id: "floor",
-			label: "Floor",
-			color: "#777",
-			cost: TILE_COSTS.floor,
-			Icon: Square,
-		},
-		{
 			id: "lobby",
 			label: "Lobby",
 			color: "#c9a77a",
@@ -58,6 +51,15 @@ const CATEGORIES: ToolEntry[][] = [
 			Icon: ChevronsUpDown,
 		},
 		{
+			id: "escalator",
+			label: "Escalator",
+			color: "#c0a0d0",
+			cost: TILE_COSTS.escalator,
+			Icon: MoveUpRight,
+		},
+	],
+	[
+		{
 			id: "elevator",
 			label: "Elevator",
 			color: "#a0a0e0",
@@ -65,11 +67,34 @@ const CATEGORIES: ToolEntry[][] = [
 			Icon: ArrowUpDown,
 		},
 		{
-			id: "escalator",
-			label: "Escalator",
-			color: "#c0a0d0",
-			cost: TILE_COSTS.escalator,
-			Icon: MoveUpRight,
+			id: "elevatorExpress",
+			label: "Express",
+			color: "#8080e0",
+			cost: TILE_COSTS.elevatorExpress,
+			Icon: ArrowUpDown,
+		},
+		{
+			id: "elevatorService",
+			label: "Service",
+			color: "#a0b0d0",
+			cost: TILE_COSTS.elevatorService,
+			Icon: ArrowUpDown,
+		},
+	],
+	[
+		{
+			id: "office",
+			label: "Office",
+			color: "#a8b7c4",
+			cost: TILE_COSTS.office,
+			Icon: Briefcase,
+		},
+		{
+			id: "condo",
+			label: "Condo",
+			color: "#e7cf6b",
+			cost: TILE_COSTS.condo,
+			Icon: Home,
 		},
 	],
 	[
@@ -94,6 +119,13 @@ const CATEGORIES: ToolEntry[][] = [
 			cost: TILE_COSTS.hotelSuite,
 			Icon: Crown,
 		},
+		{
+			id: "housekeeping",
+			label: "Housekeeping",
+			color: "#d0b0e0",
+			cost: TILE_COSTS.housekeeping,
+			Icon: Sparkles,
+		},
 	],
 	[
 		{
@@ -116,22 +148,6 @@ const CATEGORIES: ToolEntry[][] = [
 			color: "#a0c040",
 			cost: TILE_COSTS.retail,
 			Icon: ShoppingBag,
-		},
-	],
-	[
-		{
-			id: "office",
-			label: "Office",
-			color: "#a8b7c4",
-			cost: TILE_COSTS.office,
-			Icon: Briefcase,
-		},
-		{
-			id: "condo",
-			label: "Condo",
-			color: "#e7cf6b",
-			cost: TILE_COSTS.condo,
-			Icon: Home,
 		},
 	],
 	[
@@ -172,15 +188,15 @@ const CATEGORIES: ToolEntry[][] = [
 			cost: TILE_COSTS.metro,
 			Icon: TramFront,
 		},
-		{
-			id: "housekeeping",
-			label: "Housekeeping",
-			color: "#d0b0e0",
-			cost: TILE_COSTS.housekeeping,
-			Icon: Sparkles,
-		},
 	],
 	[
+		{
+			id: "floor",
+			label: "Floor",
+			color: "#777",
+			cost: TILE_COSTS.floor,
+			Icon: Square,
+		},
 		{ id: "empty", label: "Erase", color: "#888", cost: 0, Icon: Eraser },
 		{
 			id: "inspect",
