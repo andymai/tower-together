@@ -1367,14 +1367,23 @@ describe("floorToSlot", () => {
 		expect(floorToSlot(carrier, 21)).toBe(-1);
 	});
 
-	it("mode-0 (express sky-lobby) uses sparse slot mapping: lobby floors + sky-lobby stops only", () => {
-		// Mode 0 = Express Elevator: floors 1–10 → slots 0–9, sky-lobby floors → slots 10+
-		const carrier = makeCarrier(0, 3, 0, 10, 20);
-		expect(floorToSlot(carrier, 10)).toBe(0); // lobby band slot 0
-		expect(floorToSlot(carrier, 14)).toBe(4); // lobby band slot 4
-		expect(floorToSlot(carrier, 19)).toBe(9); // lobby band slot 9
-		// Non-sky-lobby floor above the lobby band returns -1 for mode-0 carriers
-		expect(floorToSlot(carrier, 20)).toBe(-1);
+	it("mode-0 (express) serves only underground (0–9) + sky-lobby floors (10, 25, 40, ...)", () => {
+		// Underground band: sim floors 0–9 map to slots 0–9 by relative offset.
+		const undergroundCarrier = makeCarrier(0, 3, 0, 0, 25);
+		expect(floorToSlot(undergroundCarrier, 0)).toBe(0);
+		expect(floorToSlot(undergroundCarrier, 9)).toBe(9);
+		expect(floorToSlot(undergroundCarrier, 10)).toBe(10); // ground lobby
+		expect(floorToSlot(undergroundCarrier, 25)).toBe(11); // first sky lobby
+		// Non-lobby floors above ground are not served.
+		expect(floorToSlot(undergroundCarrier, 11)).toBe(-1);
+		expect(floorToSlot(undergroundCarrier, 24)).toBe(-1);
+		// Above-ground sky-lobby express: only floors 10, 25, 40 are served.
+		const skyCarrier = makeCarrier(0, 3, 0, 10, 40);
+		expect(floorToSlot(skyCarrier, 10)).toBe(10);
+		expect(floorToSlot(skyCarrier, 25)).toBe(11);
+		expect(floorToSlot(skyCarrier, 40)).toBe(12);
+		expect(floorToSlot(skyCarrier, 14)).toBe(-1);
+		expect(floorToSlot(skyCarrier, 19)).toBe(-1);
 	});
 
 	it("mode-1 (standard elevator) uses linear slot mapping across its full range", () => {

@@ -250,8 +250,9 @@ export function floorToSlot(carrier: CarrierRecord, floor: number): number {
 		return -1;
 	}
 	if (carrier.carrierMode === 0) {
+		// Underground floors (0–9) → slots 0–9 by relative offset.
 		const rel = floor - carrier.bottomServedFloor;
-		if (rel >= 0 && rel < 10) return rel;
+		if (floor < 10 && rel >= 0 && rel < 10) return rel;
 		// Lobbies: floor IDs 10, 25, 40, 55, 70, 85, 100 → slots 10+
 		if (floor >= 10 && (floor - 10) % 15 === 0) return (floor - 10) / 15 + 10;
 		return -1;
