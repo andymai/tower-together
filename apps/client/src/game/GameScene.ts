@@ -45,6 +45,7 @@ import { buildOccupancyByCar, isQueuedSim } from "./transportSelectors";
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
+export type QueuedSimInspectHandler = (sim: SimStateData) => void;
 
 function hashSimVariant(id: string, modulus: number): number {
 	let h = 0;
@@ -184,9 +185,17 @@ export class GameScene extends Phaser.Scene {
 	};
 
 	private hoveredCell: { x: number; y: number } | null = null;
+	private queuedSimHitboxes: Array<{
+		left: number;
+		right: number;
+		top: number;
+		bottom: number;
+		sim: SimStateData;
+	}> = [];
 	private selectedTool: string = "floor";
 	private onCellClick: CellClickHandler | null = null;
 	private onCellInspect: CellInspectHandler | null = null;
+	private onQueuedSimInspect: QueuedSimInspectHandler | null = null;
 
 	// Pan state
 	private isPanning = false;
@@ -221,6 +230,10 @@ export class GameScene extends Phaser.Scene {
 
 	setOnCellInspect(handler: CellInspectHandler): void {
 		this.onCellInspect = handler;
+	}
+
+	setOnQueuedSimInspect(handler: QueuedSimInspectHandler): void {
+		this.onQueuedSimInspect = handler;
 	}
 
 	setSelectedTool(tool: string): void {
@@ -994,6 +1007,7 @@ export class GameScene extends Phaser.Scene {
 	private drawSims(): void {
 		const g = this.simGraphics;
 		g.clear();
+		this.queuedSimHitboxes = [];
 		const queueIndices = new Map<string, number>();
 		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
 			this.overlayGrid,
@@ -1051,6 +1065,13 @@ export class GameScene extends Phaser.Scene {
 					simHeightPx,
 				);
 			}
+			this.queuedSimHitboxes.push({
+				left: px - simWidthPx / 2,
+				right: px + simWidthPx / 2,
+				top: py - simHeightPx,
+				bottom: py,
+				sim,
+			});
 		}
 
 		for (let i = usedCount; i < this.simSprites.length; i += 1) {
@@ -1221,6 +1242,24 @@ export class GameScene extends Phaser.Scene {
 		};
 	}
 
+	private getQueuedSimAtWorldPoint(
+		worldX: number,
+		worldY: number,
+	): SimStateData | null {
+		for (let i = this.queuedSimHitboxes.length - 1; i >= 0; i -= 1) {
+			const hitbox = this.queuedSimHitboxes[i];
+			if (
+				worldX >= hitbox.left &&
+				worldX <= hitbox.right &&
+				worldY >= hitbox.top &&
+				worldY <= hitbox.bottom
+			) {
+				return hitbox.sim;
+			}
+		}
+		return null;
+	}
+
 	private updateCanvasCursor(): void {
 		const canvas = this.sys.game?.canvas;
 		if (!canvas) return;
@@ -1288,6 +1327,16 @@ export class GameScene extends Phaser.Scene {
 			}
 
 			if (pointer.leftButtonDown()) {
+				if (this.selectedTool === "inspect") {
+					const queuedSim = this.getQueuedSimAtWorldPoint(
+						pointer.worldX,
+						pointer.worldY,
+					);
+					if (queuedSim) {
+						this.onQueuedSimInspect?.(queuedSim);
+						return;
+					}
+				}
 				const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 				if (
 					cell.x < 0 ||

@@ -1,11 +1,13 @@
 import Phaser from "phaser";
 import { useEffect, useRef } from "react";
+import type { SimStateData } from "../types";
 import { GameScene } from "./GameScene";
 
 interface Props {
 	towerId: string;
 	onCellClick: (x: number, y: number, shift: boolean) => void;
 	onCellInspect: (x: number, y: number) => void;
+	onQueuedSimInspect: (sim: SimStateData) => void;
 	selectedTool: string;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
@@ -14,6 +16,7 @@ export function PhaserGame({
 	towerId,
 	onCellClick,
 	onCellInspect,
+	onQueuedSimInspect,
 	selectedTool,
 	sceneRef,
 }: Props) {
@@ -60,6 +63,10 @@ export function PhaserGame({
 	useEffect(() => {
 		sceneRef.current?.setOnCellInspect(onCellInspect);
 	}, [onCellInspect, sceneRef]);
+
+	useEffect(() => {
+		sceneRef.current?.setOnQueuedSimInspect(onQueuedSimInspect);
+	}, [onQueuedSimInspect, sceneRef]);
 
 	useEffect(() => {
 		sceneRef.current?.setSelectedTool(selectedTool);

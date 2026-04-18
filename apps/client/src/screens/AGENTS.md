@@ -15,4 +15,5 @@ Full-page React screen components.
 - **GameInspectPanel.tsx** — Population inspect panel showing each sim's state/stress and average stress.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.
 - **CellInspectionDialog.tsx** — Extracted inspection dialog for room/elevator metadata plus rent and car-count controls.
+- **SimInspectionDialog.tsx** — Separate inspect modal for queued sims clicked directly in the Phaser scene, showing sim state, stress, and trip/floor metadata.
 - **GameToasts.tsx** — Extracted toast stack renderer for transient info/error messages.

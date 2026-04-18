@@ -3,7 +3,7 @@ import type { GameScene } from "../game/GameScene";
 import { PhaserGame } from "../game/PhaserGame";
 import { buildTransportMetrics } from "../game/transportSelectors";
 import type { TowerSocket } from "../lib/socket";
-import type { SelectedTool } from "../types";
+import type { SelectedTool, SimStateData } from "../types";
 import { DAY_TICK_MAX, getTileStarRequirement } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameBuildPanel } from "./GameBuildPanel";
@@ -14,6 +14,7 @@ import { GameToasts } from "./GameToasts";
 import { GameToolbar } from "./GameToolbar";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { Toast } from "./gameScreenTypes";
+import { SimInspectionDialog } from "./SimInspectionDialog";
 import { useTowerSession } from "./useTowerSession";
 
 interface Props {
@@ -104,6 +105,7 @@ export function GameScreen({
 	const [aliasError, setAliasError] = useState("");
 	const [aliasSaving, setAliasSaving] = useState(false);
 	const [toasts, setToasts] = useState<Toast[]>([]);
+	const [inspectedSim, setInspectedSim] = useState<SimStateData | null>(null);
 	const sceneRef = useRef<GameScene | null>(null);
 
 	const addToast = useCallback(
@@ -154,6 +156,7 @@ export function GameScreen({
 
 	const handleCellClick = useCallback(
 		(x: number, y: number, shift: boolean) => {
+			setInspectedSim(null);
 			if (selectedTool === "inspect") {
 				inspectCell(x, y);
 				return;
@@ -161,6 +164,22 @@ export function GameScreen({
 			sendTileCommand(x, y, selectedTool, shift);
 		},
 		[selectedTool, sendTileCommand, inspectCell],
+	);
+
+	const handleQueuedSimInspect = useCallback(
+		(sim: SimStateData) => {
+			setInspectedCell(null);
+			setInspectedSim(sim);
+		},
+		[setInspectedCell],
+	);
+
+	const handleCellInspect = useCallback(
+		(x: number, y: number) => {
+			setInspectedSim(null);
+			inspectCell(x, y);
+		},
+		[inspectCell],
 	);
 
 	const handlePatchInspectedCell = useCallback(
@@ -259,7 +278,8 @@ export function GameScreen({
 				<PhaserGame
 					towerId={towerId}
 					onCellClick={handleCellClick}
-					onCellInspect={inspectCell}
+					onCellInspect={handleCellInspect}
+					onQueuedSimInspect={handleQueuedSimInspect}
 					selectedTool={selectedTool}
 					sceneRef={sceneRef}
 				/>
@@ -296,8 +316,13 @@ export function GameScreen({
 				onSetRentLevel={setRentLevel}
 				onAddElevatorCar={addElevatorCar}
 				onRemoveElevatorCar={removeElevatorCar}
-				onInspectCell={inspectCell}
+				onInspectCell={handleCellInspect}
 				onPatchInspectedCell={handlePatchInspectedCell}
+			/>
+
+			<SimInspectionDialog
+				sim={inspectedSim}
+				onClose={() => setInspectedSim(null)}
 			/>
 
 			<GameToasts toasts={toasts} />
