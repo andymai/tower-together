@@ -78,11 +78,19 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 			"restaurant4.svg",
 		],
 	},
-	fastFood: { files: ["fastFood.svg"] },
+	fastFood: {
+		files: ["fastFood.svg", "fastFood1.svg", "fastFood2.svg", "fastFood3.svg"],
+	},
 	retail: { files: ["retail.svg"] },
-	hotelSingle: { files: ["hotelSingle.svg"] },
-	hotelTwin: { files: ["hotelTwin.svg"] },
-	hotelSuite: { files: ["hotelSuite.svg"] },
+	hotelSingle: {
+		files: ["hotelSingle.svg", "hotelSingle1.svg", "hotelSingle2.svg"],
+	},
+	hotelTwin: {
+		files: ["hotelTwin.svg", "hotelTwin1.svg", "hotelTwin2.svg"],
+	},
+	hotelSuite: {
+		files: ["hotelSuite.svg", "hotelSuite1.svg", "hotelSuite2.svg"],
+	},
 	cinema: { files: ["cinema.svg"], heightTiles: 2 },
 	partyHall: { files: ["partyHall.svg"], heightTiles: 2 },
 	recyclingCenterUpper: {
