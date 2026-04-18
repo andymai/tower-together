@@ -8,7 +8,7 @@ const CARRIER_MODE_LABELS: Record<number, string> = {
 	1: "Standard",
 	2: "Service",
 };
-const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 6, 7, 9, 10, 12]);
+const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 7, 10]);
 const FAMILY_LABELS: Record<number, string> = {
 	3: "Hotel (Single)",
 	4: "Hotel (Twin)",

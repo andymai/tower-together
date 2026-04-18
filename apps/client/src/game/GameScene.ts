@@ -225,6 +225,7 @@ export class GameScene extends Phaser.Scene {
 
 	setSelectedTool(tool: string): void {
 		this.selectedTool = tool;
+		this.updateCanvasCursor();
 		this.drawHover(); // refresh hover preview width
 	}
 
@@ -1161,6 +1162,7 @@ export class GameScene extends Phaser.Scene {
 		if (!g) return;
 		g.clear();
 		if (!this.hoveredCell) return;
+		if (this.selectedTool === "inspect") return;
 
 		if (
 			this.isShiftHeld &&
@@ -1217,6 +1219,13 @@ export class GameScene extends Phaser.Scene {
 			x: Math.floor(wx / TILE_WIDTH),
 			y: Math.floor(wy / TILE_HEIGHT),
 		};
+	}
+
+	private updateCanvasCursor(): void {
+		const canvas = this.sys.game?.canvas;
+		if (!canvas) return;
+		canvas.style.cursor =
+			this.selectedTool === "inspect" ? "zoom-in" : "default";
 	}
 
 	private setupInput(): void {
@@ -1341,6 +1350,7 @@ export class GameScene extends Phaser.Scene {
 		);
 
 		this.game.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+		this.updateCanvasCursor();
 
 		// Redraw hover when shift is pressed/released without moving the mouse
 		this.input.keyboard?.on("keydown-SHIFT", () => {
