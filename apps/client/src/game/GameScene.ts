@@ -989,7 +989,7 @@ export class GameScene extends Phaser.Scene {
 
 	private loadUndergroundTexture(): void {
 		if (this.textures.exists(GameScene.UNDERGROUND_TEXTURE_KEY)) return;
-		this.load.image(GameScene.UNDERGROUND_TEXTURE_KEY, "/underground2.png");
+		this.load.image(GameScene.UNDERGROUND_TEXTURE_KEY, "/underground2.webp");
 		this.load.once("complete", () => {
 			this.drawUndergroundBackground();
 			this.drawAllCells();
