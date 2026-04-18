@@ -52,12 +52,13 @@ export class CloudManager {
 		this.container.setDepth(this.depth);
 
 		// Build a mask from a filled Graphics rectangle matching the sky area.
-		const maskShape = this.scene.make.graphics({ add: false });
+		const maskShape = this.scene.add.graphics();
 		maskShape.fillStyle(0xffffff);
 		maskShape.fillRect(0, 0, SKY_WIDTH, SKY_HEIGHT);
 		this.container.setMask(
 			new Phaser.Display.Masks.GeometryMask(this.scene, maskShape),
 		);
+		maskShape.setVisible(false);
 
 		for (let i = 0; i < CLOUD_COUNT; i++) {
 			const sprite = this.createCloudSprite();
