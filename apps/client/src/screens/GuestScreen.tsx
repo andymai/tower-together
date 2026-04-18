@@ -24,7 +24,7 @@ export function GuestScreen({ onEnter }: Props) {
 	return (
 		<div style={styles.container}>
 			<div style={styles.card}>
-				<h1 style={styles.title}>Tower Together</h1>
+				<h1 style={styles.title}>Towers World</h1>
 				<p style={styles.subtitle}>A multiplayer tower building game</p>
 				<form onSubmit={handleSubmit} style={styles.form}>
 					<label style={styles.label} htmlFor="displayName">
