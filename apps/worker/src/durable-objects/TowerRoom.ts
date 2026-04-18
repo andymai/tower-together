@@ -169,6 +169,18 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
+		if (isSessionMessage(msg) && msg.type === "set_star_count") {
+			this.sim.setStarCount(msg.starCount);
+			this.broadcast({
+				type: "economy_update",
+				cash: this.sim.cash,
+				population: this.sim.population,
+				starCount: this.sim.starCount,
+			});
+			this.persistSim();
+			return;
+		}
+
 		if (isSessionMessage(msg) && msg.type === "set_free_build") {
 			this.sim.freeBuild = msg.enabled;
 			return;

@@ -374,6 +374,9 @@ export class TowerSim {
 	get starCount(): number {
 		return this.world.starCount;
 	}
+	setStarCount(starCount: 1 | 2 | 3 | 4 | 5 | 6): void {
+		this.world.starCount = starCount;
+	}
 	get rngCallCount(): number {
 		return this.world.rngCallCount;
 	}

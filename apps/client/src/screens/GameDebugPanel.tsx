@@ -5,6 +5,8 @@ interface Props {
 	metrics: TransportMetrics;
 	speedMultiplier: 1 | 3 | 10;
 	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
+	starCount: number;
+	onStarCountChange: (starCount: 1 | 2 | 3 | 4 | 5 | 6) => void;
 	freeBuild: boolean;
 	onFreeBuildChange: (enabled: boolean) => void;
 }
@@ -13,6 +15,8 @@ export function GameDebugPanel({
 	metrics,
 	speedMultiplier,
 	onSpeedChange,
+	starCount,
+	onStarCountChange,
 	freeBuild,
 	onFreeBuildChange,
 }: Props) {
@@ -35,6 +39,24 @@ export function GameDebugPanel({
 							onClick={() => onSpeedChange(multiplier)}
 						>
 							{multiplier}x
+						</button>
+					))}
+				</span>
+			</div>
+			<div style={styles.debugRow}>
+				<span>Stars</span>
+				<span style={styles.speedButtons}>
+					{([1, 2, 3, 4, 5, 6] as const).map((value) => (
+						<button
+							key={value}
+							type="button"
+							style={{
+								...styles.speedButton,
+								...(starCount === value ? styles.speedButtonActive : {}),
+							}}
+							onClick={() => onStarCountChange(value)}
+						>
+							{value}
 						</button>
 					))}
 				</span>

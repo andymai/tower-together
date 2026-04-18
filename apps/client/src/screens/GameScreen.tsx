@@ -138,6 +138,7 @@ export function GameScreen({
 		inspectCell,
 		respondToPrompt,
 		setSpeedMultiplier,
+		setStarCount,
 		setFreeBuild,
 		setRentLevel,
 		addElevatorCar,
@@ -274,6 +275,8 @@ export function GameScreen({
 							metrics={metrics}
 							speedMultiplier={speedMultiplier}
 							onSpeedChange={setSpeedMultiplier}
+							starCount={starCount}
+							onStarCountChange={setStarCount}
 							freeBuild={freeBuild}
 							onFreeBuildChange={setFreeBuild}
 						/>

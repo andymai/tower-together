@@ -10,7 +10,7 @@ Full-page React screen components.
 - **gameScreenTypes.ts** — Shared local screen types for toasts, prompts, and inspected-cell payloads.
 - **GameToolbar.tsx** — Top header with tower rename, cash plus five-slot star rating, bold date plus sim-clock time display, player/connection status, reconnect, and leave.
 - **GameBuildPanel.tsx** — Top-right floating panel with facility buttons (lucide icons) grouped into categories and disabled until the shared binary-aligned star unlock is met (unless free-build is enabled).
-- **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, speed controls, and inspect toggle.
+- **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, speed controls, debug star-count button group, and free-build toggle.
 - **GameInspectPanel.tsx** — Population inspect panel showing each sim's state/stress and average stress.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.
 - **CellInspectionDialog.tsx** — Extracted inspection dialog for room/elevator metadata plus rent and car-count controls.

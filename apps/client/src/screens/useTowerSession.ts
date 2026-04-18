@@ -42,6 +42,7 @@ interface UseTowerSessionResult {
 	inspectCell: (x: number, y: number) => void;
 	respondToPrompt: (accepted: boolean) => void;
 	setSpeedMultiplier: (multiplier: 1 | 3 | 10) => void;
+	setStarCount: (starCount: 1 | 2 | 3 | 4 | 5 | 6) => void;
 	setFreeBuild: (enabled: boolean) => void;
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
 	addElevatorCar: (x: number, y: number) => void;
@@ -63,7 +64,7 @@ export function useTowerSession({
 	const [simTime, setSimTime] = useState(0);
 	const [cash, setCash] = useState(0);
 	const [population, setPopulation] = useState(0);
-	const [starCount, setStarCount] = useState(1);
+	const [starCount, setStarCountState] = useState(1);
 	const [playerCount, setPlayerCount] = useState(0);
 	const [towerName, setTowerName] = useState("");
 	const [sims, setSims] = useState<SimStateData[]>([]);
@@ -113,7 +114,7 @@ export function useTowerSession({
 					updatePresentationClock(msg.simTime);
 					setCash(msg.cash);
 					setPopulation(msg.population);
-					setStarCount(msg.starCount);
+					setStarCountState(msg.starCount);
 					setTowerName(msg.name || msg.towerId);
 					setSims(msg.sims);
 					setCarriers(msg.carriers);
@@ -152,7 +153,7 @@ export function useTowerSession({
 				case "economy_update":
 					setCash(msg.cash);
 					setPopulation(msg.population);
-					setStarCount(msg.starCount);
+					setStarCountState(msg.starCount);
 					break;
 				case "notification":
 					// Keep server-side notifications flowing for protocol parity, but
@@ -274,6 +275,17 @@ export function useTowerSession({
 		[socket],
 	);
 
+	const setStarCount = useCallback(
+		(nextStarCount: 1 | 2 | 3 | 4 | 5 | 6) => {
+			setStarCountState(nextStarCount);
+			socket.send({
+				type: "set_star_count",
+				starCount: nextStarCount,
+			});
+		},
+		[socket],
+	);
+
 	const setFreeBuild = useCallback(
 		(enabled: boolean) => {
 			setFreeBuildState(enabled);
@@ -327,6 +339,7 @@ export function useTowerSession({
 		inspectCell,
 		respondToPrompt,
 		setSpeedMultiplier,
+		setStarCount,
 		setFreeBuild,
 		setRentLevel,
 		addElevatorCar,

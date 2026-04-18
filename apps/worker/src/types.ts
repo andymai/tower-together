@@ -6,6 +6,7 @@ export type ClientMessage =
 	| { type: "remove_tile"; x: number; y: number }
 	| { type: "ping" }
 	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
+	| { type: "set_star_count"; starCount: 1 | 2 | 3 | 4 | 5 | 6 }
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "query_cell"; x: number; y: number }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
