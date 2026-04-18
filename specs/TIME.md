@@ -55,6 +55,67 @@ number but displays the night sky. Starting at tick 2533 means the player sees a
 brief night, then dawn breaks — a deliberate UX choice. Tick 2533 is also the
 quarterly-expense checkpoint, so the first day begins with a clean financial slate.
 
+## GUI Clock Conversion
+
+The original GUI analog clock does **not** linearly map `day_tick` across a
+24-hour day. The renderer first calls
+`convert_simulation_tick_to_clock_time` (`1208:058d`), then draws:
+
+- the minute hand from a 60-slot lookup using the returned `minute`
+- the hour hand from `hour * 5 + floor(minute / 12)`
+
+This means the clock face uses a binary-specific piecewise conversion from
+`day_tick` / `daypart_index` to analog time.
+
+Let:
+
+- `daypart_index = floor(day_tick / 400)`
+- `r = day_tick - daypart_index * 400`
+
+Then the displayed clock time is:
+
+| Daypart | `day_tick` range | Displayed clock span |
+|---------|------------------|----------------------|
+| 0 | 0–399 | 7:00 AM – 11:59 AM |
+| 1 | 400–799 | 12:00 PM – 12:29 PM |
+| 2 | 800–1199 | 12:30 PM – 12:59 PM |
+| 3 | 1200–1599 | 1:00 PM – 4:59 PM |
+| 4 | 1600–1999 | 5:00 PM – 8:59 PM |
+| 5 | 2000–2399 | 9:00 PM – 12:59 AM |
+| 6 | 2400–2599 | 1:00 AM – 6:58 AM |
+
+Recovered formulas:
+
+- daypart `0`: `v = r * 5`
+  - `hour = 7 + floor(v / 400)`
+  - `minute = floor((v % 400) * 60 / 400)`
+- daypart `1`:
+  - `hour = 12`
+  - `minute = floor(r * 60 / 800)`
+- daypart `2`:
+  - `hour = 12`
+  - `minute = 30 + floor(r * 60 / 800)`
+- dayparts `3..5`: `v = r * 4`
+  - base hour = `1` for part `3`, `5` for part `4`, `9` for part `5`
+  - `hour = base + floor(v / 400)` with `> 12` wrapped by subtracting `12`
+  - `minute = floor((v % 400) * 60 / 400)`
+- daypart `6`: `v = r * 12`
+  - `hour = 1 + floor(v / 400)` with `> 12` wrapped by subtracting `12`
+  - `minute = floor((v % 400) * 60 / 400)`
+
+Final minute values are clamped to `59`, which yields the observed
+endpoints `11:59`, `12:59`, and `6:58` rather than exact linear endpoints.
+
+Examples:
+
+- new game start `day_tick = 2533` displays about `4:59 AM`
+- `day_tick = 2599` displays about `6:58 AM`
+- `day_tick = 0` displays `7:00 AM`
+
+Practical implication: a TS/UI clock that linearly maps `0..2599` onto `24`
+hours will not match the original binary. The client should use the
+piecewise conversion above when rendering the in-game clock.
+
 ## RNG
 
 RNG algorithm:

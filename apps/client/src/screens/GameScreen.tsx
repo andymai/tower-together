@@ -37,11 +37,57 @@ function formatSimDate(day: number): string {
 
 function formatSimTimeOfDay(simTime: number): string {
 	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
-	const totalMinutes = Math.floor((dayTick * 24 * 60) / DAY_TICK_MAX);
-	const hours24 = Math.floor(totalMinutes / 60) % 24;
-	const minutes = totalMinutes % 60;
-	const suffix = hours24 >= 12 ? "PM" : "AM";
-	const hours12 = hours24 % 12 || 12;
+	const daypartIndex = Math.floor(dayTick / 400);
+	const daypartOffset = dayTick - daypartIndex * 400;
+	let hours12 = 12;
+	let minutes = 0;
+
+	switch (daypartIndex) {
+		case 0: {
+			const scaledTicks = daypartOffset * 5;
+			hours12 = Math.floor(scaledTicks / 400) + 7;
+			minutes = Math.floor(((scaledTicks - (hours12 - 7) * 400) * 60) / 400);
+			break;
+		}
+		case 1:
+			hours12 = 12;
+			minutes = Math.floor((daypartOffset * 60) / 800);
+			break;
+		case 2:
+			hours12 = 12;
+			minutes = Math.floor((daypartOffset * 60) / 800) + 30;
+			break;
+		case 3:
+		case 4:
+		case 5: {
+			const scaledTicks = daypartOffset * 4;
+			const hourOffset = Math.floor(scaledTicks / 400);
+			hours12 =
+				hourOffset + (daypartIndex === 3 ? 1 : daypartIndex === 4 ? 5 : 9);
+			minutes = Math.floor(((scaledTicks - hourOffset * 400) * 60) / 400);
+			if (hours12 > 12) {
+				hours12 -= 12;
+			}
+			break;
+		}
+		case 6: {
+			const scaledTicks = daypartOffset * 12;
+			const hourOffset = Math.floor(scaledTicks / 400);
+			hours12 = hourOffset + 1;
+			minutes = Math.floor(((scaledTicks - hourOffset * 400) * 60) / 400);
+			if (hours12 > 12) {
+				hours12 -= 12;
+			}
+			break;
+		}
+	}
+
+	if (minutes > 59) {
+		minutes = 59;
+	}
+
+	const suffix =
+		daypartIndex <= 4 || (daypartIndex === 5 && hours12 !== 12) ? "PM" : "AM";
 	return `${hours12}:${minutes.toString().padStart(2, "0")} ${suffix}`;
 }
 
