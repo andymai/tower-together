@@ -7,7 +7,7 @@ INSTRUCTIONS (IMPORTANT):
 - Don't worry about breaking existing behavior. You may have to make dramatic changes to the TypeScript code in order to fully match binary behavior.
 - There is a partial, imperfect spec in `specs/` for the simulation details.
 - Use both static and dynamic analysis of the original binary to understand its behavior and make the reimplementation match exactly.
-- Static analysis: use the `pyghidra` skill on analysis-2825a3c53f project (SIMTOWER.EX_). Note that state machine functions often have jump tables the decompilers fail on; you'll have to disassemble the jump instruction and read the table manually.
+- Static analysis: use the `pyghidra` skill on project dir analysis-2825a3c53f, project name 2825a3c53f, program SIMTOWER.EX_. Note that state machine functions often have jump tables the decompilers fail on; you'll have to disassemble the jump instruction and read the table manually.
 - Dynamic analysis: use `simtower/emulator.py` and add additional hooks to inspect whatever you want to inspect.
 - Use subagents aggressively to complete static and dynamic analysis tasks. It's very important to rotect the main context window from pollution with large quantities of disassembly or decompilation output or trace data.
 
