@@ -17,6 +17,7 @@ import {
 	Recycle,
 	Search,
 	ShoppingBag,
+	Sparkles,
 	Square,
 	TramFront,
 	UtensilsCrossed,
@@ -170,6 +171,13 @@ const CATEGORIES: ToolEntry[][] = [
 			color: "#60c0c0",
 			cost: TILE_COSTS.metro,
 			Icon: TramFront,
+		},
+		{
+			id: "housekeeping",
+			label: "Housekeeping",
+			color: "#d0b0e0",
+			cost: TILE_COSTS.housekeeping,
+			Icon: Sparkles,
 		},
 	],
 	[
