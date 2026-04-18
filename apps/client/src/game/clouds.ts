@@ -1,4 +1,9 @@
-import Phaser from "phaser";
+import {
+	Display,
+	type GameObjects,
+	Math as PhaserMath,
+	type Scene,
+} from "phaser";
 import { GRID_HEIGHT, GRID_WIDTH, UNDERGROUND_Y } from "../types";
 import { TILE_HEIGHT, TILE_WIDTH } from "./gameSceneConstants";
 
@@ -22,13 +27,13 @@ function textureKey(i: number): string {
 }
 
 export class CloudManager {
-	private scene: Phaser.Scene;
+	private scene: Scene;
 	private depth: number;
-	private container!: Phaser.GameObjects.Container;
-	private sprites: Phaser.GameObjects.Sprite[] = [];
+	private container!: GameObjects.Container;
+	private sprites: GameObjects.Sprite[] = [];
 	private loaded = false;
 
-	constructor(scene: Phaser.Scene, depth: number) {
+	constructor(scene: Scene, depth: number) {
 		this.scene = scene;
 		this.depth = depth;
 	}
@@ -56,7 +61,7 @@ export class CloudManager {
 		maskShape.fillStyle(0xffffff);
 		maskShape.fillRect(0, 0, SKY_WIDTH, SKY_HEIGHT);
 		this.container.setMask(
-			new Phaser.Display.Masks.GeometryMask(this.scene, maskShape),
+			new Display.Masks.GeometryMask(this.scene, maskShape),
 		);
 		maskShape.setVisible(false);
 
@@ -70,12 +75,12 @@ export class CloudManager {
 		}
 	}
 
-	private createCloudSprite(): Phaser.GameObjects.Sprite {
-		const texIdx = Phaser.Math.Between(1, CLOUD_TEXTURE_COUNT);
+	private createCloudSprite(): GameObjects.Sprite {
+		const texIdx = PhaserMath.Between(1, CLOUD_TEXTURE_COUNT);
 		const key = textureKey(texIdx);
-		const scale = Phaser.Math.FloatBetween(0.3, 0.7);
-		const alpha = Phaser.Math.FloatBetween(0.5, 0.9);
-		const y = Phaser.Math.FloatBetween(CLOUD_BAND_TOP_Y, CLOUD_BAND_BOTTOM_Y);
+		const scale = PhaserMath.FloatBetween(0.3, 0.7);
+		const alpha = PhaserMath.FloatBetween(0.5, 0.9);
+		const y = PhaserMath.FloatBetween(CLOUD_BAND_TOP_Y, CLOUD_BAND_BOTTOM_Y);
 
 		const sprite = this.scene.add.sprite(0, y, key);
 		sprite.setScale(scale);
@@ -85,12 +90,12 @@ export class CloudManager {
 		return sprite;
 	}
 
-	private recycleSprite(sprite: Phaser.GameObjects.Sprite): void {
-		const texIdx = Phaser.Math.Between(1, CLOUD_TEXTURE_COUNT);
+	private recycleSprite(sprite: GameObjects.Sprite): void {
+		const texIdx = PhaserMath.Between(1, CLOUD_TEXTURE_COUNT);
 		const key = textureKey(texIdx);
-		const scale = Phaser.Math.FloatBetween(0.3, 0.7);
-		const alpha = Phaser.Math.FloatBetween(0.5, 0.9);
-		const y = Phaser.Math.FloatBetween(CLOUD_BAND_TOP_Y, CLOUD_BAND_BOTTOM_Y);
+		const scale = PhaserMath.FloatBetween(0.3, 0.7);
+		const alpha = PhaserMath.FloatBetween(0.5, 0.9);
+		const y = PhaserMath.FloatBetween(CLOUD_BAND_TOP_Y, CLOUD_BAND_BOTTOM_Y);
 
 		sprite.setTexture(key);
 		sprite.setScale(scale);

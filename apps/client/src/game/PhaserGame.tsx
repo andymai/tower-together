@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, AUTO as PhaserAUTO, Scale } from "phaser";
 import { memo, useEffect, useRef } from "react";
 import type { SimStateData } from "../types";
 import { GameScene } from "./GameScene";
@@ -21,7 +22,7 @@ export const PhaserGame = memo(function PhaserGame({
 	sceneRef,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement>(null);
-	const gameRef = useRef<Phaser.Game | null>(null);
+	const gameRef = useRef<Game | null>(null);
 
 	useEffect(() => {
 		if (!containerRef.current) return;
@@ -29,16 +30,16 @@ export const PhaserGame = memo(function PhaserGame({
 		const scene = new GameScene(towerId);
 		sceneRef.current = scene;
 
-		const config: Phaser.Types.Core.GameConfig = {
-			type: Phaser.AUTO,
+		const config: Types.Core.GameConfig = {
+			type: PhaserAUTO,
 			parent: containerRef.current,
 			backgroundColor: "#1a1a1a",
 			render: {
 				antialias: true,
 			},
 			scale: {
-				mode: Phaser.Scale.RESIZE,
-				autoCenter: Phaser.Scale.CENTER_BOTH,
+				mode: Scale.RESIZE,
+				autoCenter: Scale.CENTER_BOTH,
 				width: "100%",
 				height: "100%",
 			},
@@ -46,7 +47,7 @@ export const PhaserGame = memo(function PhaserGame({
 			disableContextMenu: false,
 		};
 
-		gameRef.current = new Phaser.Game(config);
+		gameRef.current = new Game(config);
 
 		return () => {
 			sceneRef.current = null;

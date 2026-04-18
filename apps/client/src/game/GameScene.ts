@@ -1,4 +1,13 @@
-import Phaser from "phaser";
+import {
+	type GameObjects,
+	Geom,
+	type Input,
+	Math as PhaserMath,
+	type Types as PhaserTypes,
+	type Renderer,
+	Scene,
+	Textures,
+} from "phaser";
 import { getTowerView, setTowerView } from "../lib/storage";
 import {
 	type CarrierCarStateData,
@@ -76,8 +85,8 @@ type NumberTextureStyle = {
 type StaticRowChunk = {
 	x: number;
 	width: number;
-	texture: Phaser.Textures.CanvasTexture;
-	image: Phaser.GameObjects.Image;
+	texture: Textures.CanvasTexture;
+	image: GameObjects.Image;
 };
 
 type CockroachState = {
@@ -190,26 +199,26 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	medical: { files: ["medical.svg"] },
 };
 
-export class GameScene extends Phaser.Scene {
+export class GameScene extends Scene {
 	private static readonly UNDERGROUND_TEXTURE_KEY = "underground";
 	private static readonly MERGE_TYPES = new Set(["floor", "lobby"]);
 
-	private cellGraphics!: Phaser.GameObjects.Graphics;
-	private simGraphics!: Phaser.GameObjects.Graphics;
-	private simSprites: Phaser.GameObjects.Sprite[] = [];
-	private cockroachSprites: Phaser.GameObjects.Sprite[] = [];
+	private cellGraphics!: GameObjects.Graphics;
+	private simGraphics!: GameObjects.Graphics;
+	private simSprites: GameObjects.Sprite[] = [];
+	private cockroachSprites: GameObjects.Sprite[] = [];
 	private cockroaches: CockroachState[] = [];
-	private carRects: Phaser.GameObjects.Rectangle[] = [];
-	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
-	private skyNight: Phaser.GameObjects.Image | null = null;
+	private carRects: GameObjects.Rectangle[] = [];
+	private undergroundBackground: GameObjects.TileSprite | null = null;
+	private skyNight: GameObjects.Image | null = null;
 
-	private hoverGraphics!: Phaser.GameObjects.Graphics;
+	private hoverGraphics!: GameObjects.Graphics;
 	private cloudManager!: CloudManager;
-	private floorLabelBg!: Phaser.GameObjects.Rectangle;
-	private floorLabels: Phaser.GameObjects.Image[] = [];
-	private carLabels: Phaser.GameObjects.Image[] = [];
+	private floorLabelBg!: GameObjects.Rectangle;
+	private floorLabels: GameObjects.Image[] = [];
+	private carLabels: GameObjects.Image[] = [];
 	private staticRowChunks: StaticRowChunk[][] = [];
-	private overlaySprites: Phaser.GameObjects.Image[] = [];
+	private overlaySprites: GameObjects.Image[] = [];
 	private roomTexturesLoaded = false;
 	private sceneCreated = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
@@ -220,7 +229,7 @@ export class GameScene extends Phaser.Scene {
 	private lastFloorLabelZoom = Number.NaN;
 	private lastFloorLabelWidth = -1;
 	private simsDirty = true;
-	private lastSimWorldView = new Phaser.Geom.Rectangle();
+	private lastSimWorldView = new Geom.Rectangle();
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -269,7 +278,7 @@ export class GameScene extends Phaser.Scene {
 	private camStartY = 0;
 
 	// Arrow-key pan
-	private arrowKeys!: Phaser.Types.Input.Keyboard.CursorKeys;
+	private arrowKeys!: PhaserTypes.Input.Keyboard.CursorKeys;
 
 	// Drag-to-paint state
 	private isDragging = false;
@@ -620,7 +629,7 @@ export class GameScene extends Phaser.Scene {
 
 		// Restore the previously-saved zoom and scroll for this tower.
 		const savedView = getTowerView(this.towerId);
-		const initialZoom = Phaser.Math.Clamp(
+		const initialZoom = PhaserMath.Clamp(
 			savedView.zoom ?? this.scale.width / totalWidth,
 			MIN_ZOOM,
 			MAX_ZOOM,
@@ -645,7 +654,7 @@ export class GameScene extends Phaser.Scene {
 		this.hoverGraphics.setDepth(HOVER_DEPTH);
 
 		this.arrowKeys =
-			this.input.keyboard?.createCursorKeys() as Phaser.Types.Input.Keyboard.CursorKeys;
+			this.input.keyboard?.createCursorKeys() as PhaserTypes.Input.Keyboard.CursorKeys;
 
 		this.drawSky();
 		this.loadUndergroundTexture();
@@ -794,7 +803,7 @@ export class GameScene extends Phaser.Scene {
 	}
 
 	private applyNumberTexture(
-		image: Phaser.GameObjects.Image,
+		image: GameObjects.Image,
 		textureKey: string,
 	): void {
 		image.setTexture(textureKey);
@@ -960,14 +969,22 @@ export class GameScene extends Phaser.Scene {
 		const dp = Math.floor(dayTick / 400);
 		const off = dayTick - dp * 400;
 		switch (dp) {
-			case 0: return 7 + (off / 400) * 5;
-			case 1: return 12 + (off / 400) * 0.5;
-			case 2: return 12.5 + (off / 400) * 0.5;
-			case 3: return 13 + (off / 400) * 4;
-			case 4: return 17 + (off / 400) * 4;
-			case 5: return 21 + (off / 400) * 4;
-			case 6: return 25 + (off / 200) * 6;
-			default: return 7;
+			case 0:
+				return 7 + (off / 400) * 5;
+			case 1:
+				return 12 + (off / 400) * 0.5;
+			case 2:
+				return 12.5 + (off / 400) * 0.5;
+			case 3:
+				return 13 + (off / 400) * 4;
+			case 4:
+				return 17 + (off / 400) * 4;
+			case 5:
+				return 21 + (off / 400) * 4;
+			case 6:
+				return 25 + (off / 200) * 6;
+			default:
+				return 7;
 		}
 	}
 
@@ -1079,7 +1096,7 @@ export class GameScene extends Phaser.Scene {
 		return textureKey !== null && this.textures.exists(textureKey);
 	}
 
-	private getOverlaySprite(textureKey: string): Phaser.GameObjects.Image {
+	private getOverlaySprite(textureKey: string): GameObjects.Image {
 		let sprite = this.overlaySprites[this.usedOverlaySpriteCount];
 		if (!sprite) {
 			sprite = this.add.image(0, 0, textureKey);
@@ -1107,7 +1124,7 @@ export class GameScene extends Phaser.Scene {
 	}
 
 	private getStaticRowChunkWidth(): number {
-		const renderer = this.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+		const renderer = this.renderer as Renderer.WebGL.WebGLRenderer;
 		const gl = renderer.gl;
 		const maxTextureSize =
 			gl && typeof gl.getParameter === "function"
@@ -1144,13 +1161,13 @@ export class GameScene extends Phaser.Scene {
 				if (!texture) {
 					throw new Error(`Failed to create static row texture: ${textureKey}`);
 				}
-				texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+				texture.setFilter(Textures.FilterMode.NEAREST);
 
 				const image = this.add.image(chunkX, y * TILE_HEIGHT, textureKey);
 				image.setOrigin(0, 0);
 				image.setDisplaySize(width, TILE_HEIGHT);
 				image.setDepth(STATIC_ROW_DEPTH);
-				image.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+				image.texture.setFilter(Textures.FilterMode.NEAREST);
 				chunks.push({ x: chunkX, width, texture, image });
 			}
 			this.staticRowChunks.push(chunks);
@@ -1516,7 +1533,7 @@ export class GameScene extends Phaser.Scene {
 	 *  the floor above (gy-1). Rendered outside row caches so bridge edges
 	 *  are not clipped or blurred by per-row bitmap boundaries. */
 	private drawBridgeOverlay(
-		g: Phaser.GameObjects.Graphics,
+		g: GameObjects.Graphics,
 		type: "stairs" | "escalator",
 		gx: number,
 		gy: number,
@@ -1648,11 +1665,11 @@ export class GameScene extends Phaser.Scene {
 					sprite = this.add.sprite(0, 0, textureKey);
 					sprite.setOrigin(0.5, 1);
 					sprite.setDepth(3);
-					sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+					sprite.texture.setFilter(Textures.FilterMode.LINEAR);
 					this.simSprites.push(sprite);
 				} else if (sprite.texture.key !== textureKey) {
 					sprite.setTexture(textureKey);
-					sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+					sprite.texture.setFilter(Textures.FilterMode.LINEAR);
 				}
 				sprite.setVisible(true);
 				sprite.setPosition(px, py);
@@ -1885,11 +1902,11 @@ export class GameScene extends Phaser.Scene {
 				sprite = this.add.sprite(0, 0, textureKey);
 				sprite.setOrigin(0.5, 0.5);
 				sprite.setDepth(DYNAMIC_ENTITY_DEPTH + 0.1);
-				sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+				sprite.texture.setFilter(Textures.FilterMode.LINEAR);
 				this.cockroachSprites.push(sprite);
 			} else if (sprite.texture.key !== textureKey) {
 				sprite.setTexture(textureKey);
-				sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+				sprite.texture.setFilter(Textures.FilterMode.LINEAR);
 			}
 			sprite.setVisible(true);
 			sprite.setPosition(worldX, worldY);
@@ -1995,7 +2012,7 @@ export class GameScene extends Phaser.Scene {
 	private setupInput(): void {
 		const cam = this.cameras.main;
 
-		this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+		this.input.on("pointermove", (pointer: Input.Pointer) => {
 			const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 			const shift = !!(pointer.event as MouseEvent).shiftKey;
 
@@ -2029,7 +2046,7 @@ export class GameScene extends Phaser.Scene {
 			}
 		});
 
-		this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+		this.input.on("pointerdown", (pointer: Input.Pointer) => {
 			if (pointer.rightButtonDown()) {
 				const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 				if (
@@ -2079,7 +2096,7 @@ export class GameScene extends Phaser.Scene {
 			}
 		});
 
-		this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+		this.input.on("pointerup", (pointer: Input.Pointer) => {
 			if (!pointer.middleButtonDown() && !pointer.rightButtonDown()) {
 				if (this.isPanning) {
 					setTowerView(this.towerId, {
@@ -2094,19 +2111,14 @@ export class GameScene extends Phaser.Scene {
 
 		this.input.on(
 			"wheel",
-			(
-				p: Phaser.Input.Pointer,
-				_o: unknown[],
-				deltaX: number,
-				deltaY: number,
-			) => {
+			(p: Input.Pointer, _o: unknown[], deltaX: number, deltaY: number) => {
 				const wheelEvent = p.event as WheelEvent;
 				if (wheelEvent.ctrlKey || wheelEvent.shiftKey) {
 					// Pinch or shift-modified trackpad scroll -> zoom around mouse position.
 					// Use Phaser's camera transform helpers instead of duplicating the math,
 					// so the anchor remains stable with RESIZE scaling and centered cameras.
 					const oldZoom = cam.zoom;
-					const newZoom = Phaser.Math.Clamp(
+					const newZoom = PhaserMath.Clamp(
 						oldZoom * (deltaY > 0 ? 0.9 : 1.1),
 						MIN_ZOOM,
 						MAX_ZOOM,
