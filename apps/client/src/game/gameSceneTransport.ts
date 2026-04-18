@@ -176,12 +176,15 @@ export function getCarBounds(car: CarrierCarStateData): {
 	width: number;
 	height: number;
 } {
-	const shaftWidthCells = TILE_WIDTHS.elevator ?? 4;
+	const isExpress = car.carrierMode === 0;
+	const shaftTypeKey = isExpress ? "elevatorExpress" : "elevator";
+	const shaftWidthCells = TILE_WIDTHS[shaftTypeKey] ?? 4;
 	const shaftPixelWidth = shaftWidthCells * TILE_WIDTH;
-	const gutter = 1;
-	const width = shaftPixelWidth - gutter * 2;
-	const height = Math.max(8, Math.floor(TILE_HEIGHT * 0.55));
-	const x = car.column * TILE_WIDTH + gutter;
+	const width = isExpress
+		? shaftPixelWidth - 6
+		: Math.max(6, shaftPixelWidth - 6);
+	const height = Math.max(10, Math.floor(TILE_HEIGHT * 0.75));
+	const x = car.column * TILE_WIDTH + (shaftPixelWidth - width) / 2;
 	const y =
 		(GRID_HEIGHT - 1 - predictCarFloor(car) + 0.5) * TILE_HEIGHT - height / 2;
 	return { x, y, width, height };
