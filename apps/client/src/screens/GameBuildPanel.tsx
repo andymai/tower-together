@@ -22,6 +22,7 @@ import {
 	TramFront,
 	UtensilsCrossed,
 } from "lucide-react";
+import { memo } from "react";
 import type { SelectedTool } from "../types";
 import { getTileStarRequirement, TILE_COSTS } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
@@ -215,7 +216,7 @@ interface Props {
 	onToolSelect: (tool: SelectedTool) => void;
 }
 
-export function GameBuildPanel({
+export const GameBuildPanel = memo(function GameBuildPanel({
 	starCount,
 	freeBuild,
 	selectedTool,
@@ -272,4 +273,4 @@ export function GameBuildPanel({
 			))}
 		</div>
 	);
-}
+});

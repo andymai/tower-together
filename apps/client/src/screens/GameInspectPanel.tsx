@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { SimStateData } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
@@ -36,7 +37,9 @@ function stateLabel(code: number): string {
 	);
 }
 
-export function GameInspectPanel({ sims }: Props) {
+export const GameInspectPanel = memo(function GameInspectPanel({
+	sims,
+}: Props) {
 	const avgStress =
 		sims.length > 0
 			? sims.reduce((sum, e) => sum + STRESS_VALUE[e.stressLevel], 0) /
@@ -66,7 +69,7 @@ export function GameInspectPanel({ sims }: Props) {
 			</div>
 		</div>
 	);
-}
+});
 
 const inspectListStyle: React.CSSProperties = {
 	maxHeight: 300,
