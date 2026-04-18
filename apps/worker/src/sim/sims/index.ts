@@ -120,6 +120,7 @@ export {
 	advanceSimTripCounters,
 	rebaseSimElapsedFromClock,
 	resetFacilitySimTripCounters,
+	resetSimTripCounters,
 } from "./trip-counters";
 
 import { DAY_TICK_MAX, type TimeState } from "../time";

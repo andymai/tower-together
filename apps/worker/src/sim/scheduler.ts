@@ -21,7 +21,9 @@ import {
 	updateRecyclingCenterState,
 } from "./recycling";
 import {
+	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
+	FAMILY_OFFICE,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "./resources";
@@ -34,6 +36,7 @@ import {
 	refundUnhappyFacilities,
 	resetCommercialVenueCycle,
 	resetSimRuntimeState,
+	resetSimTripCounters,
 	spreadCockroachInfestation,
 	updateHotelOperationalAndOccupancy,
 } from "./sims";
@@ -162,6 +165,13 @@ function checkpointLedgerRollover(s: SimState): void {
 		activateThreeDayCashflow(s.world, s.ledger, s.time.dayCounter);
 		doExpenseSweep(s.ledger, s.world);
 		refundUnhappyFacilities(s.world, s.ledger, s.time);
+		// Binary activate_family_cashflow_if_operational resets trip counters for
+		// all office and condo sims on the 3-day cycle (spec: 2533 step 2).
+		for (const sim of s.world.sims) {
+			if (sim.familyCode === FAMILY_OFFICE || sim.familyCode === FAMILY_CONDO) {
+				resetSimTripCounters(sim);
+			}
+		}
 	}
 }
 
