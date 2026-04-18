@@ -230,7 +230,9 @@ export function GameScreen({
 							onFreeBuildChange={setFreeBuild}
 						/>
 					)}
-					{selectedTool === "inspect" && <GameInspectPanel sims={sims} />}
+					{import.meta.env.DEV && selectedTool === "inspect" && (
+						<GameInspectPanel sims={sims} />
+					)}
 				</div>
 			</div>
 
