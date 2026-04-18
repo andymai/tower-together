@@ -23,6 +23,7 @@ export interface CellInfoData {
 		unitStatus: number;
 		activationTickCount: number;
 		venueAvailability?: number;
+		housekeepingClaimedFlag?: number;
 	};
 	carrierInfo?: {
 		carrierId: number;

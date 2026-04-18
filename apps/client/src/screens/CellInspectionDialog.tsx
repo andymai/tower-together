@@ -30,11 +30,13 @@ function getFacilityStatus(info: {
 	objectTypeCode: number;
 	unitStatus: number;
 	venueAvailability?: number;
+	housekeepingClaimedFlag?: number;
 }): string | null {
 	if (HOTEL_FAMILIES.has(info.objectTypeCode)) {
 		if (info.unitStatus < 0x18) return "Occupied";
 		if (info.unitStatus < 0x28) return "Vacant";
-		return "Checked Out";
+		if (info.housekeepingClaimedFlag) return "Dirty (being cleaned)";
+		return "Dirty";
 	}
 	if (info.objectTypeCode === 9) {
 		return info.unitStatus > 0x17 ? "For Sale" : "Sold";

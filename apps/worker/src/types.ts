@@ -130,6 +130,7 @@ export type ServerMessage =
 				evalLevel: number;
 				unitStatus: number;
 				activationTickCount: number;
+				housekeepingClaimedFlag?: number;
 			};
 			carrierInfo?: {
 				carrierId: number;

@@ -256,6 +256,7 @@ export class TowerSim {
 			unitStatus: number;
 			activationTickCount: number;
 			venueAvailability?: number;
+			housekeepingClaimedFlag?: number;
 		};
 		carrierInfo?: {
 			carrierId: number;
@@ -287,6 +288,7 @@ export class TowerSim {
 					unitStatus: record.unitStatus,
 					activationTickCount: record.activationTickCount,
 					venueAvailability,
+					housekeepingClaimedFlag: record.housekeepingClaimedFlag,
 				}
 			: undefined;
 
