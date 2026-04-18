@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+
+if (typeof requestAnimationFrame === "undefined") {
+	globalThis.requestAnimationFrame = (cb) => {
+		setTimeout(cb, 0);
+		return 0;
+	};
+}
 import {
 	INITIAL_TOWER_SESSION_STATE,
 	TowerSessionController,
