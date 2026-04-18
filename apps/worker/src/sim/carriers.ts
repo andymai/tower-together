@@ -28,6 +28,7 @@ export type CarrierBoardingCallback = (
 	sourceFloor: number,
 ) => void;
 
+const REQUEUE_FAILURE_DELAY = 0;
 const DEPARTURE_SEQUENCE_TICKS = 5;
 const QUEUE_CAPACITY = 40;
 const ACTIVE_SLOT_CAPACITY = 42;
@@ -696,7 +697,7 @@ function processUnitTravelQueue(
 						`${s.floorAnchor}:${s.homeColumn}:${s.familyCode}:${s.baseOffset}` ===
 						route.simId,
 				);
-				if (failedSim) addDelayToCurrentSim(failedSim, 5);
+				if (failedSim) addDelayToCurrentSim(failedSim, REQUEUE_FAILURE_DELAY);
 				clearSimRouteById(world, route.simId);
 				continue;
 			}
