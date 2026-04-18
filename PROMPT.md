@@ -9,6 +9,7 @@ INSTRUCTIONS (IMPORTANT):
 - Use both static and dynamic analysis of the original binary to understand its behavior and make the reimplementation match exactly.
 - Static analysis: use the `pyghidra` skill on analysis-2825a3c53f project (SIMTOWER.EX_). Note that state machine functions often have jump tables the decompilers fail on; you'll have to disassemble the jump instruction and read the table manually.
 - Dynamic analysis: use `simtower/emulator.py` and add additional hooks to inspect whatever you want to inspect.
+- Use subagents aggressively to complete static and dynamic analysis tasks. It's very important to rotect the main context window from pollution with large quantities of disassembly or decompilation output or trace data.
 
 Basic facts about the binary:
 - Days work a little strangely. Tick count ranges from 0-2599, and dayCounter increments at tick 2300. Day 0 starts at tick 2533 and then rolls over to tick 0 and up to tick 2299 before turning to day 1.
