@@ -158,6 +158,7 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 
 export class GameScene extends Phaser.Scene {
 	private static readonly UNDERGROUND_TEXTURE_KEY = "underground";
+	private static readonly MERGE_TYPES = new Set(["floor", "lobby"]);
 
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private simGraphics!: Phaser.GameObjects.Graphics;
@@ -1040,6 +1041,12 @@ export class GameScene extends Phaser.Scene {
 
 	private drawAllCells(): void {
 		const g = this.cellGraphics;
+		const textures = this.textures;
+		const grid = this.grid;
+		const anchorSet = this.anchorSet;
+		const overlayGrid = this.overlayGrid;
+		const roomTexturesLoaded = this.roomTexturesLoaded;
+		const mergeTypes = GameScene.MERGE_TYPES;
 		g.clear();
 		this.resetStaticObjectUsage();
 
@@ -1053,20 +1060,19 @@ export class GameScene extends Phaser.Scene {
 			);
 		}
 
-		// Tile types that should be merged into contiguous runs per row.
-		const MERGE_TYPES = new Set(["floor", "lobby"]);
-
 		// Draw non-merge anchor tiles (hotel tiles etc.) individually.
-		for (const key of this.anchorSet) {
-			const tileType = this.grid.get(key);
-			if (!tileType || MERGE_TYPES.has(tileType)) continue;
+		for (const key of anchorSet) {
+			const tileType = grid.get(key);
+			if (!tileType || mergeTypes.has(tileType)) continue;
 
-			const [x, y] = key.split(",").map(Number);
+			const separator = key.indexOf(",");
+			const x = Number(key.slice(0, separator));
+			const y = Number(key.slice(separator + 1));
 			const w = TILE_WIDTHS[tileType] ?? 1;
 
 			if (
 				tileType === "recyclingCenterLower" &&
-				this.roomTexturesLoaded &&
+				roomTexturesLoaded &&
 				this.hasRoomArt(tileType, x, y)
 			) {
 				continue;
@@ -1077,11 +1083,9 @@ export class GameScene extends Phaser.Scene {
 				isHotelTile && this.isHotelTurnoverStatus(this.unitStatusMap.get(key));
 			const texKey = this.getRoomTextureKey(tileType, x, y, isDirty);
 			const heightTiles = ROOM_TEXTURES[tileType]?.heightTiles ?? 1;
-			if (
-				this.roomTexturesLoaded &&
-				texKey !== null &&
-				this.textures.exists(texKey)
-			) {
+			const hasRoomTexture =
+				roomTexturesLoaded && texKey !== null && textures.exists(texKey);
+			if (hasRoomTexture && texKey !== null) {
 				const sprite = this.getRoomSprite(texKey);
 				sprite.setPosition(x * TILE_WIDTH + 1, y * TILE_HEIGHT + 1);
 				sprite.setOrigin(0, 0);
@@ -1102,6 +1106,14 @@ export class GameScene extends Phaser.Scene {
 				);
 			}
 
+			const labelText = TILE_LABELS[tileType];
+			if (labelText && !hasRoomTexture) {
+				const label = this.getTileLabel();
+				label.setPosition((x + w / 2) * TILE_WIDTH, (y + 0.5) * TILE_HEIGHT);
+				label.setText(labelText);
+				label.setColor(TILE_LABEL_COLORS[tileType] ?? "#ffffff");
+			}
+
 			// "For Rent" / "For Sale" banner on inactive facilities
 			const evalFlag = this.evalActiveFlagMap.get(key);
 			const unitStatus = this.unitStatusMap.get(key);
@@ -1115,11 +1127,11 @@ export class GameScene extends Phaser.Scene {
 			} else {
 				showInactiveBanner = evalFlag === 0;
 			}
-			if (this.roomTexturesLoaded && showInactiveBanner) {
+			if (roomTexturesLoaded && showInactiveBanner) {
 				const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
 					? "for_sale"
 					: "for_rent";
-				if (this.textures.exists(bannerKey)) {
+				if (textures.exists(bannerKey)) {
 					const tileW = w * TILE_WIDTH - 1;
 					const tileH = TILE_HEIGHT - 1;
 					// Fit banner inside tile without stretching (9:4 aspect ratio)
@@ -1178,8 +1190,8 @@ export class GameScene extends Phaser.Scene {
 			let runType: string | null = null;
 			for (let x = 0; x <= GRID_WIDTH; x++) {
 				const cellType =
-					x < GRID_WIDTH ? (this.grid.get(`${x},${y}`) ?? null) : null;
-				const isMerge = cellType !== null && MERGE_TYPES.has(cellType);
+					x < GRID_WIDTH ? (grid.get(`${x},${y}`) ?? null) : null;
+				const isMerge = cellType !== null && mergeTypes.has(cellType);
 				if (isMerge && cellType === runType) {
 					// extend current run
 				} else {
@@ -1190,11 +1202,11 @@ export class GameScene extends Phaser.Scene {
 						const runPxW = (x - runStart) * TILE_WIDTH - 1;
 						const runPxH = TILE_HEIGHT - 1;
 						if (
-							this.roomTexturesLoaded &&
-							this.textures.exists(texKey) &&
+							roomTexturesLoaded &&
+							textures.exists(texKey) &&
 							runType === "lobby"
 						) {
-							const tex = this.textures.get(texKey).getSourceImage();
+							const tex = textures.get(texKey).getSourceImage();
 							const tileSprite = this.getRoomTileSprite(texKey);
 							tileSprite.setPosition(runPxX, runPxY);
 							tileSprite.setSize(runPxW, runPxH);
@@ -1220,8 +1232,10 @@ export class GameScene extends Phaser.Scene {
 
 		// Draw overlay tiles on top of base tiles.
 		const shaftRows = new Map<string, number[]>();
-		for (const [key, type] of this.overlayGrid) {
-			const [x, y] = key.split(",").map(Number);
+		for (const [key, type] of overlayGrid) {
+			const separator = key.indexOf(",");
+			const x = Number(key.slice(0, separator));
+			const y = Number(key.slice(separator + 1));
 			if (type === "stairs" || type === "escalator") {
 				this.drawBridgeOverlay(g, type, x, y);
 			} else {
@@ -1266,7 +1280,6 @@ export class GameScene extends Phaser.Scene {
 			);
 		}
 
-		this.drawTileLabels();
 		this.hideUnusedStaticObjects();
 		this.drawDynamicOverlays();
 	}
@@ -1286,24 +1299,6 @@ export class GameScene extends Phaser.Scene {
 			this.lastSimWorldView.height !== worldView.height
 		) {
 			this.drawSims();
-		}
-	}
-
-	private drawTileLabels(): void {
-		for (const key of this.anchorSet) {
-			const tileType = this.grid.get(key);
-			if (!tileType) continue;
-
-			const labelText = TILE_LABELS[tileType];
-			if (!labelText) continue;
-			const [x, y] = key.split(",").map(Number);
-			if (this.roomTexturesLoaded && this.hasRoomArt(tileType, x, y)) continue;
-
-			const width = TILE_WIDTHS[tileType] ?? 1;
-			const label = this.getTileLabel();
-			label.setPosition((x + width / 2) * TILE_WIDTH, (y + 0.5) * TILE_HEIGHT);
-			label.setText(labelText);
-			label.setColor(TILE_LABEL_COLORS[tileType] ?? "#ffffff");
 		}
 	}
 
