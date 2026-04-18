@@ -390,6 +390,7 @@ export function processOfficeSim(
 			returnState: STATE_AT_WORK,
 			tripState: STATE_ACTIVE_TRANSIT,
 			skipPenaltyOnUnavailable: true,
+			advanceBeforeSameFloorDwell: true,
 		});
 		if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
 			// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
