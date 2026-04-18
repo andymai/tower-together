@@ -4,12 +4,12 @@ import { PhaserGame } from "../game/PhaserGame";
 import { buildTransportMetrics } from "../game/transportSelectors";
 import type { TowerSocket } from "../lib/socket";
 import type { SelectedTool } from "../types";
-import { DAY_TICK_MAX, TILE_COSTS } from "../types";
+import { DAY_TICK_MAX } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
+import { GameBuildPanel } from "./GameBuildPanel";
 import { GameDebugPanel } from "./GameDebugPanel";
 import { GameInspectPanel } from "./GameInspectPanel";
 import { GamePromptModal } from "./GamePromptModal";
-import { GameStatusBar } from "./GameStatusBar";
 import { GameToasts } from "./GameToasts";
 import { GameToolbar } from "./GameToolbar";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
@@ -24,75 +24,16 @@ interface Props {
 	onLeave: () => void;
 }
 
-interface ToolDef {
-	id: SelectedTool;
-	label: string;
-	color: string;
-	cost: number;
-}
-
-const TOOLS: ToolDef[] = [
-	{ id: "empty", label: "Erase", color: "#888", cost: 0 },
-	{ id: "floor", label: "Floor", color: "#777", cost: TILE_COSTS.floor },
-	{ id: "lobby", label: "Lobby", color: "#c9a77a", cost: TILE_COSTS.lobby },
-	{ id: "stairs", label: "Stairs", color: "#e8d5a3", cost: TILE_COSTS.stairs },
-	{
-		id: "elevator",
-		label: "Elevator",
-		color: "#a0a0e0",
-		cost: TILE_COSTS.elevator,
-	},
-	{
-		id: "escalator",
-		label: "Escalator",
-		color: "#c0a0d0",
-		cost: TILE_COSTS.escalator,
-	},
-	{
-		id: "hotelSingle",
-		label: "Single",
-		color: "#f28b82",
-		cost: TILE_COSTS.hotelSingle,
-	},
-	{
-		id: "hotelTwin",
-		label: "Twin",
-		color: "#e35d5b",
-		cost: TILE_COSTS.hotelTwin,
-	},
-	{
-		id: "hotelSuite",
-		label: "Suite",
-		color: "#b63c3c",
-		cost: TILE_COSTS.hotelSuite,
-	},
-	{
-		id: "restaurant",
-		label: "Restaurant",
-		color: "#e58a3a",
-		cost: TILE_COSTS.restaurant,
-	},
-	{
-		id: "fastFood",
-		label: "Fast Food",
-		color: "#f2b24d",
-		cost: TILE_COSTS.fastFood,
-	},
-	{ id: "retail", label: "Retail", color: "#a0c040", cost: TILE_COSTS.retail },
-	{ id: "office", label: "Office", color: "#a8b7c4", cost: TILE_COSTS.office },
-	{ id: "condo", label: "Condo", color: "#e7cf6b", cost: TILE_COSTS.condo },
-	{ id: "cinema", label: "Cinema", color: "#c040a0", cost: TILE_COSTS.cinema },
-	{
-		id: "recyclingCenter",
-		label: "Recycle",
-		color: "#c04040",
-		cost: TILE_COSTS.recyclingCenter,
-	},
-	{ id: "metro", label: "Metro", color: "#60c0c0", cost: TILE_COSTS.metro },
-	{ id: "inspect", label: "Inspect", color: "#5bc0de", cost: 0 },
-];
-
 let toastCounter = 0;
+
+function formatSimDate(day: number): string {
+	const day0 = Math.max(0, day - 1);
+	const year = Math.floor(day0 / 12) + 1;
+	const quarter = Math.floor((day0 % 12) / 4) + 1;
+	const dow = day0 % 4;
+	const weekLabel = dow < 2 ? `WD${dow + 1}` : "WE";
+	return `Year ${year} Q${quarter} ${weekLabel}`;
+}
 
 export function GameScreen({
 	playerId,
@@ -217,30 +158,27 @@ export function GameScreen({
 	}, [aliasInput, setTowerName, towerId]);
 
 	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
-	const dayTick = simTime % DAY_TICK_MAX;
-	const hour = (6 + Math.floor((dayTick * 19) / DAY_TICK_MAX)) % 24;
+	const dateLabel = formatSimDate(day);
 	const metrics = buildTransportMetrics(sims, carriers);
 
 	return (
 		<div style={styles.container}>
 			<GameToolbar
-				tools={TOOLS}
 				isRenaming={isRenaming}
 				aliasInput={aliasInput}
 				aliasError={aliasError}
 				aliasSaving={aliasSaving}
 				towerId={towerId}
 				towerName={towerName}
-				selectedTool={selectedTool}
 				cash={cash ?? 0}
-				day={day}
-				hour={hour}
+				dateLabel={dateLabel}
 				playerCount={playerCount}
+				connectionStatus={connectionStatus}
 				onAliasInputChange={handleAliasInputChange}
 				onRenameStart={handleRenameStart}
 				onRenameCancel={handleRenameCancel}
 				onRenameSubmit={handleSetAlias}
-				onToolSelect={setSelectedTool}
+				onReconnect={reconnect}
 				onLeave={onLeave}
 			/>
 
@@ -251,14 +189,20 @@ export function GameScreen({
 					selectedTool={selectedTool}
 					sceneRef={sceneRef}
 				/>
-				<GameDebugPanel
-					metrics={metrics}
-					speedMultiplier={speedMultiplier}
-					onSpeedChange={setSpeedMultiplier}
-					freeBuild={freeBuild}
-					onFreeBuildChange={setFreeBuild}
-				/>
-				{selectedTool === "inspect" && <GameInspectPanel sims={sims} />}
+				<div style={styles.rightPanelStack}>
+					<GameBuildPanel
+						selectedTool={selectedTool}
+						onToolSelect={setSelectedTool}
+					/>
+					<GameDebugPanel
+						metrics={metrics}
+						speedMultiplier={speedMultiplier}
+						onSpeedChange={setSpeedMultiplier}
+						freeBuild={freeBuild}
+						onFreeBuildChange={setFreeBuild}
+					/>
+					{selectedTool === "inspect" && <GameInspectPanel sims={sims} />}
+				</div>
 			</div>
 
 			{activePrompt && (
@@ -277,11 +221,6 @@ export function GameScreen({
 			/>
 
 			<GameToasts toasts={toasts} />
-			<GameStatusBar
-				connectionStatus={connectionStatus}
-				towerId={towerId}
-				onReconnect={reconnect}
-			/>
 		</div>
 	);
 }

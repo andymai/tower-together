@@ -1,54 +1,56 @@
-import type { SelectedTool } from "../types";
+import type { ConnectionStatus } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
-interface ToolDef {
-	id: SelectedTool;
-	label: string;
-	color: string;
-	cost: number;
-}
-
 interface Props {
-	tools: ToolDef[];
 	isRenaming: boolean;
 	aliasInput: string;
 	aliasError: string;
 	aliasSaving: boolean;
 	towerId: string;
 	towerName: string;
-	selectedTool: SelectedTool;
 	cash: number;
-	day: number;
-	hour: number;
+	dateLabel: string;
 	playerCount: number;
+	connectionStatus: ConnectionStatus;
 	onAliasInputChange: (value: string) => void;
 	onRenameStart: () => void;
 	onRenameCancel: () => void;
 	onRenameSubmit: () => void;
-	onToolSelect: (tool: SelectedTool) => void;
+	onReconnect: () => void;
 	onLeave: () => void;
 }
 
 export function GameToolbar({
-	tools,
 	isRenaming,
 	aliasInput,
 	aliasError,
 	aliasSaving,
 	towerId,
 	towerName,
-	selectedTool,
 	cash,
-	day,
-	hour,
+	dateLabel,
 	playerCount,
+	connectionStatus,
 	onAliasInputChange,
 	onRenameStart,
 	onRenameCancel,
 	onRenameSubmit,
-	onToolSelect,
+	onReconnect,
 	onLeave,
 }: Props) {
+	const statusColor =
+		connectionStatus === "connected"
+			? "#4ade80"
+			: connectionStatus === "connecting"
+				? "#facc15"
+				: "#f87171";
+	const statusText =
+		connectionStatus === "connected"
+			? "Connected"
+			: connectionStatus === "connecting"
+				? "Connecting…"
+				: "Disconnected";
+
 	return (
 		<div style={styles.toolbar}>
 			<div style={styles.toolbarLeft}>
@@ -93,34 +95,26 @@ export function GameToolbar({
 						{towerName || towerId}
 					</button>
 				)}
-				<div style={styles.toolGroup}>
-					{tools.map((tool) => (
-						<button
-							type="button"
-							key={tool.id}
-							title={tool.cost > 0 ? `$${tool.cost.toLocaleString()}` : ""}
-							style={{
-								...styles.toolBtn,
-								border: `1px solid ${selectedTool === tool.id ? tool.color : "#444"}`,
-								background:
-									selectedTool === tool.id ? `${tool.color}33` : "transparent",
-								color: selectedTool === tool.id ? tool.color : "#999",
-							}}
-							onClick={() => onToolSelect(tool.id)}
-						>
-							{tool.label}
-						</button>
-					))}
-				</div>
 			</div>
 
 			<div style={styles.toolbarRight}>
 				<span style={styles.cashDisplay}>${cash.toLocaleString()}</span>
-				<span style={styles.statItem}>
-					Day {day} · {String(hour).padStart(2, "0")}h
-				</span>
+				<span style={styles.statItem}>{dateLabel}</span>
 				<span style={styles.statItem}>
 					{playerCount} player{playerCount !== 1 ? "s" : ""}
+				</span>
+				<span style={styles.toolbarStatus}>
+					<span style={{ ...styles.statusDot, background: statusColor }} />
+					<span style={styles.statItem}>{statusText}</span>
+					{connectionStatus === "disconnected" && (
+						<button
+							type="button"
+							style={styles.reconnectBtn}
+							onClick={onReconnect}
+						>
+							Reconnect
+						</button>
+					)}
 				</span>
 				<button type="button" style={styles.leaveBtn} onClick={onLeave}>
 					Leave
