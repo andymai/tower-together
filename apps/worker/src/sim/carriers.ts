@@ -130,8 +130,7 @@ function resetCarToHome(carrier: CarrierRecord, car: CarrierCar): void {
 	car.currentFloor = homeFloor;
 	car.targetFloor = homeFloor;
 	car.prevFloor = homeFloor;
-	car.speedCounter = 0;
-	car.doorWaitCounter = 0;
+	car.settleCounter = 0;
 	car.dwellCounter = 0;
 	car.assignedCount = 0;
 	car.pendingAssignmentCount = 0;
@@ -186,8 +185,8 @@ function advanceCarPositionOneStep(
 	}
 
 	const motionMode = computeCarMotionMode(carrier, car);
-	if (motionMode === 0) car.doorWaitCounter = DEPARTURE_SEQUENCE_TICKS;
-	else if (motionMode === 1) car.doorWaitCounter = 2;
+	if (motionMode === 0) car.settleCounter = DEPARTURE_SEQUENCE_TICKS;
+	else if (motionMode === 1) car.settleCounter = 2;
 
 	// Binary convention: direction==0 → down (cur -= step); direction!=0 → up.
 	const stepSize = motionMode === 3 ? 3 : 1;
@@ -279,8 +278,7 @@ export function makeCarrierCar(
 	return {
 		active: true,
 		currentFloor: homeFloor,
-		doorWaitCounter: 0,
-		speedCounter: 0,
+		settleCounter: 0,
 		dwellCounter: 0,
 		assignedCount: 0,
 		pendingAssignmentCount: 0,
@@ -336,7 +334,7 @@ export function makeCarrier(
 		serviceScheduleFlags: new Array(14).fill(1),
 		dwellDelay: new Array(14).fill(0),
 		expressDirectionFlags: new Array(14).fill(0),
-		waitingCarResponseThreshold: 4,
+		waitingCarResponseThreshold: 5,
 		assignmentCapacity: mode === 0 ? 0x2a : 0x15,
 		floorQueues: Array.from({ length: numSlots }, () => createFloorQueue()),
 		pendingRoutes: [],
@@ -453,7 +451,7 @@ function findBestAvailableCarForFloor(
 
 		// Cases A/B: car at floor with doors closed, and either scheduleFlag is
 		// set or direction already matches. Binary returns 0 immediately.
-		if (car.currentFloor === floor && car.doorWaitCounter === 0) {
+		if (car.currentFloor === floor && car.settleCounter === 0) {
 			if (car.scheduleFlag !== 0 || car.directionFlag === directionFlag) {
 				return { carIndex, fullAssign: false };
 			}
@@ -465,7 +463,7 @@ function findBestAvailableCarForFloor(
 		const isIdleHome =
 			car.pendingAssignmentCount === 0 &&
 			car.nonemptyDestinationCount === 0 &&
-			car.doorWaitCounter === 0 &&
+			car.settleCounter === 0 &&
 			car.currentFloor === car.homeFloor;
 
 		if (isIdleHome) {
@@ -764,10 +762,10 @@ function selectNextTarget(
 		const gate =
 			(car.directionFlag !== 0 &&
 				(car.currentFloor !== carrier.topServedFloor ||
-					car.doorWaitCounter !== 0)) ||
+					car.settleCounter !== 0)) ||
 			(car.directionFlag === 0 &&
 				car.currentFloor === carrier.bottomServedFloor &&
-				car.doorWaitCounter === 0);
+				car.settleCounter === 0);
 		if (gate) {
 			for (let f = car.currentFloor; f >= carrier.bottomServedFloor; f--) {
 				if (hasQueuedRider(f)) return f;
@@ -782,10 +780,10 @@ function selectNextTarget(
 		const gate =
 			(car.directionFlag === 0 &&
 				(car.currentFloor !== carrier.bottomServedFloor ||
-					car.doorWaitCounter !== 0)) ||
+					car.settleCounter !== 0)) ||
 			(car.directionFlag !== 0 &&
 				car.currentFloor === carrier.topServedFloor &&
-				car.doorWaitCounter === 0);
+				car.settleCounter === 0);
 		if (gate) {
 			for (let f = car.currentFloor; f <= carrier.topServedFloor; f++) {
 				if (hasQueuedRider(f)) return f;
@@ -972,7 +970,7 @@ function boardAndUnloadRoutes(
  * (`dispatchAndBoardCar`), which handles unload/boarding.
  *
  * State counters correspond to the binary's car struct fields:
- *   doorWaitCounter ↔ -0x5d (stabilize after a motion step)
+ *   settleCounter ↔ -0x5d (settle after a motion step)
  *   dwellCounter    ↔ -0x5c (dwell/boarding at a stop; 5 = just arrived)
  */
 function advanceCarrierCarState(
@@ -994,9 +992,9 @@ function advanceCarrierCarState(
 	// Branch C (1098:06fb): stabilize countdown. While nonzero, the car is
 	// mid-motion-cycle. Decrement only if recomputed mode is still 0;
 	// otherwise snap to 0 (fast-cancel).
-	if (car.doorWaitCounter > 0) {
-		if (computeCarMotionMode(carrier, car) === 0) car.doorWaitCounter--;
-		else car.doorWaitCounter = 0;
+	if (car.settleCounter > 0) {
+		if (computeCarMotionMode(carrier, car) === 0) car.settleCounter--;
+		else car.settleCounter = 0;
 		return;
 	}
 
@@ -1190,7 +1188,7 @@ export function rebuildCarrierList(world: WorldState): void {
 			existing.carrierMode = mode;
 			existing.topServedFloor = top;
 			existing.bottomServedFloor = bottom;
-			existing.waitingCarResponseThreshold ??= 4;
+			existing.waitingCarResponseThreshold ??= 5;
 			existing.assignmentCapacity ??= mode === 0 ? 0x2a : 0x15;
 			if (existing.servedFloorFlags.length !== 14) {
 				existing.servedFloorFlags = new Array(14).fill(1);

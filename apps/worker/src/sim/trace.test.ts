@@ -465,7 +465,7 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 						).toBe(ref.directionFlag);
 						if (ref.stabilizeCounter !== undefined) {
 							expect(
-								ours.doorWaitCounter,
+								ours.settleCounter,
 								`car ${i} stabilizeCounter at ${k} ${ctx}`,
 							).toBe(ref.stabilizeCounter);
 						}

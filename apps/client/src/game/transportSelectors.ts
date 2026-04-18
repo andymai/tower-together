@@ -25,7 +25,7 @@ export function isQueuedSim(sim: SimStateData): boolean {
 }
 
 export function isMovingCar(car: CarrierCarStateData): boolean {
-	return car.speedCounter > 0 || car.currentFloor !== car.targetFloor;
+	return car.settleCounter > 0 || car.currentFloor !== car.targetFloor;
 }
 
 export function buildOccupancyByCar(sims: SimStateData[]): Map<string, number> {
@@ -60,7 +60,7 @@ export function buildTransportMetrics(
 		activeTrips: sims.filter((sim) => sim.routeMode !== 0).length,
 		totalCars: carriers.length,
 		movingCars: carriers.filter(isMovingCar).length,
-		doorWaitCars: carriers.filter((car) => car.doorWaitCounter > 0).length,
+		doorWaitCars: carriers.filter((car) => car.settleCounter > 0).length,
 		peakCarLoad: Math.max(0, ...occupancyByCar.values()),
 		state22Sims: sims.filter((sim) => sim.stateCode === 0x22).length,
 		checkoutQueueSims: sims.filter((sim) =>

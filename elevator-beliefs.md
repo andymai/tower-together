@@ -17,7 +17,7 @@ Names are ours; offsets reference the binary struct at
 | Field | Off | Role |
 |-------|-----|------|
 | `curFloor` | -0x5e | Current floor. Snapshotted into `bVar2/iVar5` at function entry. |
-| `stabilize` | -0x5d | Post-motion stabilize countdown. Nonzero ⇒ motion just happened, must settle. |
+| `settle` | -0x5d | Post-motion settle countdown. Nonzero ⇒ motion just happened, must settle. |
 | `dwell` | -0x5c | Arrival / departure-sequence countdown. The "5-tick cycle" counter. |
 | `assignedCount` | -0x5b | Riders currently assigned to this car. Compared against `carrier.assignmentCapacity`. |
 | `direction` | -0x5a | Travel direction (0 = down, nonzero = up). Consumed by `advance_car_position_one_step`. |
@@ -32,22 +32,22 @@ Names are ours; offsets reference the binary struct at
 ## Top-level branch selection
 
 No early exits, no validity gates — the outer carrier loop is responsible for
-skipping inactive cars. Every tick the function reads `curFloor`, `stabilize`,
+skipping inactive cars. Every tick the function reads `curFloor`, `settle`,
 `dwell` and dispatches to exactly one of three sibling branches:
 
 ```
-if (stabilize == 0) {
+if (settle == 0) {
     if (dwell == 0) Branch A   (arrival / motion step)
     else            Branch B   (dwell countdown, possibly reselect)
 } else {
-    Branch C                   (stabilize countdown)
+    Branch C                   (settle countdown)
 }
 ```
 
 A and B are mutually exclusive siblings of `if (dwell == 0)` — they cannot run
 in the same tick.
 
-## Branch A — `stabilize == 0 && dwell == 0`
+## Branch A — `settle == 0 && dwell == 0`
 
 Two sub-arms, chosen by a compound gate.
 
@@ -96,7 +96,7 @@ Taken when A1's gate is false. Actions:
 6. If `bVar4`, `assign_car_to_floor_request(carrier, curFloor, 0)`.
 7. Return. A2 does not write `dwell`.
 
-## Branch B — `stabilize == 0 && dwell != 0` (dwell countdown)
+## Branch B — `settle == 0 && dwell != 0` (dwell countdown)
 
 Exact ordering:
 
@@ -115,12 +115,12 @@ There is no `dwell == 1` pre-check. There is no `dwell = 5` rewrite here;
 after reselect, the next `dwell = 5` can only come from A1 on a subsequent
 tick, once B has set `dwell = 0` and A's outer guard is re-entered.
 
-## Branch C — `stabilize != 0` (stabilize countdown)
+## Branch C — `settle != 0` (settle countdown)
 
 1. `iVar5 = compute_car_motion_mode(carrier, car)`.
-2. If `iVar5 == 0`, `stabilize = stabilize - 1`.
-3. Else, `stabilize = 0` (fast-cancel: if the mode changed away from "needs
-   stabilize", zero the counter immediately).
+2. If `iVar5 == 0`, `settle = settle - 1`.
+3. Else, `settle = 0` (fast-cancel: if the mode changed away from "needs
+   settle", zero the counter immediately).
 4. Set global dirty flag `DAT_1288_39a4 = 1`.
 
 Branch C does not read or write `dwell`, `targetFloor`, or any rider fields.
@@ -135,8 +135,8 @@ if (curFloor == targetFloor) {
     recompute_car_target_and_direction(carrier, car);  // pick next target
 }
 mode = compute_car_motion_mode(carrier, car);
-if (mode == 0)      stabilize = 5;
-else if (mode == 1) stabilize = 2;
+if (mode == 0)      settle = 5;
+else if (mode == 1) settle = 2;
 if (mode == 3) curFloor += (direction == 0 ? -3 : +3);
 else           curFloor += (direction == 0 ? -1 : +1);
 if (arrivalSeen != 0) {
@@ -147,9 +147,9 @@ DAT_1288_39a4 = 1;
 ```
 
 Key points:
-- Motion and stabilize-write happen on **every** call.
+- Motion and settle-write happen on **every** call.
 - Modes 0, 1, 2 move by 1; mode 3 moves by 3.
-- Modes 0 and 1 arm `stabilize` (5 and 2). Modes 2 and 3 leave it alone.
+- Modes 0 and 1 arm `settle` (5 and 2). Modes 2 and 3 leave it alone.
 - If already at target on entry, recompute is triggered **before** motion —
   so the step moves toward the fresh target on the same tick.
 - `arrivalSeen` is cleared on every step: it latches at A1 and clears here,
@@ -184,7 +184,7 @@ and `prevFloor`. Modes and their semantics:
 | 3 | both dist > 4 | — | ±3 | (unchanged) |
 
 Mode 0 is the "approaching or leaving a stop" case — it's the only mode that
-arms a 5-tick post-motion stabilize, which is what gates A1 from firing for
+arms a 5-tick post-motion settle, which is what gates A1 from firing for
 5 ticks after a step. Mode 3 is never selected for standard/service carriers; mode 1
 is never selected for express carriers.
 
@@ -234,7 +234,7 @@ Flow:
 2. If `targetFloor < carrier.bottomServedFloor ||
    targetFloor > carrier.topServedFloor`, call
    `reset_out_of_range_car(carrier, car, 0xffff)` — this zeroes
-   `stabilize`, `dwell`, `assignedCount`, `pendingDestCount`,
+   `settle`, `dwell`, `assignedCount`, `pendingDestCount`,
    `arrivalSeen`, `arrivalTick`, sets `curFloor`/`targetFloor`/`prevFloor`
    to the per-car home floor from `reachabilityMasksByFloor[carIndex - 8]`,
    sets `direction = 1`, clears all 42 route slots, and zeros the
@@ -256,7 +256,7 @@ if (arrivalTick == 0 && pendingDestCount == 0)
     return homeFloor;                          // idle: go home
 
 if (schedMode == 1) {                          // STD UP
-    if (at top endpoint of current direction and stabilize==0)
+    if (at top endpoint of current direction and settle==0)
         return topServedFloor;                 // head to top
     for (f = curFloor; f >= bottomServedFloor; f--) {
         if (queuedRider[f]) return f;
@@ -268,7 +268,7 @@ if (schedMode == 1) {                          // STD UP
 }
 
 if (schedMode == 2) {                          // STD DOWN (symmetric)
-    if (at bottom endpoint of current direction and stabilize==0) {
+    if (at bottom endpoint of current direction and settle==0) {
         ...upward scan for work, then fallback bottomServedFloor
     }
 }
@@ -369,7 +369,7 @@ Callers of `reset_out_of_range_car` (the only nonzero→0 `dwell` reset path):
 2. `FUN_1098_00d9` — init/reset helper.
 3. `place_carrier_shaft` @ `1200:11d0` — placement init.
 
-**No day-boundary path resets `dwell`, `stabilize`, `arrivalSeen`, or
+**No day-boundary path resets `dwell`, `settle`, `arrivalSeen`, or
 `arrivalTick`.** Per-car state persists across the rollover. Idle cars rely on
 A1 re-firing to hold `dwell = 5`; B-pinned cars continue their cycle.
 
@@ -382,8 +382,8 @@ From dynamic trace of `build_elevator`:
 
 ```
 t=5  cur=10 tgt=11 dwell=0 stab=0 asn=2    ← reselect just set tgt=11; A2 will fire
-t=6  cur=11 tgt=11 dwell=0 stab=5 asn=2    ← A2: motion (mode 0) + stabilize=5
-t=7  cur=11 tgt=11 dwell=0 stab=4 asn=2    ← C: stabilize--
+t=6  cur=11 tgt=11 dwell=0 stab=5 asn=2    ← A2: motion (mode 0) + settle=5
+t=7  cur=11 tgt=11 dwell=0 stab=4 asn=2    ← C: settle--
 t=8  cur=11 tgt=11 dwell=0 stab=3 asn=2
 t=9  cur=11 tgt=11 dwell=0 stab=2 asn=2
 t=10 cur=11 tgt=11 dwell=0 stab=1 asn=2
@@ -395,13 +395,13 @@ Pass 2 (`dispatch_carrier_car_arrivals`) gates on `dwell == 5 &&
 secondaryRouteStatusByFloor[curFloor + 0xc] != 0`, calls
 `dispatch_destination_queue_entries`, and that flips rider state bytes
 (office sim: 0x60 → 0x01). So the 96→1 rider transition lands **6 ticks after
-arrival**, one tick after stabilize hits 0.
+arrival**, one tick after settle hits 0.
 
 Ordering summary per trip:
 
-1. Tick of step-to-target: A2 — motion + `stabilize = 5`.
-2. Next 5 ticks: Branch C, `stabilize` counts 5→0.
-3. First tick where `stabilize == 0` on entry: A1 — `dwell = 5`,
+1. Tick of step-to-target: A2 — motion + `settle = 5`.
+2. Next 5 ticks: Branch C, `settle` counts 5→0.
+3. First tick where `settle == 0` on entry: A1 — `dwell = 5`,
    `arrivalTick = g_dayTick`, `arrivalSeen = 1`. Pass 2 unloads riders.
 4. Subsequent ticks while A1's gate holds: A1 re-fires, `dwell` pinned at 5.
 5. When something (typically dispatch dropping `assignedCount` and the queued
@@ -409,7 +409,7 @@ Ordering summary per trip:
    Branch B takes over: 5 ticks of decrement, then reselect + depart check.
 6. If depart gate says "no", `dwell = 1`: B repeats next tick, reselect +
    depart check each time, until depart gate trips.
-7. On depart, A2 motion resumes (with `stabilize = 5` after each step),
+7. On depart, A2 motion resumes (with `settle = 5` after each step),
    eventually reaching the new target.
 
 ## Dispatch pass 2 — exact gate (1218:07a6)
@@ -429,7 +429,7 @@ if (car.dwell == 5 && car.secondaryRouteStatusByFloor[curFloor + 0xc] != 0) {
 }
 ```
 
-No additional gates — no `stabilize == 0`, no `arrivalSeen` check, no mode
+No additional gates — no `settle == 0`, no `arrivalSeen` check, no mode
 guard. Because A1 writes `dwell = 5` every tick it holds (level trigger), the
 unload is re-entered every tick while riders remain queued, which is why
 successive riders bound for the same floor unload on consecutive ticks.
@@ -464,14 +464,14 @@ out of scope for this pass.
   `dwell = 5` continuously until the gate breaks; B's 5-tick countdown plus
   any `dwell = 1` retry pinning extends that further.
 - **State-96 → state-1 lag**: the 6-tick gap equals motion-tick (A2) + 5-tick
-  stabilize + A1 firing. Pass 2 unload reads `dwell == 5` which only becomes
-  true after stabilize completes.
+  settle + A1 firing. Pass 2 unload reads `dwell == 5` which only becomes
+  true after settle completes.
 - **TS 5- vs 4-tick divergence**: was caused by `flushCarriersEndOfDay` zeroing
   per-car state. Binary does not reset per-car state at the day boundary.
 
 ## Applied TS fixes
 
-1. `advanceCarPositionOneStep`: always moves and always sets `stabilize`;
+1. `advanceCarPositionOneStep`: always moves and always sets `settle`;
    no early-return on motion mode 0/1.
 2. `computeCarMotionMode`: standard/service carriers no longer force mode 2
    on `firstLeg`; the close-to-either-end rule takes precedence.
@@ -514,7 +514,7 @@ analysis hints, kept verbatim.
 ## `advance_carrier_car_state` @ 1098:06fb
 
 ```c
-/* Per-tick elevator-car state machine. car[stabilize] is the door-wait
+/* Per-tick elevator-car state machine. car[settle] is the door-wait
    countdown, while car[dwell] is the boarding/departure-sequence countdown
    keyed by the arrival dispatcher. */
 
@@ -529,7 +529,7 @@ void __cdecl16far advance_carrier_car_state(int carrier_index, int car_index)
   bVar2 = car[curFloor];
   iVar5 = (int)(char)bVar2;
 
-  if (car[stabilize] == 0) {
+  if (car[settle] == 0) {
     if (car[dwell] == 0) {
       /* ----- Branch A ----- */
       if ((char)car[targetFloor] == iVar5 &&
@@ -581,10 +581,10 @@ void __cdecl16far advance_carrier_car_state(int carrier_index, int car_index)
     }
   }
   else {
-    /* ----- Branch C — stabilize countdown ----- */
+    /* ----- Branch C — settle countdown ----- */
     iVar5 = compute_car_motion_mode(carrier_index, car_index);
-    if (iVar5 == 0) { pbVar1 = &car[stabilize]; *pbVar1 = *pbVar1 - 1; }
-    else            { car[stabilize] = 0; }
+    if (iVar5 == 0) { pbVar1 = &car[settle]; *pbVar1 = *pbVar1 - 1; }
+    else            { car[settle] = 0; }
     *(undefined2 *)&DAT_1288_39a4 = 1;
   }
 }
@@ -609,8 +609,8 @@ void __cdecl16far advance_car_position_one_step(int carrier_index, int car_index
   }
 
   iVar3 = compute_car_motion_mode(carrier_index, car_index);
-  if (iVar3 == 0)      car[stabilize] = 5;
-  else if (iVar3 == 1) car[stabilize] = 2;
+  if (iVar3 == 0)      car[settle] = 5;
+  else if (iVar3 == 1) car[settle] = 2;
 
   if (iVar3 == 3) {
     if (car[direction] == 0) cVar2 = car[curFloor] - 3;
@@ -844,9 +844,9 @@ int __cdecl16far select_next_target_floor(int carrier_index, int car_index)
 
   if (car[schedMode] == 1) {                            /* EXPRESS UP */
     if ((car[direction] != 0 &&
-         (car[curFloor] != carrier->topServedFloor || car[stabilize] != 0)) ||
+         (car[curFloor] != carrier->topServedFloor || car[settle] != 0)) ||
         (car[direction] == 0 &&
-         car[curFloor] == carrier->bottomServedFloor && car[stabilize] == 0))
+         car[curFloor] == carrier->bottomServedFloor && car[settle] == 0))
     {
       /* scan downward for work from curFloor to bottomServedFloor */
       for (local_6 = car[curFloor]; carrier->bottomServedFloor <= local_6; local_6--) {
@@ -1013,7 +1013,7 @@ void __cdecl16far reset_out_of_range_car(int carrier_index, int car_index, int p
   byte home = *(byte *)(carrier_record_table_base[carrier_index] + car_index + 0xba);
 
   car[curFloor]     = home;
-  car[stabilize]    = 0;
+  car[settle]    = 0;
   car[dwell]        = 0;
   car[assignedCount]= 0;
   car[direction]    = 1;

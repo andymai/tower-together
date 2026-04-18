@@ -1915,8 +1915,7 @@ describe("car state machine", () => {
 		placeElevatorShaft(world, ledger, 0, 10, 20);
 		const car = world.carriers[0].cars[0];
 		expect(car.currentFloor).toBe(10);
-		expect(car.speedCounter).toBe(0);
-		expect(car.doorWaitCounter).toBe(0);
+		expect(car.settleCounter).toBe(0);
 	});
 
 	it("car stays at bottom when no waiters after many ticks", () => {
@@ -1927,8 +1926,7 @@ describe("car state machine", () => {
 		const car = world.carriers[0].cars[0];
 		expect(car.currentFloor).toBe(10);
 		expect(car.targetFloor).toBe(10);
-		expect(car.speedCounter).toBe(0);
-		expect(car.doorWaitCounter).toBe(0);
+		expect(car.settleCounter).toBe(0);
 	});
 
 	it("car moves to target floor when waitingCount is set", () => {
@@ -2128,7 +2126,7 @@ describe("car state machine", () => {
 		// tick; reselect (and thus the schedule-driven forced departure) runs
 		// only on the dwell transition nonzero→0. Tick through the full cycle.
 		for (let i = 0; i < 7; i++) tickAllCarriers(world, createTimeState());
-		expect(car.speedCounter).toBe(1);
+		expect(car.dwellCounter).toBe(1);
 	});
 
 	it("assigns floor requests across multiple cars in the same shaft", () => {

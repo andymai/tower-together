@@ -39,8 +39,7 @@ export function sampleRng(world: WorldState): number {
 export interface CarrierCar {
 	active: boolean;
 	currentFloor: number;
-	doorWaitCounter: number;
-	speedCounter: number;
+	settleCounter: number;
 	dwellCounter: number;
 	assignedCount: number;
 	pendingAssignmentCount: number;

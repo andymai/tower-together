@@ -129,8 +129,8 @@ Each car needs:
 - previous floor
 - target floor
 - direction
-- door wait counter
-- speed counter
+- settle (sub-floor animation countdown — see "Door And Boarding Counters")
+- dwell (boarding/departure-sequence countdown — see "Door And Boarding Counters")
 - departure flag
 - departure timestamp
 - assigned passenger count
@@ -206,7 +206,7 @@ Idle-floor behavior:
 - at target floor, if passengers are waiting there or the car is still below assignment capacity:
   - reload `schedule_flag` at terminal floors from the 14-entry express-mode table
   - clear stale floor-request assignments for the current floor
-  - set `speed_counter = 5`
+  - set `dwell = 5`
   - if `departure_flag == 0`, stamp `departure_timestamp = day_tick`
   - set `departure_flag = 1`
 - otherwise:
@@ -221,24 +221,25 @@ on `carrier_mode`, distance to target, and distance from previous floor.
 
 ### carrier_mode 0 (express elevator)
 
-| Condition | Mode | Step | Door wait |
-|-----------|------|------|-----------|
-| `dist_to_target < 2` OR `dist_from_prev < 2` | 0 (stop) | set `speed_counter = 5` | 5 ticks |
-| `dist_to_target > 4` AND `dist_from_prev > 4` | 3 (fast) | ±3 floors/step | — |
-| otherwise | 2 (normal) | ±1 floor/step | — |
+| Condition | Mode | Step | settle | Ticks/floor |
+|-----------|------|------|-----------|-------------|
+| `dist_to_target < 2` OR `dist_from_prev < 2` | 0 (stop/decel) | ±1 floor | set 5 → counts down | 6 (1 move + 5 animation) |
+| `dist_to_target > 4` AND `dist_from_prev > 4` | 3 (fast) | ±3 floors | — | 1/3 (instant, no animation) |
+| otherwise | 2 (normal) | ±1 floor | — | 1 (instant, no animation) |
 
 ### carrier_mode ≠ 0 (standard / service elevator)
 
-| Condition | Mode | Step | Door wait |
-|-----------|------|------|-----------|
-| `dist_to_target < 2` OR `dist_from_prev < 2` | 0 (stop) | set `speed_counter = 5` | 5 ticks |
-| `dist_to_target < 4` OR `dist_from_prev < 4` | 1 (slow) | ±1 floor/step | 2 ticks |
-| otherwise | 2 (normal) | ±1 floor/step | — |
+| Condition | Mode | Step | settle | Ticks/floor |
+|-----------|------|------|-----------|-------------|
+| `dist_to_target < 2` OR `dist_from_prev < 2` | 0 (stop/decel) | ±1 floor | set 5 → counts down | 6 (1 move + 5 animation) |
+| `dist_to_target < 4` OR `dist_from_prev < 4` | 1 (slow) | ±1 floor | set 2 → counts down | 3 (1 move + 2 animation) |
+| otherwise | 2 (normal) | ±1 floor | — | 1 (instant, no animation) |
 
 Notes:
 - Mode 3 (±3 floors/step) exists **only** for carrier_mode 0 (express elevators).
 - Standard and service elevators have a slow-stop band (mode 1) that express elevators lack.
-- `speed_counter = 5` is also the boarding/departure-sequence marker checked by the arrival handler.
+- `settle` (binary field at car offset `+0x01`) is set during mode 0/1 moves and decrements once per sim tick. It is the sub-floor animation counter (see "Sub-floor Rendering" below) and the gate that blocks Branch A: arrival (and therefore the `dwell` sequence) cannot begin until `settle == 0`.
+- Modes 2 and 3 never set `settle`, so their `settle` remains 0 after a step and Branch A can fire the very next tick — no animation delay before arrival. They still go through the full `dwell` boarding sequence once at the target floor.
 - Distance is `abs(current_floor - target_floor)` or `abs(current_floor - prev_floor)`.
 
 ## Departure Rules
@@ -346,22 +347,51 @@ The nearest-work-floor helper uses the same home_floor_by_car slot as its final 
 
 ## Door And Boarding Counters
 
-Each car has two countdown fields:
+Each car has two distinct countdown fields:
 
-- `door_wait_counter`: counts down while doors are open
-- `boarding_countdown`: tracks the boarding/departure sequence
+- **`settle`** (binary offset `-0x5d`): sub-floor animation counter. Set by motion steps in modes 0/1; drives Branch C in the state machine; nonzero means the car is still animating between floors and boarding is blocked.
+- **`dwell`** (binary offset `-0x5c`): boarding/departure-sequence counter. Set to 5 when Branch A triggers arrival at a target floor; drives Branch B.
 
-Behavior:
+Branch selection each tick:
 
-- A full stop (motion mode 0) sets door_wait_counter = 5; a slow stop (motion mode 1) sets it to 2.
-- While door_wait_counter > 0, the car re-evaluates its motion mode each tick.
-- If motion mode remains 0, door_wait_counter decrements.
-- If motion mode becomes nonzero, door_wait_counter clears immediately.
-- When a car starts boarding at its target floor, boarding_countdown is set to 5.
-- Arrival/unload effects fire exactly when boarding_countdown == 5.
-- After that, boarding_countdown decrements once per tick.
-- When boarding_countdown reaches 0, the car snapshots prev_floor, recomputes target and direction, and checks departure conditions.
-- If departure conditions are not met, boarding_countdown reloads to 1, creating a one-tick retry loop.
+```
+if (settle > 0)              → Branch C  (animate, decrement settle)
+else if (dwell == 0)         → Branch A  (motion step or arrival trigger)
+else                         → Branch B  (boarding/departure countdown)
+```
+
+Boarding is only permitted once `settle == 0` — the arrival trigger (Branch A) cannot fire while a sub-floor animation is in progress.
+
+`settle` behavior (transit animation):
+
+- Mode 0 step sets `settle = 5`; mode 1 step sets `settle = 2`.
+- Each tick Branch C fires: if motion mode is still 0, `settle` decrements; if mode changed to nonzero, `settle` clears immediately.
+- Each Branch C tick sets the dirty flag so the renderer fires (see "Sub-floor Rendering").
+
+`dwell` behavior (boarding/departure sequence):
+
+- When Branch A fires at the target floor with passengers waiting or car under capacity, it sets `dwell = 5`. Arrival/unload effects fire at this moment.
+- Branch B decrements `dwell` each tick.
+- When `dwell` reaches 0, the car snapshots `prev_floor`, recomputes target and direction, and checks departure conditions.
+- If departure conditions are not met, `dwell` reloads to 1, creating a one-tick retry loop.
+
+## Sub-floor Rendering
+
+The binary renders car positions with sub-floor (pixel-level) smoothness using `settle` as an animation offset. One floor equals 36 pixels in the original game.
+
+Pixel Y formula (from `get_car_prev_rect`):
+
+```
+pixel_Y = (topFloor - curFloor) * 36 + direction_sign * settle * 6
+```
+
+where `direction_sign` is `+1` when going up, `-1` when going down.
+
+Because `settle` counts from 5 down to 0 at mode 0 (or 2 down to 0 at mode 1), the car animates 30 px (or 12 px) of sub-floor travel after each integer floor step. Modes 2 and 3 never set `settle`, so they produce instant floor jumps with no animation.
+
+The renderer is only called when the dirty flag (`iRam128839a4`) is set. Branch C in the state machine sets this flag every tick that `settle > 0`, and `advance_car_position_one_step` also sets it when the floor changes. Animation is therefore strictly sim-tick-driven — one rendered frame per game tick.
+
+**TS port note**: `LOCAL_TICKS_PER_FLOOR = 8` and `EXPRESS_TICKS_PER_FLOOR = 4` in `gameSceneConstants.ts` do not match the binary values (6 / 3 ticks per floor for modes 0/1, and 1/3 ticks per floor for mode 3). The TS client interpolates car position client-side rather than replaying the original pixel formula.
 
 ## Queue-Full Retry Behavior
 

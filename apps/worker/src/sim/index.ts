@@ -46,8 +46,7 @@ export interface CarrierCarStateRecord {
 	carrierMode: 0 | 1 | 2;
 	currentFloor: number;
 	targetFloor: number;
-	speedCounter: number;
-	doorWaitCounter: number;
+	settleCounter: number;
 	directionFlag: number;
 	dwellCounter: number;
 	assignedCount: number;
@@ -437,8 +436,7 @@ export class TowerSim {
 				carrierMode: carrier.carrierMode,
 				currentFloor: car.currentFloor,
 				targetFloor: car.targetFloor,
-				speedCounter: car.speedCounter,
-				doorWaitCounter: car.doorWaitCounter,
+				settleCounter: car.settleCounter,
 				directionFlag: car.directionFlag,
 				dwellCounter: car.dwellCounter,
 				assignedCount: car.assignedCount,

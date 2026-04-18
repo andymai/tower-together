@@ -110,8 +110,7 @@ export type CarrierCarStateData = {
 	carrierMode: 0 | 1 | 2;
 	currentFloor: number;
 	targetFloor: number;
-	speedCounter: number;
-	doorWaitCounter: number;
+	settleCounter: number;
 	directionFlag: number;
 	dwellCounter: number;
 	assignedCount: number;
