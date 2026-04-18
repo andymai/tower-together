@@ -194,7 +194,7 @@ function cellsAvailable(
 		return false;
 	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return false;
 
-	const needsSupport = selectedTool !== "lobby";
+	const needsSupport = !(selectedTool === "lobby" && isGroundFloor(y));
 	const canReplaceFloor = selectedTool !== "floor";
 	for (let dx = 0; dx < tileWidth; dx++) {
 		const key = `${x + dx},${y}`;
@@ -223,4 +223,8 @@ function cellsAvailable(
 function isValidLobbyRow(y: number): boolean {
 	const floorsAboveGround = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y;
 	return floorsAboveGround >= 0 && floorsAboveGround % 15 === 0;
+}
+
+function isGroundFloor(y: number): boolean {
+	return GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y === 0;
 }
