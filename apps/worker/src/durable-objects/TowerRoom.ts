@@ -98,6 +98,7 @@ export class TowerRoom extends DurableObject<Env> {
 				name: sim.name,
 				simTime: sim.simTime,
 				cash: sim.cash,
+				starCount: sim.starCount,
 				width: sim.width,
 				height: sim.height,
 				playerCount: this.sessions.size,
@@ -130,6 +131,7 @@ export class TowerRoom extends DurableObject<Env> {
 				name: this.sim.name,
 				simTime: this.sim.simTime,
 				cash: this.sim.cash,
+				starCount: this.sim.starCount,
 				width: this.sim.width,
 				height: this.sim.height,
 				cells: this.sim.cellsToArray(),
@@ -199,7 +201,11 @@ export class TowerRoom extends DurableObject<Env> {
 			patch: { cells: patch },
 		});
 		if (result.economyChanged) {
-			this.broadcast({ type: "economy_update", cash: this.sim.cash });
+			this.broadcast({
+				type: "economy_update",
+				cash: this.sim.cash,
+				starCount: this.sim.starCount,
+			});
 		}
 		this.broadcastEffects({
 			notifications: this.sim.drainNotifications(),
@@ -257,7 +263,11 @@ export class TowerRoom extends DurableObject<Env> {
 			this.broadcastDynamicState(now);
 		}
 		if (result.economyChanged) {
-			this.broadcast({ type: "economy_update", cash: this.sim.cash });
+			this.broadcast({
+				type: "economy_update",
+				cash: this.sim.cash,
+				starCount: this.sim.starCount,
+			});
 		}
 		this.broadcastEffects(result);
 

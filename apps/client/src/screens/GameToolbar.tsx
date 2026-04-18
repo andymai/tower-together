@@ -1,3 +1,4 @@
+import { Star } from "lucide-react";
 import type { ConnectionStatus } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
@@ -9,6 +10,7 @@ interface Props {
 	towerId: string;
 	towerName: string;
 	cash: number;
+	starCount: number;
 	dateLabel: string;
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
@@ -28,6 +30,7 @@ export function GameToolbar({
 	towerId,
 	towerName,
 	cash,
+	starCount,
 	dateLabel,
 	playerCount,
 	connectionStatus,
@@ -98,7 +101,25 @@ export function GameToolbar({
 			</div>
 
 			<div style={styles.toolbarRight}>
-				<span style={styles.cashDisplay}>${cash.toLocaleString()}</span>
+				<span style={styles.cashCluster}>
+					<span style={styles.cashDisplay}>${cash.toLocaleString()}</span>
+					<span
+						style={styles.starDisplay}
+						role="img"
+						aria-label={`Tower rating ${starCount} of 5`}
+					>
+						{[1, 2, 3, 4, 5].map((slot) => {
+							return (
+								<Star
+									key={`star-${slot}`}
+									size={14}
+									strokeWidth={1.8}
+									fill={slot <= starCount ? "currentColor" : "none"}
+								/>
+							);
+						})}
+					</span>
+				</span>
 				<span style={styles.statItem}>{dateLabel}</span>
 				<span style={styles.statItem}>
 					{playerCount} player{playerCount !== 1 ? "s" : ""}

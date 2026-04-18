@@ -21,6 +21,7 @@ interface UseTowerSessionResult {
 	connectionStatus: ConnectionStatus;
 	simTime: number;
 	cash: number;
+	starCount: number;
 	playerCount: number;
 	towerName: string;
 	setTowerName: (value: string) => void;
@@ -60,6 +61,7 @@ export function useTowerSession({
 		useState<ConnectionStatus>("connecting");
 	const [simTime, setSimTime] = useState(0);
 	const [cash, setCash] = useState(0);
+	const [starCount, setStarCount] = useState(1);
 	const [playerCount, setPlayerCount] = useState(0);
 	const [towerName, setTowerName] = useState("");
 	const [sims, setSims] = useState<SimStateData[]>([]);
@@ -108,6 +110,7 @@ export function useTowerSession({
 					setSimTime(msg.simTime);
 					updatePresentationClock(msg.simTime);
 					setCash(msg.cash);
+					setStarCount(msg.starCount);
 					setTowerName(msg.name || msg.towerId);
 					setSims(msg.sims);
 					setCarriers(msg.carriers);
@@ -145,6 +148,7 @@ export function useTowerSession({
 					break;
 				case "economy_update":
 					setCash(msg.cash);
+					setStarCount(msg.starCount);
 					break;
 				case "notification":
 					// Keep server-side notifications flowing for protocol parity, but
@@ -303,6 +307,7 @@ export function useTowerSession({
 		connectionStatus,
 		simTime,
 		cash,
+		starCount,
 		playerCount,
 		towerName,
 		setTowerName,

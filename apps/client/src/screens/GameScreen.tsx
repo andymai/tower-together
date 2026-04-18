@@ -66,6 +66,7 @@ export function GameScreen({
 		connectionStatus,
 		simTime,
 		cash,
+		starCount,
 		playerCount,
 		towerName,
 		setTowerName,
@@ -132,7 +133,7 @@ export function GameScreen({
 	}, []);
 
 	const handleSetAlias = useCallback(async () => {
-		const alias = aliasInput.trim().toLowerCase();
+		const alias = aliasInput.trim();
 		if (!alias) return;
 		setAliasSaving(true);
 		setAliasError("");
@@ -149,7 +150,7 @@ export function GameScreen({
 			}
 			setTowerName(alias);
 			setIsRenaming(false);
-			window.history.replaceState(null, "", `/${alias}`);
+			window.history.replaceState(null, "", `/${encodeURIComponent(alias)}`);
 		} catch {
 			setAliasError("Network error");
 		} finally {
@@ -171,6 +172,7 @@ export function GameScreen({
 				towerId={towerId}
 				towerName={towerName}
 				cash={cash ?? 0}
+				starCount={starCount}
 				dateLabel={dateLabel}
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}

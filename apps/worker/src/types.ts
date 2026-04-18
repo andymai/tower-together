@@ -62,6 +62,7 @@ export type ServerMessage =
 			name: string;
 			simTime: number;
 			cash: number;
+			starCount: number;
 			width: number;
 			height: number;
 			cells: CellData[];
@@ -79,7 +80,7 @@ export type ServerMessage =
 	  }
 	| { type: "presence_update"; playerCount: number }
 	| { type: "time_update"; simTime: number }
-	| { type: "economy_update"; cash: number }
+	| { type: "economy_update"; cash: number; starCount: number }
 	| { type: "notification"; kind: string; message: string }
 	| {
 			type: "prompt";

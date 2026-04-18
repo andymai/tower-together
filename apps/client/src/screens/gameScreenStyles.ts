@@ -24,6 +24,7 @@ export const gameScreenStyles = {
 	toolbarLeft: { display: "flex", alignItems: "center", gap: 12 },
 	toolbarRight: { display: "flex", alignItems: "center", gap: 14 },
 	toolbarStatus: { display: "flex", alignItems: "center", gap: 6 },
+	cashCluster: { display: "flex", alignItems: "center", gap: 10 },
 	towerLabel: {
 		fontSize: 14,
 		fontWeight: 600,
@@ -80,6 +81,12 @@ export const gameScreenStyles = {
 		fontWeight: 700,
 		color: "#4ade80",
 		fontVariantNumeric: "tabular-nums",
+	},
+	starDisplay: {
+		display: "flex",
+		alignItems: "center",
+		gap: 2,
+		color: "#facc15",
 	},
 	statItem: {
 		fontSize: 12,

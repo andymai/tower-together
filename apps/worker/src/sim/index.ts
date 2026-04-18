@@ -363,6 +363,10 @@ export class TowerSim {
 	get cash(): number {
 		return this.ledger.cashBalance;
 	}
+
+	get starCount(): number {
+		return this.world.starCount;
+	}
 	get rngCallCount(): number {
 		return this.world.rngCallCount;
 	}
