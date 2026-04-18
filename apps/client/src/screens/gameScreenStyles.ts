@@ -298,6 +298,17 @@ export const gameScreenStyles = {
 		justifyContent: "center",
 		zIndex: 200,
 	},
+	modalBackdrop: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		bottom: 0,
+		background: "transparent",
+		border: "none",
+		padding: 0,
+		cursor: "pointer",
+	},
 	modal: {
 		background: "#242424",
 		border: "1px solid #444",
@@ -351,6 +362,7 @@ export const gameScreenStyles = {
 		cursor: "pointer",
 	},
 	inspectDialog: {
+		position: "relative",
 		background: "#242424",
 		border: "1px solid #444",
 		borderRadius: 12,

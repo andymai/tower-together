@@ -61,9 +61,16 @@ export function SimInspectionDialog({ sim, onClose }: Props) {
 	if (!sim) return null;
 
 	return (
-		<button type="button" style={styles.modalOverlay} onClick={onClose}>
+		<div style={styles.modalOverlay}>
+			<button
+				type="button"
+				aria-label="Close dialog"
+				style={styles.modalBackdrop}
+				onClick={onClose}
+			/>
 			<div
 				role="dialog"
+				aria-modal="true"
 				style={styles.inspectDialog}
 				onClick={(event) => event.stopPropagation()}
 				onKeyDown={() => {}}
@@ -130,6 +137,6 @@ export function SimInspectionDialog({ sim, onClose }: Props) {
 					</div>
 				</div>
 			</div>
-		</button>
+		</div>
 	);
 }

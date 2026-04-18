@@ -83,9 +83,16 @@ export function CellInspectionDialog({
 	}
 
 	return (
-		<button type="button" style={styles.modalOverlay} onClick={onClose}>
+		<div style={styles.modalOverlay}>
+			<button
+				type="button"
+				aria-label="Close dialog"
+				style={styles.modalBackdrop}
+				onClick={onClose}
+			/>
 			<div
 				role="dialog"
+				aria-modal="true"
 				style={styles.inspectDialog}
 				onClick={(event) => event.stopPropagation()}
 				onKeyDown={() => {}}
@@ -270,6 +277,6 @@ export function CellInspectionDialog({
 					);
 				})()}
 			</div>
-		</button>
+		</div>
 	);
 }
