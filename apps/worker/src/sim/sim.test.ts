@@ -444,7 +444,7 @@ describe("sidecar allocation", () => {
 		const ledger = makeLedger();
 		setupSupport(world);
 		handlePlaceTile(0, GROUND_Y - 1, "cinema", world, ledger);
-		const rec = world.placedObjects[`0,${GROUND_Y - 1}`];
+		const rec = world.placedObjects[`0,${GROUND_Y - 2}`];
 		const sidecar = world.sidecars[rec.linkedRecordIndex];
 		expect(sidecar.kind).toBe("entertainment_link");
 		if (sidecar.kind === "entertainment_link") {

@@ -74,8 +74,8 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	hotelSingle: { files: ["hotelSingle.svg"] },
 	hotelTwin: { files: ["hotelTwin.svg"] },
 	hotelSuite: { files: ["hotelSuite.svg"] },
-	cinema: { files: ["cinema.svg"] },
-	partyHall: { files: ["partyHall.svg"] },
+	cinema: { files: ["cinema.svg"], heightTiles: 2 },
+	partyHall: { files: ["partyHall.svg"], heightTiles: 2 },
 	recyclingCenterUpper: {
 		files: [
 			"recyclingCenter0.svg",

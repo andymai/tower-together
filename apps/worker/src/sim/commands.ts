@@ -345,7 +345,7 @@ function placeRecyclingCenterStack(
 	time: { daypartIndex: number },
 ): CommandResult {
 	const tileWidth = TILE_WIDTHS.recyclingCenterUpper ?? 2;
-	const upperY = normalizedTileType === "recyclingCenterLower" ? y - 1 : y;
+	const upperY = normalizedTileType === "recyclingCenterUpper" ? y : y - 1;
 	const lowerY = upperY + 1;
 	const cost = TILE_COSTS.recyclingCenter;
 
@@ -452,6 +452,116 @@ function placeRecyclingCenterStack(
 	return { accepted: true, patch, economyChanged: cost > 0 };
 }
 
+function placeTwoFloorStructure(
+	x: number,
+	y: number,
+	tileType: string,
+	world: WorldState,
+	ledger: LedgerState,
+	freeBuild: boolean,
+	time: { daypartIndex: number },
+): CommandResult {
+	const tileWidth = TILE_WIDTHS[tileType] ?? 1;
+	const cost = TILE_COSTS[tileType] ?? 0;
+	const upperY = y - 1;
+	const lowerY = y;
+
+	if (
+		upperY < 0 ||
+		lowerY >= world.height ||
+		x + tileWidth - 1 >= world.width
+	) {
+		return { accepted: false, reason: "Out of bounds" };
+	}
+	if (!freeBuild && cost > ledger.cashBalance) {
+		return { accepted: false, reason: "Insufficient funds" };
+	}
+
+	const structureCells = new Set<string>();
+	for (const rowY of [upperY, lowerY]) {
+		for (let dx = 0; dx < tileWidth; dx++) {
+			structureCells.add(`${x + dx},${rowY}`);
+		}
+	}
+
+	const floorToRemove: string[] = [];
+	for (const key of structureCells) {
+		if (world.cellToAnchor[key]) {
+			return { accepted: false, reason: "Cell already occupied" };
+		}
+		const existing = world.cells[key];
+		if (existing) {
+			if (existing === "floor") {
+				floorToRemove.push(key);
+			} else {
+				return { accepted: false, reason: "Cell already occupied" };
+			}
+		}
+	}
+
+	// Support: the lower row's support row (below it for above-ground, above it
+	// for underground) must be filled. The upper row is supported by the lower
+	// row itself, which we're placing in this operation.
+	const supportY = lowerY >= UNDERGROUND_Y ? lowerY - 1 : lowerY + 1;
+	if (supportY < 0 || supportY >= world.height) {
+		return { accepted: false, reason: "No support" };
+	}
+	for (let dx = 0; dx < tileWidth; dx++) {
+		const supportKey = `${x + dx},${supportY}`;
+		if (!world.cells[supportKey] && !structureCells.has(supportKey)) {
+			return { accepted: false, reason: "No support" };
+		}
+	}
+
+	for (const key of floorToRemove) delete world.cells[key];
+	const anchorKey = `${x},${upperY}`;
+	world.cells[anchorKey] = tileType;
+	for (let dx = 1; dx < tileWidth; dx++) {
+		const key = `${x + dx},${upperY}`;
+		world.cells[key] = tileType;
+		world.cellToAnchor[key] = anchorKey;
+	}
+	for (let dx = 0; dx < tileWidth; dx++) {
+		const key = `${x + dx},${lowerY}`;
+		world.cells[key] = tileType;
+		world.cellToAnchor[key] = anchorKey;
+	}
+	world.placedObjects[anchorKey] = makePlacedObject(
+		x,
+		upperY,
+		tileType,
+		world,
+		time,
+	);
+	if (!freeBuild) ledger.cashBalance -= cost;
+
+	const record = world.placedObjects[anchorKey];
+	const patch: CellPatch[] = [];
+	for (const rowY of [upperY, lowerY]) {
+		for (let dx = 0; dx < tileWidth; dx++) {
+			const isAnchor = dx === 0 && rowY === upperY;
+			patch.push({
+				x: x + dx,
+				y: rowY,
+				tileType,
+				isAnchor,
+				...(isAnchor && record
+					? {
+							evalActiveFlag: record.occupiableFlag,
+							unitStatus: record.unitStatus,
+						}
+					: {}),
+			});
+		}
+	}
+
+	fillRowGaps(upperY, world, patch);
+	fillRowGaps(lowerY, world, patch);
+	runGlobalRebuilds(world, ledger);
+
+	return { accepted: true, patch, economyChanged: cost > 0 };
+}
+
 // ─── Place tile ───────────────────────────────────────────────────────────────
 
 export function handlePlaceTile(
@@ -474,6 +584,18 @@ export function handlePlaceTile(
 	}
 	if (x < 0 || x >= world.width || y < 0 || y >= world.height) {
 		return { accepted: false, reason: "Out of bounds" };
+	}
+
+	if (normalizedTileType === "cinema" || normalizedTileType === "partyHall") {
+		return placeTwoFloorStructure(
+			x,
+			y,
+			normalizedTileType,
+			world,
+			ledger,
+			freeBuild,
+			time,
+		);
 	}
 
 	if (
@@ -789,26 +911,35 @@ export function handleRemoveTile(
 
 	const [ax, ay] = anchorKey.split(",").map(Number);
 	const tileWidth = TILE_WIDTHS[tileType] ?? 1;
+	const isTwoFloor = tileType === "cinema" || tileType === "partyHall";
+	const occupiedRows = isTwoFloor ? [ay, ay + 1] : [ay];
+	// "Above" for turnToFloor considers the row above the topmost occupied row.
+	const topRow = occupiedRows[0];
+	// The lowest occupied row decides neighbour-in-row (left/right) logic and
+	// is where the replacement floor would sit.
+	const baseRow = occupiedRows[occupiedRows.length - 1];
 
 	// Determine replacement: floor if anything sits above or tile is between neighbours
 	let hasAbove = false;
 	for (let dx = 0; dx < tileWidth && !hasAbove; dx++) {
-		if (world.cells[`${ax + dx},${ay - 1}`]) hasAbove = true;
+		if (world.cells[`${ax + dx},${topRow - 1}`]) hasAbove = true;
 	}
 	let hasLeft = false;
 	for (let lx = ax - 1; lx >= 0 && !hasLeft; lx--) {
-		if (world.cells[`${lx},${ay}`]) hasLeft = true;
+		if (world.cells[`${lx},${baseRow}`]) hasLeft = true;
 	}
 	let hasRight = false;
 	for (let rx = ax + tileWidth; rx < world.width && !hasRight; rx++) {
-		if (world.cells[`${rx},${ay}`]) hasRight = true;
+		if (world.cells[`${rx},${baseRow}`]) hasRight = true;
 	}
 	const turnToFloor = hasAbove || (hasLeft && hasRight);
 
-	delete world.cells[anchorKey];
-	for (let dx = 1; dx < tileWidth; dx++) {
-		delete world.cells[`${ax + dx},${ay}`];
-		delete world.cellToAnchor[`${ax + dx},${ay}`];
+	for (const rowY of occupiedRows) {
+		for (let dx = 0; dx < tileWidth; dx++) {
+			const key = `${ax + dx},${rowY}`;
+			delete world.cells[key];
+			if (key !== anchorKey) delete world.cellToAnchor[key];
+		}
 	}
 
 	// Remove PlacedObjectRecord and free sidecar
@@ -827,10 +958,18 @@ export function handleRemoveTile(
 	cleanupSimsForRemovedTile(world, ax, ay);
 
 	const patch: CellPatch[] = [];
-	for (let dx = 0; dx < tileWidth; dx++) {
-		const resultType = turnToFloor ? "floor" : "empty";
-		if (turnToFloor) world.cells[`${ax + dx},${ay}`] = "floor";
-		patch.push({ x: ax + dx, y: ay, tileType: resultType, isAnchor: true });
+	for (const rowY of occupiedRows) {
+		const emitFloor = turnToFloor && rowY === baseRow;
+		for (let dx = 0; dx < tileWidth; dx++) {
+			const resultType = emitFloor ? "floor" : "empty";
+			if (emitFloor) world.cells[`${ax + dx},${rowY}`] = "floor";
+			patch.push({
+				x: ax + dx,
+				y: rowY,
+				tileType: resultType,
+				isAnchor: true,
+			});
+		}
 	}
 
 	runGlobalRebuilds(world, ledger);

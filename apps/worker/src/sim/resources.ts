@@ -25,12 +25,12 @@ export const TILE_WIDTHS: Record<string, number> = {
 	// Condo (family 9)
 	condo: 16,
 	// Entertainment (families 0x12/0x1d)
-	cinema: 24,
-	partyHall: 24,
+	cinema: 31,
+	partyHall: 27,
 	// Services
-	recyclingCenter: 2, // virtual two-floor stack placement
-	recyclingCenterUpper: 2, // family 0x14 upper slice
-	recyclingCenterLower: 2, // family 0x15 lower slice
+	recyclingCenter: 25, // virtual two-floor stack placement
+	recyclingCenterUpper: 25, // family 0x14 upper slice
+	recyclingCenterLower: 25, // family 0x15 lower slice
 	parking: 4, // family 0x18
 	security: 8, // family 0x0e
 	metro: 4, // family 0x1f (3-floor stack in binary; TS stub)
