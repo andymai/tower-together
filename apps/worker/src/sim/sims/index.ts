@@ -243,7 +243,11 @@ function completeSimTransitEvent(
 	sim: SimRecord,
 	time: TimeState | undefined,
 ): void {
-	if (time) {
+	// Spec: rebase fires only for queued-car (carrier) arrivals. Segment
+	// arrivals drain elapsed directly — the stair/escalator penalty applied
+	// at resolve time IS the trip's stress contribution; rebasing would add
+	// live clock ticks on top and double-count.
+	if (time && sim.route.mode !== "segment") {
 		rebaseSimElapsedFromClock(sim, time);
 	}
 	advanceSimTripCounters(sim);
@@ -445,8 +449,11 @@ export function advanceSimRefreshStride(
 		// reached via the route-queue drainer. Skipping rebase for on-carrier
 		// sims preserves sim.field_10 (lastDemandTick) so
 		// maybe_dispatch_queued_route_after_wait can fire after the
-		// 300-tick threshold elapses.
-		if (sim.route.mode !== "carrier") {
+		// 300-tick threshold elapses. Segment transits are likewise in-flight
+		// and must not rebase — the add_delay_to_current_sim penalty applied
+		// at resolve time already represents the trip's stress contribution,
+		// and a stride rebase would erroneously add live clock ticks on top.
+		if (sim.route.mode === "idle" || sim.route.mode === "queued") {
 			rebaseSimElapsedFromClock(sim, time);
 		}
 		finalizePendingRouteLeg(sim);
@@ -694,8 +701,14 @@ export function resolveSimRouteBetweenFloors(
 		};
 		sim.queueTick = time?.dayTick ?? sim.queueTick;
 		sim.destinationFloor = destinationFloor;
+		const floors = Math.abs(destinationFloor - sourceFloor);
 		// Segment transit is one stride (16 ticks) per floor traversed.
-		sim.transitTicksRemaining = Math.abs(destinationFloor - sourceFloor) * 16;
+		sim.transitTicksRemaining = floors * 16;
+		// Per-floor stress penalty (spec: add_delay_to_current_sim). Stairs add
+		// 35 ticks/floor, escalators 16. The segment's flags bit 0 marks stairs.
+		const segment = world.specialLinks[route.id];
+		const isStairs = segment ? (segment.flags & 1) !== 0 : false;
+		addDelayToCurrentSim(sim, (isStairs ? 35 : 16) * floors);
 		// Route-start timestamp: start the clock for elapsed tracking.
 		if (time) sim.lastDemandTick = time.dayTick;
 		return 1;
