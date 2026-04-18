@@ -112,6 +112,12 @@ export type CarrierCarStateData = {
 	targetFloor: number;
 	speedCounter: number;
 	doorWaitCounter: number;
+	directionFlag: number;
+	dwellCounter: number;
+	assignedCount: number;
+	prevFloor: number;
+	arrivalSeen: number;
+	arrivalTick: number;
 };
 
 export type ResolvedInputBatch = {

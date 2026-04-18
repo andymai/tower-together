@@ -1,10 +1,8 @@
 import type { CarrierCarStateData, SimStateData } from "../types";
 import { GRID_HEIGHT, TILE_WIDTHS } from "../types";
 import {
-	EXPRESS_TICKS_PER_FLOOR,
 	FAMILY_POPULATION,
 	FAMILY_WIDTHS,
-	LOCAL_TICKS_PER_FLOOR,
 	STATIC_TILE_GAP_X,
 	TILE_HEIGHT,
 	TILE_WIDTH,
@@ -35,25 +33,13 @@ export function getPresentationTime(
 	return presentationClock.simTime + Math.min(1, elapsedMs / tickIntervalMs);
 }
 
-export function predictCarFloor(
-	car: CarrierCarStateData,
-	additionalTicks = 0,
+function getSnapshotProgress(
+	presentationClock: PresentationClock,
+	now = performance.now(),
 ): number {
-	if (car.currentFloor === car.targetFloor || car.speedCounter <= 0) {
-		return car.currentFloor;
-	}
-
-	const ticksPerFloor =
-		car.carrierMode === 2 ? EXPRESS_TICKS_PER_FLOOR : LOCAL_TICKS_PER_FLOOR;
-	const travelledTicks = Math.max(
-		0,
-		ticksPerFloor - car.speedCounter + additionalTicks,
-	);
-	const travelledFloors = travelledTicks / ticksPerFloor;
-	const maxTravel = Math.abs(car.targetFloor - car.currentFloor);
-	const clampedTravel = Math.min(maxTravel, travelledFloors);
-	const direction = car.targetFloor > car.currentFloor ? 1 : -1;
-	return car.currentFloor + direction * clampedTravel;
+	const elapsedMs = Math.max(0, now - presentationClock.receivedAtMs);
+	const tickIntervalMs = Math.max(1, presentationClock.tickIntervalMs);
+	return Math.min(1, elapsedMs / tickIntervalMs);
 }
 
 export function getDisplayedCars(
@@ -63,15 +49,12 @@ export function getDisplayedCars(
 ): CarrierCarStateData[] {
 	if (!current) return [];
 
-	const presentationTime = getPresentationTime(presentationClock);
 	if (
 		previous &&
-		presentationTime >= previous.simTime &&
-		presentationTime <= current.simTime
+		previous.simTime < current.simTime &&
+		presentationClock.simTime === current.simTime
 	) {
-		const progress =
-			(presentationTime - previous.simTime) /
-			Math.max(1, current.simTime - previous.simTime);
+		const progress = getSnapshotProgress(presentationClock);
 		const previousByKey = new Map(
 			previous.items.map((car) => [`${car.carrierId}:${car.carIndex}`, car]),
 		);
@@ -79,8 +62,7 @@ export function getDisplayedCars(
 			const from = previousByKey.get(`${car.carrierId}:${car.carIndex}`);
 			if (!from) return car;
 			const interpolatedFloor =
-				predictCarFloor(from, 0) +
-				(predictCarFloor(car, 0) - predictCarFloor(from, 0)) * progress;
+				from.currentFloor + (car.currentFloor - from.currentFloor) * progress;
 			return {
 				...car,
 				currentFloor: interpolatedFloor,
@@ -88,13 +70,7 @@ export function getDisplayedCars(
 		});
 	}
 
-	return current.items.map((car) => ({
-		...car,
-		currentFloor: predictCarFloor(
-			car,
-			Math.max(0, presentationTime - current.simTime),
-		),
-	}));
+	return current.items;
 }
 
 export function collectElevatorColumnsByFloor(
@@ -186,7 +162,7 @@ export function getCarBounds(car: CarrierCarStateData): {
 	const height = Math.max(10, Math.floor(TILE_HEIGHT * 0.75));
 	const x = car.column * TILE_WIDTH + (shaftPixelWidth - width) / 2;
 	const y =
-		(GRID_HEIGHT - 1 - predictCarFloor(car) + 0.5) * TILE_HEIGHT - height / 2;
+		(GRID_HEIGHT - 1 - car.currentFloor + 0.5) * TILE_HEIGHT - height / 2;
 	return { x, y, width, height };
 }
 
