@@ -96,8 +96,10 @@ export function collectElevatorColumnsByFloor(
 }
 
 /** Sim sprite footprint expressed in grid cells (must match GameScene render). */
-const SIM_WIDTH_CELLS = 0.75;
 const SIM_QUEUE_SPACING_CELLS = 0.8;
+const SIM_QUEUE_START_GAP = 0.2;
+const ELEVATOR_STROKE_CELLS = 1;
+const QUEUE_START_OFFSET = 0.1 + ELEVATOR_STROKE_CELLS / 2;
 
 export function isSimAscending(sim: SimStateData): boolean {
 	// Without a destination floor in the wire state, approximate direction from
@@ -118,7 +120,6 @@ export function getQueuedSimLayout(
 	const elevatorColumn = pickElevatorColumn(sim, elevatorColumnsByFloor);
 	const hasSelectedFloorColumns = elevatorColumnsByFloor.has(sim.selectedFloor);
 	const shaftWidth = TILE_WIDTHS.elevator ?? 4;
-	const simHalf = SIM_WIDTH_CELLS / 2;
 	const shaftRightEdge =
 		elevatorColumn + shaftWidth - STATIC_TILE_GAP_X / TILE_WIDTH;
 	const ascending = isSimAscending(sim);
@@ -126,8 +127,14 @@ export function getQueuedSimLayout(
 		elevatorColumn === sim.homeColumn && !hasSelectedFloorColumns
 			? fallbackX
 			: ascending
-				? shaftRightEdge + simHalf + queueIndex * SIM_QUEUE_SPACING_CELLS
-				: elevatorColumn - simHalf - queueIndex * SIM_QUEUE_SPACING_CELLS;
+				? shaftRightEdge +
+					QUEUE_START_OFFSET +
+					SIM_QUEUE_START_GAP +
+					queueIndex * SIM_QUEUE_SPACING_CELLS
+				: elevatorColumn -
+					QUEUE_START_OFFSET -
+					SIM_QUEUE_START_GAP -
+					queueIndex * SIM_QUEUE_SPACING_CELLS;
 
 	return {
 		gridX,
