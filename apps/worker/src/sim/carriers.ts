@@ -22,6 +22,11 @@ export type CarrierArrivalCallback = (
 	arrivalFloor: number,
 ) => void;
 
+export type CarrierBoardingCallback = (
+	routeId: string,
+	sourceFloor: number,
+) => void;
+
 const DEPARTURE_SEQUENCE_TICKS = 5;
 const QUEUE_CAPACITY = 40;
 const ACTIVE_SLOT_CAPACITY = 42;
@@ -882,6 +887,7 @@ function boardAndUnloadRoutes(
 	carIndex: number,
 	allowUnload: boolean,
 	onArrival?: CarrierArrivalCallback,
+	onBoarding?: CarrierBoardingCallback,
 ): boolean {
 	let changed = false;
 	const limit = activeSlotLimit(carrier);
@@ -936,6 +942,7 @@ function boardAndUnloadRoutes(
 		route.boarded = true;
 		slot.boarded = true;
 		car.assignedCount += 1;
+		if (onBoarding) onBoarding(route.simId, route.sourceFloor);
 		const destinationSlot = floorToSlot(carrier, route.destinationFloor);
 		if (destinationSlot >= 0) {
 			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
@@ -1072,6 +1079,7 @@ function dispatchAndBoardCar(
 	carIndex: number,
 	time: TimeState,
 	onArrival?: CarrierArrivalCallback,
+	onBoarding?: CarrierBoardingCallback,
 ): void {
 	if (!car.active) return;
 	// Binary `process_unit_travel_queue` (1218:0351) gates the queue pop on
@@ -1088,6 +1096,7 @@ function dispatchAndBoardCar(
 		carIndex,
 		car.dwellCounter === DEPARTURE_SEQUENCE_TICKS,
 		onArrival,
+		onBoarding,
 	);
 }
 
@@ -1095,6 +1104,7 @@ export function tickAllCarriers(
 	world: WorldState,
 	time: TimeState,
 	onArrival?: CarrierArrivalCallback,
+	onBoarding?: CarrierBoardingCallback,
 ): void {
 	for (const carrier of world.carriers) {
 		carrier.completedRouteIds = [];
@@ -1106,7 +1116,15 @@ export function tickAllCarriers(
 		// Pass 2: unload + boarding for every car (binary
 		// `dispatch_carrier_car_arrivals` + `process_unit_travel_queue`).
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			dispatchAndBoardCar(world, car, carrier, carIndex, time, onArrival);
+			dispatchAndBoardCar(
+				world,
+				car,
+				carrier,
+				carIndex,
+				time,
+				onArrival,
+				onBoarding,
+			);
 		}
 	}
 }

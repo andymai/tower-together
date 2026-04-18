@@ -241,15 +241,16 @@ function reduceElapsedForLobbyBoarding(
 
 function completeSimTransitEvent(
 	sim: SimRecord,
-	time: TimeState | undefined,
+	_time: TimeState | undefined,
 ): void {
-	// Spec: rebase fires only for queued-car (carrier) arrivals. Segment
-	// arrivals drain elapsed directly — the stair/escalator penalty applied
-	// at resolve time IS the trip's stress contribution; rebasing would add
-	// live clock ticks on top and double-count.
-	if (time && sim.route.mode !== "segment") {
-		rebaseSimElapsedFromClock(sim, time);
-	}
+	// Binary: the arrival path invokes the family dispatch handler directly
+	// (dispatch_carrier_car_arrivals → dispatch_destination_queue_entries),
+	// bypassing dispatch_sim_behavior. No rebase happens at arrival. The only
+	// rebase for a carrier leg fires at boarding (onCarrierBoarding). For
+	// segment legs, the stair/escalator penalty applied at resolve time IS
+	// the trip's stress contribution. Trip-count is still advanced here to
+	// mirror the binary's finalize_runtime_route_state → advance_sim_trip_counters
+	// path that runs when the sim's tile position updates post-arrival.
 	advanceSimTripCounters(sim);
 }
 
@@ -750,11 +751,6 @@ export function resolveSimRouteBetweenFloors(
 	};
 	sim.queueTick = time?.dayTick ?? sim.queueTick;
 	sim.destinationFloor = destinationFloor;
-	// Spec: accumulate_elapsed_delay_into_current_sim for non-service carriers.
-	if (time && carrier.carrierMode !== 2) {
-		rebaseSimElapsedFromClock(sim, time);
-		reduceElapsedForLobbyBoarding(sim, sourceFloor, world);
-	}
 	maybeApplyDistanceFeedback(
 		world,
 		sim,
@@ -762,7 +758,8 @@ export function resolveSimRouteBetweenFloors(
 		destinationFloor,
 		carrier.carrierMode !== 2,
 	);
-	// Route-start timestamp: start the clock for elapsed tracking.
+	// Route-start timestamp: start the clock so the boarding-time
+	// accumulate_elapsed_delay can measure the pre-boarding queue wait.
 	if (time) sim.lastDemandTick = time.dayTick;
 	return 2;
 }
@@ -930,6 +927,34 @@ export function onCarrierArrival(
 	const sim = world.sims.find((candidate) => simKey(candidate) === routeId);
 	if (!sim) return;
 	dispatchSimArrival(world, ledger, time, sim, arrivalFloor);
+}
+
+/**
+ * Invoked synchronously by `tickAllCarriers` (via the `onBoarding` callback)
+ * when a carrier accepts a pending route onto an active car slot. Mirrors the
+ * binary's `assign_request_to_runtime_route` (1218:0d4e): at boarding, it
+ * calls `accumulate_elapsed_delay_into_current_sim`, which captures the
+ * pre-boarding wait (`g_day_tick - last_trip_tick`), applies the lobby-height
+ * reduction, stores into elapsed_packed, and clears last_trip_tick.
+ *
+ * This is the ONLY stress update for a carrier leg — arrival does NOT rebase
+ * (the binary's arrival path invokes the family dispatch handler directly,
+ * bypassing `dispatch_sim_behavior` and its rebase/advance logic).
+ */
+export function onCarrierBoarding(
+	world: WorldState,
+	time: TimeState,
+	routeId: string,
+	sourceFloor: number,
+): void {
+	const sim = world.sims.find((candidate) => simKey(candidate) === routeId);
+	if (!sim) return;
+	const carrier = world.carriers.find((c) =>
+		c.pendingRoutes.some((r) => r.simId === routeId),
+	);
+	if (carrier && carrier.carrierMode === 2) return;
+	rebaseSimElapsedFromClock(sim, time);
+	reduceElapsedForLobbyBoarding(sim, sourceFloor, world);
 }
 
 export function reconcileSimTransport(

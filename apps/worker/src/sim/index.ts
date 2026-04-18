@@ -21,6 +21,7 @@ import {
 	advanceSimRefreshStride,
 	createSimStateRecords,
 	onCarrierArrival,
+	onCarrierBoarding,
 	populateCarrierRequests,
 	reconcileSimTransport,
 } from "./sims";
@@ -134,15 +135,22 @@ export class TowerSim {
 
 		advanceSimRefreshStride(this.world, this.ledger, this.time);
 		populateCarrierRequests(this.world, this.time);
-		tickAllCarriers(this.world, this.time, (routeId, arrivalFloor) => {
-			onCarrierArrival(
-				this.world,
-				this.ledger,
-				this.time,
-				routeId,
-				arrivalFloor,
-			);
-		});
+		tickAllCarriers(
+			this.world,
+			this.time,
+			(routeId, arrivalFloor) => {
+				onCarrierArrival(
+					this.world,
+					this.ledger,
+					this.time,
+					routeId,
+					arrivalFloor,
+				);
+			},
+			(routeId, sourceFloor) => {
+				onCarrierBoarding(this.world, this.time, routeId, sourceFloor);
+			},
+		);
 		reconcileSimTransport(this.world, this.ledger, this.time);
 
 		// Emit cell patches for display-facing room state changes.
