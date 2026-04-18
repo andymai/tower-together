@@ -16,7 +16,6 @@ import { TowerSim } from "./index";
 import { DAY_TICK_MAX, DAY_TICK_NEW_DAY, NEW_GAME_DAY_TICK } from "./time";
 import { GROUND_Y } from "./world";
 
-// @ts-expect-error import.meta.url exists at runtime in vitest/Node
 const fixtureDir = `${fileURLToPath(new URL(".", import.meta.url))}fixtures`;
 
 // ─── Types ──────────────────────────────────────────────────────────────────

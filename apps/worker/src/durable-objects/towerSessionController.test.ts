@@ -82,6 +82,7 @@ describe("TowerSessionController with mocked server", () => {
 			const states: TowerSessionState[] = [INITIAL_TOWER_SESSION_STATE];
 			let lastSimTime = 0;
 			const controller = new TowerSessionController({
+				towerId: "tower-test",
 				playerId: "player-1",
 				displayName: "Tester",
 				socket,
@@ -173,6 +174,7 @@ describe("TowerSessionController with mocked server", () => {
 		const scene = createFakeScene();
 		const states: TowerSessionState[] = [];
 		const controller = new TowerSessionController({
+			towerId: "tower-test",
 			playerId: "player-1",
 			displayName: "Tester",
 			socket,
