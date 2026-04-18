@@ -16,12 +16,7 @@ export interface TransportMetrics {
 }
 
 export function isQueuedSim(sim: SimStateData): boolean {
-	return (
-		!sim.boardedOnCarrier &&
-		(sim.stateCode === 0x22 ||
-			ELEVATOR_QUEUE_STATES.has(sim.stateCode) ||
-			sim.routeMode === 2)
-	);
+	return !sim.boardedOnCarrier && sim.routeMode === 2;
 }
 
 export function isMovingCar(car: CarrierCarStateData): boolean {
