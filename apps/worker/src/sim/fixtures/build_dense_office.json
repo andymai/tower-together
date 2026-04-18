@@ -25,6 +25,7 @@
 		{ "type": "office", "floor": 2, "left": 137 },
 		{ "type": "office", "floor": 2, "left": 146 },
 		{ "type": "office", "floor": 2, "left": 155 },
+		{ "type": "fast-food", "floor": 2, "left": 170 },
 		{ "type": "office", "floor": 3, "left": 110 },
 		{ "type": "office", "floor": 3, "left": 119 },
 		{ "type": "office", "floor": 3, "left": 128 },
