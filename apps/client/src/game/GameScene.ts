@@ -44,6 +44,55 @@ import { buildOccupancyByCar, isQueuedSim } from "./transportSelectors";
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
 
+type RoomTextureConfig = {
+	files: string[];
+	heightTiles?: number;
+};
+
+const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
+	office: {
+		files: [
+			"office.svg",
+			"office1.svg",
+			"office2.svg",
+			"office3.svg",
+			"office4.svg",
+		],
+	},
+	condo: { files: ["condo.svg"] },
+	restaurant: {
+		files: [
+			"restaurant0.svg",
+			"restaurant1.svg",
+			"restaurant2.svg",
+			"restaurant3.svg",
+			"restaurant4.svg",
+		],
+	},
+	fastFood: { files: ["fastFood.svg"] },
+	retail: { files: ["retail.svg"] },
+	hotelSingle: { files: ["hotelSingle.svg"] },
+	hotelTwin: { files: ["hotelTwin.svg"] },
+	hotelSuite: { files: ["hotelSuite.svg"] },
+	cinema: { files: ["cinema.svg"] },
+	partyHall: { files: ["partyHall.svg"] },
+	recyclingCenterUpper: {
+		files: [
+			"recyclingCenter0.svg",
+			"recyclingCenter1.svg",
+			"recyclingCenter2.svg",
+			"recyclingCenter3.svg",
+			"recyclingCenter4.svg",
+		],
+		heightTiles: 2,
+	},
+	parking: { files: ["parking.svg"] },
+	security: { files: ["security.svg"] },
+	metro: { files: ["metro.svg"] },
+	housekeeping: { files: ["housekeeping.svg"] },
+	medical: { files: ["medical.svg"] },
+};
+
 export class GameScene extends Phaser.Scene {
 	private static readonly UNDERGROUND_TEXTURE_KEY = "underground";
 
@@ -469,21 +518,50 @@ export class GameScene extends Phaser.Scene {
 	/** Tile types that use the for-sale banner instead of for-rent. */
 	private static readonly FOR_SALE_TYPES = new Set(["condo"]);
 
+	private getRoomVariantIndex(tileType: string, x: number, y: number): number {
+		const config = ROOM_TEXTURES[tileType];
+		if (!config || config.files.length <= 1) return 0;
+		const normalizedY = tileType === "recyclingCenterLower" ? y - 1 : y;
+		return Math.abs((x * 31 + normalizedY * 17) % config.files.length);
+	}
+
+	private getRoomTextureKey(
+		tileType: string,
+		x: number,
+		y: number,
+	): string | null {
+		const config = ROOM_TEXTURES[tileType];
+		if (!config) return null;
+		return `room_${tileType}_${this.getRoomVariantIndex(tileType, x, y)}`;
+	}
+
+	private isRecyclingCenterLowerCovered(x: number, y: number): boolean {
+		return this.grid.get(`${x},${y - 1}`) === "recyclingCenterUpper";
+	}
+
+	private hasRoomArt(tileType: string, x: number, y: number): boolean {
+		if (
+			tileType === "recyclingCenterLower" &&
+			this.isRecyclingCenterLowerCovered(x, y)
+		) {
+			const upperKey = this.getRoomTextureKey("recyclingCenterUpper", x, y - 1);
+			return upperKey !== null && this.textures.exists(upperKey);
+		}
+
+		const textureKey = this.getRoomTextureKey(tileType, x, y);
+		return textureKey !== null && this.textures.exists(textureKey);
+	}
+
 	private loadRoomTextures(): void {
-		const roomTypes = [
-			"office",
-			"condo",
-			"fastFood",
-			"hotelSingle",
-			"hotelTwin",
-			"hotelSuite",
-		];
 		const s = GameScene.ROOM_SVG_SCALE;
-		for (const room of roomTypes) {
-			this.load.svg(`room_${room}`, `/rooms/${room}.svg`, {
-				width: (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s,
-				height: TILE_HEIGHT * s,
-			});
+		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
+			const heightTiles = config.heightTiles ?? 1;
+			for (const [index, file] of config.files.entries()) {
+				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
+					width: (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s,
+					height: TILE_HEIGHT * heightTiles * s,
+				});
+			}
 		}
 		// Lobby SVG is tiled horizontally across contiguous runs; load at its
 		// native 2:1 aspect (one repeat = 2 tiles wide × 1 tile tall).
@@ -553,15 +631,31 @@ export class GameScene extends Phaser.Scene {
 			const [x, y] = key.split(",").map(Number);
 			const w = TILE_WIDTHS[tileType] ?? 1;
 
-			const texKey = `room_${tileType}`;
-			if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
+			if (
+				tileType === "recyclingCenterLower" &&
+				this.roomTexturesLoaded &&
+				this.hasRoomArt(tileType, x, y)
+			) {
+				continue;
+			}
+
+			const texKey = this.getRoomTextureKey(tileType, x, y);
+			const heightTiles = ROOM_TEXTURES[tileType]?.heightTiles ?? 1;
+			if (
+				this.roomTexturesLoaded &&
+				texKey !== null &&
+				this.textures.exists(texKey)
+			) {
 				const sprite = this.add.sprite(
 					x * TILE_WIDTH + 1,
 					y * TILE_HEIGHT + 1,
 					texKey,
 				);
 				sprite.setOrigin(0, 0);
-				sprite.setDisplaySize(w * TILE_WIDTH - 1, TILE_HEIGHT - 1);
+				sprite.setDisplaySize(
+					w * TILE_WIDTH - 1,
+					heightTiles * TILE_HEIGHT - 1,
+				);
 				sprite.setDepth(1.5);
 				this.roomSprites.push(sprite);
 			} else {
@@ -786,10 +880,9 @@ export class GameScene extends Phaser.Scene {
 
 			const labelText = TILE_LABELS[tileType];
 			if (!labelText) continue;
-			if (this.roomTexturesLoaded && this.textures.exists(`room_${tileType}`))
-				continue;
-
 			const [x, y] = key.split(",").map(Number);
+			if (this.roomTexturesLoaded && this.hasRoomArt(tileType, x, y)) continue;
+
 			const width = TILE_WIDTHS[tileType] ?? 1;
 			const label = this.add.text(
 				(x + width / 2) * TILE_WIDTH,
