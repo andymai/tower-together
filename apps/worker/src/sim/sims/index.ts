@@ -454,7 +454,22 @@ export function advanceSimRefreshStride(
 		// and must not rebase — the add_delay_to_current_sim penalty applied
 		// at resolve time already represents the trip's stress contribution,
 		// and a stride rebase would erroneously add live clock ticks on top.
-		if (sim.route.mode === "idle" || sim.route.mode === "queued") {
+		//
+		// Commercial families (6/0xa/0xc) dispatch through their own family
+		// handler (1228:40c0 / 1228:4851), NOT through dispatch_sim_behavior,
+		// so they never rebase via the stride refresh in the binary. During
+		// state 0x05 DEPARTURE dwell, sim[+0x0a] is used as the dwell-start
+		// stamp (set by acquire_commercial_venue_slot), and rebase must not
+		// zero it — otherwise the release_commercial_venue_slot gate fires
+		// immediately.
+		const isCommercial =
+			sim.familyCode === FAMILY_RESTAURANT ||
+			sim.familyCode === FAMILY_FAST_FOOD ||
+			sim.familyCode === FAMILY_RETAIL;
+		if (
+			!isCommercial &&
+			(sim.route.mode === "idle" || sim.route.mode === "queued")
+		) {
 			rebaseSimElapsedFromClock(sim, time);
 		}
 		finalizePendingRouteLeg(sim);

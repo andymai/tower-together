@@ -403,18 +403,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 								: 0;
 						const min = stresses.length > 0 ? Math.min(...stresses) : 0;
 						const max = stresses.length > 0 ? Math.max(...stresses) : 0;
-						if (avg !== refGroup.stress_avg) {
-							console.log(
-								`STRESS MISMATCH ${fixtureName} ${ctx} family=${key} ours=[${stresses.join(",")}] avg=${avg} ref_avg=${refGroup.stress_avg}`,
-							);
-							for (const sm of simArray) {
-								if (sm.familyCode === familyCode) {
-									console.log(
-										`  sim fa=${sm.floorAnchor} bo=${sm.baseOffset} st=0x${sm.stateCode.toString(16)} rmCode=${sm.routeMode} carId=${sm.carrierId} boarded=${sm.boardedOnCarrier} tc=${sm.tripCount} at=${sm.accumulatedTicks} et=${sm.elapsedTicks}`,
-									);
-								}
-							}
-						}
 						expect(avg, `family ${key} stress_avg mismatch at ${ctx}`).toBe(
 							refGroup.stress_avg,
 						);

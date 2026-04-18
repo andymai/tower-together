@@ -154,6 +154,22 @@ export function processCommercialSim(
 			time,
 		);
 		if (routeResult === -1) {
+			// Binary 1228:4297 route_result==-1 handler. Branch on venue[+0x02]:
+			//   UNTENANTED (availabilityState == 0xff / VENUE_DORMANT, 1228:42d8):
+			//     clear sim[+9]/sim[+0xc]/sim[+0xe] and CALLF 11b0:11de, which
+			//     reverts try_consume (rec[+6]++, rec[+7]--, rec[+0x10]--). Sim
+			//     stays in MORNING_GATE to retry next tick.
+			//   TENANTED (1228:45dd): sim[+5]=0x27 (PARKED), clamp_object_type_limit.
+			if (record.availabilityState === VENUE_DORMANT) {
+				sim.tripCount = 0;
+				sim.elapsedTicks = 0;
+				sim.accumulatedTicks = 0;
+				record.remainingCapacity += 1;
+				record.currentPopulation -= 1;
+				record.visitCount -= 1;
+			} else {
+				sim.stateCode = STATE_PARKED;
+			}
 			return;
 		}
 		if (
@@ -176,14 +192,15 @@ export function processCommercialSim(
 
 	// --- Departure ---
 	// Binary state-5 handler (1228:4517 retail / 1228:4bd7 ff+restaurant).
-	// CALLF release_commercial_venue_slot (11b0:0fae): returns non-zero while
-	// elapsed < get_commercial_venue_service_duration_ticks, and 0 once the
-	// service duration has elapsed — at which point the handler dispatches
-	// to DEPARTURE_TRANSIT. No daypart gate.
+	// CALLF release_commercial_venue_slot (11b0:0fae) gate:
+	//   g_day_tick - sim[+0x0a] < service_duration → return 0 (still dwelling).
+	// sim[+0x0a] is stamped ONCE by acquire_commercial_venue_slot at service
+	// start (handleCommercialSimArrival); binary never re-stamps it during
+	// dwell and never rebases elapsed on state 0x05. Using dayTick - ldt as
+	// the gate preserves elapsed=0 across the dwell so the return-leg stair
+	// penalty of 35 is the only accumulated stress contribution.
 	if (state === STATE_DEPARTURE) {
-		if (sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS) {
-			// Keep rebaseSimElapsedFromClock accumulating next stride.
-			sim.lastDemandTick = time.dayTick;
+		if (time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS) {
 			return;
 		}
 		const routeResult = resolveSimRouteBetweenFloors(
