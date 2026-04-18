@@ -61,11 +61,13 @@ export function getDisplayedCars(
 		return current.items.map((car) => {
 			const from = previousByKey.get(`${car.carrierId}:${car.carIndex}`);
 			if (!from) return car;
-			const interpolatedFloor =
-				from.currentFloor + (car.currentFloor - from.currentFloor) * progress;
+			const dirSign = car.directionFlag !== 0 ? -1 : 1;
+			const fromEffective =
+				from.currentFloor + (dirSign * from.settleCounter) / 6;
+			const toEffective = car.currentFloor + (dirSign * car.settleCounter) / 6;
 			return {
 				...car,
-				currentFloor: interpolatedFloor,
+				currentFloor: fromEffective + (toEffective - fromEffective) * progress,
 			};
 		});
 	}
