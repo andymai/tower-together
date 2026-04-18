@@ -422,6 +422,16 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	for (const carrier of snapshot.world.carriers) {
 		carrier.completedRouteIds ??= [];
 		carrier.suppressedFloorAssignments ??= [];
+		const numSlots = Math.max(
+			0,
+			carrier.topServedFloor - carrier.bottomServedFloor + 1,
+		);
+		if (
+			!Array.isArray(carrier.stopFloorEnabled) ||
+			carrier.stopFloorEnabled.length !== numSlots
+		) {
+			carrier.stopFloorEnabled = new Array(numSlots).fill(1);
+		}
 		if (
 			!Array.isArray(carrier.dwellDelay) ||
 			carrier.dwellDelay.length !== 14

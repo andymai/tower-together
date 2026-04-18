@@ -43,6 +43,7 @@ export interface SimStateRecord {
 	id: string;
 	floorAnchor: number;
 	selectedFloor: number;
+	destinationFloor: number;
 	homeColumn: number;
 	baseOffset: number;
 	familyCode: number;
@@ -334,6 +335,7 @@ export function createSimStateRecords(world: WorldState): SimStateRecord[] {
 				familyCode: sim.familyCode,
 				stateCode: sim.stateCode,
 				routeMode: routeModeNum,
+				destinationFloor: sim.destinationFloor,
 				carrierId,
 				assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
 				boardedOnCarrier: pendingRoute?.boarded ?? false,

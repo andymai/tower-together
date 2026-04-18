@@ -32,6 +32,7 @@ export type SimStateData = {
 	id: string;
 	floorAnchor: number;
 	selectedFloor: number;
+	destinationFloor: number;
 	homeColumn: number;
 	baseOffset: number;
 	familyCode: number;
@@ -61,6 +62,8 @@ export type CarrierCarStateData = {
 	prevFloor: number;
 	arrivalSeen: number;
 	arrivalTick: number;
+	homeFloor: number;
+	active: boolean;
 };
 
 export type ResolvedInputBatch = {
@@ -140,6 +143,10 @@ export type ServerMessage =
 				carCount: number;
 				maxCars: number;
 				servedFloors: number[];
+				dwellDelay: number;
+				waitingCarResponseThreshold: number;
+				stopFloorEnabled: boolean[];
+				carInfos: { homeFloor: number; active: boolean }[];
 			};
 	  }
 	| { type: "pong" };

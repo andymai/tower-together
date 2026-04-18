@@ -1,4 +1,4 @@
-import { makeCarrierCar, rebuildCarrierList } from "./carriers";
+import { floorToSlot, makeCarrierCar, rebuildCarrierList } from "./carriers";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
 	FAMILY_CONDO,
@@ -71,7 +71,16 @@ export type SimCommand =
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
 	| { type: "add_elevator_car"; x: number; y: number }
-	| { type: "remove_elevator_car"; x: number };
+	| { type: "remove_elevator_car"; x: number }
+	| { type: "set_elevator_dwell_delay"; x: number; value: number }
+	| { type: "set_elevator_waiting_car_response"; x: number; value: number }
+	| {
+			type: "set_elevator_home_floor";
+			x: number;
+			carIndex: number;
+			floor: number;
+	  }
+	| { type: "toggle_elevator_floor_stop"; x: number; floor: number };
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 
@@ -1115,6 +1124,71 @@ export function applyRemoveElevatorCar(
 	lastCar.assignedCount = 0;
 	lastCar.pendingAssignmentCount = 0;
 	lastCar.pendingRouteIds = [];
+	return { accepted: true, patch: [] };
+}
+
+export function handleSetElevatorDwellDelay(
+	x: number,
+	value: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	carrier.dwellDelay = new Array(14).fill(value);
+	return { accepted: true, patch: [] };
+}
+
+export function handleSetElevatorWaitingCarResponse(
+	x: number,
+	value: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	carrier.waitingCarResponseThreshold = value;
+	return { accepted: true, patch: [] };
+}
+
+export function handleSetElevatorHomeFloor(
+	x: number,
+	carIndex: number,
+	floor: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	const activeCars = carrier.cars.filter((c) => c.active);
+	const car = activeCars[carIndex];
+	if (!car) {
+		return { accepted: false, reason: "Car not found" };
+	}
+	if (floorToSlot(carrier, floor) < 0) {
+		return { accepted: false, reason: "Floor not served by this elevator" };
+	}
+	car.homeFloor = floor;
+	return { accepted: true, patch: [] };
+}
+
+export function handleToggleElevatorFloorStop(
+	x: number,
+	floor: number,
+	world: WorldState,
+): CommandResult {
+	const carrier = world.carriers.find((c) => c.column === x);
+	if (!carrier) {
+		return { accepted: false, reason: "No elevator at this column" };
+	}
+	const slot = floorToSlot(carrier, floor);
+	if (slot < 0) {
+		return { accepted: false, reason: "Floor not served by this elevator" };
+	}
+	carrier.stopFloorEnabled[slot] = carrier.stopFloorEnabled[slot] ? 0 : 1;
 	return { accepted: true, patch: [] };
 }
 

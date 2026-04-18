@@ -106,9 +106,11 @@ const ELEVATOR_STROKE_CELLS = 1;
 const QUEUE_START_OFFSET = 0.1 + ELEVATOR_STROKE_CELLS / 2;
 
 export function isSimAscending(sim: SimStateData): boolean {
-	// Without a destination floor in the wire state, approximate direction from
-	// the sim's home: a sim below home is waiting to go up, above is going down.
-	// Ties (at-home) default to ascending.
+	if (sim.destinationFloor >= 0) {
+		return sim.destinationFloor > sim.selectedFloor;
+	}
+	// Fallback when not in transit: a sim below home is waiting to go up, above
+	// is going down. Ties (at-home) default to ascending.
 	return sim.floorAnchor >= sim.selectedFloor;
 }
 

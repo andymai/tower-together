@@ -50,6 +50,10 @@ interface UseTowerSessionResult {
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
 	addElevatorCar: (x: number, y: number) => void;
 	removeElevatorCar: (x: number) => void;
+	setElevatorDwellDelay: (x: number, value: number) => void;
+	setElevatorWaitingCarResponse: (x: number, value: number) => void;
+	setElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
+	toggleElevatorFloorStop: (x: number, floor: number) => void;
 	reconnect: () => void;
 }
 
@@ -125,6 +129,14 @@ export function useTowerSession({
 			controllerRef.current?.setRentLevel(x, y, rentLevel),
 		addElevatorCar: (x, y) => controllerRef.current?.addElevatorCar(x, y),
 		removeElevatorCar: (x) => controllerRef.current?.removeElevatorCar(x),
+		setElevatorDwellDelay: (x, value) =>
+			controllerRef.current?.setElevatorDwellDelay(x, value),
+		setElevatorWaitingCarResponse: (x, value) =>
+			controllerRef.current?.setElevatorWaitingCarResponse(x, value),
+		setElevatorHomeFloor: (x, carIndex, floor) =>
+			controllerRef.current?.setElevatorHomeFloor(x, carIndex, floor),
+		toggleElevatorFloorStop: (x, floor) =>
+			controllerRef.current?.toggleElevatorFloorStop(x, floor),
 		reconnect: () => controllerRef.current?.reconnect(),
 	};
 }

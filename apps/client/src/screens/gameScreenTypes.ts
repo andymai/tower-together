@@ -33,5 +33,9 @@ export interface CellInfoData {
 		carCount: number;
 		maxCars: number;
 		servedFloors: number[];
+		dwellDelay: number;
+		waitingCarResponseThreshold: number;
+		stopFloorEnabled: boolean[];
+		carInfos: { homeFloor: number; active: boolean }[];
 	};
 }

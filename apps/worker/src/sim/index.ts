@@ -1,11 +1,15 @@
-import { tickAllCarriers } from "./carriers";
+import { floorToSlot, tickAllCarriers } from "./carriers";
 import type { CellPatch, CommandResult, SimCommand } from "./commands";
 import {
 	handleAddElevatorCar,
 	handlePlaceTile,
 	handleRemoveElevatorCar,
 	handleRemoveTile,
+	handleSetElevatorDwellDelay,
+	handleSetElevatorHomeFloor,
+	handleSetElevatorWaitingCarResponse,
 	handleSetRentLevel,
+	handleToggleElevatorFloorStop,
 } from "./commands";
 import {
 	handlePromptResponse,
@@ -53,6 +57,8 @@ export interface CarrierCarStateRecord {
 	prevFloor: number;
 	arrivalSeen: number;
 	arrivalTick: number;
+	homeFloor: number;
+	active: boolean;
 }
 
 // ─── Step result ──────────────────────────────────────────────────────────────
@@ -238,6 +244,23 @@ export class TowerSim {
 				return handleAddElevatorCar(cmd.x, cmd.y, this.world);
 			case "remove_elevator_car":
 				return handleRemoveElevatorCar(cmd.x, this.world);
+			case "set_elevator_dwell_delay":
+				return handleSetElevatorDwellDelay(cmd.x, cmd.value, this.world);
+			case "set_elevator_waiting_car_response":
+				return handleSetElevatorWaitingCarResponse(
+					cmd.x,
+					cmd.value,
+					this.world,
+				);
+			case "set_elevator_home_floor":
+				return handleSetElevatorHomeFloor(
+					cmd.x,
+					cmd.carIndex,
+					cmd.floor,
+					this.world,
+				);
+			case "toggle_elevator_floor_stop":
+				return handleToggleElevatorFloorStop(cmd.x, cmd.floor, this.world);
 		}
 	}
 
@@ -266,6 +289,10 @@ export class TowerSim {
 			carCount: number;
 			maxCars: number;
 			servedFloors: number[];
+			dwellDelay: number;
+			waitingCarResponseThreshold: number;
+			stopFloorEnabled: boolean[];
+			carInfos: { homeFloor: number; active: boolean }[];
 		};
 	} {
 		const key = `${x},${y}`;
@@ -305,6 +332,10 @@ export class TowerSim {
 					carCount: number;
 					maxCars: number;
 					servedFloors: number[];
+					dwellDelay: number;
+					waitingCarResponseThreshold: number;
+					stopFloorEnabled: boolean[];
+					carInfos: { homeFloor: number; active: boolean }[];
 			  }
 			| undefined;
 
@@ -314,12 +345,17 @@ export class TowerSim {
 			const carrier = this.world.carriers.find((c) => c.column === col);
 			if (carrier) {
 				const servedFloors: number[] = [];
+				const stopFloorEnabled: boolean[] = [];
 				for (
 					let f = carrier.bottomServedFloor;
 					f <= carrier.topServedFloor;
 					f++
 				) {
-					servedFloors.push(f);
+					const slot = floorToSlot(carrier, f);
+					if (slot >= 0) {
+						servedFloors.push(f);
+						stopFloorEnabled.push((carrier.stopFloorEnabled[slot] ?? 1) !== 0);
+					}
 				}
 				carrierInfo = {
 					carrierId: carrier.carrierId,
@@ -329,6 +365,13 @@ export class TowerSim {
 					carCount: carrier.cars.filter((c) => c.active).length,
 					maxCars: 8,
 					servedFloors,
+					dwellDelay: carrier.dwellDelay[0] ?? 0,
+					waitingCarResponseThreshold: carrier.waitingCarResponseThreshold,
+					stopFloorEnabled,
+					carInfos: carrier.cars.map((car) => ({
+						homeFloor: car.homeFloor,
+						active: car.active,
+					})),
 				};
 			}
 		}
@@ -445,6 +488,8 @@ export class TowerSim {
 				prevFloor: car.prevFloor,
 				arrivalSeen: car.arrivalSeen,
 				arrivalTick: car.arrivalTick,
+				homeFloor: car.homeFloor,
+				active: car.active,
 			})),
 		);
 	}

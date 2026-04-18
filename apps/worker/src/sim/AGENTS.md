@@ -35,7 +35,7 @@ Three-ledger economy: cash balance, population/income/expense ledgers, expense s
 `SimState` bundle and `runCheckpoints()` — fires all 18 checkpoint bodies at correct `day_tick` values.
 
 ### `commands.ts`
-`handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds.
+`handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds. Also: elevator config commands — `handleSetElevatorDwellDelay`, `handleSetElevatorWaitingCarResponse`, `handleSetElevatorHomeFloor`, `handleToggleElevatorFloorStop`.
 
 ### `ring-buffer.ts`
 Generic fixed-capacity `RingBuffer<T>`. Used by carrier floor queues.

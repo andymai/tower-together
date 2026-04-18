@@ -1,5 +1,6 @@
 import { RingBuffer } from "./ring-buffer";
 import { resolveTransferFloor } from "./routing";
+import { addDelayToCurrentSim } from "./sims/trip-counters";
 import type { TimeState } from "./time";
 import {
 	type CarrierCar,
@@ -340,6 +341,7 @@ export function makeCarrier(
 		pendingRoutes: [],
 		completedRouteIds: [],
 		suppressedFloorAssignments: [],
+		stopFloorEnabled: new Array(numSlots).fill(1),
 		cars,
 	};
 }
@@ -685,6 +687,16 @@ function processUnitTravelQueue(
 				carrier.pendingRoutes = carrier.pendingRoutes.filter(
 					(candidate) => candidate.simId !== route.simId,
 				);
+				// Binary assign_request_to_runtime_route: on transfer-floor failure,
+				// adds g_requeue_failure_delay then calls force_dispatch_sim_state_by_family,
+				// which re-runs the family handler so routing is retried next stride.
+				// Delay value (5) is unverified; placeholder matching DELAY_WAITING.
+				const failedSim = world.sims.find(
+					(s) =>
+						`${s.floorAnchor}:${s.homeColumn}:${s.familyCode}:${s.baseOffset}` ===
+						route.simId,
+				);
+				if (failedSim) addDelayToCurrentSim(failedSim, 5);
 				clearSimRouteById(world, route.simId);
 				continue;
 			}
@@ -1210,6 +1222,12 @@ export function rebuildCarrierList(world: WorldState): void {
 			}
 			existing.completedRouteIds ??= [];
 			existing.suppressedFloorAssignments ??= [];
+			if (
+				!Array.isArray(existing.stopFloorEnabled) ||
+				existing.stopFloorEnabled.length !== numSlots
+			) {
+				existing.stopFloorEnabled = new Array(numSlots).fill(1);
+			}
 			if (existing.primaryRouteStatusByFloor.length !== numSlots) {
 				existing.primaryRouteStatusByFloor = new Array(numSlots).fill(0);
 				existing.secondaryRouteStatusByFloor = new Array(numSlots).fill(0);

@@ -14,6 +14,6 @@ Full-page React screen components.
 - **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, speed controls, debug star-count button group, and free-build toggle.
 - **GameInspectPanel.tsx** — Population inspect panel showing each sim's state/stress and average stress.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.
-- **CellInspectionDialog.tsx** — Extracted inspection dialog for room/elevator metadata plus rent and car-count controls.
+- **CellInspectionDialog.tsx** — Inspection dialog for room/elevator metadata: rent, car-count, dwell delay, waiting car response, per-floor stop pattern, per-car home floor, and a real-time car-position grid.
 - **SimInspectionDialog.tsx** — Separate inspect modal for queued sims clicked directly in the Phaser scene, showing sim state, stress, and trip/floor metadata.
 - **GameToasts.tsx** — Extracted toast stack renderer for transient info/error messages.

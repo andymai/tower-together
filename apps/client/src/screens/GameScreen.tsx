@@ -79,6 +79,10 @@ export function GameScreen({
 		setRentLevel,
 		addElevatorCar,
 		removeElevatorCar,
+		setElevatorDwellDelay,
+		setElevatorWaitingCarResponse,
+		setElevatorHomeFloor,
+		toggleElevatorFloorStop,
 		reconnect,
 		sceneReady,
 	} = useTowerSession({
@@ -250,10 +254,15 @@ export function GameScreen({
 			<CellInspectionDialog
 				inspectedCell={inspectedCell}
 				sims={sims}
+				carriers={carriers}
 				onClose={() => setInspectedCell(null)}
 				onSetRentLevel={setRentLevel}
 				onAddElevatorCar={addElevatorCar}
 				onRemoveElevatorCar={removeElevatorCar}
+				onSetElevatorDwellDelay={setElevatorDwellDelay}
+				onSetElevatorWaitingCarResponse={setElevatorWaitingCarResponse}
+				onSetElevatorHomeFloor={setElevatorHomeFloor}
+				onToggleElevatorFloorStop={toggleElevatorFloorStop}
 				onInspectCell={handleCellInspect}
 				onPatchInspectedCell={handlePatchInspectedCell}
 			/>

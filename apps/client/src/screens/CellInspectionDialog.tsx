@@ -1,4 +1,8 @@
-import { GRID_HEIGHT, type SimStateData } from "../types";
+import {
+	type CarrierCarStateData,
+	GRID_HEIGHT,
+	type SimStateData,
+} from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { CellInfoData } from "./gameScreenTypes";
 
@@ -60,10 +64,15 @@ const STRESS_COLORS: Record<SimStateData["stressLevel"], string> = {
 interface Props {
 	inspectedCell: CellInfoData | null;
 	sims: SimStateData[];
+	carriers: CarrierCarStateData[];
 	onClose: () => void;
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
 	onAddElevatorCar: (x: number, y: number) => void;
 	onRemoveElevatorCar: (x: number) => void;
+	onSetElevatorDwellDelay: (x: number, value: number) => void;
+	onSetElevatorWaitingCarResponse: (x: number, value: number) => void;
+	onSetElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
+	onToggleElevatorFloorStop: (x: number, floor: number) => void;
 	onInspectCell: (x: number, y: number) => void;
 	onPatchInspectedCell: (updater: (cell: CellInfoData) => CellInfoData) => void;
 }
@@ -71,10 +80,15 @@ interface Props {
 export function CellInspectionDialog({
 	inspectedCell,
 	sims,
+	carriers,
 	onClose,
 	onSetRentLevel,
 	onAddElevatorCar,
 	onRemoveElevatorCar,
+	onSetElevatorDwellDelay,
+	onSetElevatorWaitingCarResponse,
+	onSetElevatorHomeFloor,
+	onToggleElevatorFloorStop,
 	onInspectCell,
 	onPatchInspectedCell,
 }: Props) {
@@ -159,127 +173,368 @@ export function CellInspectionDialog({
 						</div>
 					)}
 
-				{inspectedCell.carrierInfo && (
-					<>
-						<div style={styles.inspectSection}>
-							<div style={styles.inspectRow}>
-								<span style={styles.inspectLabel}>Mode</span>
-								<span style={styles.inspectValue}>
-									{CARRIER_MODE_LABELS[inspectedCell.carrierInfo.carrierMode] ??
-										"Unknown"}
-								</span>
-							</div>
-							<div style={styles.inspectRow}>
-								<span style={styles.inspectLabel}>Floors</span>
-								<span style={styles.inspectValue}>
-									{inspectedCell.carrierInfo.bottomServedFloor - 10} to{" "}
-									{inspectedCell.carrierInfo.topServedFloor - 10}
-								</span>
-							</div>
-						</div>
-						<div style={styles.inspectSection}>
-							<div style={styles.inspectRow}>
-								<span style={styles.inspectLabel}>Cars</span>
-								<span style={styles.inspectValue}>
-									{inspectedCell.carrierInfo.carCount} /{" "}
-									{inspectedCell.carrierInfo.maxCars}
-								</span>
-							</div>
-							<div style={styles.carButtons}>
-								<button
-									type="button"
-									style={{
-										...styles.carButton,
-										...(inspectedCell.carrierInfo.carCount >= 8
-											? styles.carButtonDisabled
-											: {}),
-									}}
-									disabled={inspectedCell.carrierInfo.carCount >= 8}
-									onClick={() => {
-										onAddElevatorCar(inspectedCell.x, inspectedCell.y);
-										onInspectCell(inspectedCell.x, inspectedCell.y);
-									}}
-								>
-									+ Add Car
-								</button>
-								<button
-									type="button"
-									style={{
-										...styles.carButton,
-										...(inspectedCell.carrierInfo.carCount <= 1
-											? styles.carButtonDisabled
-											: {}),
-									}}
-									disabled={inspectedCell.carrierInfo.carCount <= 1}
-									onClick={() => {
-										onRemoveElevatorCar(inspectedCell.x);
-										onInspectCell(inspectedCell.x, inspectedCell.y);
-									}}
-								>
-									- Remove Car
-								</button>
-							</div>
-						</div>
-					</>
-				)}
+				{inspectedCell.carrierInfo &&
+					(() => {
+						const ci = inspectedCell.carrierInfo;
+						const carrierId = ci.carrierId;
+						const activeCars = carriers.filter(
+							(c) => c.carrierId === carrierId && c.active,
+						);
+						const { servedFloors, stopFloorEnabled, carInfos } = ci;
 
-				{(() => {
-					const floor = GRID_HEIGHT - 1 - inspectedCell.y;
-					const facilitySims = sims.filter(
-						(e) =>
-							e.homeColumn === inspectedCell.anchorX && e.floorAnchor === floor,
-					);
-					if (facilitySims.length === 0) return null;
-					const totalTrips = facilitySims.reduce((s, e) => s + e.tripCount, 0);
-					const avgStress =
-						facilitySims.length > 0
-							? facilitySims.reduce((s, e) => {
-									const avg =
-										e.tripCount > 0
-											? e.accumulatedTicks / e.tripCount
-											: e.elapsedTicks;
-									return s + avg;
-								}, 0) / facilitySims.length
-							: 0;
-					return (
-						<div style={styles.inspectSection}>
-							<div style={styles.inspectLabel}>
-								Sims ({facilitySims.length})
-							</div>
-							<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
-								<span>Total trips</span>
-								<strong>{totalTrips}</strong>
-							</div>
-							<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
-								<span>Avg stress</span>
-								<strong>{avgStress.toFixed(1)}</strong>
-							</div>
-							<div style={{ maxHeight: 120, overflowY: "auto" }}>
-								{facilitySims.map((e) => {
-									const simStress =
-										e.tripCount > 0
-											? e.accumulatedTicks / e.tripCount
-											: e.elapsedTicks;
-									return (
-										<div key={e.id} style={styles.inspectRow}>
-											<span style={{ color: "#e0e0e0" }}>
-												{e.id.slice(0, 6)} · {e.tripCount}t · {e.elapsedTicks}el
-											</span>
-											<span
+						return (
+							<>
+								<div style={styles.inspectSection}>
+									<div style={styles.inspectRow}>
+										<span style={styles.inspectLabel}>Mode</span>
+										<span style={styles.inspectValue}>
+											{CARRIER_MODE_LABELS[ci.carrierMode] ?? "Unknown"}
+										</span>
+									</div>
+									<div style={styles.inspectRow}>
+										<span style={styles.inspectLabel}>Floors</span>
+										<span style={styles.inspectValue}>
+											{ci.bottomServedFloor - 10} to {ci.topServedFloor - 10}
+										</span>
+									</div>
+								</div>
+
+								{/* Car grid */}
+								<div style={styles.inspectSection}>
+									<div
+										style={{
+											maxHeight: 240,
+											overflowY: "auto",
+											border: "1px solid #333",
+											borderRadius: 4,
+										}}
+									>
+										{/* Header row */}
+										<div
+											style={{
+												display: "flex",
+												background: "#222",
+												borderBottom: "1px solid #333",
+												position: "sticky",
+												top: 0,
+												zIndex: 1,
+											}}
+										>
+											<div style={elevatorGridCell}>
+												<span style={{ color: "#888", fontSize: 10 }}>fl</span>
+											</div>
+											<div style={elevatorGridCell}>
+												<span style={{ color: "#888", fontSize: 10 }}>
+													stop
+												</span>
+											</div>
+											{activeCars.map((car) => (
+												<div key={car.carIndex} style={elevatorGridCell}>
+													<span style={{ color: "#888", fontSize: 10 }}>
+														{car.carIndex + 1}
+													</span>
+												</div>
+											))}
+										</div>
+										{/* Floor rows — top to bottom */}
+										{[...servedFloors].reverse().map((floor, revIdx) => {
+											const fwdIdx = servedFloors.length - 1 - revIdx;
+											const isStop = stopFloorEnabled[fwdIdx] ?? true;
+											return (
+												<div
+													key={floor}
+													style={{
+														display: "flex",
+														borderBottom: "1px solid #2a2a2a",
+													}}
+												>
+													{/* Floor number */}
+													<div style={elevatorGridCell}>
+														<span style={{ color: "#888", fontSize: 10 }}>
+															{floor - 10}
+														</span>
+													</div>
+													{/* Stop toggle */}
+													<button
+														type="button"
+														style={{
+															...elevatorGridCell,
+															cursor: "pointer",
+															background: "transparent",
+															border: "none",
+															color: isStop ? "#4ade80" : "#555",
+															fontSize: 12,
+														}}
+														onClick={() => {
+															onToggleElevatorFloorStop(inspectedCell.x, floor);
+															onPatchInspectedCell((cell) => {
+																if (!cell.carrierInfo) return cell;
+																const next = [
+																	...cell.carrierInfo.stopFloorEnabled,
+																];
+																next[fwdIdx] = !next[fwdIdx];
+																return {
+																	...cell,
+																	carrierInfo: {
+																		...cell.carrierInfo,
+																		stopFloorEnabled: next,
+																	},
+																};
+															});
+														}}
+													>
+														{isStop ? "●" : "○"}
+													</button>
+													{/* Per-car cells */}
+													{activeCars.map((car) => {
+														const isHere = car.currentFloor === floor;
+														const homeFloor =
+															carInfos[car.carIndex]?.homeFloor ?? floor;
+														const isHome = homeFloor === floor;
+														return (
+															<button
+																type="button"
+																key={car.carIndex}
+																style={{
+																	...elevatorGridCell,
+																	cursor: "pointer",
+																	background: isHome
+																		? "rgba(74,222,128,0.08)"
+																		: "transparent",
+																	border: "none",
+																	color: isHere
+																		? "#fff"
+																		: isHome
+																			? "#4ade80"
+																			: "transparent",
+																	fontSize: 12,
+																}}
+																title={`Set car ${car.carIndex + 1} home to floor ${floor - 10}`}
+																onClick={() => {
+																	onSetElevatorHomeFloor(
+																		inspectedCell.x,
+																		car.carIndex,
+																		floor,
+																	);
+																	onPatchInspectedCell((cell) => {
+																		if (!cell.carrierInfo) return cell;
+																		const next = cell.carrierInfo.carInfos.map(
+																			(info, i) =>
+																				i === car.carIndex
+																					? { ...info, homeFloor: floor }
+																					: info,
+																		);
+																		return {
+																			...cell,
+																			carrierInfo: {
+																				...cell.carrierInfo,
+																				carInfos: next,
+																			},
+																		};
+																	});
+																}}
+															>
+																{isHere
+																	? car.directionFlag === 1
+																		? "▲"
+																		: "▼"
+																	: isHome
+																		? "─"
+																		: "·"}
+															</button>
+														);
+													})}
+												</div>
+											);
+										})}
+									</div>
+								</div>
+
+								{/* Cars add/remove */}
+								<div style={styles.inspectSection}>
+									<div style={styles.inspectRow}>
+										<span style={styles.inspectLabel}>Cars</span>
+										<span style={styles.inspectValue}>
+											{ci.carCount} / {ci.maxCars}
+										</span>
+									</div>
+									<div style={styles.carButtons}>
+										<button
+											type="button"
+											style={{
+												...styles.carButton,
+												...(ci.carCount >= 8 ? styles.carButtonDisabled : {}),
+											}}
+											disabled={ci.carCount >= 8}
+											onClick={() => {
+												onAddElevatorCar(inspectedCell.x, inspectedCell.y);
+												onInspectCell(inspectedCell.x, inspectedCell.y);
+											}}
+										>
+											+ Add Car
+										</button>
+										<button
+											type="button"
+											style={{
+												...styles.carButton,
+												...(ci.carCount <= 1 ? styles.carButtonDisabled : {}),
+											}}
+											disabled={ci.carCount <= 1}
+											onClick={() => {
+												onRemoveElevatorCar(inspectedCell.x);
+												onInspectCell(inspectedCell.x, inspectedCell.y);
+											}}
+										>
+											- Remove Car
+										</button>
+									</div>
+								</div>
+
+								{/* Dwell Delay */}
+								<div style={styles.inspectSection}>
+									<div style={styles.inspectLabel}>Dwell Delay</div>
+									<div style={styles.carButtons}>
+										{[0, 1, 2, 3, 4, 5].map((v) => (
+											<button
+												type="button"
+												key={v}
 												style={{
-													color: STRESS_COLORS[e.stressLevel],
+													...styles.carButton,
+													...(ci.dwellDelay === v
+														? styles.carButtonActive
+														: {}),
+												}}
+												onClick={() => {
+													onSetElevatorDwellDelay(inspectedCell.x, v);
+													onPatchInspectedCell((cell) => ({
+														...cell,
+														carrierInfo: cell.carrierInfo
+															? { ...cell.carrierInfo, dwellDelay: v }
+															: undefined,
+													}));
 												}}
 											>
-												{simStress.toFixed(1)}
-											</span>
-										</div>
-									);
-								})}
+												{v === 0 ? "Instant" : `${v * 30}t`}
+											</button>
+										))}
+									</div>
+								</div>
+
+								{/* Waiting Car Response */}
+								<div style={styles.inspectSection}>
+									<div style={styles.inspectRow}>
+										<span style={styles.inspectLabel}>
+											Waiting Car Response
+										</span>
+										<input
+											type="number"
+											min={0}
+											max={99}
+											value={ci.waitingCarResponseThreshold}
+											style={{
+												width: 52,
+												background: "#2a2a2a",
+												border: "1px solid #555",
+												borderRadius: 4,
+												color: "#e0e0e0",
+												fontSize: 12,
+												padding: "3px 6px",
+												textAlign: "right",
+											}}
+											onChange={(e) => {
+												const v = Math.max(
+													0,
+													Math.min(99, Number(e.target.value) || 0),
+												);
+												onSetElevatorWaitingCarResponse(inspectedCell.x, v);
+												onPatchInspectedCell((cell) => ({
+													...cell,
+													carrierInfo: cell.carrierInfo
+														? {
+																...cell.carrierInfo,
+																waitingCarResponseThreshold: v,
+															}
+														: undefined,
+												}));
+											}}
+										/>
+									</div>
+								</div>
+							</>
+						);
+					})()}
+
+				{!inspectedCell.carrierInfo &&
+					(() => {
+						const floor = GRID_HEIGHT - 1 - inspectedCell.y;
+						const facilitySims = sims.filter(
+							(e) =>
+								e.homeColumn === inspectedCell.anchorX &&
+								e.floorAnchor === floor,
+						);
+						if (facilitySims.length === 0) return null;
+						const totalTrips = facilitySims.reduce(
+							(s, e) => s + e.tripCount,
+							0,
+						);
+						const avgStress =
+							facilitySims.reduce((s, e) => {
+								const avg =
+									e.tripCount > 0
+										? e.accumulatedTicks / e.tripCount
+										: e.elapsedTicks;
+								return s + avg;
+							}, 0) / facilitySims.length;
+						return (
+							<div style={styles.inspectSection}>
+								<div style={styles.inspectLabel}>
+									Sims ({facilitySims.length})
+								</div>
+								<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
+									<span>Total trips</span>
+									<strong>{totalTrips}</strong>
+								</div>
+								<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
+									<span>Avg stress</span>
+									<strong>{avgStress.toFixed(1)}</strong>
+								</div>
+								<div style={{ maxHeight: 120, overflowY: "auto" }}>
+									{facilitySims.map((e) => {
+										const simStress =
+											e.tripCount > 0
+												? e.accumulatedTicks / e.tripCount
+												: e.elapsedTicks;
+										return (
+											<div key={e.id} style={styles.inspectRow}>
+												<span style={{ color: "#e0e0e0" }}>
+													{e.id.slice(0, 6)} · {e.tripCount}t · {e.elapsedTicks}
+													el
+												</span>
+												<span
+													style={{
+														color: STRESS_COLORS[e.stressLevel],
+													}}
+												>
+													{simStress.toFixed(1)}
+												</span>
+											</div>
+										);
+									})}
+								</div>
 							</div>
-						</div>
-					);
-				})()}
+						);
+					})()}
 			</div>
 		</div>
 	);
 }
+
+const elevatorGridCell: React.CSSProperties = {
+	width: 28,
+	minWidth: 28,
+	height: 22,
+	display: "flex",
+	alignItems: "center",
+	justifyContent: "center",
+	flexShrink: 0,
+};

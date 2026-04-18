@@ -334,6 +334,26 @@ export class TowerSessionController {
 		this.sendInputBatch([{ type: "remove_elevator_car", x }]);
 	}
 
+	setElevatorDwellDelay(x: number, value: number): void {
+		this.sendInputBatch([{ type: "set_elevator_dwell_delay", x, value }]);
+	}
+
+	setElevatorWaitingCarResponse(x: number, value: number): void {
+		this.sendInputBatch([
+			{ type: "set_elevator_waiting_car_response", x, value },
+		]);
+	}
+
+	setElevatorHomeFloor(x: number, carIndex: number, floor: number): void {
+		this.sendInputBatch([
+			{ type: "set_elevator_home_floor", x, carIndex, floor },
+		]);
+	}
+
+	toggleElevatorFloorStop(x: number, floor: number): void {
+		this.sendInputBatch([{ type: "toggle_elevator_floor_stop", x, floor }]);
+	}
+
 	reconnect(): void {
 		this.socket.reconnect();
 	}

@@ -121,6 +121,8 @@ export interface CarrierRecord {
 	pendingRoutes: CarrierPendingRoute[];
 	completedRouteIds: string[];
 	suppressedFloorAssignments: string[];
+	/** Per-slot (floor) stop flag. 1 = elevator stops here, 0 = passes through. */
+	stopFloorEnabled: number[];
 	cars: CarrierCar[];
 }
 

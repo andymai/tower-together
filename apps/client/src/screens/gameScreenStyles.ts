@@ -453,6 +453,11 @@ export const gameScreenStyles = {
 		fontWeight: 500,
 		cursor: "pointer",
 	},
+	carButtonActive: {
+		background: "rgba(74, 222, 128, 0.15)",
+		border: "1px solid #4ade80",
+		color: "#4ade80",
+	},
 	carButtonDisabled: {
 		opacity: 0.4,
 		cursor: "default",
