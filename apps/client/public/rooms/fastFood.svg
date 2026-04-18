@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80">
+<svg preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80">
   <!-- Back wall - warm red diner tone -->
   <rect x="0" y="0" width="320" height="76" fill="#c45050"/>
 

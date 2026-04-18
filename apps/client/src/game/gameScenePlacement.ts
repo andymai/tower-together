@@ -119,8 +119,8 @@ export function getHoverBounds(
 	if (startX > endX) return null;
 
 	return {
-		x: startX * TILE_WIDTH + 1,
-		y: startY * TILE_HEIGHT + 1,
+		x: startX * TILE_WIDTH,
+		y: startY * TILE_HEIGHT,
 		width: (endX - startX + 1) * TILE_WIDTH - 1,
 		height: (y - startY + 1) * TILE_HEIGHT - 1,
 	};

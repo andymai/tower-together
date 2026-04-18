@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 80" width="160" height="80">
+<svg preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 80" width="160" height="80">
   <!-- Back wall - dark navy -->
   <rect x="0" y="0" width="160" height="76" fill="#3a4858"/>
 

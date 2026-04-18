@@ -70,7 +70,9 @@ export const ENTITY_STRESS_COLORS: Record<SimStateData["stressLevel"], number> =
 	};
 export const CAR_COLOR = 0xf6d463;
 export const MIN_ZOOM = 1;
-export const MAX_ZOOM = 4;
+export const MAX_ZOOM = 6;
+export const STATIC_TILE_GAP_X = 1;
+export const STATIC_TILE_GAP_Y = 1;
 export const DEFAULT_TICK_INTERVAL_MS = 50;
 export const LOCAL_TICKS_PER_FLOOR = 8;
 export const EXPRESS_TICKS_PER_FLOOR = 4;

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 80" width="300" height="80">
+<svg preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 80" width="300" height="80">
   <!-- Back wall - soft teal utility room -->
   <rect x="0" y="0" width="300" height="76" fill="#aab8b0"/>
 

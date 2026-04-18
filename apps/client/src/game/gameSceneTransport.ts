@@ -5,6 +5,7 @@ import {
 	FAMILY_POPULATION,
 	FAMILY_WIDTHS,
 	LOCAL_TICKS_PER_FLOOR,
+	STATIC_TILE_GAP_X,
 	TILE_HEIGHT,
 	TILE_WIDTH,
 } from "./gameSceneConstants";
@@ -179,7 +180,7 @@ export function getCarBounds(car: CarrierCarStateData): {
 	const isExpress = car.carrierMode === 0;
 	const shaftTypeKey = isExpress ? "elevatorExpress" : "elevator";
 	const shaftWidthCells = TILE_WIDTHS[shaftTypeKey] ?? 4;
-	const shaftPixelWidth = shaftWidthCells * TILE_WIDTH;
+	const shaftPixelWidth = shaftWidthCells * TILE_WIDTH - STATIC_TILE_GAP_X;
 	const width = isExpress
 		? shaftPixelWidth - 6
 		: Math.max(6, shaftPixelWidth - 6);

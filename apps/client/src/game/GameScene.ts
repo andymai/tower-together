@@ -13,12 +13,13 @@ import { CloudManager } from "./clouds";
 import {
 	CAR_COLOR,
 	COLOR_HOVER,
-	COLOR_UNDERGROUND,
 	DEFAULT_TICK_INTERVAL_MS,
 	ENTITY_STRESS_COLORS,
 	LABEL_PANEL_WIDTH,
 	MAX_ZOOM,
 	MIN_ZOOM,
+	STATIC_TILE_GAP_X,
+	STATIC_TILE_GAP_Y,
 	TILE_COLORS,
 	TILE_HEIGHT,
 	TILE_LABEL_COLORS,
@@ -70,6 +71,13 @@ type NumberTextureStyle = {
 	paddingY?: number;
 };
 
+type StaticRowChunk = {
+	x: number;
+	width: number;
+	texture: Phaser.Textures.CanvasTexture;
+	image: Phaser.GameObjects.Image;
+};
+
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
 const HOTEL_TURNOVER_STATUS_MAX = 0x30;
@@ -80,6 +88,11 @@ const NUMBER_TEXTURE_RESOLUTION = Math.max(
 	1,
 	Math.round(window.devicePixelRatio * 4),
 );
+const STATIC_ROW_TEXTURE_SCALE = 8;
+const STATIC_ROW_DEPTH = 2;
+const STATIC_OVERLAY_DEPTH = 2.9;
+const DYNAMIC_ENTITY_DEPTH = 3;
+const HOVER_DEPTH = 4;
 
 const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	office: {
@@ -170,20 +183,15 @@ export class GameScene extends Phaser.Scene {
 	private cloudManager!: CloudManager;
 	private floorLabelBg!: Phaser.GameObjects.Rectangle;
 	private floorLabels: Phaser.GameObjects.Image[] = [];
-	private tileLabels: Phaser.GameObjects.Text[] = [];
 	private carLabels: Phaser.GameObjects.Image[] = [];
-	private roomSprites: Phaser.GameObjects.Sprite[] = [];
-	private roomTileSprites: Phaser.GameObjects.TileSprite[] = [];
+	private staticRowChunks: StaticRowChunk[][] = [];
+	private overlaySprites: Phaser.GameObjects.Image[] = [];
 	private roomTexturesLoaded = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
 	private unitStatusMap: Map<string, number> = new Map();
 	private evalLevelMap: Map<string, number> = new Map();
 	private evalScoreMap: Map<string, number> = new Map();
-	private evalBadgeLabels: Phaser.GameObjects.Image[] = [];
-	private usedRoomSpriteCount = 0;
-	private usedRoomTileSpriteCount = 0;
-	private usedTileLabelCount = 0;
-	private usedEvalBadgeLabelCount = 0;
+	private usedOverlaySpriteCount = 0;
 	private lastFloorLabelZoom = Number.NaN;
 	private lastFloorLabelWidth = -1;
 	private simsDirty = true;
@@ -193,8 +201,16 @@ export class GameScene extends Phaser.Scene {
 	private grid: Map<string, string> = new Map();
 	// Keys of anchor cells only (used for rendering)
 	private anchorSet: Set<string> = new Set();
+	private anchorKeysByRow: Array<Set<string>> = Array.from(
+		{ length: GRID_HEIGHT },
+		() => new Set<string>(),
+	);
 	// Overlay tiles (e.g. stairs) keyed by "x,y"
 	private overlayGrid: Map<string, string> = new Map();
+	private overlayKeysByRow: Array<Set<string>> = Array.from(
+		{ length: GRID_HEIGHT },
+		() => new Set<string>(),
+	);
 	private previousSimSnapshot: TimedSnapshot<SimStateData> | null = null;
 	private currentSimSnapshot: TimedSnapshot<SimStateData> | null = null;
 	private previousCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
@@ -269,6 +285,37 @@ export class GameScene extends Phaser.Scene {
 		this.lastPlacedAnchor = { x, y, tileType };
 	}
 
+	private resetRowKeyIndexes(): void {
+		for (const row of this.anchorKeysByRow) row.clear();
+		for (const row of this.overlayKeysByRow) row.clear();
+	}
+
+	private addAnchorKey(key: string, y: number): void {
+		this.anchorSet.add(key);
+		this.anchorKeysByRow[y]?.add(key);
+	}
+
+	private removeAnchorKey(key: string, y: number): void {
+		this.anchorSet.delete(key);
+		this.anchorKeysByRow[y]?.delete(key);
+	}
+
+	private addOverlayKey(key: string, y: number, tileType: string): void {
+		this.overlayGrid.set(key, tileType);
+		this.overlayKeysByRow[y]?.add(key);
+	}
+
+	private removeOverlayKey(key: string, y: number): void {
+		this.overlayGrid.delete(key);
+		this.overlayKeysByRow[y]?.delete(key);
+	}
+
+	private markDirtyRows(dirtyRows: Set<number>, y: number): void {
+		for (let row = y - 1; row <= y + 1; row += 1) {
+			if (row >= 0 && row < GRID_HEIGHT) dirtyRows.add(row);
+		}
+	}
+
 	/** Check whether the cell at (x, y) has an elevator overlay. */
 	hasElevatorOverlayAt(x: number, y: number): boolean {
 		return this.overlayGrid.get(`${x},${y}`) === "elevator";
@@ -310,6 +357,7 @@ export class GameScene extends Phaser.Scene {
 		this.grid.clear();
 		this.anchorSet.clear();
 		this.overlayGrid.clear();
+		this.resetRowKeyIndexes();
 		this.evalActiveFlagMap.clear();
 		this.unitStatusMap.clear();
 		this.evalLevelMap.clear();
@@ -317,10 +365,12 @@ export class GameScene extends Phaser.Scene {
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
-				if (cell.tileType !== "empty") this.overlayGrid.set(key, cell.tileType);
+				if (cell.tileType !== "empty") {
+					this.addOverlayKey(key, cell.y, cell.tileType);
+				}
 			} else if (cell.tileType !== "empty") {
 				this.grid.set(key, cell.tileType);
-				if (cell.isAnchor) this.anchorSet.add(key);
+				if (cell.isAnchor) this.addAnchorKey(key, cell.y);
 				if (cell.evalActiveFlag !== undefined)
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
 				if (cell.unitStatus !== undefined)
@@ -358,17 +408,20 @@ export class GameScene extends Phaser.Scene {
 		}>,
 	): void {
 		let needsRedraw = false;
+		const dirtyRows = new Set<number>();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
 				if (cell.tileType === "empty") {
 					if (this.overlayGrid.has(key)) {
-						this.overlayGrid.delete(key);
+						this.removeOverlayKey(key, cell.y);
+						this.markDirtyRows(dirtyRows, cell.y);
 						needsRedraw = true;
 					}
 				} else {
 					if (this.overlayGrid.get(key) !== cell.tileType) {
-						this.overlayGrid.set(key, cell.tileType);
+						this.addOverlayKey(key, cell.y, cell.tileType);
+						this.markDirtyRows(dirtyRows, cell.y);
 						needsRedraw = true;
 					}
 				}
@@ -382,24 +435,27 @@ export class GameScene extends Phaser.Scene {
 					this.evalScoreMap.has(key);
 				if (hadContent) {
 					this.grid.delete(key);
-					this.anchorSet.delete(key);
+					this.removeAnchorKey(key, cell.y);
 					this.evalActiveFlagMap.delete(key);
 					this.unitStatusMap.delete(key);
 					this.evalLevelMap.delete(key);
 					this.evalScoreMap.delete(key);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 			} else {
 				if (this.grid.get(key) !== cell.tileType) {
 					this.grid.set(key, cell.tileType);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 				if (this.anchorSet.has(key) !== cell.isAnchor) {
 					if (cell.isAnchor) {
-						this.anchorSet.add(key);
+						this.addAnchorKey(key, cell.y);
 					} else {
-						this.anchorSet.delete(key);
+						this.removeAnchorKey(key, cell.y);
 					}
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 				if (
@@ -407,6 +463,7 @@ export class GameScene extends Phaser.Scene {
 					this.evalActiveFlagMap.get(key) !== cell.evalActiveFlag
 				) {
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 				if (
@@ -414,6 +471,7 @@ export class GameScene extends Phaser.Scene {
 					this.unitStatusMap.get(key) !== cell.unitStatus
 				) {
 					this.unitStatusMap.set(key, cell.unitStatus);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 				if (
@@ -421,6 +479,7 @@ export class GameScene extends Phaser.Scene {
 					this.evalLevelMap.get(key) !== cell.evalLevel
 				) {
 					this.evalLevelMap.set(key, cell.evalLevel);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 				if (
@@ -428,13 +487,16 @@ export class GameScene extends Phaser.Scene {
 					this.evalScoreMap.get(key) !== cell.evalScore
 				) {
 					this.evalScoreMap.set(key, cell.evalScore);
+					this.markDirtyRows(dirtyRows, cell.y);
 					needsRedraw = true;
 				}
 			}
 		}
 		if (needsRedraw) {
 			this.simsDirty = true;
-			this.drawAllCells();
+			this.redrawStaticRows(dirtyRows);
+			this.drawStaticOverlays();
+			this.drawDynamicOverlays();
 		}
 	}
 
@@ -482,10 +544,10 @@ export class GameScene extends Phaser.Scene {
 		this.simGraphics = this.add.graphics();
 		this.hoverGraphics = this.add.graphics();
 
-		// Depth ordering: sky (0) -> clouds (1) -> cells (2) -> overlays (3-4)
-		this.cellGraphics.setDepth(2);
-		this.simGraphics.setDepth(3);
-		this.hoverGraphics.setDepth(4);
+		// Depth ordering: sky (0) -> clouds/ground (1) -> cached rows (2) -> static overlays (2.9) -> sims/cars (3) -> hover (4)
+		this.cellGraphics.setDepth(STATIC_OVERLAY_DEPTH);
+		this.simGraphics.setDepth(DYNAMIC_ENTITY_DEPTH);
+		this.hoverGraphics.setDepth(HOVER_DEPTH);
 
 		this.arrowKeys =
 			this.input.keyboard?.createCursorKeys() as Phaser.Types.Input.Keyboard.CursorKeys;
@@ -493,6 +555,7 @@ export class GameScene extends Phaser.Scene {
 		this.drawSky();
 		this.loadUndergroundTexture();
 		this.drawUndergroundBackground();
+		this.setupStaticRowBitmaps();
 		this.drawAllCells();
 
 		this.cloudManager = new CloudManager(this, 1);
@@ -824,7 +887,7 @@ export class GameScene extends Phaser.Scene {
 		this.undergroundBackground.setTileScale(tileScaleX, tileScale);
 	}
 
-	private static readonly ROOM_SVG_SCALE = 16;
+	private static readonly ROOM_SVG_SCALE = STATIC_ROW_TEXTURE_SCALE;
 
 	/** Tile types that use the for-sale banner instead of for-rent. */
 	private static readonly FOR_SALE_TYPES = new Set(["condo"]);
@@ -880,8 +943,8 @@ export class GameScene extends Phaser.Scene {
 		const s = GameScene.ROOM_SVG_SCALE;
 		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
 			const heightTiles = config?.heightTiles ?? 1;
-			const w = (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s;
-			const h = TILE_HEIGHT * heightTiles * s;
+			const w = ((TILE_WIDTHS[room] ?? 1) * TILE_WIDTH - STATIC_TILE_GAP_X) * s;
+			const h = (TILE_HEIGHT * heightTiles - STATIC_TILE_GAP_Y) * s;
 			for (const [index, file] of config?.files?.entries() ?? []) {
 				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
 					width: w,
@@ -898,8 +961,8 @@ export class GameScene extends Phaser.Scene {
 		// Lobby SVG is tiled horizontally across contiguous runs; load at its
 		// native 2:1 aspect (one repeat = 2 tiles wide × 1 tile tall).
 		this.load.svg("room_lobby", "/rooms/lobby.svg", {
-			width: 2 * TILE_HEIGHT * s,
-			height: TILE_HEIGHT * s,
+			width: (2 * TILE_HEIGHT - STATIC_TILE_GAP_X) * s,
+			height: (TILE_HEIGHT - STATIC_TILE_GAP_Y) * s,
 		});
 		// Stairs / escalator render as a parallelogram bridging the placement
 		// floor and 1/3 up the floor above; load at that extended height.
@@ -945,294 +1008,390 @@ export class GameScene extends Phaser.Scene {
 		this.load.start();
 	}
 
-	private resetStaticObjectUsage(): void {
-		this.usedRoomSpriteCount = 0;
-		this.usedRoomTileSpriteCount = 0;
-		this.usedTileLabelCount = 0;
-		this.usedEvalBadgeLabelCount = 0;
-	}
-
-	private hideUnusedStaticObjects(): void {
-		for (
-			let i = this.usedRoomSpriteCount;
-			i < this.roomSprites.length;
-			i += 1
-		) {
-			this.roomSprites[i]?.setVisible(false);
-		}
-		for (
-			let i = this.usedRoomTileSpriteCount;
-			i < this.roomTileSprites.length;
-			i += 1
-		) {
-			this.roomTileSprites[i]?.setVisible(false);
-		}
-		for (let i = this.usedTileLabelCount; i < this.tileLabels.length; i += 1) {
-			this.tileLabels[i]?.setVisible(false);
-		}
-		for (
-			let i = this.usedEvalBadgeLabelCount;
-			i < this.evalBadgeLabels.length;
-			i += 1
-		) {
-			this.evalBadgeLabels[i]?.setVisible(false);
-		}
-	}
-
-	private getRoomSprite(textureKey: string): Phaser.GameObjects.Sprite {
-		let sprite = this.roomSprites[this.usedRoomSpriteCount];
+	private getOverlaySprite(textureKey: string): Phaser.GameObjects.Image {
+		let sprite = this.overlaySprites[this.usedOverlaySpriteCount];
 		if (!sprite) {
-			sprite = this.add.sprite(0, 0, textureKey);
-			this.roomSprites.push(sprite);
+			sprite = this.add.image(0, 0, textureKey);
+			this.overlaySprites.push(sprite);
 		} else if (sprite.texture.key !== textureKey) {
 			sprite.setTexture(textureKey);
 		}
 		sprite.setVisible(true);
-		this.usedRoomSpriteCount += 1;
+		this.usedOverlaySpriteCount += 1;
 		return sprite;
 	}
 
-	private getRoomTileSprite(textureKey: string): Phaser.GameObjects.TileSprite {
-		let tileSprite = this.roomTileSprites[this.usedRoomTileSpriteCount];
-		if (!tileSprite) {
-			tileSprite = this.add.tileSprite(0, 0, 1, 1, textureKey);
-			this.roomTileSprites.push(tileSprite);
-		} else if (tileSprite.texture.key !== textureKey) {
-			tileSprite.setTexture(textureKey);
+	private hideUnusedOverlaySprites(): void {
+		for (
+			let i = this.usedOverlaySpriteCount;
+			i < this.overlaySprites.length;
+			i += 1
+		) {
+			this.overlaySprites[i]?.setVisible(false);
 		}
-		tileSprite.setVisible(true);
-		this.usedRoomTileSpriteCount += 1;
-		return tileSprite;
 	}
 
-	private getTileLabel(): Phaser.GameObjects.Text {
-		let label = this.tileLabels[this.usedTileLabelCount];
-		if (!label) {
-			label = this.add.text(0, 0, "", {
-				fontSize: "11px",
-				fontFamily: "Arial, sans-serif",
-				fontStyle: "bold",
-				color: "#ffffff",
-				resolution: window.devicePixelRatio * 4,
-			});
-			label.setOrigin(0.5, 0.5);
-			label.setDepth(5);
-			this.tileLabels.push(label);
-		}
-		label.setVisible(true);
-		this.usedTileLabelCount += 1;
-		return label;
+	private getStaticRowTextureKey(y: number, chunkIndex: number): string {
+		return `static_row_${this.towerId}_${y}_${chunkIndex}`;
 	}
 
-	private getEvalBadgeLabel(): Phaser.GameObjects.Image {
-		let label = this.evalBadgeLabels[this.usedEvalBadgeLabelCount];
-		if (!label) {
-			const textureKey = this.getEvalLabelTextureKey(0);
-			label = this.add.image(0, 0, textureKey);
-			this.applyNumberTexture(label, textureKey);
-			label.setOrigin(0.5, 0.5);
-			label.setDepth(5);
-			this.evalBadgeLabels.push(label);
-		}
-		label.setVisible(true);
-		this.usedEvalBadgeLabelCount += 1;
-		return label;
+	private getStaticRowChunkWidth(): number {
+		const renderer = this.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+		const gl = renderer.gl;
+		const maxTextureSize =
+			gl && typeof gl.getParameter === "function"
+				? Number(gl.getParameter(gl.MAX_TEXTURE_SIZE))
+				: 4096;
+		const cellsPerChunk = Math.max(
+			1,
+			Math.floor(maxTextureSize / (STATIC_ROW_TEXTURE_SCALE * TILE_WIDTH)),
+		);
+		return cellsPerChunk * TILE_WIDTH;
 	}
 
-	private drawAllCells(): void {
-		const g = this.cellGraphics;
-		const textures = this.textures;
-		const grid = this.grid;
-		const anchorSet = this.anchorSet;
-		const overlayGrid = this.overlayGrid;
-		const roomTexturesLoaded = this.roomTexturesLoaded;
-		const mergeTypes = GameScene.MERGE_TYPES;
-		g.clear();
-		this.resetStaticObjectUsage();
+	private setupStaticRowBitmaps(): void {
+		if (this.staticRowChunks.length > 0) return;
 
-		if (!this.undergroundBackground) {
-			g.fillStyle(COLOR_UNDERGROUND, 1);
-			g.fillRect(
+		const rowWidth = GRID_WIDTH * TILE_WIDTH;
+		const chunkWidth = this.getStaticRowChunkWidth();
+		for (let y = 0; y < GRID_HEIGHT; y += 1) {
+			const chunks: StaticRowChunk[] = [];
+			for (
+				let chunkX = 0, chunkIndex = 0;
+				chunkX < rowWidth;
+				chunkX += chunkWidth, chunkIndex += 1
+			) {
+				const width = Math.min(chunkWidth, rowWidth - chunkX);
+				const textureKey = this.getStaticRowTextureKey(y, chunkIndex);
+				if (this.textures.exists(textureKey)) {
+					this.textures.remove(textureKey);
+				}
+				const canvas = document.createElement("canvas");
+				canvas.width = width * STATIC_ROW_TEXTURE_SCALE;
+				canvas.height = TILE_HEIGHT * STATIC_ROW_TEXTURE_SCALE;
+				const texture = this.textures.addCanvas(textureKey, canvas);
+				if (!texture) {
+					throw new Error(`Failed to create static row texture: ${textureKey}`);
+				}
+				texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+
+				const image = this.add.image(chunkX, y * TILE_HEIGHT, textureKey);
+				image.setOrigin(0, 0);
+				image.setDisplaySize(width, TILE_HEIGHT);
+				image.setDepth(STATIC_ROW_DEPTH);
+				image.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+				chunks.push({ x: chunkX, width, texture, image });
+			}
+			this.staticRowChunks.push(chunks);
+		}
+	}
+
+	private drawTextureToRow(
+		ctx: CanvasRenderingContext2D,
+		textureKey: string,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+	): void {
+		if (!this.textures.exists(textureKey)) return;
+		const source = this.textures.get(textureKey).getSourceImage();
+		ctx.drawImage(source as CanvasImageSource, x, y, width, height);
+	}
+
+	private drawRepeatedTextureToRow(
+		ctx: CanvasRenderingContext2D,
+		textureKey: string,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		repeatWidth: number,
+	): void {
+		if (!this.textures.exists(textureKey)) return;
+		const source = this.textures.get(textureKey).getSourceImage();
+		const sourceScale = source.width / repeatWidth;
+		for (let drawX = 0; drawX < width; drawX += repeatWidth) {
+			const segmentWidth = Math.min(repeatWidth, width - drawX);
+			ctx.drawImage(
+				source as CanvasImageSource,
 				0,
-				UNDERGROUND_Y * TILE_HEIGHT,
-				GRID_WIDTH * TILE_WIDTH,
-				(GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT,
+				0,
+				segmentWidth * sourceScale,
+				source.height,
+				x + drawX,
+				y,
+				segmentWidth,
+				height,
 			);
 		}
+	}
 
-		// Draw non-merge anchor tiles (hotel tiles etc.) individually.
-		for (const key of anchorSet) {
-			const tileType = grid.get(key);
-			if (!tileType || mergeTypes.has(tileType)) continue;
+	private drawRoundedRectToRow(
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		radius: number,
+		fillStyle: string,
+	): void {
+		const r = Math.min(radius, width / 2, height / 2);
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.arcTo(x + width, y, x + width, y + height, r);
+		ctx.arcTo(x + width, y + height, x, y + height, r);
+		ctx.arcTo(x, y + height, x, y, r);
+		ctx.arcTo(x, y, x + width, y, r);
+		ctx.closePath();
+		ctx.fillStyle = fillStyle;
+		ctx.fill();
+	}
 
-			const separator = key.indexOf(",");
-			const x = Number(key.slice(0, separator));
-			const y = Number(key.slice(separator + 1));
-			const w = TILE_WIDTHS[tileType] ?? 1;
+	private redrawStaticRows(rows: Iterable<number>): void {
+		for (const row of rows) {
+			if (row < 0 || row >= GRID_HEIGHT) continue;
+			this.redrawStaticRow(row);
+		}
+	}
 
-			if (
-				tileType === "recyclingCenterLower" &&
-				roomTexturesLoaded &&
-				this.hasRoomArt(tileType, x, y)
-			) {
-				continue;
-			}
+	private redrawStaticRow(row: number): void {
+		const chunks = this.staticRowChunks[row];
+		if (!chunks) return;
+		for (const chunk of chunks) {
+			const ctx = chunk.texture.context;
+			ctx.setTransform(1, 0, 0, 1, 0, 0);
+			ctx.clearRect(
+				0,
+				0,
+				chunk.width * STATIC_ROW_TEXTURE_SCALE,
+				TILE_HEIGHT * STATIC_ROW_TEXTURE_SCALE,
+			);
+			ctx.setTransform(
+				STATIC_ROW_TEXTURE_SCALE,
+				0,
+				0,
+				STATIC_ROW_TEXTURE_SCALE,
+				-chunk.x * STATIC_ROW_TEXTURE_SCALE,
+				0,
+			);
+			ctx.imageSmoothingEnabled = false;
+			this.drawStaticRowContent(ctx, row);
+			chunk.texture.refresh();
+		}
+	}
 
-			const isHotelTile = HOTEL_TILE_TYPES.has(tileType);
-			const isDirty =
-				isHotelTile && this.isHotelTurnoverStatus(this.unitStatusMap.get(key));
-			const texKey = this.getRoomTextureKey(tileType, x, y, isDirty);
-			const heightTiles = ROOM_TEXTURES[tileType]?.heightTiles ?? 1;
-			const hasRoomTexture =
-				roomTexturesLoaded && texKey !== null && textures.exists(texKey);
-			if (hasRoomTexture && texKey !== null) {
-				const sprite = this.getRoomSprite(texKey);
-				sprite.setPosition(x * TILE_WIDTH + 1, y * TILE_HEIGHT + 1);
-				sprite.setOrigin(0, 0);
-				sprite.setDisplaySize(
-					w * TILE_WIDTH - 1,
-					heightTiles * TILE_HEIGHT - 1,
-				);
-				sprite.setDepth(1.5);
-			} else {
-				const color = TILE_COLORS[tileType];
-				if (!color) continue;
-				g.fillStyle(color, 1);
-				g.fillRect(
-					x * TILE_WIDTH + 1,
-					y * TILE_HEIGHT + 1,
-					w * TILE_WIDTH - 1,
-					TILE_HEIGHT - 1,
-				);
-			}
-
-			const labelText = TILE_LABELS[tileType];
-			if (labelText && !hasRoomTexture) {
-				const label = this.getTileLabel();
-				label.setPosition((x + w / 2) * TILE_WIDTH, (y + 0.5) * TILE_HEIGHT);
-				label.setText(labelText);
-				label.setColor(TILE_LABEL_COLORS[tileType] ?? "#ffffff");
-			}
-
-			// "For Rent" / "For Sale" banner on inactive facilities
-			const evalFlag = this.evalActiveFlagMap.get(key);
-			const unitStatus = this.unitStatusMap.get(key);
-			let showInactiveBanner: boolean;
-			if (tileType === "office") {
-				showInactiveBanner = (unitStatus ?? 0) > 0x0f;
-			} else if (isHotelTile) {
-				showInactiveBanner = false;
-			} else if (tileType === "condo") {
-				showInactiveBanner = (unitStatus ?? 0) > 0x17;
-			} else {
-				showInactiveBanner = evalFlag === 0;
-			}
-			if (roomTexturesLoaded && showInactiveBanner) {
-				const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
-					? "for_sale"
-					: "for_rent";
-				if (textures.exists(bannerKey)) {
-					const tileW = w * TILE_WIDTH - 1;
-					const tileH = TILE_HEIGHT - 1;
-					// Fit banner inside tile without stretching (9:4 aspect ratio)
-					const bannerAspect = 9 / 4;
-					const tileAspect = tileW / tileH;
-					let bw: number;
-					let bh: number;
-					if (tileAspect > bannerAspect) {
-						bh = tileH;
-						bw = tileH * bannerAspect;
-					} else {
-						bw = tileW;
-						bh = tileW / bannerAspect;
-					}
-					const banner = this.getRoomSprite(bannerKey);
-					banner.setPosition(
-						x * TILE_WIDTH + 1 + (tileW - bw) / 2,
-						y * TILE_HEIGHT + 1 + (tileH - bh) / 2,
-					);
-					banner.setOrigin(0, 0);
-					banner.setDisplaySize(bw, bh);
-					banner.setDepth(1.75);
-					banner.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
-				}
-			}
-
-			// Eval score pill badge (blue=A, yellow=B, red=C)
-			const evalLevel = this.evalLevelMap.get(key);
-			const evalScore = this.evalScoreMap.get(key);
-			if (
-				import.meta.env.DEV &&
-				evalLevel !== undefined &&
-				evalLevel <= 2 &&
-				evalScore !== undefined &&
-				evalScore >= 0
-			) {
-				const badgeColor =
-					evalLevel === 2 ? 0x4488ff : evalLevel === 1 ? 0xddcc00 : 0xdd3333;
-				const scoreLabel = String(evalScore);
-				const pillH = TILE_HEIGHT * 0.55;
-				const pillW = Math.max(pillH * 1.4, pillH * 0.8 * scoreLabel.length);
-				const pillR = pillH / 2;
-				const px = x * TILE_WIDTH + 2;
-				const py = y * TILE_HEIGHT + 1 + (TILE_HEIGHT - 1 - pillH) / 2;
-				g.fillStyle(badgeColor, 1);
-				g.fillRoundedRect(px, py, pillW, pillH, pillR);
-				const label = this.getEvalBadgeLabel();
-				this.applyNumberTexture(label, this.getEvalLabelTextureKey(evalScore));
-				label.setPosition(px + pillW / 2, py + pillH / 2);
-			}
+	private drawStaticRowContent(
+		ctx: CanvasRenderingContext2D,
+		row: number,
+	): void {
+		const rowTop = row * TILE_HEIGHT;
+		const rowWidth = GRID_WIDTH * TILE_WIDTH;
+		if (!this.undergroundBackground && row >= UNDERGROUND_Y) {
+			ctx.fillStyle = "#3d2010";
+			ctx.fillRect(0, 0, rowWidth, TILE_HEIGHT);
 		}
 
-		// Draw floor/lobby as merged runs per row.
-		for (let y = 0; y < GRID_HEIGHT; y++) {
-			let runStart = -1;
-			let runType: string | null = null;
-			for (let x = 0; x <= GRID_WIDTH; x++) {
-				const cellType =
-					x < GRID_WIDTH ? (grid.get(`${x},${y}`) ?? null) : null;
-				const isMerge = cellType !== null && mergeTypes.has(cellType);
-				if (isMerge && cellType === runType) {
-					// extend current run
+		const candidateAnchorRows = new Set<number>([row, row - 1]);
+		for (const candidateRow of candidateAnchorRows) {
+			if (candidateRow < 0 || candidateRow >= GRID_HEIGHT) continue;
+			for (const key of this.anchorKeysByRow[candidateRow] ?? []) {
+				const tileType = this.grid.get(key);
+				if (!tileType || GameScene.MERGE_TYPES.has(tileType)) continue;
+
+				const separator = key.indexOf(",");
+				const x = Number(key.slice(0, separator));
+				const y = Number(key.slice(separator + 1));
+				const widthTiles = TILE_WIDTHS[tileType] ?? 1;
+				const heightTiles = ROOM_TEXTURES[tileType]?.heightTiles ?? 1;
+				if (row < y || row >= y + heightTiles) continue;
+
+				if (
+					tileType === "recyclingCenterLower" &&
+					this.roomTexturesLoaded &&
+					this.hasRoomArt(tileType, x, y)
+				) {
+					continue;
+				}
+
+				const isHotelTile = HOTEL_TILE_TYPES.has(tileType);
+				const isDirty =
+					isHotelTile &&
+					this.isHotelTurnoverStatus(this.unitStatusMap.get(key));
+				const texKey = this.getRoomTextureKey(tileType, x, y, isDirty);
+				const hasRoomTexture =
+					this.roomTexturesLoaded &&
+					texKey !== null &&
+					this.textures.exists(texKey);
+				const drawX = x * TILE_WIDTH;
+				const drawY = y * TILE_HEIGHT - rowTop;
+				const drawW = widthTiles * TILE_WIDTH - STATIC_TILE_GAP_X;
+				const drawH = heightTiles * TILE_HEIGHT - STATIC_TILE_GAP_Y;
+
+				if (hasRoomTexture && texKey !== null) {
+					this.drawTextureToRow(ctx, texKey, drawX, drawY, drawW, drawH);
 				} else {
-					if (runStart !== -1 && runType !== null) {
-						const texKey = `room_${runType}`;
-						const runPxX = runStart * TILE_WIDTH + 1;
-						const runPxY = y * TILE_HEIGHT + 1;
-						const runPxW = (x - runStart) * TILE_WIDTH - 1;
-						const runPxH = TILE_HEIGHT - 1;
-						if (
-							roomTexturesLoaded &&
-							textures.exists(texKey) &&
-							runType === "lobby"
-						) {
-							const tex = textures.get(texKey).getSourceImage();
-							const tileSprite = this.getRoomTileSprite(texKey);
-							tileSprite.setPosition(runPxX, runPxY);
-							tileSprite.setSize(runPxW, runPxH);
-							tileSprite.setDisplaySize(runPxW, runPxH);
-							tileSprite.setOrigin(0, 0);
-							// One SVG repeat spans 2*TILE_HEIGHT screen px (native 2:1 aspect).
-							tileSprite.tileScaleX = (2 * TILE_HEIGHT) / tex.width;
-							tileSprite.tileScaleY = TILE_HEIGHT / tex.height;
-							tileSprite.setDepth(1.5);
-						} else {
-							const color = TILE_COLORS[runType];
-							if (color) {
-								g.fillStyle(color, 1);
-								g.fillRect(runPxX, runPxY, runPxW, runPxH);
+					const color = TILE_COLORS[tileType];
+					if (color !== undefined && row === y) {
+						ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+						ctx.fillRect(drawX, 0, drawW, TILE_HEIGHT - STATIC_TILE_GAP_Y);
+					}
+				}
+
+				if (row === y) {
+					const labelText = TILE_LABELS[tileType];
+					if (labelText && !hasRoomTexture) {
+						ctx.fillStyle = TILE_LABEL_COLORS[tileType] ?? "#ffffff";
+						ctx.font = `bold 11px Arial, sans-serif`;
+						ctx.textAlign = "center";
+						ctx.textBaseline = "middle";
+						ctx.fillText(
+							labelText,
+							(x + widthTiles / 2) * TILE_WIDTH,
+							TILE_HEIGHT / 2,
+						);
+					}
+
+					const evalFlag = this.evalActiveFlagMap.get(key);
+					const unitStatus = this.unitStatusMap.get(key);
+					let showInactiveBanner: boolean;
+					if (tileType === "office") {
+						showInactiveBanner = (unitStatus ?? 0) > 0x0f;
+					} else if (isHotelTile) {
+						showInactiveBanner = false;
+					} else if (tileType === "condo") {
+						showInactiveBanner = (unitStatus ?? 0) > 0x17;
+					} else {
+						showInactiveBanner = evalFlag === 0;
+					}
+					if (this.roomTexturesLoaded && showInactiveBanner) {
+						const bannerKey = GameScene.FOR_SALE_TYPES.has(tileType)
+							? "for_sale"
+							: "for_rent";
+						if (this.textures.exists(bannerKey)) {
+							const tileW = widthTiles * TILE_WIDTH - STATIC_TILE_GAP_X;
+							const tileH = TILE_HEIGHT - STATIC_TILE_GAP_Y;
+							const bannerAspect = 9 / 4;
+							const tileAspect = tileW / tileH;
+							let bw: number;
+							let bh: number;
+							if (tileAspect > bannerAspect) {
+								bh = tileH;
+								bw = tileH * bannerAspect;
+							} else {
+								bw = tileW;
+								bh = tileW / bannerAspect;
 							}
+							this.drawTextureToRow(
+								ctx,
+								bannerKey,
+								x * TILE_WIDTH + (tileW - bw) / 2,
+								(tileH - bh) / 2,
+								bw,
+								bh,
+							);
 						}
 					}
-					runStart = isMerge ? x : -1;
-					runType = isMerge ? cellType : null;
+
+					const evalLevel = this.evalLevelMap.get(key);
+					const evalScore = this.evalScoreMap.get(key);
+					if (
+						import.meta.env.DEV &&
+						evalLevel !== undefined &&
+						evalLevel <= 2 &&
+						evalScore !== undefined &&
+						evalScore >= 0
+					) {
+						const badgeColor =
+							evalLevel === 2
+								? "#4488ff"
+								: evalLevel === 1
+									? "#ddcc00"
+									: "#dd3333";
+						const pillH = TILE_HEIGHT * 0.55;
+						const pillW = Math.max(
+							pillH * 1.4,
+							pillH * 0.8 * String(evalScore).length,
+						);
+						const pillR = pillH / 2;
+						const px = x * TILE_WIDTH + 2;
+						const py = (TILE_HEIGHT - pillH) / 2;
+						this.drawRoundedRectToRow(
+							ctx,
+							px,
+							py,
+							pillW,
+							pillH,
+							pillR,
+							badgeColor,
+						);
+						const evalTextureKey = this.getEvalLabelTextureKey(evalScore);
+						const evalFrame = this.textures.getFrame(evalTextureKey);
+						if (evalFrame) {
+							const evalWidth = evalFrame.width / NUMBER_TEXTURE_RESOLUTION;
+							const evalHeight = evalFrame.height / NUMBER_TEXTURE_RESOLUTION;
+							this.drawTextureToRow(
+								ctx,
+								evalTextureKey,
+								px + (pillW - evalWidth) / 2,
+								py + (pillH - evalHeight) / 2,
+								evalWidth,
+								evalHeight,
+							);
+						}
+					}
 				}
 			}
 		}
 
-		// Draw overlay tiles on top of base tiles.
+		let runStart = -1;
+		let runType: string | null = null;
+		for (let x = 0; x <= GRID_WIDTH; x += 1) {
+			const cellType =
+				x < GRID_WIDTH ? (this.grid.get(`${x},${row}`) ?? null) : null;
+			const isMerge = cellType !== null && GameScene.MERGE_TYPES.has(cellType);
+			if (isMerge && cellType === runType) {
+				continue;
+			}
+			if (runStart !== -1 && runType !== null) {
+				const runPxX = runStart * TILE_WIDTH;
+				const runPxW = (x - runStart) * TILE_WIDTH - STATIC_TILE_GAP_X;
+				const runPxH = TILE_HEIGHT - STATIC_TILE_GAP_Y;
+				if (
+					this.roomTexturesLoaded &&
+					runType === "lobby" &&
+					this.textures.exists("room_lobby")
+				) {
+					this.drawRepeatedTextureToRow(
+						ctx,
+						"room_lobby",
+						runPxX,
+						0,
+						runPxW,
+						runPxH,
+						2 * TILE_HEIGHT - STATIC_TILE_GAP_X,
+					);
+				} else {
+					const color = TILE_COLORS[runType];
+					if (color !== undefined) {
+						ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+						ctx.fillRect(runPxX, 0, runPxW, runPxH);
+					}
+				}
+			}
+			runStart = isMerge ? x : -1;
+			runType = isMerge ? cellType : null;
+		}
+	}
+
+	private drawStaticOverlays(): void {
+		const g = this.cellGraphics;
+		g.clear();
+		g.setDepth(STATIC_OVERLAY_DEPTH);
+		this.usedOverlaySpriteCount = 0;
+
 		const shaftRows = new Map<string, number[]>();
-		for (const [key, type] of overlayGrid) {
+		for (const [key, type] of this.overlayGrid) {
 			const separator = key.indexOf(",");
 			const x = Number(key.slice(0, separator));
 			const y = Number(key.slice(separator + 1));
@@ -1257,30 +1416,89 @@ export class GameScene extends Phaser.Scene {
 			const sortedRows = rows.slice().sort((a, b) => a - b);
 			let runStart = sortedRows[0];
 			let previousRow = sortedRows[0];
-			for (let i = 1; i < sortedRows.length; i++) {
+			for (let i = 1; i < sortedRows.length; i += 1) {
 				const row = sortedRows[i];
 				if (row === previousRow + 1) {
 					previousRow = row;
 					continue;
 				}
 				g.strokeRect(
-					x * TILE_WIDTH + 1,
-					runStart * TILE_HEIGHT + 1,
-					width * TILE_WIDTH - 2,
-					(previousRow - runStart + 1) * TILE_HEIGHT - 2,
+					x * TILE_WIDTH,
+					runStart * TILE_HEIGHT,
+					width * TILE_WIDTH - STATIC_TILE_GAP_X,
+					(previousRow - runStart + 1) * TILE_HEIGHT - STATIC_TILE_GAP_Y,
 				);
 				runStart = row;
 				previousRow = row;
 			}
 			g.strokeRect(
-				x * TILE_WIDTH + 1,
-				runStart * TILE_HEIGHT + 1,
-				width * TILE_WIDTH - 2,
-				(previousRow - runStart + 1) * TILE_HEIGHT - 2,
+				x * TILE_WIDTH,
+				runStart * TILE_HEIGHT,
+				width * TILE_WIDTH - STATIC_TILE_GAP_X,
+				(previousRow - runStart + 1) * TILE_HEIGHT - STATIC_TILE_GAP_Y,
 			);
 		}
+		this.hideUnusedOverlaySprites();
+	}
 
-		this.hideUnusedStaticObjects();
+	/** Draw a stairs or escalator overlay bridging the floor at (gx,gy) and
+	 *  the floor above (gy-1). Rendered outside row caches so bridge edges
+	 *  are not clipped or blurred by per-row bitmap boundaries. */
+	private drawBridgeOverlay(
+		g: Phaser.GameObjects.Graphics,
+		type: "stairs" | "escalator",
+		gx: number,
+		gy: number,
+	): void {
+		const width = TILE_WIDTHS[type] ?? 1;
+		const cellW = TILE_WIDTH * width;
+		const startX = gx * TILE_WIDTH;
+		const bottomY = (gy + 1) * TILE_HEIGHT;
+		const topY = gy * TILE_HEIGHT - TILE_HEIGHT / 3;
+		const heightPx = bottomY - topY;
+
+		const texKey = `room_${type}`;
+		if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
+			const source = this.textures.get(texKey).getSourceImage();
+			const textureKey = `overlay_${type}_${gx}_${gy}`;
+			if (!this.textures.exists(textureKey)) {
+				const canvas = document.createElement("canvas");
+				canvas.width = Math.max(1, Math.ceil(cellW * STATIC_ROW_TEXTURE_SCALE));
+				canvas.height = Math.max(
+					1,
+					Math.ceil(heightPx * STATIC_ROW_TEXTURE_SCALE),
+				);
+				const ctx = canvas.getContext("2d");
+				if (ctx) {
+					ctx.scale(STATIC_ROW_TEXTURE_SCALE, STATIC_ROW_TEXTURE_SCALE);
+					ctx.drawImage(source as CanvasImageSource, 0, 0, cellW, heightPx);
+					this.textures.addCanvas(textureKey, canvas);
+				}
+			}
+			if (this.textures.exists(textureKey)) {
+				const sprite = this.getOverlaySprite(textureKey);
+				sprite.setPosition(startX, topY);
+				sprite.setOrigin(0, 0);
+				sprite.setDisplaySize(cellW, heightPx);
+				sprite.setDepth(STATIC_OVERLAY_DEPTH);
+			}
+			return;
+		}
+
+		const edgeW = cellW / 6;
+		g.fillStyle(0xffffff, 1);
+		g.beginPath();
+		g.moveTo(startX, bottomY);
+		g.lineTo(startX + edgeW, bottomY);
+		g.lineTo(startX + cellW, topY);
+		g.lineTo(startX + cellW - edgeW, topY);
+		g.closePath();
+		g.fillPath();
+	}
+
+	private drawAllCells(): void {
+		this.redrawStaticRows(Array.from({ length: GRID_HEIGHT }, (_, y) => y));
+		this.drawStaticOverlays();
 		this.drawDynamicOverlays();
 	}
 
@@ -1483,47 +1701,6 @@ export class GameScene extends Phaser.Scene {
 		label.setVisible(true);
 	}
 
-	/** Draw a stairs or escalator overlay bridging the floor at (gx,gy) and
-	 *  the floor above (gy-1). Rendered as an SVG sprite whose transparent
-	 *  regions leave the underlying cells visible; the asset's parallelogram
-	 *  fills its viewBox, matching the bridge's bounding box exactly. Falls
-	 *  back to a filled parallelogram if the texture is not yet loaded. */
-	private drawBridgeOverlay(
-		g: Phaser.GameObjects.Graphics,
-		type: "stairs" | "escalator",
-		gx: number,
-		gy: number,
-	): void {
-		const width = TILE_WIDTHS[type] ?? 1;
-		const cellW = TILE_WIDTH * width;
-		const startX = gx * TILE_WIDTH;
-		const bottomY = (gy + 1) * TILE_HEIGHT;
-		const topY = gy * TILE_HEIGHT - TILE_HEIGHT / 3;
-		const heightPx = bottomY - topY;
-
-		const texKey = `room_${type}`;
-		if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
-			const sprite = this.getRoomSprite(texKey);
-			sprite.setPosition(startX, topY);
-			sprite.setOrigin(0, 0);
-			sprite.setDisplaySize(cellW, heightPx);
-			sprite.setDepth(1.75);
-			sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
-			return;
-		}
-
-		// Fallback: filled parallelogram matching the SVG's internal shape.
-		const edgeW = cellW / 6;
-		g.fillStyle(0xffffff, 1);
-		g.beginPath();
-		g.moveTo(startX, bottomY);
-		g.lineTo(startX + edgeW, bottomY);
-		g.lineTo(startX + cellW, topY);
-		g.lineTo(startX + cellW - edgeW, topY);
-		g.closePath();
-		g.fillPath();
-	}
-
 	private drawHover(): void {
 		const g = this.hoverGraphics;
 		if (!g) return;
@@ -1568,14 +1745,14 @@ export class GameScene extends Phaser.Scene {
 		if (fills.length === 0) return;
 
 		const tileWidth = TILE_WIDTHS[this.selectedTool] ?? 1;
-		const pw = tileWidth * TILE_WIDTH - 1;
-		const ph = TILE_HEIGHT - 1;
+		const pw = tileWidth * TILE_WIDTH - STATIC_TILE_GAP_X;
+		const ph = TILE_HEIGHT - STATIC_TILE_GAP_Y;
 
 		g.fillStyle(COLOR_HOVER, 0.12);
 		g.lineStyle(1, COLOR_HOVER, 0.75);
 		for (const { x, y } of fills) {
-			const px = x * TILE_WIDTH + 1;
-			const py = y * TILE_HEIGHT + 1;
+			const px = x * TILE_WIDTH;
+			const py = y * TILE_HEIGHT;
 			g.fillRect(px, py, pw, ph);
 			g.strokeRect(px, py, pw, ph);
 		}
