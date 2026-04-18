@@ -1,4 +1,4 @@
-import type { RingBuffer } from "./ring-buffer";
+import type { RouteRequestRing } from "./queue/route-record";
 
 // Grid and floor model constants
 export const GRID_WIDTH = 375;
@@ -70,8 +70,8 @@ export interface CarrierRouteSlot {
 }
 
 export interface CarrierFloorQueue {
-	up: RingBuffer<string>;
-	down: RingBuffer<string>;
+	up: RouteRequestRing;
+	down: RouteRequestRing;
 }
 
 export interface CarrierPendingRoute {

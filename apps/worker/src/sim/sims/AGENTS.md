@@ -5,7 +5,7 @@ Family-specific state machines and shared runtime helpers for the placed-object-
 ## Files
 
 ### `index.ts`
-Runtime sim facade: refresh stride orchestration, venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling now lives with each family module instead of in the central dispatcher.
+Runtime sim facade: refresh stride orchestration, venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling now lives with each family module instead of in the central dispatcher. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat.
 
 ### `states.ts`
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.

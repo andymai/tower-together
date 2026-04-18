@@ -1,0 +1,38 @@
+# queue/ — Route queue subsystem (binary segment 1218)
+
+One binary function per file; each file header carries its `SEG:OFFSET name`.
+
+## Files
+
+### `route-record.ts`
+`RouteRequestRing` — fixed-40-entry ring buffer backing `CarrierFloorQueue` up/down queues. Binary quirk: size-40 ring silently overwrites head on 41st enqueue.
+
+### `encoding.ts`
+`decodeRuntimeRouteTarget` (1218:1b96), `encodeRuntimeRouteTarget`, `decodeEncodedRouteTargetByte`. Byte encoding: `<0x40` special-link, `+0x40` carrier up, `+0x58` carrier down.
+
+### `enqueue.ts`
+`enqueueRequestIntoRouteQueue` (1218:1002). Appends to ring; triggers `assignCarToFloorRequest` on first-into-empty.
+
+### `dequeue.ts`
+`popUnitQueueRequest` (1218:1172). Pops the head of a direction ring.
+
+### `scan.ts`
+`removeRequestFromUnitQueue` (1218:142a), `removeRequestFromActiveRouteSlots` (1218:173a), `storeRequestInActiveRouteSlot` (1218:187b), `popActiveRouteSlotRequest` (1218:1905).
+
+### `cancel.ts`
+`cancelRuntimeRouteRequest` (1218:1a86), `dispatchQueuedRouteUntilRequest` (1218:1981, TODO stub), `decrementRouteQueueDirectionLoad` (1218:0fc4, TODO stub).
+
+### `dispatch-arrivals.ts`
+`dispatchCarrierCarArrivals` (1218:07a6), `dispatchDestinationQueueEntries` (1218:0883). Gated on `dwellCounter == 5`.
+
+### `process-travel.ts`
+`processUnitTravelQueue` (1218:0351), `assignRequestToRuntimeRoute` (1218:0d4e).
+
+### `resolve.ts`
+`resolveSimRouteBetweenFloors` (1218:0000). Return codes -1/0/1/2/3; same-floor returns 3.
+
+### `route-record.test.ts`
+Unit test for the size-40 silent wrap quirk.
+
+### `index.ts`
+Re-export barrel for the queue surface.

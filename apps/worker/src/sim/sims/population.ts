@@ -116,6 +116,14 @@ export function findSiblingSims(
 
 export function clearSimRoute(sim: SimRecord): void {
 	sim.route = ROUTE_IDLE;
+	// Phase 5b: `sim.stateCode` is NOT touched here. The binary's
+	// `dispatch_destination_queue_entries` sets state_code bits via the
+	// family handler it dispatches into (e.g. hotel state-0x60 → 0x01 on
+	// arrival), so the family arrival handler — called right after
+	// clearSimRoute — is responsible for any state-bit changes. Stripping
+	// 0x40 unconditionally here corrupts the _TRANSIT phase byte that the
+	// handler still needs to read to identify the arrival branch (e.g.
+	// `sim.stateCode === STATE_MORNING_TRANSIT` in hotel.ts#handleHotelSimArrival).
 }
 
 function clearCarrierSlotsForRemovedSims(

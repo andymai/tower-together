@@ -1,13 +1,13 @@
 import { initCarrierState } from "./carriers";
 import type { LedgerState } from "./ledger";
 import { createLedgerState } from "./ledger";
-import { LEGACY_TILE_ALIASES, LEGACY_VIP_TILE_TO_STANDARD } from "./resources";
-import { RingBuffer } from "./ring-buffer";
+import { RouteRequestRing } from "./queue/route-record";
 import {
-	rebuildSpecialLinks,
+	rebuildRouteReachabilityTables,
 	rebuildTransferGroupCache,
-	rebuildWalkabilityFlags,
-} from "./routing";
+} from "./reachability/rebuild-tables";
+import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-records";
+import { LEGACY_TILE_ALIASES, LEGACY_VIP_TILE_TO_STANDARD } from "./resources";
 import { rebuildRuntimeSims } from "./sims";
 import { createNewGameTimeState, type TimeState } from "./time";
 import {
@@ -366,20 +366,20 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		if (vipAnchors.has(anchorKey)) record.vipFlag = true;
 	}
 
-	// Migrate carrier floorQueues from old flat format to RingBuffer instances
+	// Migrate carrier floorQueues from old flat format to RouteRequestRing instances
 	for (const carrier of snapshot.world.carriers) {
 		for (let i = 0; i < carrier.floorQueues.length; i++) {
 			const q = carrier.floorQueues[i] as unknown as Record<string, unknown>;
-			if (q && !(q.up instanceof RingBuffer)) {
+			if (q && !(q.up instanceof RouteRequestRing)) {
 				// Old format: {upCount, upHeadIndex, downCount, downHeadIndex, upQueueRouteIds, downQueueRouteIds}
-				// New format: {up: RingBuffer, down: RingBuffer}
+				// New format: {up: RouteRequestRing, down: RouteRequestRing}
 				if ("upQueueRouteIds" in q) {
-					const upBuf = RingBuffer.from({
+					const upBuf = RouteRequestRing.from({
 						items: q.upQueueRouteIds as string[],
 						head: (q.upHeadIndex as number) ?? 0,
 						count: (q.upCount as number) ?? 0,
 					});
-					const downBuf = RingBuffer.from({
+					const downBuf = RouteRequestRing.from({
 						items: q.downQueueRouteIds as string[],
 						head: (q.downHeadIndex as number) ?? 0,
 						count: (q.downCount as number) ?? 0,
@@ -388,10 +388,10 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 				} else if ("up" in q && "down" in q) {
 					// Already new shape but plain objects from JSON deserialization
 					carrier.floorQueues[i] = {
-						up: RingBuffer.from(
+						up: RouteRequestRing.from(
 							q.up as { items: string[]; head: number; count: number },
 						),
-						down: RingBuffer.from(
+						down: RouteRequestRing.from(
 							q.down as { items: string[]; head: number; count: number },
 						),
 					};
@@ -483,8 +483,8 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
 
-	rebuildSpecialLinks(snapshot.world);
-	rebuildWalkabilityFlags(snapshot.world);
+	rebuildSpecialLinkRouteRecords(snapshot.world);
+	rebuildRouteReachabilityTables(snapshot.world);
 	rebuildTransferGroupCache(snapshot.world);
 	rebuildRuntimeSims(snapshot.world);
 

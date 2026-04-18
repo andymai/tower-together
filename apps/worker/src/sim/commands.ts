@@ -1,6 +1,11 @@
 import { floorToSlot, makeCarrierCar, rebuildCarrierList } from "./carriers";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import {
+	rebuildRouteReachabilityTables,
+	rebuildTransferGroupCache,
+} from "./reachability/rebuild-tables";
+import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-records";
+import {
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
@@ -17,11 +22,6 @@ import {
 	TILE_WIDTHS,
 	VALID_TILE_TYPES,
 } from "./resources";
-import {
-	rebuildSpecialLinks,
-	rebuildTransferGroupCache,
-	rebuildWalkabilityFlags,
-} from "./routing";
 import {
 	cleanupSimsForRemovedTile,
 	rebuildParkingDemandLog,
@@ -312,8 +312,8 @@ export function runGlobalRebuilds(
 	rebuildRuntimeSims(world);
 	rebuildParkingDemandLog(world);
 	rebuildCarrierList(world);
-	rebuildSpecialLinks(world);
-	rebuildWalkabilityFlags(world);
+	rebuildSpecialLinkRouteRecords(world);
+	rebuildRouteReachabilityTables(world);
 	rebuildTransferGroupCache(world);
 }
 

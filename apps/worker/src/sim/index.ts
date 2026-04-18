@@ -1,4 +1,4 @@
-import { floorToSlot, tickAllCarriers } from "./carriers";
+import { floorToSlot } from "./carriers";
 import type { CellPatch, CommandResult, SimCommand } from "./commands";
 import {
 	handleAddElevatorCar,
@@ -11,23 +11,13 @@ import {
 	handleSetRentLevel,
 	handleToggleElevatorFloorStop,
 } from "./commands";
-import {
-	handlePromptResponse,
-	tickBombEvent,
-	tickFireEvent,
-	tickVipSpecialVisitor,
-	triggerRandomNewsEvent,
-} from "./events";
+import { handlePromptResponse } from "./events";
 import type { LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
-import { runCheckpoints, type SimState } from "./scheduler";
 import {
-	advanceSimRefreshStride,
 	createSimStateRecords,
 	onCarrierArrival,
 	onCarrierBoarding,
-	populateCarrierRequests,
-	reconcileSimTransport,
 } from "./sims";
 import {
 	createInitialSnapshot,
@@ -35,7 +25,8 @@ import {
 	type SimSnapshot,
 	serializeSimState,
 } from "./snapshot";
-import { advanceOneTick, type TimeState } from "./time";
+import { serviceIdleTasks } from "./tick/service-idle-tasks";
+import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
 export type { SimStateRecord } from "./sims";
@@ -106,7 +97,6 @@ export class TowerSim {
 	// ── Tick ──────────────────────────────────────────────────────────────────
 
 	step(): StepResult {
-		const prevTick = this.time.dayTick;
 		const balanceBefore = this.ledger.cashBalance;
 
 		// Snapshot display-facing room fields before tick to detect changes.
@@ -121,42 +111,25 @@ export class TowerSim {
 			evalScoreBefore.set(key, record.evalScore);
 		}
 
-		const { time } = advanceOneTick(this.time);
-		this.time = time;
-		const currTick = this.time.dayTick;
-
-		const state: SimState = {
-			time: this.time,
-			world: this.world,
-			ledger: this.ledger,
-		};
-		triggerRandomNewsEvent(this.world, this.time);
-		tickVipSpecialVisitor(this.world, this.time);
-		runCheckpoints(state, prevTick, currTick);
-
-		// Per-tick event processing
-		tickBombEvent(this.world, this.ledger, this.time);
-		tickFireEvent(this.world, this.ledger, this.time);
-
-		advanceSimRefreshStride(this.world, this.ledger, this.time);
-		populateCarrierRequests(this.world, this.time);
-		tickAllCarriers(
-			this.world,
-			this.time,
-			(routeId, arrivalFloor) => {
+		// Binary 1268:01a6 service_idle_tasks: day scheduler + carrier tick.
+		// `serviceIdleTasks` mutates ctx.time in place between the two phases
+		// so the arrival/boarding callbacks below read the advanced tick.
+		const ctx = { world: this.world, ledger: this.ledger, time: this.time };
+		serviceIdleTasks(ctx, {
+			onArrival: (routeId, arrivalFloor) => {
 				onCarrierArrival(
-					this.world,
-					this.ledger,
-					this.time,
+					ctx.world,
+					ctx.ledger,
+					ctx.time,
 					routeId,
 					arrivalFloor,
 				);
 			},
-			(routeId, sourceFloor) => {
-				onCarrierBoarding(this.world, this.time, routeId, sourceFloor);
+			onBoarding: (routeId, sourceFloor) => {
+				onCarrierBoarding(ctx.world, ctx.time, routeId, sourceFloor);
 			},
-		);
-		reconcileSimTransport(this.world, this.ledger, this.time);
+		});
+		this.time = ctx.time;
 
 		// Emit cell patches for display-facing room state changes.
 		const cellPatches: CellPatch[] = [];

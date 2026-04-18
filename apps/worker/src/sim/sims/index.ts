@@ -1,6 +1,10 @@
-import { enqueueCarrierRoute, evictCarrierRoute } from "../carriers";
 import { handleCathedralSimArrival, processCathedralSim } from "../cathedral";
+import { maybeDispatchQueuedRouteAfterWait } from "../families/maybe-dispatch-after-wait";
 import type { LedgerState } from "../ledger";
+import {
+	type RouteResolution,
+	resolveSimRouteBetweenFloors,
+} from "../queue/resolve";
 import {
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
@@ -12,7 +16,7 @@ import {
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
-import { type RouteCandidate, selectBestRouteCandidate } from "../routing";
+import { selectBestRouteCandidate } from "../route-scoring/select-candidate";
 import { handleCommercialSimArrival, processCommercialSim } from "./commercial";
 import { handleCondoSimArrival, processCondoSim } from "./condo";
 
@@ -48,7 +52,6 @@ import {
 } from "./medical";
 import { handleOfficeSimArrival, processOfficeSim } from "./office";
 import { clearSimRoute, simKey } from "./population";
-import { maybeApplyDistanceFeedback } from "./scoring";
 import {
 	CATHEDRAL_FAMILIES,
 	COMMERCIAL_DWELL_STATE,
@@ -73,7 +76,6 @@ import {
 	STATE_EVAL_OUTBOUND,
 	STATE_EVAL_RETURN,
 	STATE_MORNING_TRANSIT,
-	STATE_NIGHT_B,
 	STATE_TRANSIT_FLAG,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP,
@@ -123,7 +125,7 @@ export {
 	resetSimTripCounters,
 } from "./trip-counters";
 
-import { DAY_TICK_MAX, type TimeState } from "../time";
+import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
 	type SimRecord,
@@ -361,7 +363,6 @@ export function dispatchCommercialVenueVisit(
 	}
 
 	reserveVenue(venue.record);
-	rebaseSimElapsedFromClock(sim, time);
 	options.onVenueReserved?.();
 	if (venue.floor === sim.floorAnchor) {
 		if (options.advanceBeforeSameFloorDwell) {
@@ -393,51 +394,10 @@ export function handleCommercialVenueArrival(
 	return true;
 }
 
-// Binary g_route_delay_table_base @ 1288:e5ee. Loaded by
-// load_startup_tuning_resource_table (1198:0005) from resource type 0xff05
-// id 1000 word 0 = 300 ticks.
-const ROUTE_WAIT_TIMEOUT_TICKS = 300;
-
-// Binary family-7 dispatch_sim_behavior jumptable at 1228:1c51. Entries for
-// states {0x45, 0x60, 0x61, 0x62, 0x63} all point to handler 1228:193d, which
-// unconditionally writes sim[+5] = 0x26 (NIGHT_B). Entries for {0x40, 0x41,
-// 0x42} point to a different handler (1228:1989) — not yet decoded.
-const OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES = new Set<number>([
-	STATE_DEPARTURE_TRANSIT,
-	STATE_MORNING_TRANSIT,
-	STATE_AT_WORK_TRANSIT,
-	STATE_VENUE_HOME_TRANSIT,
-	STATE_DWELL_RETURN_TRANSIT,
-]);
-
-function maybeFireOfficeWaitTimeout(
-	world: WorldState,
-	sim: SimRecord,
-	time: TimeState,
-): void {
-	if (sim.familyCode !== FAMILY_OFFICE) return;
-	if (sim.route.mode !== "carrier") return;
-	if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
-	if (sim.lastDemandTick < 0) return;
-	// Day-tick wraps 0..DAY_TICK_MAX-1; the binary uses 16-bit unsigned
-	// subtraction so a stamp from before rollover compares correctly.
-	const elapsed =
-		(time.dayTick - sim.lastDemandTick + DAY_TICK_MAX) % DAY_TICK_MAX;
-	if (elapsed <= ROUTE_WAIT_TIMEOUT_TICKS) return;
-	const carrierId = sim.route.carrierId;
-	const carrier = world.carriers.find((c) => c.carrierId === carrierId);
-	if (!carrier) return;
-	// Binary: maybe_dispatch_queued_route_after_wait (1228:15a0) only fires
-	// for sims still waiting in the floor queue — sim.field_8 < 0x40 means
-	// "not yet boarded". Once the carrier picks the sim up, it rides to its
-	// destination and the arrival handler transitions state naturally.
-	const route = carrier.pendingRoutes.find((r) => r.simId === simKey(sim));
-	if (!route || route.boarded) return;
-	evictCarrierRoute(carrier, simKey(sim));
-	sim.stateCode = STATE_NIGHT_B;
-	sim.destinationFloor = -1;
-	clearSimRoute(sim);
-}
+// Phase 5b: the office wait-timeout logic moved to
+// `families/maybe-dispatch-after-wait.ts` (1228:15a0
+// maybe_dispatch_queued_route_after_wait). The stride refresh calls
+// `maybeDispatchQueuedRouteAfterWait` directly now.
 
 export function advanceSimRefreshStride(
 	world: WorldState,
@@ -485,7 +445,8 @@ export function advanceSimRefreshStride(
 		// (1228:15a0). After 300 ticks (g_route_delay_table_base, loaded from
 		// resource type 0xff05 id 1000 word 0), it dispatches to the family-7
 		// state-0x60 handler at 1228:193d which writes sim[+5] = 0x26 (NIGHT_B).
-		maybeFireOfficeWaitTimeout(world, sim, time);
+		// Phase 5b: delegated to families/maybe-dispatch-after-wait.ts.
+		maybeDispatchQueuedRouteAfterWait(world, ledger, time, sim);
 		// Binary: sims with the transit flag (0x40) are not in the family dispatch
 		// tables. Skip the state machine for sims actively in transit — the
 		// arrival handler (reconcileSimTransport) will fire later this tick.
@@ -530,6 +491,11 @@ export function advanceSimRefreshStride(
 
 	recomputeRoutesViableFlag(world);
 }
+
+// 1228:0d64 refresh_runtime_entities_for_tick_stride — binary-named alias
+// for advanceSimRefreshStride. Used by tick/carrier-tick.ts. Existing callers
+// (tests, TowerSim.step via re-export) continue using the old name.
+export const refreshRuntimeEntitiesForTickStride = advanceSimRefreshStride;
 
 function shouldSeedElevatorDemand(sim: SimRecord): boolean {
 	if (sim.routeRetryDelay > 0) return false;
@@ -620,171 +586,10 @@ function getElevatorDemand(sim: SimRecord): {
 	return null;
 }
 
-/**
- * Family selector tables.
- *
- * Per ROUTING.md, the binary's `assign_request_to_runtime_route` uses one
- * shared route selector for families {3,4,5,6,7,9,10,0x0c} and dispatches to
- * custom selectors for {0x0f, 0x12, 0x1d, 0x21, 0x24}. The custom selectors
- * are not yet modeled in the clean-room sim — for now they fall through to the
- * shared selector so the call site can still ask "is there any route?".
- */
-const SHARED_ROUTE_SELECTOR_FAMILIES = new Set<number>([
-	FAMILY_HOTEL_SINGLE,
-	FAMILY_HOTEL_TWIN,
-	FAMILY_HOTEL_SUITE,
-	FAMILY_RESTAURANT,
-	FAMILY_OFFICE,
-	FAMILY_CONDO,
-	FAMILY_FAST_FOOD,
-	FAMILY_RETAIL,
-]);
-const CUSTOM_ROUTE_SELECTOR_FAMILIES = new Set<number>([
-	0x0f, 0x12, 0x1d, 0x21, 0x24, 0x25, 0x26, 0x27, 0x28,
-]);
-
-function selectRouteForFamily(
-	world: WorldState,
-	familyCode: number,
-	fromFloor: number,
-	toFloor: number,
-	preferLocalMode: boolean,
-	targetHeightMetric: number,
-): RouteCandidate | null {
-	if (
-		SHARED_ROUTE_SELECTOR_FAMILIES.has(familyCode) ||
-		CUSTOM_ROUTE_SELECTOR_FAMILIES.has(familyCode)
-	) {
-		return selectBestRouteCandidate(
-			world,
-			fromFloor,
-			toFloor,
-			preferLocalMode,
-			targetHeightMetric,
-		);
-	}
-	return null;
-}
-
-/**
- * Return codes mirror `resolveSimRouteBetweenFloors` from
- * ROUTING.md / SPEC.md:
- *
- *  -1 = no viable route (sim remains unrouted)
- *   0 = carrier queue full; sim[+8] = 0xff and sim[+7] = source floor,
- *       so the sim stays parked on the source floor and retries next tick
- *   1 = direct special-link leg accepted; sim[+8] = segment index,
- *       sim[+7] = post-link floor (the leg's destination)
- *   2 = queued onto a carrier; sim[+8] = 0x40 + id (up) or 0x58 + id (down),
- *       sim[+7] = source floor
- *   3 = same-floor success (treated as immediate arrival by the caller)
- */
-export type RouteResolution = -1 | 0 | 1 | 2 | 3;
-
-export function resolveSimRouteBetweenFloors(
-	world: WorldState,
-	sim: SimRecord,
-	sourceFloor: number,
-	destinationFloor: number,
-	directionFlag: number,
-	time: TimeState | undefined,
-	targetHeightMetric = sim.homeColumn,
-): RouteResolution {
-	if (sourceFloor === destinationFloor) {
-		completeSimTransitEvent(sim, time);
-		return 3;
-	}
-
-	// Family 0x0f (housekeeping) uses stairs-only routing (rejects escalators).
-	// All other families use local (escalator-preferred) routing.
-	const preferLocalMode = sim.familyCode !== 0x0f;
-
-	const route = selectRouteForFamily(
-		world,
-		sim.familyCode,
-		sourceFloor,
-		destinationFloor,
-		preferLocalMode,
-		targetHeightMetric,
-	);
-	if (!route) {
-		clearSimRoute(sim);
-		sim.routeRetryDelay = 300;
-		addDelayToCurrentSim(sim, 300);
-		advanceSimTripCounters(sim);
-		return -1;
-	}
-
-	if (route.kind === "segment") {
-		maybeApplyDistanceFeedback(world, sim, sourceFloor, destinationFloor, true);
-		sim.route = {
-			mode: "segment",
-			segmentId: route.id,
-			destination: destinationFloor,
-		};
-		sim.queueTick = time?.dayTick ?? sim.queueTick;
-		sim.destinationFloor = destinationFloor;
-		const floors = Math.abs(destinationFloor - sourceFloor);
-		// Segment transit is one stride (16 ticks) per floor traversed.
-		sim.transitTicksRemaining = floors * 16;
-		// Per-floor stress penalty (spec: add_delay_to_current_sim). Stairs add
-		// 35 ticks/floor, escalators 16. The segment's flags bit 0 marks stairs.
-		const segment = world.specialLinks[route.id];
-		const isStairs = segment ? (segment.flags & 1) !== 0 : false;
-		addDelayToCurrentSim(sim, (isStairs ? 35 : 16) * floors);
-		// Route-start timestamp: start the clock for elapsed tracking.
-		if (time) sim.lastDemandTick = time.dayTick;
-		return 1;
-	}
-
-	const carrier = world.carriers.find(
-		(candidate) => candidate.carrierId === route.id,
-	);
-	if (!carrier) {
-		clearSimRoute(sim);
-		addDelayToCurrentSim(sim, 300);
-		advanceSimTripCounters(sim);
-		return -1;
-	}
-
-	const queued = enqueueCarrierRoute(
-		carrier,
-		simKey(sim),
-		sourceFloor,
-		destinationFloor,
-		directionFlag,
-	);
-	if (!queued) {
-		// Queue full: sim remains parked here and retries at its next stride slot
-		// (binary re-dispatches every 16 ticks). 5-tick elapsed penalty mirrors
-		// g_waiting_state_delay in binary's resolve_sim_route_between_floors.
-		sim.route = { mode: "queued", source: sourceFloor };
-		sim.destinationFloor = destinationFloor;
-		sim.routeRetryDelay = 16;
-		addDelayToCurrentSim(sim, 5);
-		return 0;
-	}
-
-	sim.route = {
-		mode: "carrier",
-		carrierId: route.id,
-		direction: directionFlag === 1 ? "up" : "down",
-		source: sourceFloor,
-	};
-	sim.queueTick = time?.dayTick ?? sim.queueTick;
-	sim.destinationFloor = destinationFloor;
-	maybeApplyDistanceFeedback(
-		world,
-		sim,
-		sourceFloor,
-		destinationFloor,
-		carrier.carrierMode !== 2,
-	);
-	// Route-start timestamp: start the clock so the boarding-time
-	// accumulate_elapsed_delay can measure the pre-boarding queue wait.
-	if (time) sim.lastDemandTick = time.dayTick;
-	return 2;
-}
+// resolveSimRouteBetweenFloors now lives in queue/resolve.ts (1218:0000).
+// Re-exported here so existing callers (housekeeping, cathedral, tests, etc.)
+// that pull it from `./sims` or `./sims/index` keep resolving the same name.
+export { type RouteResolution, resolveSimRouteBetweenFloors };
 
 function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 	if (sim.familyCode === FAMILY_HOUSEKEEPING) {

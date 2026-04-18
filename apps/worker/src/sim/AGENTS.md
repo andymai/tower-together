@@ -32,22 +32,19 @@ Compile-time constants: tile widths/costs/types, family mappings, binary-aligned
 Three-ledger economy: cash balance, population/income/expense ledgers, expense sweep, 3-day rollover.
 
 ### `scheduler.ts`
-`SimState` bundle and `runCheckpoints()` — fires all 18 checkpoint bodies at correct `day_tick` values.
+Re-export shim: `SimState` bundle, `runCheckpoints()`, and `runSimulationDayScheduler()` now live in `tick/day-scheduler.ts`.
 
 ### `commands.ts`
 `handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds. Also: elevator config commands — `handleSetElevatorDwellDelay`, `handleSetElevatorWaitingCarResponse`, `handleSetElevatorHomeFloor`, `handleToggleElevatorFloorStop`.
 
 ### `ring-buffer.ts`
-Generic fixed-capacity `RingBuffer<T>`. Used by carrier floor queues.
+Legacy generic `RingBuffer<T>`. Kept for backwards compat with old snapshot payloads; carrier floor queues now use `queue/route-record.RouteRequestRing` (fixed size 40, wraps silently on 41st enqueue).
 
 ### `carriers.ts`
-Carrier/car state machine — floor-slot mapping, multi-car shafts, queue assignment, tick-level car dispatch.
+Carrier module hub — constructors (`makeCarrier`/`makeCarrierCar`), world-level lifecycle (`rebuildCarrierList`, `initCarrierState`, `flushCarriersEndOfDay`), the `tickAllCarriers` back-compat wrapper, and re-exports of the per-car state machine (`carriers/*.ts`) and queue ops (`queue/*.ts`). `enqueueCarrierRoute` / `evictCarrierRoute` are aliases over the queue's `enqueueRequestIntoRouteQueue` / `cancelRuntimeRouteRequest`.
 
 ### `events.ts`
 Bomb, fire, random-news, and VIP special visitor event systems.
-
-### `routing.ts`
-Special-link rebuilds, walkability flags, transfer-group cache, and route candidate selection.
 
 ### `sim.test.ts`
 Broad unit coverage for simulation commands, family behaviors, routing, carriers, and event/economy edge cases.
@@ -59,3 +56,27 @@ Fixture-driven parity suite that builds towers from JSON specs and checks scalar
 
 ### `sims/`
 Runtime sims facade, split facility helpers, shared state/constants, population helpers, scoring, trip counters, parking, and family-specific state machines.
+
+### `tick/`
+Per-tick orchestration split out to mirror the binary call graph. Files: `service-idle-tasks.ts` (1268:01a6), `day-scheduler.ts` (1208:0196), `carrier-tick.ts` (1098:03ab).
+
+### `carriers/`
+Per-car state machine (binary segment 1098) split one-function-per-file. Covers `advance`, `position`, `target`, `motion`, `depart`, `assign`, `arrival`, `pending`, `slot`, plus derived-state sync helpers in `sync.ts`.
+
+### `queue/`
+Route queue subsystem (binary segment 1218) split one-function-per-file. Covers enqueue/dequeue, arrival dispatch, queue-drain + boarding, cancel, slot ops, encoded-target decode, and `resolveSimRouteBetweenFloors`. Hosts `RouteRequestRing` (fixed size 40 with silent head-overwrite on 41st enqueue).
+
+### `reachability/`
+Reachability rebuild + mask/span tests (binary segment 11b8) split one-function-per-file.
+
+### `route-scoring/`
+Route candidate scorers and `selectBestRouteCandidate` (binary segment 11b8) split one-function-per-file, plus parity-based per-stop delay table.
+
+### `families/`
+Per-family sim state handlers (binary segment 1228, §3.5) with binary-aligned `refresh_*` / `dispatch_*` / `gate_*` entry points. Phase 5a re-exports existing `sims/*.ts` implementations and adds TODO stubs for handlers not yet ported. Subpackage `state-tables/` documents the binary CS-relative jump tables.
+
+### `sim-refresh/`
+Hosts `refreshRuntimeEntitiesForTickStride` (1228:0d64). Phase 5a re-exports from `sims`; Phase 5b moves implementation here.
+
+### `sim-access/`
+Binary-aligned sim selectors (1228:681d..688c etc.) and state-code bit helpers (0x20 waiting, 0x40 in-transit). Phase 5a declares the names; Phase 5b wires them to replace the `sim.route` discriminated union.
