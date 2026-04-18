@@ -1553,7 +1553,7 @@ export class GameScene extends Phaser.Scene {
 				queueIndex,
 			);
 			const px = gridX * TILE_WIDTH;
-			const py = (gridY + 0.5) * TILE_HEIGHT;
+			const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
 			const textureKey =
 				sim.stressLevel === "low"
 					? `sim_figure_low-${hashSimVariant(sim.id, 4)}`

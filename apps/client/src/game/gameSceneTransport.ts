@@ -143,15 +143,14 @@ export function getQueuedSimLayout(
 	const hasSelectedFloorColumns = elevatorColumnsByFloor.has(sim.selectedFloor);
 	const shaftWidth = TILE_WIDTHS.elevator ?? 4;
 	const simHalf = SIM_WIDTH_CELLS / 2;
+	const shaftRightEdge =
+		elevatorColumn + shaftWidth - STATIC_TILE_GAP_X / TILE_WIDTH;
 	const ascending = isSimAscending(sim);
 	const gridX =
 		elevatorColumn === sim.homeColumn && !hasSelectedFloorColumns
 			? fallbackX
 			: ascending
-				? elevatorColumn +
-					shaftWidth +
-					simHalf +
-					queueIndex * SIM_QUEUE_SPACING_CELLS
+				? shaftRightEdge + simHalf + queueIndex * SIM_QUEUE_SPACING_CELLS
 				: elevatorColumn - simHalf - queueIndex * SIM_QUEUE_SPACING_CELLS;
 
 	return {
