@@ -417,7 +417,7 @@ describe("sidecar allocation", () => {
 
 		const result = handlePlaceTile(
 			0,
-			GROUND_Y + 1,
+			GROUND_Y + 2,
 			"recyclingCenter",
 			world,
 			ledger,
@@ -2284,7 +2284,7 @@ describe("Phase 4 runtime sims", () => {
 		const ledger = makeLedger();
 		setupOccupiedFloor(world, ledger);
 
-		handlePlaceTile(0, GROUND_Y + 1, "recyclingCenter", world, ledger);
+		handlePlaceTile(0, GROUND_Y + 2, "recyclingCenter", world, ledger);
 		ledger.populationLedger[7] = 300;
 		world.starCount = 4;
 		updateRecyclingCenterState(world, ledger, 5);
