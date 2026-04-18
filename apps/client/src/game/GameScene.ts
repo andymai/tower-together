@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { getTowerZoom, setTowerZoom } from "../lib/storage";
 import {
 	type CarrierCarStateData,
 	GRID_HEIGHT,
@@ -179,8 +180,11 @@ export class GameScene extends Phaser.Scene {
 	// Shift key state (for preview)
 	private isShiftHeld = false;
 
-	constructor() {
+	private towerId: string;
+
+	constructor(towerId: string) {
 		super({ key: "GameScene" });
+		this.towerId = towerId;
 	}
 
 	setOnCellClick(handler: CellClickHandler): void {
@@ -350,9 +354,10 @@ export class GameScene extends Phaser.Scene {
 	create(): void {
 		const totalWidth = GRID_WIDTH * TILE_WIDTH;
 
-		// Fit wide towers when possible, but never start below Phaser's default 1x zoom.
+		// Restore the previously-saved zoom for this tower, or fit-to-width on first visit.
+		const savedZoom = getTowerZoom(this.towerId);
 		const initialZoom = Phaser.Math.Clamp(
-			this.scale.width / totalWidth,
+			savedZoom ?? this.scale.width / totalWidth,
 			MIN_ZOOM,
 			MAX_ZOOM,
 		);
@@ -1277,6 +1282,7 @@ export class GameScene extends Phaser.Scene {
 					cam.scrollX += worldPointBefore.x - worldPointAfter.x;
 					cam.scrollY += worldPointBefore.y - worldPointAfter.y;
 					cam.preRender();
+					setTowerZoom(this.towerId, newZoom);
 				} else {
 					// Two-finger scroll -> pan
 					cam.scrollX += deltaX / cam.zoom;

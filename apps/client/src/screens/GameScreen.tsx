@@ -184,6 +184,7 @@ export function GameScreen({
 
 			<div style={styles.canvasWrapper}>
 				<PhaserGame
+					towerId={towerId}
 					onCellClick={handleCellClick}
 					onCellInspect={inspectCell}
 					selectedTool={selectedTool}

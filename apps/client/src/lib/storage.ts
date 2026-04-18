@@ -1,6 +1,7 @@
 const PLAYER_ID_KEY = "tower_together_player_id";
 const DISPLAY_NAME_KEY = "tower_together_display_name";
 const RECENT_TOWERS_KEY = "tower_together_recent_towers";
+const TOWER_VIEW_KEY_PREFIX = "tower_together_view_";
 
 export function getPlayerId(): string | null {
 	return localStorage.getItem(PLAYER_ID_KEY);
@@ -37,6 +38,30 @@ export function addRecentTower(towerId: string): void {
 		5,
 	);
 	localStorage.setItem(RECENT_TOWERS_KEY, JSON.stringify(updated));
+}
+
+export function getTowerZoom(towerId: string): number | null {
+	try {
+		const raw = localStorage.getItem(`${TOWER_VIEW_KEY_PREFIX}${towerId}`);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as { zoom?: unknown };
+		return typeof parsed.zoom === "number" && Number.isFinite(parsed.zoom)
+			? parsed.zoom
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+export function setTowerZoom(towerId: string, zoom: number): void {
+	try {
+		localStorage.setItem(
+			`${TOWER_VIEW_KEY_PREFIX}${towerId}`,
+			JSON.stringify({ zoom }),
+		);
+	} catch {
+		// storage unavailable — silently ignore
+	}
 }
 
 export function generateUUID(): string {

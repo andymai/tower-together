@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { GameScene } from "./GameScene";
 
 interface Props {
+	towerId: string;
 	onCellClick: (x: number, y: number, shift: boolean) => void;
 	onCellInspect: (x: number, y: number) => void;
 	selectedTool: string;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function PhaserGame({
+	towerId,
 	onCellClick,
 	onCellInspect,
 	selectedTool,
@@ -21,7 +23,7 @@ export function PhaserGame({
 	useEffect(() => {
 		if (!containerRef.current) return;
 
-		const scene = new GameScene();
+		const scene = new GameScene(towerId);
 		sceneRef.current = scene;
 
 		const config: Phaser.Types.Core.GameConfig = {
@@ -49,7 +51,7 @@ export function PhaserGame({
 			gameRef.current = null;
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [sceneRef]);
+	}, [sceneRef, towerId]);
 
 	useEffect(() => {
 		sceneRef.current?.setOnCellClick(onCellClick);
