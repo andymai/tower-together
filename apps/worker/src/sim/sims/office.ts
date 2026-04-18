@@ -329,16 +329,14 @@ export function processOfficeSim(
 			return;
 		}
 		if (time.daypartIndex < 2) {
-			sim.lastDemandTick = time.dayTick;
 			return;
 		}
 		const isFakeLunch = sim.selectedFloor === LOBBY_FLOOR;
 		if (
 			state === STATE_VENUE_TRIP &&
 			!isFakeLunch &&
-			sim.elapsedTicks < COMMERCIAL_VENUE_DWELL_TICKS
+			time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS
 		) {
-			sim.lastDemandTick = time.dayTick;
 			return;
 		}
 		if (sim.destinationFloor !== -1 && state === STATE_VENUE_HOME_TRANSIT) {

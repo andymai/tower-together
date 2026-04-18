@@ -290,6 +290,7 @@ export function processHotelSim(
 				venueFamilies: HOTEL_ROOM_SELECTOR,
 				returnState: STATE_ACTIVE,
 				tripState: STATE_ACTIVE_TRANSIT,
+				skipPenaltyOnUnavailable: true,
 				onVenueReserved: () => {
 					object.activationTickCount = Math.min(
 						ACTIVATION_TICK_CAP,

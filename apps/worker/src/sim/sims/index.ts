@@ -359,7 +359,6 @@ export function dispatchCommercialVenueVisit(
 
 	reserveVenue(venue.record);
 	rebaseSimElapsedFromClock(sim, time);
-	advanceSimTripCounters(sim);
 	options.onVenueReserved?.();
 	if (venue.floor === sim.floorAnchor) {
 		beginCommercialVenueDwell(sim, venue.floor, options.returnState, time);
