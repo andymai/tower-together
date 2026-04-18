@@ -636,6 +636,20 @@ function processUnitTravelQueue(
 
 	function drainDirection(directionFlag: number): void {
 		const buf = getDirectionQueue(floorQueue, directionFlag);
+		const traceOn =
+			(globalThis as { __DRAIN_TRACE__?: boolean }).__DRAIN_TRACE__ === true;
+		if (traceOn) {
+			// biome-ignore lint/suspicious/noExplicitAny: scratch
+			const peek = (buf as any).peekAll?.() ?? [];
+			console.log(
+				`[drain] dt=${time.dayTick} car.fl=${car.currentFloor} dw=${car.dwellCounter} dir=${directionFlag} qLen=${buf.size} popCap=${popCap} remSlots=${remainingSlots} queue=[${peek
+					.map((id: string) => {
+						const r = findRoute(carrier, id);
+						return r ? `${id}→${r.destinationFloor}(ci=${r.assignedCarIndex}${r.boarded ? "B" : ""})` : id;
+					})
+					.join(",")}]`,
+			);
+		}
 		// Binary drains directly from the floor queue; we also accept routes
 		// with ci=-1 (unassigned by cases A/B/C) and routes previously
 		// assigned to this car index.
@@ -1261,7 +1275,15 @@ export function enqueueCarrierRoute(
 	destinationFloor: number,
 	directionFlag: number,
 ): boolean {
-	if (carrier.pendingRoutes.some((route) => route.simId === simId)) return true;
+	const traceOn =
+		(globalThis as { __DRAIN_TRACE__?: boolean }).__DRAIN_TRACE__ === true;
+	const dup = carrier.pendingRoutes.some((route) => route.simId === simId);
+	if (traceOn) {
+		console.log(
+			`[enq] sim=${simId} src=${sourceFloor} dst=${destinationFloor} dir=${directionFlag}${dup ? " DEDUP" : ""}`,
+		);
+	}
+	if (dup) return true;
 	const floorQueue = getQueueState(carrier, sourceFloor);
 	const directionQueue = floorQueue
 		? getDirectionQueue(floorQueue, directionFlag)

@@ -118,6 +118,17 @@ export function collectElevatorColumnsByFloor(
 	return result;
 }
 
+/** Sim sprite footprint expressed in grid cells (must match GameScene render). */
+const SIM_WIDTH_CELLS = 0.75;
+const SIM_QUEUE_SPACING_CELLS = 0.8;
+
+export function isSimAscending(sim: SimStateData): boolean {
+	// Without a destination floor in the wire state, approximate direction from
+	// the sim's home: a sim below home is waiting to go up, above is going down.
+	// Ties (at-home) default to ascending.
+	return sim.floorAnchor >= sim.selectedFloor;
+}
+
 export function getQueuedSimLayout(
 	sim: SimStateData,
 	elevatorColumnsByFloor: Map<number, number[]>,
@@ -129,13 +140,18 @@ export function getQueuedSimLayout(
 	const fallbackX = sim.homeColumn + slotFraction * spanWidth;
 	const elevatorColumn = pickElevatorColumn(sim, elevatorColumnsByFloor);
 	const hasSelectedFloorColumns = elevatorColumnsByFloor.has(sim.selectedFloor);
+	const shaftWidth = TILE_WIDTHS.elevator ?? 4;
+	const simHalf = SIM_WIDTH_CELLS / 2;
+	const ascending = isSimAscending(sim);
 	const gridX =
 		elevatorColumn === sim.homeColumn && !hasSelectedFloorColumns
 			? fallbackX
-			: elevatorColumn +
-				(TILE_WIDTHS.elevator ?? 4) / 2 +
-				0.35 +
-				queueIndex * 0.9;
+			: ascending
+				? elevatorColumn +
+					shaftWidth +
+					simHalf +
+					queueIndex * SIM_QUEUE_SPACING_CELLS
+				: elevatorColumn - simHalf - queueIndex * SIM_QUEUE_SPACING_CELLS;
 
 	return {
 		gridX,
@@ -147,10 +163,11 @@ export function getQueuedSimQueueKey(
 	sim: SimStateData,
 	elevatorColumnsByFloor: Map<number, number[]>,
 ): string {
+	const dir = isSimAscending(sim) ? "u" : "d";
 	return `${sim.selectedFloor}:${pickElevatorColumn(
 		sim,
 		elevatorColumnsByFloor,
-	)}`;
+	)}:${dir}`;
 }
 
 export function getCarBounds(car: CarrierCarStateData): {

@@ -36,6 +36,7 @@ import {
 	getDisplayedCars,
 	getQueuedSimLayout,
 	getQueuedSimQueueKey,
+	isSimAscending,
 	type PresentationClock,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
@@ -43,6 +44,14 @@ import { buildOccupancyByCar, isQueuedSim } from "./transportSelectors";
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
+
+function hashSimVariant(id: string, modulus: number): number {
+	let h = 0;
+	for (let i = 0; i < id.length; i += 1) {
+		h = (h * 31 + id.charCodeAt(i)) | 0;
+	}
+	return Math.abs(h) % modulus;
+}
 
 type RoomTextureConfig = {
 	files: string[];
@@ -98,6 +107,7 @@ export class GameScene extends Phaser.Scene {
 
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private simGraphics!: Phaser.GameObjects.Graphics;
+	private simSprites: Phaser.GameObjects.Sprite[] = [];
 	private carGraphicsList: Phaser.GameObjects.Graphics[] = [];
 	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
 
@@ -555,8 +565,8 @@ export class GameScene extends Phaser.Scene {
 	private loadRoomTextures(): void {
 		const s = GameScene.ROOM_SVG_SCALE;
 		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
-			const heightTiles = config.heightTiles ?? 1;
-			for (const [index, file] of config.files.entries()) {
+			const heightTiles = config?.heightTiles ?? 1;
+			for (const [index, file] of config?.files?.entries() ?? []) {
 				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
 					width: (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s,
 					height: TILE_HEIGHT * heightTiles * s,
@@ -576,6 +586,22 @@ export class GameScene extends Phaser.Scene {
 			this.load.svg(`room_${bridge}`, `/rooms/${bridge}.svg`, {
 				width: (TILE_WIDTHS[bridge] ?? 1) * TILE_WIDTH * s,
 				height: bridgeH,
+			});
+		}
+		// Stick-figure sprites for queued sims. Low stress has 4 skin-tone
+		// variants; medium/high tint the entire figure. Rasterized extra-hi-res
+		// (viewBox 6×20) so the sprite stays crisp even at MAX_ZOOM.
+		const simScale = 32;
+		for (const level of ["low-0", "low-1", "low-2", "low-3"] as const) {
+			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
+				width: 6 * simScale,
+				height: 20 * simScale,
+			});
+		}
+		for (const level of ["medium", "high"] as const) {
+			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
+				width: 6 * simScale,
+				height: 20 * simScale,
 			});
 		}
 		// Banner SVGs share the same 9:4 aspect ratio.
@@ -911,10 +937,15 @@ export class GameScene extends Phaser.Scene {
 		);
 		const simSnapshot = this.currentSimSnapshot ??
 			this.previousSimSnapshot ?? { simTime: 0, items: [] };
+		const hasTexture =
+			this.roomTexturesLoaded && this.textures.exists("sim_figure_low-0");
+		// Aspect matches the SVG viewBox (6×20) so the figure isn't stretched.
+		const simWidthPx = 0.75 * TILE_WIDTH;
+		const simHeightPx = simWidthPx * (20 / 6);
 
+		let usedCount = 0;
 		for (const sim of simSnapshot.items) {
 			if (!isQueuedSim(sim)) continue;
-			const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
 			const queueKey = getQueuedSimQueueKey(sim, elevatorColumnsByFloor);
 			const queueIndex = queueIndices.get(queueKey) ?? 0;
 			queueIndices.set(queueKey, queueIndex + 1);
@@ -923,13 +954,44 @@ export class GameScene extends Phaser.Scene {
 				elevatorColumnsByFloor,
 				queueIndex,
 			);
-			const width = Math.max(2, TILE_WIDTH - 1);
-			const height = Math.max(4, Math.floor(TILE_HEIGHT * 0.35));
-			const px = gridX * TILE_WIDTH - width / 2;
-			const py = gridY * TILE_HEIGHT - height / 2;
+			const px = gridX * TILE_WIDTH;
+			const py = (gridY + 0.5) * TILE_HEIGHT;
+			const textureKey =
+				sim.stressLevel === "low"
+					? `sim_figure_low-${hashSimVariant(sim.id, 4)}`
+					: `sim_figure_${sim.stressLevel}`;
 
-			g.fillStyle(color, 1);
-			g.fillRect(px, py, width, height);
+			if (hasTexture) {
+				let sprite = this.simSprites[usedCount];
+				if (!sprite) {
+					sprite = this.add.sprite(0, 0, textureKey);
+					sprite.setOrigin(0.5, 1);
+					sprite.setDepth(3);
+					sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+					this.simSprites.push(sprite);
+				} else if (sprite.texture.key !== textureKey) {
+					sprite.setTexture(textureKey);
+					sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+				}
+				sprite.setVisible(true);
+				sprite.setPosition(px, py);
+				sprite.setDisplaySize(simWidthPx, simHeightPx);
+				sprite.setFlipX(!isSimAscending(sim));
+				usedCount += 1;
+			} else {
+				const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
+				g.fillStyle(color, 1);
+				g.fillRect(
+					px - simWidthPx / 2,
+					py - simHeightPx,
+					simWidthPx,
+					simHeightPx,
+				);
+			}
+		}
+
+		for (let i = usedCount; i < this.simSprites.length; i += 1) {
+			this.simSprites[i]?.setVisible(false);
 		}
 	}
 
