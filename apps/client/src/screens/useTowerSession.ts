@@ -16,13 +16,12 @@ interface UseTowerSessionOptions {
 	socket: TowerSocket;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 	addToast: (message: string, variant?: "error" | "info") => void;
+	onSimTime: (simTime: number) => void;
+	onEconomy: (cash: number, population: number) => void;
 }
 
 interface UseTowerSessionResult {
 	connectionStatus: ConnectionStatus;
-	simTime: number;
-	cash: number;
-	population: number;
 	starCount: number;
 	playerCount: number;
 	towerName: string;
@@ -57,11 +56,17 @@ export function useTowerSession({
 	socket,
 	sceneRef,
 	addToast,
+	onSimTime,
+	onEconomy,
 }: UseTowerSessionOptions): UseTowerSessionResult {
 	const [state, setState] = useState<TowerSessionState>(
 		INITIAL_TOWER_SESSION_STATE,
 	);
 	const controllerRef = useRef<TowerSessionController | null>(null);
+	const onSimTimeRef = useRef(onSimTime);
+	onSimTimeRef.current = onSimTime;
+	const onEconomyRef = useRef(onEconomy);
+	onEconomyRef.current = onEconomy;
 
 	if (controllerRef.current === null) {
 		controllerRef.current = new TowerSessionController({
@@ -73,6 +78,8 @@ export function useTowerSession({
 			onStateChange: (nextState) => {
 				setState(nextState);
 			},
+			onSimTime: (simTime) => onSimTimeRef.current(simTime),
+			onEconomy: (cash, population) => onEconomyRef.current(cash, population),
 		});
 	}
 

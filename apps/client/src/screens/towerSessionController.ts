@@ -60,9 +60,6 @@ export interface TowerSessionSocket {
 
 export interface TowerSessionState {
 	connectionStatus: ConnectionStatus;
-	simTime: number;
-	cash: number;
-	population: number;
 	starCount: number;
 	playerCount: number;
 	towerName: string;
@@ -76,9 +73,6 @@ export interface TowerSessionState {
 
 export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	connectionStatus: "connecting",
-	simTime: 0,
-	cash: 0,
-	population: 0,
 	starCount: 1,
 	playerCount: 0,
 	towerName: "",
@@ -97,6 +91,8 @@ interface TowerSessionControllerOptions {
 	getScene: () => TowerSessionScene | null;
 	addToast: (message: string, variant?: "error" | "info") => void;
 	onStateChange: (state: TowerSessionState) => void;
+	onSimTime: (simTime: number) => void;
+	onEconomy: (cash: number, population: number) => void;
 }
 
 export class TowerSessionController {
@@ -109,9 +105,13 @@ export class TowerSessionController {
 		variant?: "error" | "info",
 	) => void;
 	private readonly onStateChange: (state: TowerSessionState) => void;
+	private readonly onSimTime: (simTime: number) => void;
+	private readonly onEconomy: (cash: number, population: number) => void;
 	private readonly lockstep: TowerLockstepSession;
 	private clientSeq = 0;
 	private state: TowerSessionState = INITIAL_TOWER_SESSION_STATE;
+	private lastEconomyUpdateMs = 0;
+	private lastSlowUpdateMs = 0;
 	private unsubscribeMessage: (() => void) | null = null;
 	private unsubscribeStatus: (() => void) | null = null;
 
@@ -122,6 +122,8 @@ export class TowerSessionController {
 		getScene,
 		addToast,
 		onStateChange,
+		onSimTime,
+		onEconomy,
 	}: TowerSessionControllerOptions) {
 		this.playerId = playerId;
 		this.displayName = displayName;
@@ -129,13 +131,14 @@ export class TowerSessionController {
 		this.getScene = getScene;
 		this.addToast = addToast;
 		this.onStateChange = onStateChange;
+		this.onSimTime = onSimTime;
+		this.onEconomy = onEconomy;
 		this.lockstep = new TowerLockstepSession({
 			playerId,
 			onReset: (state, timing) => {
+				this.onSimTime(state.simTime);
+				this.onEconomy(state.cash, state.population);
 				this.patchState({
-					simTime: state.simTime,
-					cash: state.cash,
-					population: state.population,
 					starCount: state.starCount,
 					sims: state.sims,
 					carriers: state.carriers,
@@ -152,14 +155,22 @@ export class TowerSessionController {
 				);
 			},
 			onTick: (state) => {
-				this.patchState({
-					simTime: state.simTime,
-					cash: state.cash,
-					population: state.population,
-					starCount: state.starCount,
-					sims: state.sims,
-					carriers: state.carriers,
-				});
+				this.onSimTime(state.simTime);
+				const now = state.receivedAtMs;
+				const patch: Partial<TowerSessionState> = {};
+				if (now - this.lastEconomyUpdateMs >= 100) {
+					this.onEconomy(state.cash, state.population);
+					this.lastEconomyUpdateMs = now;
+				}
+				if (now - this.lastSlowUpdateMs >= 500) {
+					patch.starCount = state.starCount;
+					patch.sims = state.sims;
+					patch.carriers = state.carriers;
+					this.lastSlowUpdateMs = now;
+				}
+				if (Object.keys(patch).length > 0) {
+					this.patchState(patch);
+				}
 				if (state.cellPatches.length > 0) {
 					this.getScene()?.applyPatch(state.cellPatches);
 				}
@@ -377,11 +388,8 @@ export class TowerSessionController {
 				this.patchState({ playerCount: msg.playerCount });
 				break;
 			case "economy_update":
-				this.patchState({
-					cash: msg.cash,
-					population: msg.population,
-					starCount: msg.starCount,
-				});
+				this.onEconomy(msg.cash, msg.population);
+				this.patchState({ starCount: msg.starCount });
 				break;
 			case "notification":
 				break;

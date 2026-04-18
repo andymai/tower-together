@@ -4,13 +4,14 @@ import { PhaserGame } from "../game/PhaserGame";
 import { buildTransportMetrics } from "../game/transportSelectors";
 import type { TowerSocket } from "../lib/socket";
 import type { SelectedTool, SimStateData } from "../types";
-import { DAY_TICK_MAX, getTileStarRequirement } from "../types";
+import { getTileStarRequirement } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameBuildPanel } from "./GameBuildPanel";
 import { GameDebugPanel } from "./GameDebugPanel";
 import { GameInspectPanel } from "./GameInspectPanel";
 import { GamePromptModal } from "./GamePromptModal";
 import { GameToasts } from "./GameToasts";
+import type { GameToolbarClockHandle } from "./GameToolbar";
 import { GameToolbar } from "./GameToolbar";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { Toast } from "./gameScreenTypes";
@@ -27,71 +28,6 @@ interface Props {
 
 let toastCounter = 0;
 
-function formatSimDate(day: number): string {
-	const day0 = Math.max(0, day - 1);
-	const year = Math.floor(day0 / 12) + 1;
-	const quarter = Math.floor((day0 % 12) / 4) + 1;
-	const dow = day0 % 4;
-	const weekLabel = dow < 2 ? `WD${dow + 1}` : "WE";
-	return `Year ${year} Q${quarter} ${weekLabel}`;
-}
-
-function formatSimTimeOfDay(simTime: number): string {
-	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
-	const daypartIndex = Math.floor(dayTick / 400);
-	const daypartOffset = dayTick - daypartIndex * 400;
-	let hours12 = 12;
-	let minutes = 0;
-
-	switch (daypartIndex) {
-		case 0: {
-			const scaledTicks = daypartOffset * 5;
-			hours12 = Math.floor(scaledTicks / 400) + 7;
-			minutes = Math.floor(((scaledTicks - (hours12 - 7) * 400) * 60) / 400);
-			break;
-		}
-		case 1:
-			hours12 = 12;
-			minutes = Math.floor((daypartOffset * 60) / 800);
-			break;
-		case 2:
-			hours12 = 12;
-			minutes = Math.floor((daypartOffset * 60) / 800) + 30;
-			break;
-		case 3:
-		case 4:
-		case 5: {
-			const scaledTicks = daypartOffset * 4;
-			const hourOffset = Math.floor(scaledTicks / 400);
-			hours12 =
-				hourOffset + (daypartIndex === 3 ? 1 : daypartIndex === 4 ? 5 : 9);
-			minutes = Math.floor(((scaledTicks - hourOffset * 400) * 60) / 400);
-			if (hours12 > 12) {
-				hours12 -= 12;
-			}
-			break;
-		}
-		case 6: {
-			const scaledTicks = daypartOffset * 12;
-			const hourOffset = Math.floor(scaledTicks / 400);
-			hours12 = hourOffset + 1;
-			minutes = Math.floor(((scaledTicks - hourOffset * 400) * 60) / 400);
-			if (hours12 > 12) {
-				hours12 -= 12;
-			}
-			break;
-		}
-	}
-
-	if (minutes > 59) {
-		minutes = 59;
-	}
-
-	const suffix =
-		daypartIndex <= 4 || (daypartIndex === 5 && hours12 !== 12) ? "PM" : "AM";
-	return `${hours12}:${minutes.toString().padStart(2, "0")} ${suffix}`;
-}
-
 export function GameScreen({
 	playerId,
 	displayName,
@@ -107,6 +43,7 @@ export function GameScreen({
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [inspectedSim, setInspectedSim] = useState<SimStateData | null>(null);
 	const sceneRef = useRef<GameScene | null>(null);
+	const clockRef = useRef<GameToolbarClockHandle | null>(null);
 
 	const addToast = useCallback(
 		(message: string, variant: "error" | "info" = "error") => {
@@ -122,9 +59,6 @@ export function GameScreen({
 
 	const {
 		connectionStatus,
-		simTime,
-		cash,
-		population,
 		starCount,
 		playerCount,
 		towerName,
@@ -152,6 +86,9 @@ export function GameScreen({
 		socket,
 		sceneRef,
 		addToast,
+		onSimTime: (simTime) => clockRef.current?.update(simTime),
+		onEconomy: (cash, population) =>
+			clockRef.current?.updateEconomy(cash, population),
 	});
 
 	const handleCellClick = useCallback(
@@ -235,10 +172,6 @@ export function GameScreen({
 		}
 	}, [aliasInput, setTowerName, towerId]);
 
-	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
-	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
-	const dateLabel = formatSimDate(day);
-	const timeOfDayLabel = formatSimTimeOfDay(simTime);
 	useEffect(() => {
 		if (
 			selectedTool !== "inspect" &&
@@ -258,12 +191,8 @@ export function GameScreen({
 				aliasSaving={aliasSaving}
 				towerId={towerId}
 				towerName={towerName}
-				cash={cash ?? 0}
-				population={population}
+				ref={clockRef}
 				starCount={starCount}
-				dateLabel={dateLabel}
-				timeOfDayLabel={timeOfDayLabel}
-				dayTick={dayTick}
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
 				onAliasInputChange={handleAliasInputChange}
