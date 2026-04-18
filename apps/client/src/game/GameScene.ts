@@ -146,7 +146,7 @@ export class GameScene extends Phaser.Scene {
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private simGraphics!: Phaser.GameObjects.Graphics;
 	private simSprites: Phaser.GameObjects.Sprite[] = [];
-	private carGraphicsList: Phaser.GameObjects.Graphics[] = [];
+	private carRects: Phaser.GameObjects.Rectangle[] = [];
 	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
 
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
@@ -371,13 +371,11 @@ export class GameScene extends Phaser.Scene {
 	applySims(simTime: number, sims: SimStateData[]): void {
 		this.previousSimSnapshot = this.currentSimSnapshot;
 		this.currentSimSnapshot = { simTime, items: sims };
-		this.drawDynamicOverlays();
 	}
 
 	applyCarriers(simTime: number, carriers: CarrierCarStateData[]): void {
 		this.previousCarrierSnapshot = this.currentCarrierSnapshot;
 		this.currentCarrierSnapshot = { simTime, items: carriers };
-		this.drawDynamicOverlays();
 	}
 
 	setPresentationClock(
@@ -970,11 +968,6 @@ export class GameScene extends Phaser.Scene {
 		this.tileLabels = [];
 	}
 
-	private clearCarLabels(): void {
-		for (const label of this.carLabels) label.destroy();
-		this.carLabels = [];
-	}
-
 	private drawTileLabels(): void {
 		for (const key of this.anchorSet) {
 			const tileType = this.grid.get(key);
@@ -1080,14 +1073,11 @@ export class GameScene extends Phaser.Scene {
 	}
 
 	private drawCars(): void {
-		for (const g of this.carGraphicsList) g.destroy();
-		this.carGraphicsList = [];
-		this.clearCarLabels();
 		const simSnapshot = this.currentSimSnapshot ??
 			this.previousSimSnapshot ?? { simTime: 0, items: [] };
 		const occupancyByCar = buildOccupancyByCar(simSnapshot.items);
 
-		let carIndex = 0;
+		let usedCount = 0;
 		for (const car of getDisplayedCars(
 			this.currentCarrierSnapshot,
 			this.previousCarrierSnapshot,
@@ -1099,20 +1089,27 @@ export class GameScene extends Phaser.Scene {
 
 			// Each car (rect + label) gets a unique depth slice so cars never
 			// interleave with other cars' labels.
-			const depth = 3 + carIndex * 0.01;
-			const g = this.add.graphics();
-			g.setDepth(depth);
-			g.fillStyle(CAR_COLOR, 1);
-			g.fillRect(x, y, width, height);
-			g.lineStyle(1, 0x6b5a1b, 1);
-			g.strokeRect(x, y, width, height);
-			this.carGraphicsList.push(g);
-			this.drawCarOccupancyLabel(x, y, width, height, occupancy, depth);
-			carIndex += 1;
+			const depth = 3 + usedCount * 0.01;
+			this.drawCarOccupancyLabel(
+				usedCount,
+				x,
+				y,
+				width,
+				height,
+				occupancy,
+				depth,
+			);
+			usedCount += 1;
+		}
+
+		for (let i = usedCount; i < this.carRects.length; i += 1) {
+			this.carRects[i]?.setVisible(false);
+			this.carLabels[i]?.setVisible(false);
 		}
 	}
 
 	private drawCarOccupancyLabel(
+		carIndex: number,
 		x: number,
 		y: number,
 		width: number,
@@ -1120,21 +1117,35 @@ export class GameScene extends Phaser.Scene {
 		occupancy: number,
 		depth: number,
 	): void {
-		const label = this.add.text(
-			x + width / 2,
-			y + height / 2,
-			String(occupancy),
-			{
+		let rect = this.carRects[carIndex];
+		if (!rect) {
+			rect = this.add.rectangle(x, y, width, height, CAR_COLOR);
+			rect.setOrigin(0, 0);
+			rect.setStrokeStyle(1, 0x6b5a1b, 1);
+			this.carRects.push(rect);
+		}
+		rect.setPosition(x, y);
+		rect.setSize(width, height);
+		rect.setDisplaySize(width, height);
+		rect.setDepth(depth);
+		rect.setVisible(true);
+
+		let label = this.carLabels[carIndex];
+		if (!label) {
+			label = this.add.text(0, 0, "", {
 				fontSize: "8px",
 				fontFamily: "Arial, sans-serif",
 				fontStyle: "bold",
 				color: "#3b2d00",
 				resolution: window.devicePixelRatio * 4,
-			},
-		);
-		label.setOrigin(0.5, 0.5);
+			});
+			label.setOrigin(0.5, 0.5);
+			this.carLabels.push(label);
+		}
+		label.setPosition(x + width / 2, y + height / 2);
+		label.setText(String(occupancy));
 		label.setDepth(depth + 0.005);
-		this.carLabels.push(label);
+		label.setVisible(true);
 	}
 
 	/** Draw a stairs or escalator overlay bridging the floor at (gx,gy) and
