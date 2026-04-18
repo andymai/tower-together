@@ -78,9 +78,29 @@ type StaticRowChunk = {
 	image: Phaser.GameObjects.Image;
 };
 
+type CockroachState = {
+	roomKey: string;
+	offsetX: number;
+	offsetY: number;
+	velX: number;
+	velY: number;
+	frame: number;
+	frameTimer: number;
+	dirChangeTimer: number;
+};
+
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
 const HOTEL_TURNOVER_STATUS_MAX = 0x30;
+const HOTEL_INFESTED_STATUS_MIN = 0x38;
+const COCKROACH_PER_ROOM: Partial<Record<string, number>> = {
+	hotelSingle: 3,
+	hotelTwin: 4,
+	hotelSuite: 6,
+};
+const COCKROACH_FRAMES = 4;
+const COCKROACH_FRAME_MS = 110;
+const COCKROACH_SVG_SCALE = 32;
 const FLOOR_LABEL_RANGE: [number, number] = [-10, 110];
 const EVAL_LABEL_RANGE: [number, number] = [0, 300];
 const CAR_LABEL_RANGE: [number, number] = [0, 21];
@@ -176,6 +196,8 @@ export class GameScene extends Phaser.Scene {
 	private cellGraphics!: Phaser.GameObjects.Graphics;
 	private simGraphics!: Phaser.GameObjects.Graphics;
 	private simSprites: Phaser.GameObjects.Sprite[] = [];
+	private cockroachSprites: Phaser.GameObjects.Sprite[] = [];
+	private cockroaches: CockroachState[] = [];
 	private carRects: Phaser.GameObjects.Rectangle[] = [];
 	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
 
@@ -568,6 +590,14 @@ export class GameScene extends Phaser.Scene {
 				height: 20 * simScale,
 			});
 		}
+		const cockroachSvgW = 10 * COCKROACH_SVG_SCALE;
+		const cockroachSvgH = 8 * COCKROACH_SVG_SCALE;
+		for (let i = 0; i < COCKROACH_FRAMES; i += 1) {
+			this.load.svg(`cockroach_${i}`, `/rooms/cockroach${i}.svg`, {
+				width: cockroachSvgW,
+				height: cockroachSvgH,
+			});
+		}
 		const bannerW = 180 * 4;
 		const bannerH = 80 * 4;
 		this.load.svg("for_rent", "/rooms/for-rent.svg", {
@@ -649,6 +679,7 @@ export class GameScene extends Phaser.Scene {
 		}
 		this.drawSimsIfNeeded();
 		this.drawCars();
+		this.updateCockroaches(delta);
 	}
 
 	private setupFloorLabels(): void {
@@ -1693,6 +1724,137 @@ export class GameScene extends Phaser.Scene {
 		label.setPosition(x + width / 2, y + height / 2);
 		label.setDepth(depth + 0.005);
 		label.setVisible(true);
+	}
+
+	private updateCockroaches(delta: number): void {
+		const cockroachW = TILE_WIDTH * 0.55;
+		const cockroachH = cockroachW * (8 / 10);
+
+		const infestedKeys = new Set<string>();
+		for (const [key, status] of this.unitStatusMap) {
+			if (
+				status >= HOTEL_INFESTED_STATUS_MIN &&
+				HOTEL_TILE_TYPES.has(this.grid.get(key) ?? "")
+			) {
+				infestedKeys.add(key);
+			}
+		}
+
+		this.cockroaches = this.cockroaches.filter((c) =>
+			infestedKeys.has(c.roomKey),
+		);
+
+		const roomCounts = new Map<string, number>();
+		for (const c of this.cockroaches) {
+			roomCounts.set(c.roomKey, (roomCounts.get(c.roomKey) ?? 0) + 1);
+		}
+
+		const roomHeightPx = TILE_HEIGHT - STATIC_TILE_GAP_Y;
+		const maxOffsetY = Math.max(0, roomHeightPx - cockroachH);
+
+		for (const key of infestedKeys) {
+			const count = roomCounts.get(key) ?? 0;
+			const tileType = this.grid.get(key);
+			const target = COCKROACH_PER_ROOM[tileType ?? ""] ?? 3;
+			if (count < target) {
+				const roomTileWidth = TILE_WIDTHS[tileType ?? ""] ?? 1;
+				const roomWidthPx = roomTileWidth * TILE_WIDTH - STATIC_TILE_GAP_X;
+				const maxOffsetX = Math.max(0, roomWidthPx - cockroachW);
+				for (let i = count; i < target; i += 1) {
+					const angle = Math.random() * 2 * Math.PI;
+					const speed = (1.6 + Math.random() * 3.2) / 1000;
+					this.cockroaches.push({
+						roomKey: key,
+						offsetX: Math.random() * maxOffsetX,
+						offsetY: Math.random() * maxOffsetY,
+						velX: Math.cos(angle) * speed,
+						velY: Math.sin(angle) * speed,
+						frame: Math.floor(Math.random() * COCKROACH_FRAMES),
+						frameTimer: Math.random() * COCKROACH_FRAME_MS,
+						dirChangeTimer: 1200 + Math.random() * 2800,
+					});
+				}
+			}
+		}
+
+		for (const c of this.cockroaches) {
+			const tileType = this.grid.get(c.roomKey);
+			const roomTileWidth = TILE_WIDTHS[tileType ?? ""] ?? 1;
+			const roomWidthPx = roomTileWidth * TILE_WIDTH - STATIC_TILE_GAP_X;
+			const maxOffsetX = Math.max(0, roomWidthPx - cockroachW);
+
+			c.dirChangeTimer -= delta;
+			if (c.dirChangeTimer <= 0) {
+				c.dirChangeTimer = 1200 + Math.random() * 2800;
+				const angle = Math.random() * 2 * Math.PI;
+				const speed = (1.6 + Math.random() * 3.2) / 1000;
+				c.velX = Math.cos(angle) * speed;
+				c.velY = Math.sin(angle) * speed;
+			}
+
+			c.offsetX += c.velX * delta;
+			c.offsetY += c.velY * delta;
+			if (c.offsetX <= 0) {
+				c.offsetX = 0;
+				c.velX = Math.abs(c.velX);
+			} else if (c.offsetX >= maxOffsetX) {
+				c.offsetX = maxOffsetX;
+				c.velX = -Math.abs(c.velX);
+			}
+			if (c.offsetY <= 0) {
+				c.offsetY = 0;
+				c.velY = Math.abs(c.velY);
+			} else if (c.offsetY >= maxOffsetY) {
+				c.offsetY = maxOffsetY;
+				c.velY = -Math.abs(c.velY);
+			}
+
+			c.frameTimer -= delta;
+			if (c.frameTimer <= 0) {
+				c.frameTimer += COCKROACH_FRAME_MS;
+				c.frame = (c.frame + 1) % COCKROACH_FRAMES;
+			}
+		}
+
+		const worldView = this.cameras.main.worldView;
+		let usedCount = 0;
+
+		for (const c of this.cockroaches) {
+			const [gx, gy] = c.roomKey.split(",").map(Number);
+			const worldX = gx * TILE_WIDTH + c.offsetX + cockroachW / 2;
+			const worldY = gy * TILE_HEIGHT + c.offsetY + cockroachH / 2;
+
+			if (
+				worldX + cockroachW < worldView.x ||
+				worldX - cockroachW > worldView.right ||
+				worldY + cockroachH < worldView.y ||
+				worldY - cockroachH > worldView.bottom
+			) {
+				continue;
+			}
+
+			const textureKey = `cockroach_${c.frame}`;
+			let sprite = this.cockroachSprites[usedCount];
+			if (!sprite) {
+				sprite = this.add.sprite(0, 0, textureKey);
+				sprite.setOrigin(0.5, 0.5);
+				sprite.setDepth(DYNAMIC_ENTITY_DEPTH + 0.1);
+				sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+				this.cockroachSprites.push(sprite);
+			} else if (sprite.texture.key !== textureKey) {
+				sprite.setTexture(textureKey);
+				sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+			}
+			sprite.setVisible(true);
+			sprite.setPosition(worldX, worldY);
+			sprite.setDisplaySize(cockroachW, cockroachH);
+			sprite.setRotation(Math.atan2(c.velY, c.velX));
+			usedCount += 1;
+		}
+
+		for (let i = usedCount; i < this.cockroachSprites.length; i += 1) {
+			this.cockroachSprites[i]?.setVisible(false);
+		}
 	}
 
 	private drawHover(): void {
