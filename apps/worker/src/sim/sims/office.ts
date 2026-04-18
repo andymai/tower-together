@@ -100,9 +100,18 @@ function finalizeOfficeFloorArrival(
 	sim.stateCode = nextState;
 }
 
-function nextOfficeMorningState(sim: SimRecord): number {
-	// Spec 0x20 same-floor: occupant 0 → 0x00, occupant != 0 → 0x01
-	return sim.baseOffset === 0 ? STATE_COMMUTE : STATE_ACTIVE;
+function nextOfficeMorningState(world: WorldState, sim: SimRecord): number {
+	// Binary 1228:213c AX=3 branch (same-floor arrival) at 1228:23bb:
+	//   if (base_offset == 0) state := 0x00 (STATE_COMMUTE)   ; 1228:2618+2639
+	//   else if roll_office_sim_medical_trip_today() → 0x02    ; 1228:23f5
+	//   else → 0x01                                            ; 1228:241e
+	// roll is `starCount >= 3 && sample_lcg15() % 10 == 0` (1178:0635).
+	// RNG is only consumed on the non-base-0 branch, mirroring the binary.
+	if (sim.baseOffset === 0) return STATE_COMMUTE;
+	if (world.starCount >= 3 && sampleRng(world) % 10 === 0) {
+		return STATE_ACTIVE_ALT;
+	}
+	return STATE_ACTIVE;
 }
 
 export function nextOfficeReturnState(sim: SimRecord): number {
@@ -219,7 +228,7 @@ export function processOfficeSim(
 		advanceOfficePresenceCounter(facility);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = nextOfficeMorningState(sim);
+		sim.stateCode = nextOfficeMorningState(world, sim);
 		return;
 	}
 
@@ -441,7 +450,7 @@ export function processOfficeSim(
 			advanceOfficePresenceCounter(facility);
 			sim.destinationFloor = -1;
 			sim.selectedFloor = sim.floorAnchor;
-			sim.stateCode = nextOfficeMorningState(sim);
+			sim.stateCode = nextOfficeMorningState(world, sim);
 		}
 		return;
 	}
@@ -505,8 +514,7 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
-		// Binary puts base0 into COMMUTE (0x00), others into ACTIVE (0x01).
-		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState(sim));
+		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState(world, sim));
 		return;
 	}
 
