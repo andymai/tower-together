@@ -1,4 +1,5 @@
 import { Star } from "lucide-react";
+import { memo } from "react";
 import type { ConnectionStatus } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
@@ -25,7 +26,7 @@ interface Props {
 	onLeave: () => void;
 }
 
-export function GameToolbar({
+export const GameToolbar = memo(function GameToolbar({
 	isRenaming,
 	aliasInput,
 	aliasError,
@@ -156,4 +157,4 @@ export function GameToolbar({
 			</div>
 		</div>
 	);
-}
+});

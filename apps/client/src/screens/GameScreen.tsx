@@ -239,8 +239,6 @@ export function GameScreen({
 	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
 	const dateLabel = formatSimDate(day);
 	const timeOfDayLabel = formatSimTimeOfDay(simTime);
-	const metrics = buildTransportMetrics(sims, carriers);
-
 	useEffect(() => {
 		if (
 			selectedTool !== "inspect" &&
@@ -294,7 +292,7 @@ export function GameScreen({
 					/>
 					{import.meta.env.DEV && (
 						<GameDebugPanel
-							metrics={metrics}
+							metrics={buildTransportMetrics(sims, carriers)}
 							speedMultiplier={speedMultiplier}
 							onSpeedChange={setSpeedMultiplier}
 							starCount={starCount}

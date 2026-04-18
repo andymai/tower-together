@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { TransportMetrics } from "../game/transportSelectors";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
@@ -11,7 +12,7 @@ interface Props {
 	onFreeBuildChange: (enabled: boolean) => void;
 }
 
-export function GameDebugPanel({
+export const GameDebugPanel = memo(function GameDebugPanel({
 	metrics,
 	speedMultiplier,
 	onSpeedChange,
@@ -105,4 +106,4 @@ export function GameDebugPanel({
 			</div>
 		</div>
 	);
-}
+});

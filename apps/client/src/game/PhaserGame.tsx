@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import type { SimStateData } from "../types";
 import { GameScene } from "./GameScene";
 
@@ -12,7 +12,7 @@ interface Props {
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
 
-export function PhaserGame({
+export const PhaserGame = memo(function PhaserGame({
 	towerId,
 	onCellClick,
 	onCellInspect,
@@ -73,4 +73,4 @@ export function PhaserGame({
 	}, [selectedTool, sceneRef]);
 
 	return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
-}
+});

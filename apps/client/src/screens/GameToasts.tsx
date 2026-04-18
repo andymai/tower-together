@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { Toast } from "./gameScreenTypes";
 
@@ -5,7 +6,7 @@ interface Props {
 	toasts: Toast[];
 }
 
-export function GameToasts({ toasts }: Props) {
+export const GameToasts = memo(function GameToasts({ toasts }: Props) {
 	if (toasts.length === 0) {
 		return null;
 	}
@@ -24,4 +25,4 @@ export function GameToasts({ toasts }: Props) {
 			))}
 		</div>
 	);
-}
+});
