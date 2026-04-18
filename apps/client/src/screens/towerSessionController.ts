@@ -1,5 +1,6 @@
 import type { SimCommand } from "../../../worker/src/sim/commands";
 import { TowerLockstepSession } from "../lib/lockstepSession";
+import { setTowerToolbarCache } from "../lib/storage";
 import type {
 	CarrierCarStateData,
 	ClientMessage,
@@ -69,6 +70,7 @@ export interface TowerSessionState {
 	freeBuild: boolean;
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
+	sceneReady: boolean;
 }
 
 export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
@@ -82,9 +84,11 @@ export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	freeBuild: false,
 	activePrompt: null,
 	inspectedCell: null,
+	sceneReady: false,
 };
 
 interface TowerSessionControllerOptions {
+	towerId: string;
 	playerId: string;
 	displayName: string;
 	socket: TowerSessionSocket;
@@ -96,6 +100,7 @@ interface TowerSessionControllerOptions {
 }
 
 export class TowerSessionController {
+	private readonly towerId: string;
 	private readonly playerId: string;
 	private readonly displayName: string;
 	private readonly socket: TowerSessionSocket;
@@ -116,6 +121,7 @@ export class TowerSessionController {
 	private unsubscribeStatus: (() => void) | null = null;
 
 	constructor({
+		towerId,
 		playerId,
 		displayName,
 		socket,
@@ -125,6 +131,7 @@ export class TowerSessionController {
 		onSimTime,
 		onEconomy,
 	}: TowerSessionControllerOptions) {
+		this.towerId = towerId;
 		this.playerId = playerId;
 		this.displayName = displayName;
 		this.socket = socket;
@@ -153,6 +160,12 @@ export class TowerSessionController {
 					state.simTime,
 					timing.receivedAtMs,
 				);
+				// Wait for Phaser to paint the frame before removing the loading overlay.
+				requestAnimationFrame(() => {
+					requestAnimationFrame(() => {
+						this.patchState({ sceneReady: true });
+					});
+				});
 			},
 			onTick: (state) => {
 				this.onSimTime(state.simTime);
@@ -345,17 +358,27 @@ export class TowerSessionController {
 
 	private handleMessage(msg: ServerMessage): void {
 		switch (msg.type) {
-			case "init_state":
+			case "init_state": {
+				const towerName = msg.name || msg.towerId;
+				this.onEconomy(msg.cash, msg.population);
 				this.patchState({
-					towerName: msg.name || msg.towerId,
+					towerName,
+					starCount: msg.starCount,
 					speedMultiplier: msg.speedMultiplier,
 					freeBuild: msg.freeBuild,
+				});
+				setTowerToolbarCache(this.towerId, {
+					towerName,
+					starCount: msg.starCount,
+					cash: msg.cash,
+					population: msg.population,
 				});
 				this.lockstep.initialize(msg.snapshot, {
 					freeBuild: msg.freeBuild,
 					speedMultiplier: msg.speedMultiplier,
 				});
 				break;
+			}
 			case "authoritative_batch":
 				this.lockstep.applyAuthoritativeBatch(msg);
 				for (const batch of msg.batches) {
@@ -390,6 +413,12 @@ export class TowerSessionController {
 			case "economy_update":
 				this.onEconomy(msg.cash, msg.population);
 				this.patchState({ starCount: msg.starCount });
+				setTowerToolbarCache(this.towerId, {
+					towerName: this.state.towerName,
+					starCount: msg.starCount,
+					cash: msg.cash,
+					population: msg.population,
+				});
 				break;
 			case "notification":
 				break;

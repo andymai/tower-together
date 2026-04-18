@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { GameScene } from "../game/GameScene";
 import type { TowerSocket } from "../lib/socket";
+import { getTowerToolbarCache } from "../lib/storage";
 import type { ConnectionStatus } from "../types";
 import type { ActivePrompt, CellInfoData } from "./gameScreenTypes";
 import {
@@ -11,10 +12,11 @@ import {
 } from "./towerSessionController";
 
 interface UseTowerSessionOptions {
+	towerId: string;
 	playerId: string;
 	displayName: string;
 	socket: TowerSocket;
-	sceneRef: React.MutableRefObject<GameScene | null>;
+	sceneRef: React.RefObject<GameScene | null>;
 	addToast: (message: string, variant?: "error" | "info") => void;
 	onSimTime: (simTime: number) => void;
 	onEconomy: (cash: number, population: number) => void;
@@ -32,6 +34,7 @@ interface UseTowerSessionResult {
 	freeBuild: boolean;
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
+	sceneReady: boolean;
 	setInspectedCell: Dispatch<SetStateAction<CellInfoData | null>>;
 	sendTileCommand: (
 		x: number,
@@ -51,6 +54,7 @@ interface UseTowerSessionResult {
 }
 
 export function useTowerSession({
+	towerId,
 	playerId,
 	displayName,
 	socket,
@@ -59,9 +63,15 @@ export function useTowerSession({
 	onSimTime,
 	onEconomy,
 }: UseTowerSessionOptions): UseTowerSessionResult {
-	const [state, setState] = useState<TowerSessionState>(
-		INITIAL_TOWER_SESSION_STATE,
-	);
+	const initialCacheRef = useRef(getTowerToolbarCache(towerId));
+	const [state, setState] = useState<TowerSessionState>(() => {
+		const cache = initialCacheRef.current;
+		return {
+			...INITIAL_TOWER_SESSION_STATE,
+			towerName: cache.towerName ?? INITIAL_TOWER_SESSION_STATE.towerName,
+			starCount: cache.starCount ?? INITIAL_TOWER_SESSION_STATE.starCount,
+		};
+	});
 	const controllerRef = useRef<TowerSessionController | null>(null);
 	const onSimTimeRef = useRef(onSimTime);
 	onSimTimeRef.current = onSimTime;
@@ -70,6 +80,7 @@ export function useTowerSession({
 
 	if (controllerRef.current === null) {
 		controllerRef.current = new TowerSessionController({
+			towerId,
 			playerId,
 			displayName,
 			socket,
@@ -84,11 +95,16 @@ export function useTowerSession({
 	}
 
 	useEffect(() => {
+		const { cash, population } = initialCacheRef.current;
+		if (cash != null && population != null) {
+			onEconomyRef.current(cash, population);
+		}
 		const controller = controllerRef.current;
 		controller?.start();
 		return () => {
 			controller?.dispose();
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	return {

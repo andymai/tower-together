@@ -2,6 +2,7 @@ const PLAYER_ID_KEY = "tower_together_player_id";
 const DISPLAY_NAME_KEY = "tower_together_display_name";
 const RECENT_TOWERS_KEY = "tower_together_recent_towers";
 const TOWER_VIEW_KEY_PREFIX = "tower_together_view_";
+const TOWER_TOOLBAR_KEY_PREFIX = "tower_together_toolbar_";
 
 export function getPlayerId(): string | null {
 	return localStorage.getItem(PLAYER_ID_KEY);
@@ -40,24 +41,60 @@ export function addRecentTower(towerId: string): void {
 	localStorage.setItem(RECENT_TOWERS_KEY, JSON.stringify(updated));
 }
 
-export function getTowerZoom(towerId: string): number | null {
+interface TowerView {
+	zoom?: number;
+	scrollX?: number;
+	scrollY?: number;
+}
+
+export function getTowerView(towerId: string): TowerView {
 	try {
 		const raw = localStorage.getItem(`${TOWER_VIEW_KEY_PREFIX}${towerId}`);
-		if (!raw) return null;
-		const parsed = JSON.parse(raw) as { zoom?: unknown };
-		return typeof parsed.zoom === "number" && Number.isFinite(parsed.zoom)
-			? parsed.zoom
-			: null;
+		if (!raw) return {};
+		return JSON.parse(raw) as TowerView;
 	} catch {
-		return null;
+		return {};
 	}
 }
 
-export function setTowerZoom(towerId: string, zoom: number): void {
+export function setTowerView(towerId: string, patch: TowerView): void {
 	try {
+		const existing = getTowerView(towerId);
 		localStorage.setItem(
 			`${TOWER_VIEW_KEY_PREFIX}${towerId}`,
-			JSON.stringify({ zoom }),
+			JSON.stringify({ ...existing, ...patch }),
+		);
+	} catch {
+		// storage unavailable — silently ignore
+	}
+}
+
+export interface TowerToolbarCache {
+	towerName?: string;
+	starCount?: number;
+	cash?: number;
+	population?: number;
+}
+
+export function getTowerToolbarCache(towerId: string): TowerToolbarCache {
+	try {
+		const raw = localStorage.getItem(`${TOWER_TOOLBAR_KEY_PREFIX}${towerId}`);
+		if (!raw) return {};
+		return JSON.parse(raw) as TowerToolbarCache;
+	} catch {
+		return {};
+	}
+}
+
+export function setTowerToolbarCache(
+	towerId: string,
+	patch: TowerToolbarCache,
+): void {
+	try {
+		const existing = getTowerToolbarCache(towerId);
+		localStorage.setItem(
+			`${TOWER_TOOLBAR_KEY_PREFIX}${towerId}`,
+			JSON.stringify({ ...existing, ...patch }),
 		);
 	} catch {
 		// storage unavailable — silently ignore

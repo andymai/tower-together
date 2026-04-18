@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getTowerZoom, setTowerZoom } from "../lib/storage";
+import { getTowerView, setTowerView } from "../lib/storage";
 import {
 	type CarrierCarStateData,
 	GRID_HEIGHT,
@@ -187,6 +187,7 @@ export class GameScene extends Phaser.Scene {
 	private staticRowChunks: StaticRowChunk[][] = [];
 	private overlaySprites: Phaser.GameObjects.Image[] = [];
 	private roomTexturesLoaded = false;
+	private sceneCreated = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
 	private unitStatusMap: Map<string, number> = new Map();
 	private evalLevelMap: Map<string, number> = new Map();
@@ -391,7 +392,7 @@ export class GameScene extends Phaser.Scene {
 			receivedAtMs: performance.now(),
 			tickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
 		};
-		this.drawAllCells();
+		if (this.sceneCreated) this.drawAllCells();
 	}
 
 	applyPatch(
@@ -524,21 +525,83 @@ export class GameScene extends Phaser.Scene {
 		};
 	}
 
+	preload(): void {
+		const s = GameScene.ROOM_SVG_SCALE;
+		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
+			const heightTiles = config?.heightTiles ?? 1;
+			const w = ((TILE_WIDTHS[room] ?? 1) * TILE_WIDTH - STATIC_TILE_GAP_X) * s;
+			const h = (TILE_HEIGHT * heightTiles - STATIC_TILE_GAP_Y) * s;
+			for (const [index, file] of config?.files?.entries() ?? []) {
+				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
+					width: w,
+					height: h,
+				});
+			}
+			for (const [index, file] of config?.dirtyFiles?.entries() ?? []) {
+				this.load.svg(`room_${room}_dirty_${index}`, `/rooms/${file}`, {
+					width: w,
+					height: h,
+				});
+			}
+		}
+		this.load.svg("room_lobby", "/rooms/lobby.svg", {
+			width: (2 * TILE_HEIGHT - STATIC_TILE_GAP_X) * s,
+			height: (TILE_HEIGHT - STATIC_TILE_GAP_Y) * s,
+		});
+		const bridgeH = (TILE_HEIGHT + TILE_HEIGHT / 3) * s;
+		for (const bridge of ["stairs", "escalator"]) {
+			this.load.svg(`room_${bridge}`, `/rooms/${bridge}.svg`, {
+				width: (TILE_WIDTHS[bridge] ?? 1) * TILE_WIDTH * s,
+				height: bridgeH,
+			});
+		}
+		const simScale = 64;
+		for (const level of ["low-0", "low-1", "low-2", "low-3"] as const) {
+			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
+				width: 6 * simScale,
+				height: 20 * simScale,
+			});
+		}
+		for (const level of ["medium", "high"] as const) {
+			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
+				width: 6 * simScale,
+				height: 20 * simScale,
+			});
+		}
+		const bannerW = 180 * 4;
+		const bannerH = 80 * 4;
+		this.load.svg("for_rent", "/rooms/for-rent.svg", {
+			width: bannerW,
+			height: bannerH,
+		});
+		this.load.svg("for_sale", "/rooms/for-sale.svg", {
+			width: bannerW,
+			height: bannerH,
+		});
+	}
+
 	create(): void {
 		const totalWidth = GRID_WIDTH * TILE_WIDTH;
 
-		// Restore the previously-saved zoom for this tower, or fit-to-width on first visit.
-		const savedZoom = getTowerZoom(this.towerId);
+		// Room textures finished loading in preload() before create() was called.
+		this.roomTexturesLoaded = true;
+
+		// Restore the previously-saved zoom and scroll for this tower.
+		const savedView = getTowerView(this.towerId);
 		const initialZoom = Phaser.Math.Clamp(
-			savedZoom ?? this.scale.width / totalWidth,
+			savedView.zoom ?? this.scale.width / totalWidth,
 			MIN_ZOOM,
 			MAX_ZOOM,
 		);
 		this.cameras.main.setZoom(initialZoom);
-		this.cameras.main.centerOn(
-			totalWidth / 2,
-			(UNDERGROUND_Y - 8) * TILE_HEIGHT,
-		);
+		if (savedView.scrollX != null && savedView.scrollY != null) {
+			this.cameras.main.setScroll(savedView.scrollX, savedView.scrollY);
+		} else {
+			this.cameras.main.centerOn(
+				totalWidth / 2,
+				(UNDERGROUND_Y - 8) * TILE_HEIGHT,
+			);
+		}
 
 		this.cellGraphics = this.add.graphics();
 		this.simGraphics = this.add.graphics();
@@ -562,11 +625,11 @@ export class GameScene extends Phaser.Scene {
 		this.cloudManager.loadTextures();
 
 		this.setupNumberTextures();
-		this.loadRoomTextures();
 
 		this.setupInput();
 		this.setupFloorLabels();
 		this.updateFloorLabels();
+		this.sceneCreated = true;
 	}
 
 	update(_time: number, delta: number): void {
@@ -937,75 +1000,6 @@ export class GameScene extends Phaser.Scene {
 
 		const textureKey = this.getRoomTextureKey(tileType, x, y);
 		return textureKey !== null && this.textures.exists(textureKey);
-	}
-
-	private loadRoomTextures(): void {
-		const s = GameScene.ROOM_SVG_SCALE;
-		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
-			const heightTiles = config?.heightTiles ?? 1;
-			const w = ((TILE_WIDTHS[room] ?? 1) * TILE_WIDTH - STATIC_TILE_GAP_X) * s;
-			const h = (TILE_HEIGHT * heightTiles - STATIC_TILE_GAP_Y) * s;
-			for (const [index, file] of config?.files?.entries() ?? []) {
-				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
-					width: w,
-					height: h,
-				});
-			}
-			for (const [index, file] of config?.dirtyFiles?.entries() ?? []) {
-				this.load.svg(`room_${room}_dirty_${index}`, `/rooms/${file}`, {
-					width: w,
-					height: h,
-				});
-			}
-		}
-		// Lobby SVG is tiled horizontally across contiguous runs; load at its
-		// native 2:1 aspect (one repeat = 2 tiles wide × 1 tile tall).
-		this.load.svg("room_lobby", "/rooms/lobby.svg", {
-			width: (2 * TILE_HEIGHT - STATIC_TILE_GAP_X) * s,
-			height: (TILE_HEIGHT - STATIC_TILE_GAP_Y) * s,
-		});
-		// Stairs / escalator render as a parallelogram bridging the placement
-		// floor and 1/3 up the floor above; load at that extended height.
-		const bridgeH = (TILE_HEIGHT + TILE_HEIGHT / 3) * s;
-		for (const bridge of ["stairs", "escalator"]) {
-			this.load.svg(`room_${bridge}`, `/rooms/${bridge}.svg`, {
-				width: (TILE_WIDTHS[bridge] ?? 1) * TILE_WIDTH * s,
-				height: bridgeH,
-			});
-		}
-		// Stick-figure sprites for queued sims. Low stress has 4 skin-tone
-		// variants; medium/high tint the entire figure. Rasterized extra-hi-res
-		// (viewBox 6×20) so the sprite stays crisp even at MAX_ZOOM.
-		const simScale = 64;
-		for (const level of ["low-0", "low-1", "low-2", "low-3"] as const) {
-			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
-				width: 6 * simScale,
-				height: 20 * simScale,
-			});
-		}
-		for (const level of ["medium", "high"] as const) {
-			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
-				width: 6 * simScale,
-				height: 20 * simScale,
-			});
-		}
-		// Banner SVGs share the same 9:4 aspect ratio.
-		// Load at high resolution for crisp rendering when zoomed in.
-		const bannerW = 180 * 4;
-		const bannerH = 80 * 4;
-		this.load.svg("for_rent", "/rooms/for-rent.svg", {
-			width: bannerW,
-			height: bannerH,
-		});
-		this.load.svg("for_sale", "/rooms/for-sale.svg", {
-			width: bannerW,
-			height: bannerH,
-		});
-		this.load.once("complete", () => {
-			this.roomTexturesLoaded = true;
-			this.drawAllCells();
-		});
-		this.load.start();
 	}
 
 	private getOverlaySprite(textureKey: string): Phaser.GameObjects.Image {
@@ -1879,6 +1873,12 @@ export class GameScene extends Phaser.Scene {
 
 		this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
 			if (!pointer.middleButtonDown() && !pointer.rightButtonDown()) {
+				if (this.isPanning) {
+					setTowerView(this.towerId, {
+						scrollX: cam.scrollX,
+						scrollY: cam.scrollY,
+					});
+				}
 				this.isPanning = false;
 			}
 			this.isDragging = false;
@@ -1912,11 +1912,19 @@ export class GameScene extends Phaser.Scene {
 					cam.scrollX += worldPointBefore.x - worldPointAfter.x;
 					cam.scrollY += worldPointBefore.y - worldPointAfter.y;
 					cam.preRender();
-					setTowerZoom(this.towerId, newZoom);
+					setTowerView(this.towerId, {
+						zoom: newZoom,
+						scrollX: cam.scrollX,
+						scrollY: cam.scrollY,
+					});
 				} else {
 					// Two-finger scroll -> pan
 					cam.scrollX += deltaX / cam.zoom;
 					cam.scrollY += deltaY / cam.zoom;
+					setTowerView(this.towerId, {
+						scrollX: cam.scrollX,
+						scrollY: cam.scrollY,
+					});
 				}
 			},
 		);

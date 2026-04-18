@@ -80,6 +80,7 @@ describe("TowerSessionController with mocked server", () => {
 			const scene = createFakeScene();
 			const toasts: string[] = [];
 			const states: TowerSessionState[] = [INITIAL_TOWER_SESSION_STATE];
+			let lastSimTime = 0;
 			const controller = new TowerSessionController({
 				playerId: "player-1",
 				displayName: "Tester",
@@ -91,6 +92,10 @@ describe("TowerSessionController with mocked server", () => {
 				onStateChange: (state) => {
 					states.push(state);
 				},
+				onSimTime: (simTime) => {
+					lastSimTime = simTime;
+				},
+				onEconomy: () => {},
 			});
 
 			controller.start();
@@ -141,7 +146,7 @@ describe("TowerSessionController with mocked server", () => {
 			});
 
 			expect(toasts).toContain("Server rejected removal");
-			expect(states.at(-1)?.simTime).toBe(1);
+			expect(lastSimTime).toBe(1);
 			expect(states.at(-1)?.connectionStatus).toBe("connected");
 			expect(states.at(-1)?.towerName).toBe("Tower Test");
 			expect(states.at(-1)?.speedMultiplier).toBe(1);
@@ -176,6 +181,8 @@ describe("TowerSessionController with mocked server", () => {
 			onStateChange: (state) => {
 				states.push(state);
 			},
+			onSimTime: () => {},
+			onEconomy: () => {},
 		});
 
 		controller.start();

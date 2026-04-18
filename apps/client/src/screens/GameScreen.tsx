@@ -80,7 +80,9 @@ export function GameScreen({
 		addElevatorCar,
 		removeElevatorCar,
 		reconnect,
+		sceneReady,
 	} = useTowerSession({
+		towerId,
 		playerId,
 		displayName,
 		socket,
@@ -204,6 +206,11 @@ export function GameScreen({
 			/>
 
 			<div style={styles.canvasWrapper}>
+				{!sceneReady && (
+					<div style={styles.loadingOverlay}>
+						<div style={styles.loadingSpinner} />
+					</div>
+				)}
 				<PhaserGame
 					towerId={towerId}
 					onCellClick={handleCellClick}
