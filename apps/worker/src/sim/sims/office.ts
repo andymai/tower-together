@@ -339,9 +339,6 @@ export function processOfficeSim(
 		) {
 			return;
 		}
-		if (sim.destinationFloor !== -1 && state === STATE_VENUE_HOME_TRANSIT) {
-			return;
-		}
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
