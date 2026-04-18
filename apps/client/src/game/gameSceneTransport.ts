@@ -61,8 +61,8 @@ export function getDisplayedCars(
 		return current.items.map((car) => {
 			const from = previousByKey.get(`${car.carrierId}:${car.carIndex}`);
 			if (!from) return car;
-			const fromDirSign = from.directionFlag !== 0 ? -1 : 1;
-			const toDirSign = car.directionFlag !== 0 ? -1 : 1;
+			const fromDirSign = from.prevFloor > from.currentFloor ? 1 : -1;
+			const toDirSign = car.prevFloor > car.currentFloor ? 1 : -1;
 			const fromEffective =
 				from.currentFloor + (fromDirSign * from.settleCounter) / 6;
 			const toEffective =
