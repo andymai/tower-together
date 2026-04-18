@@ -10,8 +10,8 @@
   <!-- Baseboard -->
   <rect x="0" y="72" width="480" height="4" fill="#5a2818"/>
 
-  <!-- Floor - terracotta tile -->
-  <rect x="0" y="76" width="480" height="4" fill="#a85830"/>
+  <!-- Floor - green-gray stone tile -->
+  <rect x="0" y="76" width="480" height="4" fill="#6f8a76"/>
 
   <!-- Exposed wooden ceiling beams -->
   <rect x="0" y="0" width="480" height="5" fill="#5a3820"/>
