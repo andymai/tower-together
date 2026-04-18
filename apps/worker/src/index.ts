@@ -15,6 +15,8 @@ interface Env {
 	TOWER_REGISTRY: DurableObjectNamespace;
 }
 
+const ALIAS_PATTERN = /^[A-Za-z0-9 _.,!?'"():;&-]+$/;
+
 const app = new Hono<{ Bindings: Env }>();
 
 // Skip CORS for WebSocket upgrades (101 responses are immutable)
@@ -53,12 +55,13 @@ app.get("/api/resolve/:slug", async (c) => {
 app.put("/api/towers/:id/alias", async (c) => {
 	const towerId = c.req.param("id");
 	const body = await c.req.json<{ alias: string }>();
-	const alias = body.alias?.trim().toLowerCase();
+	const alias = body.alias?.trim();
 
-	if (!alias || !/^[a-z0-9_-]+$/.test(alias)) {
+	if (!alias || !ALIAS_PATTERN.test(alias)) {
 		return c.json(
 			{
-				error: "Alias must be lowercase alphanumeric, hyphens, or underscores",
+				error:
+					"Alias must use letters, numbers, spaces, or standard English punctuation",
 			},
 			400,
 		);

@@ -10,8 +10,17 @@ type HistoryMode = "none" | "push" | "replace";
 
 function getSlugFromPath(): string {
 	const path = window.location.pathname;
-	const match = path.match(/^\/([a-zA-Z0-9_-]+)$/);
-	return match ? match[1] : "";
+	if (path === "/") return "";
+	if (!path.startsWith("/")) return "";
+
+	const slug = path.slice(1);
+	if (!slug || slug.includes("/")) return "";
+
+	try {
+		return decodeURIComponent(slug);
+	} catch {
+		return "";
+	}
 }
 
 function updateHistory(path: string, mode: HistoryMode) {
