@@ -326,6 +326,7 @@ export class TowerSim {
 		let carrierInfo:
 			| {
 					carrierId: number;
+					column: number;
 					carrierMode: 0 | 1 | 2;
 					topServedFloor: number;
 					bottomServedFloor: number;
@@ -359,6 +360,7 @@ export class TowerSim {
 				}
 				carrierInfo = {
 					carrierId: carrier.carrierId,
+					column: col,
 					carrierMode: carrier.carrierMode,
 					topServedFloor: carrier.topServedFloor,
 					bottomServedFloor: carrier.bottomServedFloor,

@@ -27,6 +27,7 @@ export interface CellInfoData {
 	};
 	carrierInfo?: {
 		carrierId: number;
+		column: number;
 		carrierMode: 0 | 1 | 2;
 		topServedFloor: number;
 		bottomServedFloor: number;
