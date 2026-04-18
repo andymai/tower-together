@@ -321,6 +321,7 @@ export function dispatchCommercialVenueVisit(
 		tripState?: number;
 		unavailableState?: number;
 		skipPenaltyOnUnavailable?: boolean;
+		advanceBeforeSameFloorDwell?: boolean;
 		onVenueReserved?: () => void;
 	},
 ): boolean {
@@ -363,6 +364,10 @@ export function dispatchCommercialVenueVisit(
 	rebaseSimElapsedFromClock(sim, time);
 	options.onVenueReserved?.();
 	if (venue.floor === sim.floorAnchor) {
+		if (options.advanceBeforeSameFloorDwell) {
+			// Binary: resolve_sim_route(floor→floor) returns 3 → advanceSimTripCounters
+			advanceSimTripCounters(sim);
+		}
 		beginCommercialVenueDwell(sim, venue.floor, options.returnState, time);
 	} else {
 		beginCommercialVenueTrip(

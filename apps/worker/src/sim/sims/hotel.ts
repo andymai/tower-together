@@ -38,6 +38,7 @@ import {
 	STATE_TRANSITION,
 	STATE_VENUE_TRIP,
 } from "./states";
+import { advanceSimTripCounters } from "./trip-counters";
 
 /**
  * Binary's `subtype_index` (sim record byte 1) = floor-local ROOM rank in
@@ -291,6 +292,7 @@ export function processHotelSim(
 				returnState: STATE_ACTIVE,
 				tripState: STATE_ACTIVE_TRANSIT,
 				skipPenaltyOnUnavailable: true,
+				advanceBeforeSameFloorDwell: true,
 				onVenueReserved: () => {
 					object.activationTickCount = Math.min(
 						ACTIVATION_TICK_CAP,
@@ -301,8 +303,12 @@ export function processHotelSim(
 			if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
 				// Hotel same-floor venue: binary writes state=0x22, not 0x62.
 				// service_duration-gated exit via STATE_VENUE_TRIP handler.
+				// lastDemandTick reset here: beginCommercialVenueDwell set it, but
+				// advanceBeforeSameFloorDwell already closed the trip, so we must not
+				// accumulate more elapsed during the dwell (binary leaves it at -1).
 				sim.stateCode = STATE_VENUE_TRIP;
 				sim.queueTick = time.dayTick;
+				sim.lastDemandTick = -1;
 				return;
 			}
 			if (!dispatched) {
@@ -412,6 +418,8 @@ export function processHotelSim(
 			// STATE_CHECKOUT_QUEUE (binary 0x01 → immediate 0x04).
 			if (time.dayTick - sim.queueTick < 64) return;
 			if (sim.selectedFloor === sim.floorAnchor) {
+				// Binary: release_venue_slot → resolve(floor→floor)=3 → advanceSimTripCounters
+				advanceSimTripCounters(sim);
 				sim.stateCode = STATE_CHECKOUT_QUEUE;
 				sim.venueReturnState = 0;
 				return;

@@ -27,6 +27,7 @@ import {
 	STATE_MORNING_GATE,
 	STATE_PARKED,
 } from "./states";
+import { resetSimTripCounters } from "./trip-counters";
 
 function makeSim(
 	floorAnchor: number,
@@ -315,6 +316,10 @@ export function resetSimRuntimeState(world: WorldState): void {
 		) {
 			// Spec TIME.md checkpoint 2500: family 6/7/10/12 → 0x20 (MORNING_GATE).
 			sim.stateCode = STATE_MORNING_GATE;
+			// Binary reset_sim_runtime_state clears trip counters for commercial sims daily.
+			if (COMMERCIAL_FAMILIES.has(sim.familyCode)) {
+				resetSimTripCounters(sim);
+			}
 		} else if (
 			sim.familyCode === FAMILY_RECYCLING_CENTER_UPPER ||
 			sim.familyCode === FAMILY_SECURITY
