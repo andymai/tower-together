@@ -22,6 +22,12 @@ const STATE_LABELS: Record<number, string> = {
 	39: "Parked",
 };
 
+const ROUTE_MODE_LABELS: Record<number, string> = {
+	0: "Idle",
+	1: "Segment",
+	2: "Carrier",
+};
+
 const STRESS_VALUE: Record<SimStateData["stressLevel"], number> = {
 	low: 0,
 	medium: 1,
@@ -61,7 +67,8 @@ export const GameInspectPanel = memo(function GameInspectPanel({
 				{sims.map((e) => (
 					<div key={e.id} style={styles.debugRow}>
 						<span>
-							{e.id.slice(0, 6)} · {stateLabel(e.stateCode)}
+							{e.id.slice(0, 6)} · {stateLabel(e.stateCode)} ·{" "}
+							{ROUTE_MODE_LABELS[e.routeMode]}
 						</span>
 						<span style={stressColorStyle[e.stressLevel]}>{e.stressLevel}</span>
 					</div>
