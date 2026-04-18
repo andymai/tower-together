@@ -56,8 +56,13 @@ function hashSimVariant(id: string, modulus: number): number {
 
 type RoomTextureConfig = {
 	files: string[];
+	dirtyFiles?: string[];
 	heightTiles?: number;
 };
+
+const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
+const HOTEL_TURNOVER_STATUS_MIN = 0x28;
+const HOTEL_TURNOVER_STATUS_MAX = 0x30;
 
 const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	office: {
@@ -85,12 +90,27 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	retail: { files: ["retail.svg"] },
 	hotelSingle: {
 		files: ["hotelSingle.svg", "hotelSingle1.svg", "hotelSingle2.svg"],
+		dirtyFiles: [
+			"hotelSingleDirty.svg",
+			"hotelSingle1Dirty.svg",
+			"hotelSingle2Dirty.svg",
+		],
 	},
 	hotelTwin: {
 		files: ["hotelTwin.svg", "hotelTwin1.svg", "hotelTwin2.svg"],
+		dirtyFiles: [
+			"hotelTwinDirty.svg",
+			"hotelTwin1Dirty.svg",
+			"hotelTwin2Dirty.svg",
+		],
 	},
 	hotelSuite: {
 		files: ["hotelSuite.svg", "hotelSuite1.svg", "hotelSuite2.svg"],
+		dirtyFiles: [
+			"hotelSuiteDirty.svg",
+			"hotelSuite1Dirty.svg",
+			"hotelSuite2Dirty.svg",
+		],
 	},
 	cinema: { files: ["cinema.svg"], heightTiles: 2 },
 	partyHall: { files: ["partyHall.svg"], heightTiles: 2 },
@@ -552,10 +572,23 @@ export class GameScene extends Phaser.Scene {
 		tileType: string,
 		x: number,
 		y: number,
+		dirty = false,
 	): string | null {
 		const config = ROOM_TEXTURES[tileType];
 		if (!config) return null;
-		return `room_${tileType}_${this.getRoomVariantIndex(tileType, x, y)}`;
+		const idx = this.getRoomVariantIndex(tileType, x, y);
+		if (dirty && config.dirtyFiles && idx < config.dirtyFiles.length) {
+			return `room_${tileType}_dirty_${idx}`;
+		}
+		return `room_${tileType}_${idx}`;
+	}
+
+	private isHotelTurnoverStatus(status: number | undefined): boolean {
+		return (
+			status !== undefined &&
+			status >= HOTEL_TURNOVER_STATUS_MIN &&
+			status <= HOTEL_TURNOVER_STATUS_MAX
+		);
 	}
 
 	private isRecyclingCenterLowerCovered(x: number, y: number): boolean {
@@ -579,10 +612,18 @@ export class GameScene extends Phaser.Scene {
 		const s = GameScene.ROOM_SVG_SCALE;
 		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
 			const heightTiles = config?.heightTiles ?? 1;
+			const w = (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s;
+			const h = TILE_HEIGHT * heightTiles * s;
 			for (const [index, file] of config?.files?.entries() ?? []) {
 				this.load.svg(`room_${room}_${index}`, `/rooms/${file}`, {
-					width: (TILE_WIDTHS[room] ?? 1) * TILE_WIDTH * s,
-					height: TILE_HEIGHT * heightTiles * s,
+					width: w,
+					height: h,
+				});
+			}
+			for (const [index, file] of config?.dirtyFiles?.entries() ?? []) {
+				this.load.svg(`room_${room}_dirty_${index}`, `/rooms/${file}`, {
+					width: w,
+					height: h,
 				});
 			}
 		}
@@ -678,7 +719,10 @@ export class GameScene extends Phaser.Scene {
 				continue;
 			}
 
-			const texKey = this.getRoomTextureKey(tileType, x, y);
+			const isHotelTile = HOTEL_TILE_TYPES.has(tileType);
+			const isDirty =
+				isHotelTile && this.isHotelTurnoverStatus(this.unitStatusMap.get(key));
+			const texKey = this.getRoomTextureKey(tileType, x, y, isDirty);
 			const heightTiles = ROOM_TEXTURES[tileType]?.heightTiles ?? 1;
 			if (
 				this.roomTexturesLoaded &&
@@ -712,14 +756,10 @@ export class GameScene extends Phaser.Scene {
 			// "For Rent" / "For Sale" banner on inactive facilities
 			const evalFlag = this.evalActiveFlagMap.get(key);
 			const unitStatus = this.unitStatusMap.get(key);
-			const isHotel =
-				tileType === "hotelSingle" ||
-				tileType === "hotelTwin" ||
-				tileType === "hotelSuite";
 			let showInactiveBanner: boolean;
 			if (tileType === "office") {
 				showInactiveBanner = (unitStatus ?? 0) > 0x0f;
-			} else if (isHotel) {
+			} else if (isHotelTile) {
 				showInactiveBanner = false;
 			} else if (tileType === "condo") {
 				showInactiveBanner = (unitStatus ?? 0) > 0x17;
