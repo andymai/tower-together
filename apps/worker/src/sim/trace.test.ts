@@ -74,6 +74,9 @@ interface TraceEntry {
 		string,
 		{
 			count: number;
+			stress_avg?: number;
+			stress_min?: number;
+			stress_max?: number;
 			states: Record<string, number>;
 		}
 	>;
@@ -292,7 +295,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	//   - calendar_phase       (global 12-day phase counter; not modeled in TimeState)
 	//   - metro_floor          (metro station floor; only metroPlaced bit is tracked)
 	//   - population           (onsite occupancy roll-up; separate from sim count)
-	//   - stress_avg/min/max   (per-sim stress aggregated by family)
 	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
 	it.concurrent("matches full reference trace", () => {
 		if (simEntries.length === 0) return;
@@ -346,9 +348,10 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 					traceSimTotal(entry),
 				);
 
-				// Per-family counts and state counts
+				// Per-family counts, state counts, and positive-stress values
 				const byFamily = new Map<number, number>();
 				const byFamilyState = new Map<number, Map<number, number>>();
+				const byFamilyStress = new Map<number, number[]>();
 				for (const sm of simArray) {
 					byFamily.set(sm.familyCode, (byFamily.get(sm.familyCode) ?? 0) + 1);
 					let m = byFamilyState.get(sm.familyCode);
@@ -357,6 +360,16 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 						byFamilyState.set(sm.familyCode, m);
 					}
 					m.set(sm.stateCode, (m.get(sm.stateCode) ?? 0) + 1);
+					// Per-sim stress = accumulatedTicks / tripCount (truncated), 0 if no trips.
+					const stress =
+						sm.tripCount > 0
+							? Math.trunc(sm.accumulatedTicks / sm.tripCount)
+							: 0;
+					if (stress > 0) {
+						const list = byFamilyStress.get(sm.familyCode) ?? [];
+						list.push(stress);
+						byFamilyStress.set(sm.familyCode, list);
+					}
 				}
 
 				for (const [key, refGroup] of Object.entries(entry.sims)) {
@@ -373,6 +386,33 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 						ourObj,
 						`family ${key} state counts mismatch at ${ctx}`,
 					).toEqual(refGroup.states);
+
+					// Stress aggregates: computed over sims with stress > 0 only,
+					// to match the Python emulator's dump_tick_state.
+					if (
+						refGroup.stress_avg !== undefined &&
+						refGroup.stress_min !== undefined &&
+						refGroup.stress_max !== undefined
+					) {
+						const stresses = byFamilyStress.get(familyCode) ?? [];
+						const avg =
+							stresses.length > 0
+								? Math.trunc(
+										stresses.reduce((a, b) => a + b, 0) / stresses.length,
+									)
+								: 0;
+						const min = stresses.length > 0 ? Math.min(...stresses) : 0;
+						const max = stresses.length > 0 ? Math.max(...stresses) : 0;
+						expect(avg, `family ${key} stress_avg mismatch at ${ctx}`).toBe(
+							refGroup.stress_avg,
+						);
+						expect(min, `family ${key} stress_min mismatch at ${ctx}`).toBe(
+							refGroup.stress_min,
+						);
+						expect(max, `family ${key} stress_max mismatch at ${ctx}`).toBe(
+							refGroup.stress_max,
+						);
+					}
 				}
 			}
 
