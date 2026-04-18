@@ -202,24 +202,18 @@ export function recomputeObjectOperationalStatus(
 	];
 	object.evalScore = score;
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
-	if (object.objectTypeCode === FAMILY_OFFICE) {
-		if (object.evalLevel >= 1) {
-			object.occupiableFlag = 1;
-		} else {
-			refreshOccupiedFlagAndTripCounters(world, sim, object);
-		}
-	} else if (object.occupiableFlag === 0 && object.evalLevel > 0) {
-		// Binary recompute_object_operational_status: hotels with unitStatus > 0x27
-		// (dormant/checkout bands) do NOT re-acquire occupiableFlag here — they
-		// stay at 0 until their unitStatus drops below 0x28.
+	// Binary recompute_object_operational_status tail:
+	//   if (occupiableFlag == 0 && evalLevel != 0) occupiableFlag = 1
+	// Hotels (families 3/4/5) gate the set on unitStatus <= 0x27 — above that
+	// band the room must stay non-occupiable until the dormant phase clears.
+	// No call to refresh_occupied_flag_and_trip_counters here for any family.
+	if (object.occupiableFlag === 0 && object.evalLevel > 0) {
 		if (
 			!HOTEL_FAMILIES.has(object.objectTypeCode) ||
 			object.unitStatus <= 0x27
 		) {
 			object.occupiableFlag = 1;
 		}
-	} else if (object.objectTypeCode === FAMILY_CONDO && object.evalLevel === 0) {
-		refreshOccupiedFlagAndTripCounters(world, sim, object);
 	}
 }
 
@@ -228,23 +222,33 @@ export function refreshOccupiedFlagAndTripCounters(
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
-	const y = GRID_HEIGHT - 1 - sim.floorAnchor;
-	for (const [key, candidate] of Object.entries(world.placedObjects)) {
-		if (candidate === object) continue;
-		if (candidate.objectTypeCode !== object.objectTypeCode) continue;
-		const [, cy] = key.split(",").map(Number);
-		if (cy !== y) continue;
-		if (candidate.evalLevel !== 2) continue;
-		object.evalLevel = 1;
+	// Binary refresh_occupied_flag_and_trip_counters @ 1138:0f79:
+	//   Branch A: evalLevel >= 1 (not 0xff) → occupiableFlag=1, reset trip counters
+	//   Branch B: evalLevel == 0 with A-rated sibling on same floor+family
+	//             → downgrade both to 1, occupiableFlag=1 both, reset trip counters
+	//   Branch C: evalLevel == 0 with no donor → occupiableFlag=0, NO reset
+	if (object.evalLevel !== 0xff && object.evalLevel >= 1) {
 		object.occupiableFlag = 1;
-		candidate.evalLevel = 1;
-		candidate.occupiableFlag = 1;
-
+		resetFacilitySimTripCounters(world, sim);
 		return;
 	}
-
-	object.occupiableFlag = 0;
-	resetFacilitySimTripCounters(world, sim);
+	if (object.evalLevel === 0) {
+		const y = GRID_HEIGHT - 1 - sim.floorAnchor;
+		for (const [key, candidate] of Object.entries(world.placedObjects)) {
+			if (candidate === object) continue;
+			if (candidate.objectTypeCode !== object.objectTypeCode) continue;
+			const [, cy] = key.split(",").map(Number);
+			if (cy !== y) continue;
+			if (candidate.evalLevel !== 2) continue;
+			candidate.evalLevel = 1;
+			candidate.occupiableFlag = 1;
+			object.evalLevel = 1;
+			object.occupiableFlag = 1;
+			resetFacilitySimTripCounters(world, sim);
+			return;
+		}
+		object.occupiableFlag = 0;
+	}
 }
 
 function simStressLevel(
