@@ -132,7 +132,7 @@ export function getQueuedSimLayout(
 	const gridX =
 		elevatorColumn === sim.homeColumn && !hasSelectedFloorColumns
 			? fallbackX
-			: ascending
+			: !ascending
 				? shaftRightEdge +
 					QUEUE_START_OFFSET +
 					SIM_QUEUE_START_GAP +
