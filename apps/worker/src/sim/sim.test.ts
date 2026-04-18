@@ -1827,7 +1827,7 @@ describe("selectBestRouteCandidate", () => {
 			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
-			lastDemandTick: 0,
+			lastDemandTick: -1,
 			tripCount: 0,
 			accumulatedTicks: 0,
 			targetRoomFloor: -1,
@@ -1884,7 +1884,7 @@ describe("selectBestRouteCandidate", () => {
 			elapsedTicks: 80,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
-			lastDemandTick: 0,
+			lastDemandTick: -1,
 			tripCount: 0,
 			accumulatedTicks: 0,
 			targetRoomFloor: -1,
@@ -1974,7 +1974,7 @@ describe("car state machine", () => {
 				elapsedTicks: 0,
 				routeRetryDelay: 0,
 				transitTicksRemaining: 0,
-				lastDemandTick: 0,
+				lastDemandTick: -1,
 				tripCount: 0,
 				accumulatedTicks: 0,
 				targetRoomFloor: -1,
@@ -2029,7 +2029,7 @@ describe("car state machine", () => {
 				elapsedTicks: 0,
 				routeRetryDelay: 0,
 				transitTicksRemaining: 0,
-				lastDemandTick: 0,
+				lastDemandTick: -1,
 				tripCount: 0,
 				accumulatedTicks: 0,
 				targetRoomFloor: -1,
@@ -2702,7 +2702,7 @@ describe("Phase 4 runtime sims", () => {
 
 		expect(sim.tripCount).toBe(1);
 		expect(sim.accumulatedTicks).toBe(15);
-		expect(sim.lastDemandTick).toBe(0);
+		expect(sim.lastDemandTick).toBe(-1);
 	});
 
 	it("keeps disconnected offices for rent instead of spawning commuters", () => {
@@ -2967,7 +2967,7 @@ describe("Phase 4 runtime sims", () => {
 			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
-			lastDemandTick: 0,
+			lastDemandTick: -1,
 			tripCount: 0,
 			accumulatedTicks: 0,
 			targetRoomFloor: -1,
@@ -3009,7 +3009,7 @@ describe("Phase 4 runtime sims", () => {
 			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
-			lastDemandTick: 0,
+			lastDemandTick: -1,
 			tripCount: 0,
 			accumulatedTicks: 0,
 			targetRoomFloor: -1,
@@ -3223,7 +3223,7 @@ describe("medical center", () => {
 			elapsedTicks: 0,
 			routeRetryDelay: 0,
 			transitTicksRemaining: 0,
-			lastDemandTick: 0,
+			lastDemandTick: -1,
 			tripCount: 0,
 			accumulatedTicks: 0,
 			targetRoomFloor: -1,

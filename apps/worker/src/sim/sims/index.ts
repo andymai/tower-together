@@ -74,6 +74,7 @@ import {
 	STATE_EVAL_RETURN,
 	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
+	STATE_TRANSIT_FLAG,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP,
 	STATE_VENUE_TRIP_TRANSIT,
@@ -246,8 +247,7 @@ function completeSimTransitEvent(
 ): void {
 	// Binary: the arrival path invokes the family dispatch handler directly
 	// (dispatch_carrier_car_arrivals → dispatch_destination_queue_entries),
-	// bypassing dispatch_sim_behavior. No rebase happens at arrival. The only
-	// rebase for a carrier leg fires at boarding (onCarrierBoarding). For
+	// bypassing dispatch_sim_behavior. No rebase happens at arrival. For
 	// segment legs, the stair/escalator penalty applied at resolve time IS
 	// the trip's stress contribution. Trip-count is still advanced here to
 	// mirror the binary's finalize_runtime_route_state → advance_sim_trip_counters
@@ -412,7 +412,7 @@ function maybeFireOfficeWaitTimeout(
 	if (sim.familyCode !== FAMILY_OFFICE) return;
 	if (sim.route.mode !== "carrier") return;
 	if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
-	if (sim.lastDemandTick <= 0) return;
+	if (sim.lastDemandTick < 0) return;
 	// Day-tick wraps 0..DAY_TICK_MAX-1; the binary uses 16-bit unsigned
 	// subtraction so a stamp from before rollover compares correctly.
 	const elapsed =
@@ -468,6 +468,7 @@ export function advanceSimRefreshStride(
 			sim.familyCode === FAMILY_RETAIL;
 		if (
 			!isCommercial &&
+			(sim.stateCode & STATE_TRANSIT_FLAG) === 0 &&
 			(sim.route.mode === "idle" || sim.route.mode === "queued")
 		) {
 			rebaseSimElapsedFromClock(sim, time);

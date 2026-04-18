@@ -335,7 +335,7 @@ export function processOfficeSim(
 		if (
 			state === STATE_VENUE_TRIP &&
 			!isFakeLunch &&
-			time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS
+			time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
 		) {
 			return;
 		}
@@ -355,6 +355,10 @@ export function processOfficeSim(
 			return;
 		}
 		sim.destinationFloor = sim.floorAnchor;
+		// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
+		// was just cleared), then no further rebase until next state handler invocation.
+		// Clear here so onCarrierBoarding's rebase is a no-op for this return leg.
+		sim.lastDemandTick = -1;
 		if (routeResult === 3) {
 			finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
 		} else {
@@ -565,6 +569,15 @@ export function handleOfficeSimArrival(
 	// Arrival while in ACTIVE_TRANSIT (outbound lunch trip, real or fake) —
 	// binary promotes to state 0x22 (STATE_VENUE_TRIP) which gates on daypart
 	// before releasing the venue and routing home.
+	// Arrival while in ACTIVE_TRANSIT (outbound lunch trip, real or fake) —
+	// binary promotes to state 0x22 (STATE_VENUE_TRIP). For real venue visits
+	// (selectedFloor != LOBBY_FLOOR), queueTick records the arrival time so the
+	// 60-tick dwell gate in processOfficeSim can block correctly. We use queueTick
+	// rather than lastDemandTick because the stride rebase clears lastDemandTick
+	// to -1 on every call, which would break the dwell gate.
+	// elapsedTicks is NOT accumulated here; the outbound stair penalty was already
+	// committed by advanceSimTripCounters via completeSimTransitEvent. Setting
+	// lastDemandTick would add spurious dwell ticks to the return trip's elapsed.
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
@@ -573,7 +586,7 @@ export function handleOfficeSimArrival(
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.elapsedTicks = 0;
-		sim.lastDemandTick = time.dayTick;
+		sim.queueTick = time.dayTick;
 		return;
 	}
 

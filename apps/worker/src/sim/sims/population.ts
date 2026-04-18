@@ -52,7 +52,7 @@ function makeSim(
 		elapsedTicks: 0,
 		routeRetryDelay: 0,
 		transitTicksRemaining: 0,
-		lastDemandTick: 0,
+		lastDemandTick: -1,
 		tripCount: 0,
 		accumulatedTicks: 0,
 		targetRoomFloor: -1,
