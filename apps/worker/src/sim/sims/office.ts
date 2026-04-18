@@ -19,6 +19,7 @@ import {
 } from "./index";
 import { tryStartMedicalTrip } from "./medical";
 import {
+	COMMERCIAL_DWELL_STATE,
 	COMMERCIAL_VENUE_DWELL_TICKS,
 	LOBBY_FLOOR,
 	NO_EVAL_ENTITY,
@@ -390,6 +391,16 @@ export function processOfficeSim(
 			tripState: STATE_ACTIVE_TRANSIT,
 			skipPenaltyOnUnavailable: true,
 		});
+		if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
+			// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
+			// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed.
+			// dispatchCommercialVenueVisit's beginCommercialVenueDwell writes 0x62;
+			// switch to 0x22 + queueTick so the STATE_VENUE_TRIP handler's 60-tick
+			// dwell gate matches the binary's service_duration wait.
+			sim.stateCode = STATE_VENUE_TRIP;
+			sim.queueTick = time.dayTick;
+			return;
+		}
 		if (!dispatched) {
 			// Spec §No Fast Food Available: route to lobby for fake lunch round-trip.
 			// Worker travels to lobby, dwells, returns to office — never gets stuck.
