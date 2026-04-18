@@ -720,7 +720,7 @@ export class GameScene extends Phaser.Scene {
 			if (tileType === "office") {
 				showInactiveBanner = (unitStatus ?? 0) > 0x0f;
 			} else if (isHotel) {
-				showInactiveBanner = (unitStatus ?? 0) >= 0x18;
+				showInactiveBanner = false;
 			} else if (tileType === "condo") {
 				showInactiveBanner = (unitStatus ?? 0) > 0x17;
 			} else {
