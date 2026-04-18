@@ -1,3 +1,5 @@
+import type { SimCommand } from "../../worker/src/sim/commands";
+import type { SimSnapshot } from "../../worker/src/sim/index";
 import {
 	getTileStarRequirement as getWorkerTileStarRequirement,
 	STARTING_CASH as WORKER_STARTING_CASH,
@@ -112,32 +114,46 @@ export type CarrierCarStateData = {
 	doorWaitCounter: number;
 };
 
+export type ResolvedInputBatch = {
+	playerId: string;
+	clientSeq: number;
+	inputs: SimCommand[];
+	rejectedReason?: string;
+};
+
 export type ServerMessage =
 	| {
 			type: "init_state";
 			towerId: string;
 			name: string;
 			simTime: number;
+			snapshot: SimSnapshot;
+			speedMultiplier: 1 | 3 | 10;
+			freeBuild: boolean;
 			cash: number;
 			population: number;
 			starCount: number;
 			width: number;
 			height: number;
-			cells: CellData[];
-			sims: SimStateData[];
-			carriers: CarrierCarStateData[];
 	  }
-	| { type: "state_patch"; cells: CellData[] }
-	| { type: "sim_update"; simTime: number; sims: SimStateData[] }
-	| { type: "carrier_update"; simTime: number; carriers: CarrierCarStateData[] }
 	| {
-			type: "command_result";
-			accepted: boolean;
-			patch?: { cells: CellData[] };
-			reason?: string;
+			type: "authoritative_batch";
+			serverTick: number;
+			batches: ResolvedInputBatch[];
 	  }
 	| { type: "presence_update"; playerCount: number }
-	| { type: "time_update"; simTime: number }
+	| {
+			type: "checkpoint";
+			serverTick: number;
+			snapshot: SimSnapshot;
+			speedMultiplier: 1 | 3 | 10;
+			freeBuild: boolean;
+	  }
+	| {
+			type: "session_settings";
+			speedMultiplier: 1 | 3 | 10;
+			freeBuild: boolean;
+	  }
 	| {
 			type: "economy_update";
 			cash: number;
@@ -181,8 +197,7 @@ export type ServerMessage =
 
 export type ClientMessage =
 	| { type: "join_tower"; playerId: string; displayName: string }
-	| { type: "place_tile"; x: number; y: number; tileType: string }
-	| { type: "remove_tile"; x: number; y: number }
+	| { type: "input_batch"; clientSeq: number; inputs: SimCommand[] }
 	| { type: "ping" }
 	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
 	| { type: "set_star_count"; starCount: 1 | 2 | 3 | 4 | 5 | 6 }

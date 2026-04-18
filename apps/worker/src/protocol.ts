@@ -36,15 +36,6 @@ export function isSessionMessage(msg: ClientMessage): msg is SessionMessage {
 
 export function toSimCommand(msg: ClientMessage): SimCommand | null {
 	switch (msg.type) {
-		case "place_tile":
-			return {
-				type: "place_tile",
-				x: msg.x,
-				y: msg.y,
-				tileType: msg.tileType,
-			};
-		case "remove_tile":
-			return { type: "remove_tile", x: msg.x, y: msg.y };
 		case "prompt_response":
 			return {
 				type: "prompt_response",
@@ -62,6 +53,7 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 			return { type: "add_elevator_car", x: msg.x, y: msg.y };
 		case "remove_elevator_car":
 			return { type: "remove_elevator_car", x: msg.x };
+		case "input_batch":
 		case "join_tower":
 		case "ping":
 		case "set_speed":

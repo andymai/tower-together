@@ -1,0 +1,441 @@
+import type { SimCommand } from "../../../worker/src/sim/commands";
+import { TowerLockstepSession } from "../lib/lockstepSession";
+import type {
+	CarrierCarStateData,
+	ClientMessage,
+	ConnectionStatus,
+	ServerMessage,
+	SimStateData,
+} from "../types";
+import type { ActivePrompt, CellInfoData } from "./gameScreenTypes";
+
+export interface TowerSessionScene {
+	applyInitState: (
+		cells: Array<{
+			x: number;
+			y: number;
+			tileType: string;
+			isAnchor: boolean;
+			isOverlay?: boolean;
+			evalActiveFlag?: number;
+			unitStatus?: number;
+			evalLevel?: number;
+			evalScore?: number;
+		}>,
+		simTime: number,
+		sims?: SimStateData[],
+		carriers?: CarrierCarStateData[],
+	) => void;
+	applyPatch: (
+		cells: Array<{
+			x: number;
+			y: number;
+			tileType: string;
+			isAnchor: boolean;
+			isOverlay?: boolean;
+			evalActiveFlag?: number;
+			unitStatus?: number;
+			evalLevel?: number;
+			evalScore?: number;
+		}>,
+	) => void;
+	applySims: (simTime: number, sims: SimStateData[]) => void;
+	applyCarriers: (simTime: number, carriers: CarrierCarStateData[]) => void;
+	setPresentationClock: (
+		simTime: number,
+		receivedAtMs: number,
+		tickIntervalMs?: number,
+	) => void;
+	computeShiftFill: (x: number, y: number) => Array<{ x: number; y: number }>;
+	setLastPlaced: (x: number, y: number, tileType: string) => void;
+	hasElevatorOverlayAt: (x: number, y: number) => boolean;
+}
+
+export interface TowerSessionSocket {
+	send: (msg: ClientMessage) => void;
+	reconnect: () => void;
+	onMessage: (listener: (msg: ServerMessage) => void) => () => void;
+	onStatus: (listener: (status: ConnectionStatus) => void) => () => void;
+}
+
+export interface TowerSessionState {
+	connectionStatus: ConnectionStatus;
+	simTime: number;
+	cash: number;
+	population: number;
+	starCount: number;
+	playerCount: number;
+	towerName: string;
+	sims: SimStateData[];
+	carriers: CarrierCarStateData[];
+	speedMultiplier: 1 | 3 | 10;
+	freeBuild: boolean;
+	activePrompt: ActivePrompt | null;
+	inspectedCell: CellInfoData | null;
+}
+
+export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
+	connectionStatus: "connecting",
+	simTime: 0,
+	cash: 0,
+	population: 0,
+	starCount: 1,
+	playerCount: 0,
+	towerName: "",
+	sims: [],
+	carriers: [],
+	speedMultiplier: 1,
+	freeBuild: false,
+	activePrompt: null,
+	inspectedCell: null,
+};
+
+interface TowerSessionControllerOptions {
+	playerId: string;
+	displayName: string;
+	socket: TowerSessionSocket;
+	getScene: () => TowerSessionScene | null;
+	addToast: (message: string, variant?: "error" | "info") => void;
+	onStateChange: (state: TowerSessionState) => void;
+}
+
+export class TowerSessionController {
+	private readonly playerId: string;
+	private readonly displayName: string;
+	private readonly socket: TowerSessionSocket;
+	private readonly getScene: () => TowerSessionScene | null;
+	private readonly addToast: (
+		message: string,
+		variant?: "error" | "info",
+	) => void;
+	private readonly onStateChange: (state: TowerSessionState) => void;
+	private readonly lockstep: TowerLockstepSession;
+	private clientSeq = 0;
+	private state: TowerSessionState = INITIAL_TOWER_SESSION_STATE;
+	private unsubscribeMessage: (() => void) | null = null;
+	private unsubscribeStatus: (() => void) | null = null;
+
+	constructor({
+		playerId,
+		displayName,
+		socket,
+		getScene,
+		addToast,
+		onStateChange,
+	}: TowerSessionControllerOptions) {
+		this.playerId = playerId;
+		this.displayName = displayName;
+		this.socket = socket;
+		this.getScene = getScene;
+		this.addToast = addToast;
+		this.onStateChange = onStateChange;
+		this.lockstep = new TowerLockstepSession({
+			playerId,
+			onReset: (state, timing) => {
+				this.patchState({
+					simTime: state.simTime,
+					cash: state.cash,
+					population: state.population,
+					starCount: state.starCount,
+					sims: state.sims,
+					carriers: state.carriers,
+				});
+				this.getScene()?.applyInitState(
+					state.cells,
+					state.simTime,
+					state.sims,
+					state.carriers,
+				);
+				this.getScene()?.setPresentationClock(
+					state.simTime,
+					timing.receivedAtMs,
+				);
+			},
+			onTick: (state) => {
+				this.patchState({
+					simTime: state.simTime,
+					cash: state.cash,
+					population: state.population,
+					starCount: state.starCount,
+					sims: state.sims,
+					carriers: state.carriers,
+				});
+				if (state.cellPatches.length > 0) {
+					this.getScene()?.applyPatch(state.cellPatches);
+				}
+				this.getScene()?.applySims(state.simTime, state.sims);
+				this.getScene()?.applyCarriers(state.simTime, state.carriers);
+				this.getScene()?.setPresentationClock(
+					state.simTime,
+					state.receivedAtMs,
+					state.tickIntervalMs,
+				);
+			},
+		});
+	}
+
+	start(): void {
+		this.unsubscribeMessage = this.socket.onMessage((msg) =>
+			this.handleMessage(msg),
+		);
+		this.unsubscribeStatus = this.socket.onStatus((status) =>
+			this.handleStatus(status),
+		);
+	}
+
+	dispose(): void {
+		this.unsubscribeMessage?.();
+		this.unsubscribeStatus?.();
+		this.unsubscribeMessage = null;
+		this.unsubscribeStatus = null;
+		this.lockstep.dispose();
+	}
+
+	getState(): TowerSessionState {
+		return this.state;
+	}
+
+	setTowerName(value: string): void {
+		this.patchState({ towerName: value });
+	}
+
+	setInspectedCell(
+		updater:
+			| CellInfoData
+			| null
+			| ((previous: CellInfoData | null) => CellInfoData | null),
+	): void {
+		this.patchState({
+			inspectedCell:
+				typeof updater === "function"
+					? updater(this.state.inspectedCell)
+					: updater,
+		});
+	}
+
+	sendTileCommand(
+		x: number,
+		y: number,
+		tileType: string,
+		shift: boolean,
+	): void {
+		const inputs: SimCommand[] = [];
+		if (tileType === "empty") {
+			inputs.push({ type: "remove_tile", x, y });
+		} else if (shift) {
+			const fills = this.getScene()?.computeShiftFill(x, y) ?? [];
+			for (const pos of fills) {
+				inputs.push({
+					type: "place_tile",
+					x: pos.x,
+					y: pos.y,
+					tileType,
+				});
+			}
+			if (fills.length > 0) {
+				const last = fills[fills.length - 1];
+				this.getScene()?.setLastPlaced(last.x, last.y, tileType);
+			}
+		} else if (
+			tileType === "elevator" &&
+			this.getScene()?.hasElevatorOverlayAt(x, y)
+		) {
+			inputs.push({ type: "add_elevator_car", x, y });
+		} else if (tileType === "recyclingCenter") {
+			inputs.push({
+				type: "place_tile",
+				x,
+				y,
+				tileType: "recyclingCenter",
+			});
+			this.getScene()?.setLastPlaced(x, y, tileType);
+		} else {
+			inputs.push({ type: "place_tile", x, y, tileType });
+			this.getScene()?.setLastPlaced(x, y, tileType);
+		}
+		this.sendInputBatch(inputs);
+	}
+
+	inspectCell(x: number, y: number): void {
+		this.socket.send({ type: "query_cell", x, y });
+	}
+
+	respondToPrompt(accepted: boolean): void {
+		if (!this.state.activePrompt) {
+			return;
+		}
+		this.sendInputBatch([
+			{
+				type: "prompt_response",
+				promptId: this.state.activePrompt.promptId,
+				accepted,
+			},
+		]);
+		this.patchState({ activePrompt: null });
+	}
+
+	setSpeedMultiplier(multiplier: 1 | 3 | 10): void {
+		this.patchState({ speedMultiplier: multiplier });
+		this.lockstep.updateSettings({ speedMultiplier: multiplier });
+		this.socket.send({
+			type: "set_speed",
+			multiplier,
+		});
+	}
+
+	setStarCount(starCount: 1 | 2 | 3 | 4 | 5 | 6): void {
+		this.patchState({ starCount });
+		this.lockstep.setStarCount(starCount);
+		this.socket.send({
+			type: "set_star_count",
+			starCount,
+		});
+	}
+
+	setFreeBuild(enabled: boolean): void {
+		this.patchState({ freeBuild: enabled });
+		this.lockstep.updateSettings({ freeBuild: enabled });
+		this.socket.send({ type: "set_free_build", enabled });
+	}
+
+	setRentLevel(x: number, y: number, rentLevel: number): void {
+		this.sendInputBatch([{ type: "set_rent_level", x, y, rentLevel }]);
+	}
+
+	addElevatorCar(x: number, y: number): void {
+		this.sendInputBatch([{ type: "add_elevator_car", x, y }]);
+	}
+
+	removeElevatorCar(x: number): void {
+		this.sendInputBatch([{ type: "remove_elevator_car", x }]);
+	}
+
+	reconnect(): void {
+		this.socket.reconnect();
+	}
+
+	private sendInputBatch(inputs: SimCommand[]): void {
+		if (inputs.length === 0) {
+			return;
+		}
+		this.clientSeq += 1;
+		const clientSeq = this.clientSeq;
+		const reason = this.lockstep.queueLocalBatch(clientSeq, inputs);
+		if (reason) {
+			this.addToast(reason);
+			return;
+		}
+		this.socket.send({
+			type: "input_batch",
+			clientSeq,
+			inputs,
+		});
+	}
+
+	private handleMessage(msg: ServerMessage): void {
+		switch (msg.type) {
+			case "init_state":
+				this.patchState({
+					towerName: msg.name || msg.towerId,
+					speedMultiplier: msg.speedMultiplier,
+					freeBuild: msg.freeBuild,
+				});
+				this.lockstep.initialize(msg.snapshot, {
+					freeBuild: msg.freeBuild,
+					speedMultiplier: msg.speedMultiplier,
+				});
+				break;
+			case "authoritative_batch":
+				this.lockstep.applyAuthoritativeBatch(msg);
+				for (const batch of msg.batches) {
+					if (batch.playerId === this.playerId && batch.rejectedReason) {
+						this.addToast(batch.rejectedReason);
+					}
+				}
+				break;
+			case "checkpoint":
+				this.patchState({
+					speedMultiplier: msg.speedMultiplier,
+					freeBuild: msg.freeBuild,
+				});
+				this.lockstep.applyCheckpoint(msg.snapshot, {
+					freeBuild: msg.freeBuild,
+					speedMultiplier: msg.speedMultiplier,
+				});
+				break;
+			case "session_settings":
+				this.patchState({
+					speedMultiplier: msg.speedMultiplier,
+					freeBuild: msg.freeBuild,
+				});
+				this.lockstep.updateSettings({
+					freeBuild: msg.freeBuild,
+					speedMultiplier: msg.speedMultiplier,
+				});
+				break;
+			case "presence_update":
+				this.patchState({ playerCount: msg.playerCount });
+				break;
+			case "economy_update":
+				this.patchState({
+					cash: msg.cash,
+					population: msg.population,
+					starCount: msg.starCount,
+				});
+				break;
+			case "notification":
+				break;
+			case "prompt":
+				this.patchState({
+					activePrompt: {
+						promptId: msg.promptId,
+						promptKind: msg.promptKind,
+						message: msg.message,
+						cost: msg.cost,
+					},
+				});
+				break;
+			case "prompt_dismissed":
+				this.patchState({
+					activePrompt:
+						this.state.activePrompt?.promptId === msg.promptId
+							? null
+							: this.state.activePrompt,
+				});
+				break;
+			case "cell_info":
+				this.patchState({
+					inspectedCell: {
+						x: msg.x,
+						y: msg.y,
+						anchorX: msg.anchorX,
+						tileType: msg.tileType,
+						objectInfo: msg.objectInfo,
+						carrierInfo: msg.carrierInfo,
+					},
+				});
+				break;
+			case "pong":
+				break;
+		}
+	}
+
+	private handleStatus(status: ConnectionStatus): void {
+		this.patchState({ connectionStatus: status });
+		if (status === "connected") {
+			this.socket.send({
+				type: "join_tower",
+				playerId: this.playerId,
+				displayName: this.displayName,
+			});
+		}
+	}
+
+	private patchState(patch: Partial<TowerSessionState>): void {
+		this.state = {
+			...this.state,
+			...patch,
+		};
+		this.onStateChange(this.state);
+	}
+}

@@ -7,7 +7,12 @@ import {
 import { TowerSim } from "../sim/index";
 import { getTileStarRequirement, STARTING_CASH } from "../sim/resources";
 import { createInitialSnapshot } from "../sim/snapshot";
-import type { ServerMessage } from "../types";
+import type { ResolvedInputBatch, ServerMessage } from "../types";
+import {
+	type QueuedInputBatch,
+	resolveQueuedInputBatches,
+	shouldEmitCheckpoint,
+} from "./lockstep";
 import { TowerRoomRepository } from "./TowerRoomRepository";
 import { TowerRoomSessions } from "./TowerRoomSessions";
 
@@ -16,13 +21,14 @@ interface Env {
 }
 
 export class TowerRoom extends DurableObject<Env> {
-	private static readonly STATE_BROADCAST_INTERVAL_MS = 100;
+	private static readonly CHECKPOINT_INTERVAL_TICKS = 500;
 
 	private sim: TowerSim | null = null;
 	private tickTimer: ReturnType<typeof setInterval> | null = null;
 	private speedMultiplier: 1 | 3 | 10 = 1;
+	private freeBuild = false;
 	private isRunning = false;
-	private lastStateBroadcastAt = 0;
+	private readonly queuedInputs = new Map<number, QueuedInputBatch[]>();
 	private readonly repository: TowerRoomRepository;
 	private readonly sessions = new TowerRoomSessions();
 
@@ -50,7 +56,7 @@ export class TowerRoom extends DurableObject<Env> {
 	}
 
 	private getPlacementRejectionReason(tileType: string): string | null {
-		if (!this.sim || this.sim.freeBuild) return null;
+		if (!this.sim || this.freeBuild) return null;
 		const requiredStars = getTileStarRequirement(tileType);
 		if (this.sim.starCount >= requiredStars) return null;
 		return `Requires ${requiredStars} star${requiredStars === 1 ? "" : "s"}`;
@@ -125,27 +131,29 @@ export class TowerRoom extends DurableObject<Env> {
 		if (!this.sim) this.sim = this.loadSim();
 		if (!this.sim) {
 			this.sessions.send(ws, {
-				type: "command_result",
-				accepted: false,
-				reason: "Tower not initialized",
+				type: "notification",
+				kind: "error",
+				message: "Tower not initialized",
 			});
 			return;
 		}
 
 		if (isSessionMessage(msg) && msg.type === "join_tower") {
+			this.sessions.setIdentity(ws, msg.playerId, msg.displayName);
+			const snapshot = this.sim.saveState();
 			this.sessions.send(ws, {
 				type: "init_state",
 				towerId: this.sim.towerId,
 				name: this.sim.name,
 				simTime: this.sim.simTime,
+				snapshot,
+				speedMultiplier: this.speedMultiplier,
+				freeBuild: this.freeBuild,
 				cash: this.sim.cash,
 				population: this.sim.population,
 				starCount: this.sim.starCount,
 				width: this.sim.width,
 				height: this.sim.height,
-				cells: this.sim.cellsToArray(),
-				sims: this.sim.simsToArray(),
-				carriers: this.sim.carriersToArray(),
 			});
 			this.broadcast({
 				type: "presence_update",
@@ -166,23 +174,29 @@ export class TowerRoom extends DurableObject<Env> {
 		if (isSessionMessage(msg) && msg.type === "set_speed") {
 			this.speedMultiplier = msg.multiplier;
 			if (this.isRunning) this.restartTick();
+			this.broadcast({
+				type: "session_settings",
+				speedMultiplier: this.speedMultiplier,
+				freeBuild: this.freeBuild,
+			});
 			return;
 		}
 
 		if (isSessionMessage(msg) && msg.type === "set_star_count") {
 			this.sim.setStarCount(msg.starCount);
-			this.broadcast({
-				type: "economy_update",
-				cash: this.sim.cash,
-				population: this.sim.population,
-				starCount: this.sim.starCount,
-			});
+			this.broadcastCheckpoint();
 			this.persistSim();
 			return;
 		}
 
 		if (isSessionMessage(msg) && msg.type === "set_free_build") {
+			this.freeBuild = msg.enabled;
 			this.sim.freeBuild = msg.enabled;
+			this.broadcast({
+				type: "session_settings",
+				speedMultiplier: this.speedMultiplier,
+				freeBuild: this.freeBuild,
+			});
 			return;
 		}
 
@@ -200,53 +214,42 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
-		const command = toSimCommand(msg);
-		if (!command) return;
-		if (command.type === "place_tile") {
-			const rejectionReason = this.getPlacementRejectionReason(
-				command.tileType,
-			);
-			if (rejectionReason) {
-				this.sessions.send(ws, {
-					type: "command_result",
-					accepted: false,
-					reason: rejectionReason,
-				});
+		if (msg.type === "input_batch") {
+			const playerId = this.sessions.getPlayerId(ws);
+			if (!playerId || msg.inputs.length === 0) {
 				return;
 			}
-		}
-
-		const result = this.sim.submitCommand(command);
-		if (!result.accepted) {
-			this.sessions.send(ws, {
-				type: "command_result",
-				accepted: false,
-				reason: result.reason,
-			});
+			const targetTick = this.sim.simTime + 1;
+			const queue = this.queuedInputs.get(targetTick);
+			const queuedBatch = {
+				playerId,
+				clientSeq: msg.clientSeq,
+				inputs: msg.inputs,
+			};
+			if (queue) {
+				queue.push(queuedBatch);
+			} else {
+				this.queuedInputs.set(targetTick, [queuedBatch]);
+			}
 			return;
 		}
 
-		const patch = result.patch ?? [];
-		this.broadcast({ type: "state_patch", cells: patch });
-		this.broadcastDynamicState();
-		this.sessions.send(ws, {
-			type: "command_result",
-			accepted: true,
-			patch: { cells: patch },
-		});
-		if (result.economyChanged) {
-			this.broadcast({
-				type: "economy_update",
-				cash: this.sim.cash,
-				population: this.sim.population,
-				starCount: this.sim.starCount,
-			});
+		const command = toSimCommand(msg);
+		if (!command) return;
+		const playerId = this.sessions.getPlayerId(ws);
+		if (!playerId) return;
+		const targetTick = this.sim.simTime + 1;
+		const queue = this.queuedInputs.get(targetTick);
+		const queuedBatch = {
+			playerId,
+			clientSeq: Date.now(),
+			inputs: [command],
+		};
+		if (queue) {
+			queue.push(queuedBatch);
+		} else {
+			this.queuedInputs.set(targetTick, [queuedBatch]);
 		}
-		this.broadcastEffects({
-			notifications: this.sim.drainNotifications(),
-			prompts: this.sim.drainPrompts(),
-		});
-		this.persistSim();
 	}
 
 	private handleClose(): void {
@@ -285,29 +288,29 @@ export class TowerRoom extends DurableObject<Env> {
 	private tick(): void {
 		if (!this.isRunning || !this.sim) return;
 
+		const batches = this.queuedInputs.get(this.sim.simTime + 1) ?? [];
+		if (batches.length > 0) {
+			this.queuedInputs.delete(this.sim.simTime + 1);
+		}
+		const resolvedBatches = this.applyQueuedInputs(batches);
 		const result = this.sim.step();
-		this.broadcast({ type: "time_update", simTime: result.simTime });
-		if (result.cellPatches.length > 0) {
-			this.broadcast({ type: "state_patch", cells: result.cellPatches });
-		}
-		const now = Date.now();
-		if (
-			now - this.lastStateBroadcastAt >=
-			TowerRoom.STATE_BROADCAST_INTERVAL_MS
-		) {
-			this.broadcastDynamicState(now);
-		}
-		if (result.economyChanged) {
+		if (resolvedBatches.length > 0) {
 			this.broadcast({
-				type: "economy_update",
-				cash: this.sim.cash,
-				population: this.sim.population,
-				starCount: this.sim.starCount,
+				type: "authoritative_batch",
+				serverTick: result.simTime,
+				batches: resolvedBatches,
 			});
 		}
 		this.broadcastEffects(result);
 
-		// Persist every 30 ticks
+		if (
+			shouldEmitCheckpoint(result.simTime, TowerRoom.CHECKPOINT_INTERVAL_TICKS)
+		) {
+			this.broadcastCheckpoint();
+			this.persistSim();
+			return;
+		}
+
 		if (result.simTime % 30 === 0) this.persistSim();
 	}
 
@@ -344,18 +347,31 @@ export class TowerRoom extends DurableObject<Env> {
 		}
 	}
 
-	private broadcastDynamicState(now = Date.now()): void {
-		if (!this.sim) return;
-		this.lastStateBroadcastAt = now;
-		this.broadcast({
-			type: "sim_update",
-			simTime: this.sim.simTime,
-			sims: this.sim.simsToArray(),
+	private applyQueuedInputs(batches: QueuedInputBatch[]): ResolvedInputBatch[] {
+		if (!this.sim || batches.length === 0) {
+			return [];
+		}
+		return resolveQueuedInputBatches(this.sim, batches, {
+			freeBuild: this.freeBuild,
+			getPlacementRejectionReason: (tileType) =>
+				this.getPlacementRejectionReason(tileType),
+			onPromptDismissed: (promptId) => {
+				this.broadcast({
+					type: "prompt_dismissed",
+					promptId,
+				});
+			},
 		});
+	}
+
+	private broadcastCheckpoint(): void {
+		if (!this.sim) return;
 		this.broadcast({
-			type: "carrier_update",
-			simTime: this.sim.simTime,
-			carriers: this.sim.carriersToArray(),
+			type: "checkpoint",
+			serverTick: this.sim.simTime,
+			snapshot: this.sim.saveState(),
+			speedMultiplier: this.speedMultiplier,
+			freeBuild: this.freeBuild,
 		});
 	}
 }
