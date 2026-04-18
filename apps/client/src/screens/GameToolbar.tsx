@@ -65,7 +65,11 @@ function formatSimTimeOfDay(simTime: number): string {
 	}
 
 	const suffix =
-		daypartIndex <= 4 || (daypartIndex === 5 && hours12 !== 12) ? "PM" : "AM";
+		(daypartIndex === 0 && hours12 < 12) ||
+		(daypartIndex === 5 && hours12 < 9) ||
+		daypartIndex === 6
+			? "AM"
+			: "PM";
 	return `${hours12}:${minutes.toString().padStart(2, "0")} ${suffix}`;
 }
 
