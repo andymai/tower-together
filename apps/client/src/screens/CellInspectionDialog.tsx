@@ -266,7 +266,7 @@ export function CellInspectionDialog({
 															fontSize: 12,
 														}}
 														onClick={() => {
-															onToggleElevatorFloorStop(inspectedCell.x, floor);
+															onToggleElevatorFloorStop(inspectedCell.anchorX, floor);
 															onPatchInspectedCell((cell) => {
 																if (!cell.carrierInfo) return cell;
 																const next = [
@@ -312,7 +312,7 @@ export function CellInspectionDialog({
 																title={`Set car ${car.carIndex + 1} home to floor ${floor - 10}`}
 																onClick={() => {
 																	onSetElevatorHomeFloor(
-																		inspectedCell.x,
+																		inspectedCell.anchorX,
 																		car.carIndex,
 																		floor,
 																	);
@@ -367,8 +367,8 @@ export function CellInspectionDialog({
 											}}
 											disabled={ci.carCount >= 8}
 											onClick={() => {
-												onAddElevatorCar(inspectedCell.x, inspectedCell.y);
-												onInspectCell(inspectedCell.x, inspectedCell.y);
+												onAddElevatorCar(inspectedCell.anchorX, inspectedCell.y);
+												onInspectCell(inspectedCell.anchorX, inspectedCell.y);
 											}}
 										>
 											+ Add Car
@@ -381,8 +381,8 @@ export function CellInspectionDialog({
 											}}
 											disabled={ci.carCount <= 1}
 											onClick={() => {
-												onRemoveElevatorCar(inspectedCell.x);
-												onInspectCell(inspectedCell.x, inspectedCell.y);
+												onRemoveElevatorCar(inspectedCell.anchorX);
+												onInspectCell(inspectedCell.anchorX, inspectedCell.y);
 											}}
 										>
 											- Remove Car
@@ -405,7 +405,7 @@ export function CellInspectionDialog({
 														: {}),
 												}}
 												onClick={() => {
-													onSetElevatorDwellDelay(inspectedCell.x, v);
+													onSetElevatorDwellDelay(inspectedCell.anchorX, v);
 													onPatchInspectedCell((cell) => ({
 														...cell,
 														carrierInfo: cell.carrierInfo
@@ -446,7 +446,7 @@ export function CellInspectionDialog({
 													0,
 													Math.min(99, Number(e.target.value) || 0),
 												);
-												onSetElevatorWaitingCarResponse(inspectedCell.x, v);
+												onSetElevatorWaitingCarResponse(inspectedCell.anchorX, v);
 												onPatchInspectedCell((cell) => ({
 													...cell,
 													carrierInfo: cell.carrierInfo
