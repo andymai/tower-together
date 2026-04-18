@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { getTowerView, setTowerView } from "../lib/storage";
 import {
 	type CarrierCarStateData,
+	DAY_TICK_MAX,
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	type SimStateData,
@@ -36,6 +37,7 @@ import {
 	collectElevatorColumnsByFloor,
 	getCarBounds,
 	getDisplayedCars,
+	getPresentationTime,
 	getQueuedSimLayout,
 	getQueuedSimQueueKey,
 	isSimAscending,
@@ -199,6 +201,7 @@ export class GameScene extends Phaser.Scene {
 	private cockroaches: CockroachState[] = [];
 	private carRects: Phaser.GameObjects.Rectangle[] = [];
 	private undergroundBackground: Phaser.GameObjects.TileSprite | null = null;
+	private skyNight: Phaser.GameObjects.Image | null = null;
 
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
 	private cloudManager!: CloudManager;
@@ -670,6 +673,7 @@ export class GameScene extends Phaser.Scene {
 		if (this.arrowKeys.down.isDown) cam.scrollY += PAN_SPEED;
 
 		this.cloudManager.update(delta);
+		if (this.skyNight) this.skyNight.setAlpha(this.nightAlpha());
 		if (
 			this.lastFloorLabelZoom !== cam.zoom ||
 			this.lastFloorLabelWidth !== this.scale.width
@@ -912,28 +916,75 @@ export class GameScene extends Phaser.Scene {
 		const skyW = GRID_WIDTH * TILE_WIDTH;
 		const skyH = UNDERGROUND_Y * TILE_HEIGHT;
 
-		// Build a 1-pixel-wide vertical gradient on an offscreen canvas.
-		const canvas = document.createElement("canvas");
-		canvas.width = 1;
-		canvas.height = skyH;
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-		const grad = ctx.createLinearGradient(0, 0, 0, skyH);
-		grad.addColorStop(0, "#1a3a6e"); // deep blue at top
-		grad.addColorStop(0.6, "#5ba8d4"); // mid sky
-		grad.addColorStop(1, "#b4ddf0"); // pale horizon
-		ctx.fillStyle = grad;
-		ctx.fillRect(0, 0, 1, skyH);
+		const buildGradientTexture = (
+			key: string,
+			stops: [number, string][],
+		): void => {
+			const canvas = document.createElement("canvas");
+			canvas.width = 1;
+			canvas.height = skyH;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) return;
+			const grad = ctx.createLinearGradient(0, 0, 0, skyH);
+			for (const [pos, color] of stops) grad.addColorStop(pos, color);
+			ctx.fillStyle = grad;
+			ctx.fillRect(0, 0, 1, skyH);
+			if (this.textures.exists(key)) this.textures.remove(key);
+			this.textures.addCanvas(key, canvas);
+		};
 
-		// Create a Phaser texture from the canvas and stretch it across the sky.
-		if (this.textures.exists("skyGradient")) {
-			this.textures.remove("skyGradient");
-		}
-		this.textures.addCanvas("skyGradient", canvas);
+		buildGradientTexture("skyGradient", [
+			[0, "#1a3a6e"],
+			[0.6, "#5ba8d4"],
+			[1, "#b4ddf0"],
+		]);
 		const sky = this.add.image(0, 0, "skyGradient");
 		sky.setOrigin(0, 0);
 		sky.setDisplaySize(skyW, skyH);
 		sky.setDepth(0);
+
+		buildGradientTexture("skyGradientNight", [
+			[0, "#04091a"],
+			[0.5, "#0a1235"],
+			[1, "#0e1f4a"],
+		]);
+		this.skyNight = this.add.image(0, 0, "skyGradientNight");
+		this.skyNight.setOrigin(0, 0);
+		this.skyNight.setDisplaySize(skyW, skyH);
+		this.skyNight.setDepth(0.5);
+		this.skyNight.setAlpha(0);
+	}
+
+	// Returns the fractional hour (7–31, where 7=7AM, 31=7AM next day) for a dayTick.
+	private static dayTickToHour(dayTick: number): number {
+		const dp = Math.floor(dayTick / 400);
+		const off = dayTick - dp * 400;
+		switch (dp) {
+			case 0: return 7 + (off / 400) * 5;
+			case 1: return 12 + (off / 400) * 0.5;
+			case 2: return 12.5 + (off / 400) * 0.5;
+			case 3: return 13 + (off / 400) * 4;
+			case 4: return 17 + (off / 400) * 4;
+			case 5: return 21 + (off / 400) * 4;
+			case 6: return 25 + (off / 200) * 6;
+			default: return 7;
+		}
+	}
+
+	private nightAlpha(): number {
+		const presentationTime = getPresentationTime(this.presentationClock);
+		const dayTick =
+			((Math.floor(presentationTime) % DAY_TICK_MAX) + DAY_TICK_MAX) %
+			DAY_TICK_MAX;
+		const hour = GameScene.dayTickToHour(dayTick);
+		// 8PM–9PM: fade in (hour 20–21)
+		if (hour < 20) return 0;
+		if (hour < 21) return hour - 20;
+		// 9PM–4AM: full night (hour 21–28)
+		if (hour < 28) return 1;
+		// 4AM–6AM: fade out (hour 28–30)
+		if (hour < 30) return 1 - (hour - 28) / 2;
+		return 0;
 	}
 
 	private loadUndergroundTexture(): void {
