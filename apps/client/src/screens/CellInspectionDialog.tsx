@@ -35,6 +35,7 @@ function getFacilityStatus(info: {
 	if (HOTEL_FAMILIES.has(info.objectTypeCode)) {
 		if (info.unitStatus < 0x18) return "Occupied";
 		if (info.unitStatus < 0x28) return "Vacant";
+		if (info.unitStatus >= 0x38) return "Infested";
 		if (info.housekeepingClaimedFlag) return "Dirty (being cleaned)";
 		return "Dirty";
 	}

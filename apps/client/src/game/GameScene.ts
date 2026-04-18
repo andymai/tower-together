@@ -91,7 +91,6 @@ type CockroachState = {
 
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
-const HOTEL_TURNOVER_STATUS_MAX = 0x30;
 const HOTEL_INFESTED_STATUS_MIN = 0x38;
 const COCKROACH_PER_ROOM: Partial<Record<string, number>> = {
 	hotelSingle: 3,
@@ -1009,11 +1008,7 @@ export class GameScene extends Phaser.Scene {
 	}
 
 	private isHotelTurnoverStatus(status: number | undefined): boolean {
-		return (
-			status !== undefined &&
-			status >= HOTEL_TURNOVER_STATUS_MIN &&
-			status <= HOTEL_TURNOVER_STATUS_MAX
-		);
+		return status !== undefined && status >= HOTEL_TURNOVER_STATUS_MIN;
 	}
 
 	private isRecyclingCenterLowerCovered(x: number, y: number): boolean {
