@@ -26,7 +26,7 @@ Cinema and entertainment link state machines — budget seeding, phase advance, 
 Cathedral guest sims (families 0x24–0x28) — activation, dispatch, return routing, award path.
 
 ### `resources.ts`
-Compile-time constants: tile widths/costs/types, family mappings, income/expense tables, route delay constants.
+Compile-time constants: tile widths/costs/types, family mappings, binary-aligned build-menu star requirements, income/expense tables, route delay constants.
 
 ### `ledger.ts`
 Three-ledger economy: cash balance, population/income/expense ledgers, expense sweep, 3-day rollover.
@@ -35,7 +35,7 @@ Three-ledger economy: cash balance, population/income/expense ledgers, expense s
 `SimState` bundle and `runCheckpoints()` — fires all 18 checkpoint bodies at correct `day_tick` values.
 
 ### `commands.ts`
-`handlePlaceTile()` / `handleRemoveTile()` — validation, mutation, sidecar management, global rebuilds.
+`handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds.
 
 ### `ring-buffer.ts`
 Generic fixed-capacity `RingBuffer<T>`. Used by carrier floor queues.

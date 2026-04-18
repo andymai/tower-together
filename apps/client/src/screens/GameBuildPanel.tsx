@@ -23,7 +23,7 @@ import {
 	UtensilsCrossed,
 } from "lucide-react";
 import type { SelectedTool } from "../types";
-import { TILE_COSTS } from "../types";
+import { getTileStarRequirement, TILE_COSTS } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 
 interface ToolEntry {
@@ -129,18 +129,18 @@ const CATEGORIES: ToolEntry[][] = [
 	],
 	[
 		{
-			id: "restaurant",
-			label: "Restaurant",
-			color: "#e58a3a",
-			cost: TILE_COSTS.restaurant,
-			Icon: UtensilsCrossed,
-		},
-		{
 			id: "fastFood",
 			label: "Fast Food",
 			color: "#f2b24d",
 			cost: TILE_COSTS.fastFood,
 			Icon: Pizza,
+		},
+		{
+			id: "restaurant",
+			label: "Restaurant",
+			color: "#e58a3a",
+			cost: TILE_COSTS.restaurant,
+			Icon: UtensilsCrossed,
 		},
 		{
 			id: "retail",
@@ -209,15 +209,30 @@ const CATEGORIES: ToolEntry[][] = [
 ];
 
 interface Props {
+	starCount: number;
+	freeBuild: boolean;
 	selectedTool: SelectedTool;
 	onToolSelect: (tool: SelectedTool) => void;
 }
 
-export function GameBuildPanel({ selectedTool, onToolSelect }: Props) {
+export function GameBuildPanel({
+	starCount,
+	freeBuild,
+	selectedTool,
+	onToolSelect,
+}: Props) {
+	const visibleCategories = CATEGORIES.map((tools) =>
+		tools.filter((tool) => {
+			if (freeBuild || tool.id === "empty" || tool.id === "inspect")
+				return true;
+			return starCount >= getTileStarRequirement(tool.id);
+		}),
+	).filter((tools) => tools.length > 0);
+
 	return (
 		<div style={styles.buildPanel}>
 			<div style={styles.debugTitle}>Build</div>
-			{CATEGORIES.map((tools, categoryIndex) => (
+			{visibleCategories.map((tools, categoryIndex) => (
 				<div
 					key={tools[0].id}
 					style={{

@@ -1,10 +1,10 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameScene } from "../game/GameScene";
 import { PhaserGame } from "../game/PhaserGame";
 import { buildTransportMetrics } from "../game/transportSelectors";
 import type { TowerSocket } from "../lib/socket";
 import type { SelectedTool } from "../types";
-import { DAY_TICK_MAX } from "../types";
+import { DAY_TICK_MAX, getTileStarRequirement } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameBuildPanel } from "./GameBuildPanel";
 import { GameDebugPanel } from "./GameDebugPanel";
@@ -33,6 +33,16 @@ function formatSimDate(day: number): string {
 	const dow = day0 % 4;
 	const weekLabel = dow < 2 ? `WD${dow + 1}` : "WE";
 	return `Year ${year} Q${quarter} ${weekLabel}`;
+}
+
+function formatSimTimeOfDay(simTime: number): string {
+	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
+	const totalMinutes = Math.floor((dayTick * 24 * 60) / DAY_TICK_MAX);
+	const hours24 = Math.floor(totalMinutes / 60) % 24;
+	const minutes = totalMinutes % 60;
+	const suffix = hours24 >= 12 ? "PM" : "AM";
+	const hours12 = hours24 % 12 || 12;
+	return `${hours12}:${minutes.toString().padStart(2, "0")} ${suffix}`;
 }
 
 export function GameScreen({
@@ -66,6 +76,7 @@ export function GameScreen({
 		connectionStatus,
 		simTime,
 		cash,
+		population,
 		starCount,
 		playerCount,
 		towerName,
@@ -160,7 +171,18 @@ export function GameScreen({
 
 	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
 	const dateLabel = formatSimDate(day);
+	const timeOfDayLabel = formatSimTimeOfDay(simTime);
 	const metrics = buildTransportMetrics(sims, carriers);
+
+	useEffect(() => {
+		if (
+			selectedTool !== "inspect" &&
+			!freeBuild &&
+			starCount < getTileStarRequirement(selectedTool)
+		) {
+			setSelectedTool("floor");
+		}
+	}, [freeBuild, selectedTool, starCount]);
 
 	return (
 		<div style={styles.container}>
@@ -172,8 +194,10 @@ export function GameScreen({
 				towerId={towerId}
 				towerName={towerName}
 				cash={cash ?? 0}
+				population={population}
 				starCount={starCount}
 				dateLabel={dateLabel}
+				timeOfDayLabel={timeOfDayLabel}
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
 				onAliasInputChange={handleAliasInputChange}
@@ -194,6 +218,8 @@ export function GameScreen({
 				/>
 				<div style={styles.rightPanelStack}>
 					<GameBuildPanel
+						starCount={starCount}
+						freeBuild={freeBuild}
 						selectedTool={selectedTool}
 						onToolSelect={setSelectedTool}
 					/>

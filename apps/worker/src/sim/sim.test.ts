@@ -39,6 +39,7 @@ import { updateRecyclingCenterState } from "./recycling";
 import {
 	FAMILY_RECYCLING_CENTER_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
+	getTileStarRequirement,
 	TILE_COSTS,
 	YEN_1001,
 	YEN_1002,
@@ -806,6 +807,13 @@ describe("handlePlaceTile", () => {
 		const r = handlePlaceTile(0, GROUND_Y, "ufo", world, ledger);
 		expect(r.accepted).toBe(false);
 		expect(r.reason).toMatch(/invalid tile type/i);
+	});
+
+	it("exposes binary-aligned build-menu star requirements", () => {
+		expect(getTileStarRequirement("office")).toBe(1);
+		expect(getTileStarRequirement("hotelSingle")).toBe(2);
+		expect(getTileStarRequirement("restaurant")).toBe(3);
+		expect(getTileStarRequirement("metro")).toBe(4);
 	});
 
 	it("rejects placement out of bounds (x)", () => {

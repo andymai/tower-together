@@ -5,7 +5,7 @@ import {
 	toSimCommand,
 } from "../protocol";
 import { TowerSim } from "../sim/index";
-import { STARTING_CASH } from "../sim/resources";
+import { getTileStarRequirement, STARTING_CASH } from "../sim/resources";
 import { createInitialSnapshot } from "../sim/snapshot";
 import type { ServerMessage } from "../types";
 import { TowerRoomRepository } from "./TowerRoomRepository";
@@ -47,6 +47,13 @@ export class TowerRoom extends DurableObject<Env> {
 	private persistSim(): void {
 		if (!this.sim) return;
 		this.repository.save(this.sim.saveState());
+	}
+
+	private getPlacementRejectionReason(tileType: string): string | null {
+		if (!this.sim || this.sim.freeBuild) return null;
+		const requiredStars = getTileStarRequirement(tileType);
+		if (this.sim.starCount >= requiredStars) return null;
+		return `Requires ${requiredStars} star${requiredStars === 1 ? "" : "s"}`;
 	}
 
 	// ─── HTTP fetch handler ──────────────────────────────────────────────────────
@@ -98,6 +105,7 @@ export class TowerRoom extends DurableObject<Env> {
 				name: sim.name,
 				simTime: sim.simTime,
 				cash: sim.cash,
+				population: sim.population,
 				starCount: sim.starCount,
 				width: sim.width,
 				height: sim.height,
@@ -131,6 +139,7 @@ export class TowerRoom extends DurableObject<Env> {
 				name: this.sim.name,
 				simTime: this.sim.simTime,
 				cash: this.sim.cash,
+				population: this.sim.population,
 				starCount: this.sim.starCount,
 				width: this.sim.width,
 				height: this.sim.height,
@@ -181,6 +190,19 @@ export class TowerRoom extends DurableObject<Env> {
 
 		const command = toSimCommand(msg);
 		if (!command) return;
+		if (command.type === "place_tile") {
+			const rejectionReason = this.getPlacementRejectionReason(
+				command.tileType,
+			);
+			if (rejectionReason) {
+				this.sessions.send(ws, {
+					type: "command_result",
+					accepted: false,
+					reason: rejectionReason,
+				});
+				return;
+			}
+		}
 
 		const result = this.sim.submitCommand(command);
 		if (!result.accepted) {
@@ -204,6 +226,7 @@ export class TowerRoom extends DurableObject<Env> {
 			this.broadcast({
 				type: "economy_update",
 				cash: this.sim.cash,
+				population: this.sim.population,
 				starCount: this.sim.starCount,
 			});
 		}
@@ -266,6 +289,7 @@ export class TowerRoom extends DurableObject<Env> {
 			this.broadcast({
 				type: "economy_update",
 				cash: this.sim.cash,
+				population: this.sim.population,
 				starCount: this.sim.starCount,
 			});
 		}

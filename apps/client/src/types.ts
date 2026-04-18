@@ -1,6 +1,8 @@
 import {
+	getTileStarRequirement as getWorkerTileStarRequirement,
 	STARTING_CASH as WORKER_STARTING_CASH,
 	TILE_COSTS as WORKER_TILE_COSTS,
+	TILE_STAR_REQUIREMENTS as WORKER_TILE_STAR_REQUIREMENTS,
 	TILE_WIDTHS as WORKER_TILE_WIDTHS,
 } from "../../worker/src/sim/resources";
 import {
@@ -63,7 +65,10 @@ export const TILE_WIDTHS: Record<string, number> = WORKER_TILE_WIDTHS;
 
 /** Construction cost in dollars. */
 export const TILE_COSTS: Record<string, number> = WORKER_TILE_COSTS;
+export const TILE_STAR_REQUIREMENTS: Record<string, number> =
+	WORKER_TILE_STAR_REQUIREMENTS;
 export const STARTING_CASH = WORKER_STARTING_CASH;
+export const getTileStarRequirement = getWorkerTileStarRequirement;
 
 // ─── Wire protocol ────────────────────────────────────────────────────────────
 
@@ -114,6 +119,7 @@ export type ServerMessage =
 			name: string;
 			simTime: number;
 			cash: number;
+			population: number;
 			starCount: number;
 			width: number;
 			height: number;
@@ -132,7 +138,12 @@ export type ServerMessage =
 	  }
 	| { type: "presence_update"; playerCount: number }
 	| { type: "time_update"; simTime: number }
-	| { type: "economy_update"; cash: number; starCount: number }
+	| {
+			type: "economy_update";
+			cash: number;
+			population: number;
+			starCount: number;
+	  }
 	| { type: "notification"; kind: string; message: string }
 	| {
 			type: "prompt";

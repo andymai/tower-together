@@ -8,8 +8,8 @@ Full-page React screen components.
 - **useTowerSession.ts** — React hook for the active tower session. Subscribes to `TowerSocket`, manages sim state including cash/star HUD values, and exposes command helpers.
 - **gameScreenStyles.ts** — Shared inline style registry used by the extracted game-screen presentation components.
 - **gameScreenTypes.ts** — Shared local screen types for toasts, prompts, and inspected-cell payloads.
-- **GameToolbar.tsx** — Top header with tower rename, cash plus five-slot star rating, date/player/connection display, reconnect, and leave.
-- **GameBuildPanel.tsx** — Top-right floating panel with facility buttons (lucide icons) grouped into categories.
+- **GameToolbar.tsx** — Top header with tower rename, cash plus five-slot star rating, bold date plus sim-clock time display, player/connection status, reconnect, and leave.
+- **GameBuildPanel.tsx** — Top-right floating panel with facility buttons (lucide icons) grouped into categories and disabled until the shared binary-aligned star unlock is met (unless free-build is enabled).
 - **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, speed controls, and inspect toggle.
 - **GameInspectPanel.tsx** — Population inspect panel showing each sim's state/stress and average stress.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.

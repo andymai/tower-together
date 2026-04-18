@@ -364,6 +364,13 @@ export class TowerSim {
 		return this.ledger.cashBalance;
 	}
 
+	get population(): number {
+		return this.ledger.populationLedger.reduce(
+			(total, value) => total + value,
+			0,
+		);
+	}
+
 	get starCount(): number {
 		return this.world.starCount;
 	}

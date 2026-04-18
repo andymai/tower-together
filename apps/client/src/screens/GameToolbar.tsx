@@ -10,8 +10,10 @@ interface Props {
 	towerId: string;
 	towerName: string;
 	cash: number;
+	population: number;
 	starCount: number;
 	dateLabel: string;
+	timeOfDayLabel: string;
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
 	onAliasInputChange: (value: string) => void;
@@ -30,8 +32,10 @@ export function GameToolbar({
 	towerId,
 	towerName,
 	cash,
+	population,
 	starCount,
 	dateLabel,
+	timeOfDayLabel,
 	playerCount,
 	connectionStatus,
 	onAliasInputChange,
@@ -103,6 +107,9 @@ export function GameToolbar({
 			<div style={styles.toolbarRight}>
 				<span style={styles.cashCluster}>
 					<span style={styles.cashDisplay}>${cash.toLocaleString()}</span>
+					<span style={styles.populationDisplay}>
+						Pop {population.toLocaleString()}
+					</span>
 					<span
 						style={styles.starDisplay}
 						role="img"
@@ -120,7 +127,8 @@ export function GameToolbar({
 						})}
 					</span>
 				</span>
-				<span style={styles.statItem}>{dateLabel}</span>
+				<span style={styles.calendarItem}>{dateLabel}</span>
+				<span style={styles.calendarItem}>{timeOfDayLabel}</span>
 				<span style={styles.statItem}>
 					{playerCount} player{playerCount !== 1 ? "s" : ""}
 				</span>

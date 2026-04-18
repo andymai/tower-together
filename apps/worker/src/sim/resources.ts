@@ -67,6 +67,42 @@ export const TILE_COSTS: Record<string, number> = {
 	medical: 500_000,
 };
 
+/**
+ * Minimum star rating required before the binary exposes a build-menu entry.
+ * Tiles omitted from this table are treated as always available.
+ */
+export const TILE_STAR_REQUIREMENTS: Record<string, number> = {
+	lobby: 1,
+	floor: 1,
+	stairs: 1,
+	elevator: 1,
+	office: 1,
+	fastFood: 1,
+	condo: 1,
+	elevatorService: 2,
+	hotelSingle: 2,
+	hotelTwin: 2,
+	hotelSuite: 2,
+	housekeeping: 2,
+	security: 2,
+	escalator: 3,
+	elevatorExpress: 3,
+	restaurant: 3,
+	retail: 3,
+	partyHall: 3,
+	cinema: 3,
+	parking: 3,
+	recyclingCenter: 3,
+	recyclingCenterUpper: 3,
+	recyclingCenterLower: 3,
+	medical: 3,
+	metro: 4,
+};
+
+export function getTileStarRequirement(tileType: string): number {
+	return TILE_STAR_REQUIREMENTS[tileType] ?? 1;
+}
+
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
 
 // ─── Family codes (object-type codes from the spec) ─────────────────────────

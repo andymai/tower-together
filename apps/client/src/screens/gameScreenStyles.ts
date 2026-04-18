@@ -82,6 +82,12 @@ export const gameScreenStyles = {
 		color: "#4ade80",
 		fontVariantNumeric: "tabular-nums",
 	},
+	populationDisplay: {
+		fontSize: 12,
+		fontWeight: 700,
+		color: "#aab8c2",
+		fontVariantNumeric: "tabular-nums",
+	},
 	starDisplay: {
 		display: "flex",
 		alignItems: "center",
@@ -90,6 +96,12 @@ export const gameScreenStyles = {
 	},
 	statItem: {
 		fontSize: 12,
+		color: "#aab8c2",
+		fontVariantNumeric: "tabular-nums",
+	},
+	calendarItem: {
+		fontSize: 12,
+		fontWeight: 700,
 		color: "#aab8c2",
 		fontVariantNumeric: "tabular-nums",
 	},
