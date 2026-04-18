@@ -155,16 +155,18 @@ export class GameScene extends Phaser.Scene {
 	private floorLabels: Phaser.GameObjects.Text[] = [];
 	private tileLabels: Phaser.GameObjects.Text[] = [];
 	private carLabels: Phaser.GameObjects.Text[] = [];
-	private roomSprites: (
-		| Phaser.GameObjects.Sprite
-		| Phaser.GameObjects.TileSprite
-	)[] = [];
+	private roomSprites: Phaser.GameObjects.Sprite[] = [];
+	private roomTileSprites: Phaser.GameObjects.TileSprite[] = [];
 	private roomTexturesLoaded = false;
 	private evalActiveFlagMap: Map<string, number> = new Map();
 	private unitStatusMap: Map<string, number> = new Map();
 	private evalLevelMap: Map<string, number> = new Map();
 	private evalScoreMap: Map<string, number> = new Map();
 	private evalBadgeLabels: Phaser.GameObjects.Text[] = [];
+	private usedRoomSpriteCount = 0;
+	private usedRoomTileSpriteCount = 0;
+	private usedTileLabelCount = 0;
+	private usedEvalBadgeLabelCount = 0;
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -697,18 +699,107 @@ export class GameScene extends Phaser.Scene {
 		this.load.start();
 	}
 
-	private clearRoomSprites(): void {
-		for (const sprite of this.roomSprites) sprite.destroy();
-		this.roomSprites = [];
+	private resetStaticObjectUsage(): void {
+		this.usedRoomSpriteCount = 0;
+		this.usedRoomTileSpriteCount = 0;
+		this.usedTileLabelCount = 0;
+		this.usedEvalBadgeLabelCount = 0;
+	}
+
+	private hideUnusedStaticObjects(): void {
+		for (
+			let i = this.usedRoomSpriteCount;
+			i < this.roomSprites.length;
+			i += 1
+		) {
+			this.roomSprites[i]?.setVisible(false);
+		}
+		for (
+			let i = this.usedRoomTileSpriteCount;
+			i < this.roomTileSprites.length;
+			i += 1
+		) {
+			this.roomTileSprites[i]?.setVisible(false);
+		}
+		for (let i = this.usedTileLabelCount; i < this.tileLabels.length; i += 1) {
+			this.tileLabels[i]?.setVisible(false);
+		}
+		for (
+			let i = this.usedEvalBadgeLabelCount;
+			i < this.evalBadgeLabels.length;
+			i += 1
+		) {
+			this.evalBadgeLabels[i]?.setVisible(false);
+		}
+	}
+
+	private getRoomSprite(textureKey: string): Phaser.GameObjects.Sprite {
+		let sprite = this.roomSprites[this.usedRoomSpriteCount];
+		if (!sprite) {
+			sprite = this.add.sprite(0, 0, textureKey);
+			this.roomSprites.push(sprite);
+		} else if (sprite.texture.key !== textureKey) {
+			sprite.setTexture(textureKey);
+		}
+		sprite.setVisible(true);
+		this.usedRoomSpriteCount += 1;
+		return sprite;
+	}
+
+	private getRoomTileSprite(textureKey: string): Phaser.GameObjects.TileSprite {
+		let tileSprite = this.roomTileSprites[this.usedRoomTileSpriteCount];
+		if (!tileSprite) {
+			tileSprite = this.add.tileSprite(0, 0, 1, 1, textureKey);
+			this.roomTileSprites.push(tileSprite);
+		} else if (tileSprite.texture.key !== textureKey) {
+			tileSprite.setTexture(textureKey);
+		}
+		tileSprite.setVisible(true);
+		this.usedRoomTileSpriteCount += 1;
+		return tileSprite;
+	}
+
+	private getTileLabel(): Phaser.GameObjects.Text {
+		let label = this.tileLabels[this.usedTileLabelCount];
+		if (!label) {
+			label = this.add.text(0, 0, "", {
+				fontSize: "11px",
+				fontFamily: "Arial, sans-serif",
+				fontStyle: "bold",
+				color: "#ffffff",
+				resolution: window.devicePixelRatio * 4,
+			});
+			label.setOrigin(0.5, 0.5);
+			label.setDepth(5);
+			this.tileLabels.push(label);
+		}
+		label.setVisible(true);
+		this.usedTileLabelCount += 1;
+		return label;
+	}
+
+	private getEvalBadgeLabel(): Phaser.GameObjects.Text {
+		let label = this.evalBadgeLabels[this.usedEvalBadgeLabelCount];
+		if (!label) {
+			label = this.add.text(0, 0, "", {
+				fontFamily: "Arial, sans-serif",
+				fontStyle: "bold",
+				color: "#ffffff",
+				resolution: window.devicePixelRatio * 4,
+			});
+			label.setOrigin(0.5, 0.5);
+			label.setDepth(5);
+			this.evalBadgeLabels.push(label);
+		}
+		label.setVisible(true);
+		this.usedEvalBadgeLabelCount += 1;
+		return label;
 	}
 
 	private drawAllCells(): void {
 		const g = this.cellGraphics;
 		g.clear();
-		this.clearTileLabels();
-		this.clearRoomSprites();
-		for (const lbl of this.evalBadgeLabels) lbl.destroy();
-		this.evalBadgeLabels = [];
+		this.resetStaticObjectUsage();
 
 		if (!this.undergroundBackground) {
 			g.fillStyle(COLOR_UNDERGROUND, 1);
@@ -749,18 +840,14 @@ export class GameScene extends Phaser.Scene {
 				texKey !== null &&
 				this.textures.exists(texKey)
 			) {
-				const sprite = this.add.sprite(
-					x * TILE_WIDTH + 1,
-					y * TILE_HEIGHT + 1,
-					texKey,
-				);
+				const sprite = this.getRoomSprite(texKey);
+				sprite.setPosition(x * TILE_WIDTH + 1, y * TILE_HEIGHT + 1);
 				sprite.setOrigin(0, 0);
 				sprite.setDisplaySize(
 					w * TILE_WIDTH - 1,
 					heightTiles * TILE_HEIGHT - 1,
 				);
 				sprite.setDepth(1.5);
-				this.roomSprites.push(sprite);
 			} else {
 				const color = TILE_COLORS[tileType];
 				if (!color) continue;
@@ -805,16 +892,15 @@ export class GameScene extends Phaser.Scene {
 						bw = tileW;
 						bh = tileW / bannerAspect;
 					}
-					const banner = this.add.sprite(
+					const banner = this.getRoomSprite(bannerKey);
+					banner.setPosition(
 						x * TILE_WIDTH + 1 + (tileW - bw) / 2,
 						y * TILE_HEIGHT + 1 + (tileH - bh) / 2,
-						bannerKey,
 					);
 					banner.setOrigin(0, 0);
 					banner.setDisplaySize(bw, bh);
 					banner.setDepth(1.75);
 					banner.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
-					this.roomSprites.push(banner);
 				}
 			}
 
@@ -838,21 +924,10 @@ export class GameScene extends Phaser.Scene {
 				const py = y * TILE_HEIGHT + 1 + (TILE_HEIGHT - 1 - pillH) / 2;
 				g.fillStyle(badgeColor, 1);
 				g.fillRoundedRect(px, py, pillW, pillH, pillR);
-				const label = this.add.text(
-					px + pillW / 2,
-					py + pillH / 2,
-					scoreLabel,
-					{
-						fontSize: `${Math.round(pillH * 0.75)}px`,
-						fontFamily: "Arial, sans-serif",
-						fontStyle: "bold",
-						color: "#ffffff",
-						resolution: window.devicePixelRatio * 4,
-					},
-				);
-				label.setOrigin(0.5, 0.5);
-				label.setDepth(5);
-				this.evalBadgeLabels.push(label);
+				const label = this.getEvalBadgeLabel();
+				label.setPosition(px + pillW / 2, py + pillH / 2);
+				label.setText(scoreLabel);
+				label.setFontSize(Math.round(pillH * 0.75));
 			}
 		}
 
@@ -879,19 +954,15 @@ export class GameScene extends Phaser.Scene {
 							runType === "lobby"
 						) {
 							const tex = this.textures.get(texKey).getSourceImage();
-							const tileSprite = this.add.tileSprite(
-								runPxX,
-								runPxY,
-								runPxW,
-								runPxH,
-								texKey,
-							);
+							const tileSprite = this.getRoomTileSprite(texKey);
+							tileSprite.setPosition(runPxX, runPxY);
+							tileSprite.setSize(runPxW, runPxH);
+							tileSprite.setDisplaySize(runPxW, runPxH);
 							tileSprite.setOrigin(0, 0);
 							// One SVG repeat spans 2*TILE_HEIGHT screen px (native 2:1 aspect).
 							tileSprite.tileScaleX = (2 * TILE_HEIGHT) / tex.width;
 							tileSprite.tileScaleY = TILE_HEIGHT / tex.height;
 							tileSprite.setDepth(1.5);
-							this.roomSprites.push(tileSprite);
 						} else {
 							const color = TILE_COLORS[runType];
 							if (color) {
@@ -955,17 +1026,13 @@ export class GameScene extends Phaser.Scene {
 		}
 
 		this.drawTileLabels();
+		this.hideUnusedStaticObjects();
 		this.drawDynamicOverlays();
 	}
 
 	private drawDynamicOverlays(): void {
 		this.drawSims();
 		this.drawCars();
-	}
-
-	private clearTileLabels(): void {
-		for (const label of this.tileLabels) label.destroy();
-		this.tileLabels = [];
 	}
 
 	private drawTileLabels(): void {
@@ -979,21 +1046,10 @@ export class GameScene extends Phaser.Scene {
 			if (this.roomTexturesLoaded && this.hasRoomArt(tileType, x, y)) continue;
 
 			const width = TILE_WIDTHS[tileType] ?? 1;
-			const label = this.add.text(
-				(x + width / 2) * TILE_WIDTH,
-				(y + 0.5) * TILE_HEIGHT,
-				labelText,
-				{
-					fontSize: "11px",
-					fontFamily: "Arial, sans-serif",
-					fontStyle: "bold",
-					color: TILE_LABEL_COLORS[tileType] ?? "#ffffff",
-					resolution: window.devicePixelRatio * 4,
-				},
-			);
-			label.setOrigin(0.5, 0.5);
-			label.setDepth(5);
-			this.tileLabels.push(label);
+			const label = this.getTileLabel();
+			label.setPosition((x + width / 2) * TILE_WIDTH, (y + 0.5) * TILE_HEIGHT);
+			label.setText(labelText);
+			label.setColor(TILE_LABEL_COLORS[tileType] ?? "#ffffff");
 		}
 	}
 
@@ -1168,12 +1224,12 @@ export class GameScene extends Phaser.Scene {
 
 		const texKey = `room_${type}`;
 		if (this.roomTexturesLoaded && this.textures.exists(texKey)) {
-			const sprite = this.add.sprite(startX, topY, texKey);
+			const sprite = this.getRoomSprite(texKey);
+			sprite.setPosition(startX, topY);
 			sprite.setOrigin(0, 0);
 			sprite.setDisplaySize(cellW, heightPx);
 			sprite.setDepth(1.75);
 			sprite.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
-			this.roomSprites.push(sprite);
 			return;
 		}
 
