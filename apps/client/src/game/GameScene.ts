@@ -61,9 +61,25 @@ type RoomTextureConfig = {
 	heightTiles?: number;
 };
 
+type NumberTextureStyle = {
+	color: string;
+	fontSizePx: number;
+	fontStyle?: string;
+	fontFamily?: string;
+	paddingX?: number;
+	paddingY?: number;
+};
+
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
 const HOTEL_TURNOVER_STATUS_MAX = 0x30;
+const FLOOR_LABEL_RANGE: [number, number] = [-10, 110];
+const EVAL_LABEL_RANGE: [number, number] = [0, 300];
+const CAR_LABEL_RANGE: [number, number] = [0, 21];
+const NUMBER_TEXTURE_RESOLUTION = Math.max(
+	1,
+	Math.round(window.devicePixelRatio * 4),
+);
 
 const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	office: {
@@ -152,9 +168,9 @@ export class GameScene extends Phaser.Scene {
 	private hoverGraphics!: Phaser.GameObjects.Graphics;
 	private cloudManager!: CloudManager;
 	private floorLabelBg!: Phaser.GameObjects.Rectangle;
-	private floorLabels: Phaser.GameObjects.Text[] = [];
+	private floorLabels: Phaser.GameObjects.Image[] = [];
 	private tileLabels: Phaser.GameObjects.Text[] = [];
-	private carLabels: Phaser.GameObjects.Text[] = [];
+	private carLabels: Phaser.GameObjects.Image[] = [];
 	private roomSprites: Phaser.GameObjects.Sprite[] = [];
 	private roomTileSprites: Phaser.GameObjects.TileSprite[] = [];
 	private roomTexturesLoaded = false;
@@ -162,7 +178,7 @@ export class GameScene extends Phaser.Scene {
 	private unitStatusMap: Map<string, number> = new Map();
 	private evalLevelMap: Map<string, number> = new Map();
 	private evalScoreMap: Map<string, number> = new Map();
-	private evalBadgeLabels: Phaser.GameObjects.Text[] = [];
+	private evalBadgeLabels: Phaser.GameObjects.Image[] = [];
 	private usedRoomSpriteCount = 0;
 	private usedRoomTileSpriteCount = 0;
 	private usedTileLabelCount = 0;
@@ -481,6 +497,7 @@ export class GameScene extends Phaser.Scene {
 		this.cloudManager = new CloudManager(this, 1);
 		this.cloudManager.loadTextures();
 
+		this.setupNumberTextures();
 		this.loadRoomTextures();
 
 		this.setupInput();
@@ -524,23 +541,17 @@ export class GameScene extends Phaser.Scene {
 		for (let i = 0; i < GRID_HEIGHT; i++) {
 			const uiLabel = GRID_HEIGHT - 1 - i - UNDERGROUND_FLOORS;
 			const isUnderground = i >= UNDERGROUND_Y;
-			const text = this.add.text(
+			const textureKey = this.getFloorLabelTextureKey(uiLabel, isUnderground);
+			const label = this.add.image(
 				0,
 				i * TILE_HEIGHT + TILE_HEIGHT / 2,
-				String(uiLabel),
-				{
-					fontSize: "11px",
-					fontFamily: "Arial, sans-serif",
-					fontStyle: "bold",
-					color: isUnderground ? "#886644" : "#5588aa",
-					align: "center",
-					resolution: window.devicePixelRatio * 4,
-				},
+				textureKey,
 			);
-			text.setScrollFactor(0, 1);
-			text.setDepth(11);
-			text.setOrigin(0.5, 0.5);
-			this.floorLabels.push(text);
+			this.applyNumberTexture(label, textureKey);
+			label.setScrollFactor(0, 1);
+			label.setDepth(11);
+			label.setOrigin(0.5, 0.5);
+			this.floorLabels.push(label);
 		}
 	}
 
@@ -571,6 +582,173 @@ export class GameScene extends Phaser.Scene {
 		}
 		this.lastFloorLabelZoom = zoom;
 		this.lastFloorLabelWidth = this.scale.width;
+	}
+
+	private getNumberTextureKey(prefix: string, value: number): string {
+		const valueToken = value < 0 ? `neg${Math.abs(value)}` : String(value);
+		return `${prefix}_${valueToken}`;
+	}
+
+	private ensureNumberTexture(
+		prefix: string,
+		value: number,
+		style: NumberTextureStyle,
+	): string {
+		const key = this.getNumberTextureKey(prefix, value);
+		if (this.textures.exists(key)) return key;
+
+		const dpr = NUMBER_TEXTURE_RESOLUTION;
+		const fontStyle = style.fontStyle ?? "bold";
+		const fontFamily = style.fontFamily ?? "Arial, sans-serif";
+		const paddingX = style.paddingX ?? 2;
+		const paddingY = style.paddingY ?? 1;
+		const cssFont = `${fontStyle} ${style.fontSizePx}px ${fontFamily}`;
+		const measureCanvas = document.createElement("canvas");
+		const measureCtx = measureCanvas.getContext("2d");
+		if (!measureCtx) {
+			throw new Error("2D canvas is unavailable for number texture creation");
+		}
+		measureCtx.font = cssFont;
+		const metrics = measureCtx.measureText(String(value));
+		const width = Math.max(1, Math.ceil(metrics.width + paddingX * 2) * dpr);
+		const height = Math.max(
+			1,
+			Math.ceil(style.fontSizePx + paddingY * 2) * dpr,
+		);
+		const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) {
+			throw new Error("2D canvas is unavailable for number texture creation");
+		}
+		ctx.scale(dpr, dpr);
+		ctx.font = cssFont;
+		ctx.fillStyle = style.color;
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		ctx.fillText(String(value), width / dpr / 2, height / dpr / 2);
+		this.textures.addCanvas(key, canvas);
+		return key;
+	}
+
+	private applyNumberTexture(
+		image: Phaser.GameObjects.Image,
+		textureKey: string,
+	): void {
+		image.setTexture(textureKey);
+		const frame = this.textures.getFrame(textureKey);
+		if (!frame) return;
+		image.setDisplaySize(
+			frame.width / NUMBER_TEXTURE_RESOLUTION,
+			frame.height / NUMBER_TEXTURE_RESOLUTION,
+		);
+	}
+
+	private primeNumberTextures(
+		prefix: string,
+		start: number,
+		end: number,
+		style: NumberTextureStyle,
+	): void {
+		for (let value = start; value <= end; value += 1) {
+			this.ensureNumberTexture(prefix, value, style);
+		}
+	}
+
+	private getFloorLabelTextureKey(
+		value: number,
+		isUnderground: boolean,
+	): string {
+		return this.ensureNumberTexture(
+			isUnderground ? "floor_label_underground" : "floor_label_surface",
+			value,
+			{
+				fontSizePx: 11,
+				fontStyle: "bold",
+				fontFamily: "Arial, sans-serif",
+				color: isUnderground ? "#886644" : "#5588aa",
+				paddingX: 2,
+				paddingY: 1,
+			},
+		);
+	}
+
+	private getEvalLabelTextureKey(value: number): string {
+		return this.ensureNumberTexture("eval_label", value, {
+			fontSizePx: Math.round(TILE_HEIGHT * 0.55 * 0.75),
+			fontStyle: "bold",
+			fontFamily: "Arial, sans-serif",
+			color: "#ffffff",
+			paddingX: 2,
+			paddingY: 1,
+		});
+	}
+
+	private getCarLabelTextureKey(value: number): string {
+		return this.ensureNumberTexture("car_label", value, {
+			fontSizePx: 8,
+			fontStyle: "bold",
+			fontFamily: "Arial, sans-serif",
+			color: "#3b2d00",
+			paddingX: 2,
+			paddingY: 1,
+		});
+	}
+
+	private setupNumberTextures(): void {
+		this.primeNumberTextures(
+			"floor_label_surface",
+			FLOOR_LABEL_RANGE[0],
+			FLOOR_LABEL_RANGE[1],
+			{
+				fontSizePx: 11,
+				fontStyle: "bold",
+				fontFamily: "Arial, sans-serif",
+				color: "#5588aa",
+				paddingX: 2,
+				paddingY: 1,
+			},
+		);
+		this.primeNumberTextures(
+			"floor_label_underground",
+			FLOOR_LABEL_RANGE[0],
+			FLOOR_LABEL_RANGE[1],
+			{
+				fontSizePx: 11,
+				fontStyle: "bold",
+				fontFamily: "Arial, sans-serif",
+				color: "#886644",
+				paddingX: 2,
+				paddingY: 1,
+			},
+		);
+		this.primeNumberTextures(
+			"eval_label",
+			EVAL_LABEL_RANGE[0],
+			EVAL_LABEL_RANGE[1],
+			{
+				fontSizePx: Math.round(TILE_HEIGHT * 0.55 * 0.75),
+				fontStyle: "bold",
+				fontFamily: "Arial, sans-serif",
+				color: "#ffffff",
+				paddingX: 2,
+				paddingY: 1,
+			},
+		);
+		this.primeNumberTextures(
+			"car_label",
+			CAR_LABEL_RANGE[0],
+			CAR_LABEL_RANGE[1],
+			{
+				fontSizePx: 8,
+				fontStyle: "bold",
+				fontFamily: "Arial, sans-serif",
+				color: "#3b2d00",
+				paddingX: 2,
+				paddingY: 1,
+			},
+		);
 	}
 
 	private drawSky(): void {
@@ -845,15 +1023,12 @@ export class GameScene extends Phaser.Scene {
 		return label;
 	}
 
-	private getEvalBadgeLabel(): Phaser.GameObjects.Text {
+	private getEvalBadgeLabel(): Phaser.GameObjects.Image {
 		let label = this.evalBadgeLabels[this.usedEvalBadgeLabelCount];
 		if (!label) {
-			label = this.add.text(0, 0, "", {
-				fontFamily: "Arial, sans-serif",
-				fontStyle: "bold",
-				color: "#ffffff",
-				resolution: window.devicePixelRatio * 4,
-			});
+			const textureKey = this.getEvalLabelTextureKey(0);
+			label = this.add.image(0, 0, textureKey);
+			this.applyNumberTexture(label, textureKey);
 			label.setOrigin(0.5, 0.5);
 			label.setDepth(5);
 			this.evalBadgeLabels.push(label);
@@ -992,9 +1167,8 @@ export class GameScene extends Phaser.Scene {
 				g.fillStyle(badgeColor, 1);
 				g.fillRoundedRect(px, py, pillW, pillH, pillR);
 				const label = this.getEvalBadgeLabel();
+				this.applyNumberTexture(label, this.getEvalLabelTextureKey(evalScore));
 				label.setPosition(px + pillW / 2, py + pillH / 2);
-				label.setText(scoreLabel);
-				label.setFontSize(Math.round(pillH * 0.75));
 			}
 		}
 
@@ -1302,18 +1476,14 @@ export class GameScene extends Phaser.Scene {
 
 		let label = this.carLabels[carIndex];
 		if (!label) {
-			label = this.add.text(0, 0, "", {
-				fontSize: "8px",
-				fontFamily: "Arial, sans-serif",
-				fontStyle: "bold",
-				color: "#3b2d00",
-				resolution: window.devicePixelRatio * 4,
-			});
+			const textureKey = this.getCarLabelTextureKey(0);
+			label = this.add.image(0, 0, textureKey);
+			this.applyNumberTexture(label, textureKey);
 			label.setOrigin(0.5, 0.5);
 			this.carLabels.push(label);
 		}
+		this.applyNumberTexture(label, this.getCarLabelTextureKey(occupancy));
 		label.setPosition(x + width / 2, y + height / 2);
-		label.setText(String(occupancy));
 		label.setDepth(depth + 0.005);
 		label.setVisible(true);
 	}
