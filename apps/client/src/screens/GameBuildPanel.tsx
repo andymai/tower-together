@@ -192,6 +192,13 @@ const CATEGORIES: ToolEntry[][] = [
 	],
 	[
 		{
+			id: "inspect",
+			label: "Inspect",
+			color: "#5bc0de",
+			cost: 0,
+			Icon: Search,
+		},
+		{
 			id: "floor",
 			label: "Floor",
 			color: "#777",
@@ -199,13 +206,6 @@ const CATEGORIES: ToolEntry[][] = [
 			Icon: Square,
 		},
 		{ id: "empty", label: "Erase", color: "#888", cost: 0, Icon: Eraser },
-		{
-			id: "inspect",
-			label: "Inspect",
-			color: "#5bc0de",
-			cost: 0,
-			Icon: Search,
-		},
 	],
 ];
 

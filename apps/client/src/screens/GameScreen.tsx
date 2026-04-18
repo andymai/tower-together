@@ -35,7 +35,7 @@ export function GameScreen({
 	towerId,
 	onLeave,
 }: Props) {
-	const [selectedTool, setSelectedTool] = useState<SelectedTool>("floor");
+	const [selectedTool, setSelectedTool] = useState<SelectedTool>("inspect");
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [aliasInput, setAliasInput] = useState("");
 	const [aliasError, setAliasError] = useState("");
@@ -184,7 +184,7 @@ export function GameScreen({
 			!freeBuild &&
 			starCount < getTileStarRequirement(selectedTool)
 		) {
-			setSelectedTool("floor");
+			setSelectedTool("inspect");
 		}
 	}, [freeBuild, selectedTool, starCount]);
 
