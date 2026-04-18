@@ -26,6 +26,7 @@ import {
 	FAMILY_RETAIL,
 } from "./resources";
 import {
+	advanceObjectStayPhaseTiers,
 	closeCommercialVenuesByFamily,
 	normalizeUnitStatusEndOfDay,
 	rebuildCommercialVenueRuntime,
@@ -112,6 +113,11 @@ function checkpointMidday(_s: SimState): void {
 	resetCommercialVenueCycle(_s.world, _s.ledger);
 	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
 	updateRecyclingCenterState(_s.world, _s.ledger, 0);
+	// 4. advance_object_stay_phase_tiers @ 1230:0b5f — raises unit_status bands
+	//    (hotel 0x18→0x20, 0x28→0x30, 0x38→0x40; office 0x00→0x08, 0x10→0x18;
+	//    condo 0x18→0x20 + low-band +8). Runs after the refresh pass so the
+	//    gate sees the pre-advance status.
+	advanceObjectStayPhaseTiers(_s.world);
 }
 
 function checkpointAfternoonNotification(_s: SimState): void {

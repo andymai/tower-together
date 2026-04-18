@@ -1,4 +1,4 @@
-import { FAMILY_CONDO } from "../resources";
+import { FAMILY_CONDO, FAMILY_OFFICE } from "../resources";
 import type { TimeState } from "../time";
 import type { PlacedObjectRecord, WorldState } from "../world";
 import { findObjectForSim } from "./population";
@@ -113,6 +113,30 @@ export function handleExtendedVacancyExpiry(
 			if (object.activationTickCount >= 3) {
 				object.unitStatus = time.daypartIndex < 4 ? 0x40 : 0x38;
 			}
+		}
+	}
+}
+
+/**
+ * Binary `advance_object_stay_phase_tiers` @ 1230:0b5f, invoked at checkpoint
+ * 0x640 (dayTick 1600). Iterates all placed objects and raises unit_status
+ * bands by +8 in specific residue classes. Critically, hotels at unit_status
+ * 0x18 → 0x20 here triggers `refresh_occupied_flag_and_trip_counters` to
+ * actually reset sim trip counters when the later midday pass runs.
+ */
+export function advanceObjectStayPhaseTiers(world: WorldState): void {
+	for (const object of Object.values(world.placedObjects)) {
+		const status = object.unitStatus;
+		if (HOTEL_FAMILIES.has(object.objectTypeCode)) {
+			if (status === 0x18) object.unitStatus = 0x20;
+			else if (status === 0x28) object.unitStatus = 0x30;
+			else if (status === 0x38) object.unitStatus = 0x40;
+		} else if (object.objectTypeCode === FAMILY_OFFICE) {
+			if (status === 0x00) object.unitStatus = 0x08;
+			else if (status === 0x10) object.unitStatus = 0x18;
+		} else if (object.objectTypeCode === FAMILY_CONDO) {
+			if (status === 0x18) object.unitStatus = 0x20;
+			else if ((status & 0xf8) === 0) object.unitStatus = (status & 7) + 0x08;
 		}
 	}
 }

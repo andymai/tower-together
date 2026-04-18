@@ -32,6 +32,7 @@ import {
 } from "./housekeeping";
 
 export {
+	advanceObjectStayPhaseTiers,
 	handleExtendedVacancyExpiry,
 	normalizeUnitStatusEndOfDay,
 	spreadCockroachInfestation,
