@@ -810,6 +810,7 @@ export class GameScene extends Phaser.Scene {
 			const evalLevel = this.evalLevelMap.get(key);
 			const evalScore = this.evalScoreMap.get(key);
 			if (
+				import.meta.env.DEV &&
 				evalLevel !== undefined &&
 				evalLevel <= 2 &&
 				evalScore !== undefined &&

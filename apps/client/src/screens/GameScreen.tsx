@@ -195,13 +195,15 @@ export function GameScreen({
 						selectedTool={selectedTool}
 						onToolSelect={setSelectedTool}
 					/>
-					<GameDebugPanel
-						metrics={metrics}
-						speedMultiplier={speedMultiplier}
-						onSpeedChange={setSpeedMultiplier}
-						freeBuild={freeBuild}
-						onFreeBuildChange={setFreeBuild}
-					/>
+					{import.meta.env.DEV && (
+						<GameDebugPanel
+							metrics={metrics}
+							speedMultiplier={speedMultiplier}
+							onSpeedChange={setSpeedMultiplier}
+							freeBuild={freeBuild}
+							onFreeBuildChange={setFreeBuild}
+						/>
+					)}
 					{selectedTool === "inspect" && <GameInspectPanel sims={sims} />}
 				</div>
 			</div>
