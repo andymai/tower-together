@@ -167,6 +167,10 @@ export class GameScene extends Phaser.Scene {
 	private usedRoomTileSpriteCount = 0;
 	private usedTileLabelCount = 0;
 	private usedEvalBadgeLabelCount = 0;
+	private lastFloorLabelZoom = Number.NaN;
+	private lastFloorLabelWidth = -1;
+	private simsDirty = true;
+	private lastSimWorldView = new Phaser.Geom.Rectangle();
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -314,6 +318,7 @@ export class GameScene extends Phaser.Scene {
 		this.currentSimSnapshot = { simTime, items: sims };
 		this.previousCarrierSnapshot = null;
 		this.currentCarrierSnapshot = { simTime, items: carriers };
+		this.simsDirty = true;
 		this.presentationClock = {
 			simTime,
 			receivedAtMs: performance.now(),
@@ -335,44 +340,91 @@ export class GameScene extends Phaser.Scene {
 			evalScore?: number;
 		}>,
 	): void {
+		let needsRedraw = false;
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
 			if (cell.isOverlay) {
 				if (cell.tileType === "empty") {
-					this.overlayGrid.delete(key);
+					if (this.overlayGrid.has(key)) {
+						this.overlayGrid.delete(key);
+						needsRedraw = true;
+					}
 				} else {
-					this.overlayGrid.set(key, cell.tileType);
+					if (this.overlayGrid.get(key) !== cell.tileType) {
+						this.overlayGrid.set(key, cell.tileType);
+						needsRedraw = true;
+					}
 				}
 			} else if (cell.tileType === "empty") {
-				this.grid.delete(key);
-				this.anchorSet.delete(key);
-				this.evalActiveFlagMap.delete(key);
-				this.unitStatusMap.delete(key);
-				this.evalLevelMap.delete(key);
-				this.evalScoreMap.delete(key);
-			} else {
-				this.grid.set(key, cell.tileType);
-				if (cell.isAnchor) {
-					this.anchorSet.add(key);
-				} else {
+				const hadContent =
+					this.grid.has(key) ||
+					this.anchorSet.has(key) ||
+					this.evalActiveFlagMap.has(key) ||
+					this.unitStatusMap.has(key) ||
+					this.evalLevelMap.has(key) ||
+					this.evalScoreMap.has(key);
+				if (hadContent) {
+					this.grid.delete(key);
 					this.anchorSet.delete(key);
+					this.evalActiveFlagMap.delete(key);
+					this.unitStatusMap.delete(key);
+					this.evalLevelMap.delete(key);
+					this.evalScoreMap.delete(key);
+					needsRedraw = true;
 				}
-				if (cell.evalActiveFlag !== undefined)
+			} else {
+				if (this.grid.get(key) !== cell.tileType) {
+					this.grid.set(key, cell.tileType);
+					needsRedraw = true;
+				}
+				if (this.anchorSet.has(key) !== cell.isAnchor) {
+					if (cell.isAnchor) {
+						this.anchorSet.add(key);
+					} else {
+						this.anchorSet.delete(key);
+					}
+					needsRedraw = true;
+				}
+				if (
+					cell.evalActiveFlag !== undefined &&
+					this.evalActiveFlagMap.get(key) !== cell.evalActiveFlag
+				) {
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
-				if (cell.unitStatus !== undefined)
+					needsRedraw = true;
+				}
+				if (
+					cell.unitStatus !== undefined &&
+					this.unitStatusMap.get(key) !== cell.unitStatus
+				) {
 					this.unitStatusMap.set(key, cell.unitStatus);
-				if (cell.evalLevel !== undefined)
+					needsRedraw = true;
+				}
+				if (
+					cell.evalLevel !== undefined &&
+					this.evalLevelMap.get(key) !== cell.evalLevel
+				) {
 					this.evalLevelMap.set(key, cell.evalLevel);
-				if (cell.evalScore !== undefined)
+					needsRedraw = true;
+				}
+				if (
+					cell.evalScore !== undefined &&
+					this.evalScoreMap.get(key) !== cell.evalScore
+				) {
 					this.evalScoreMap.set(key, cell.evalScore);
+					needsRedraw = true;
+				}
 			}
 		}
-		this.drawAllCells();
+		if (needsRedraw) {
+			this.simsDirty = true;
+			this.drawAllCells();
+		}
 	}
 
 	applySims(simTime: number, sims: SimStateData[]): void {
 		this.previousSimSnapshot = this.currentSimSnapshot;
 		this.currentSimSnapshot = { simTime, items: sims };
+		this.simsDirty = true;
 	}
 
 	applyCarriers(simTime: number, carriers: CarrierCarStateData[]): void {
@@ -433,6 +485,7 @@ export class GameScene extends Phaser.Scene {
 
 		this.setupInput();
 		this.setupFloorLabels();
+		this.updateFloorLabels();
 	}
 
 	update(_time: number, delta: number): void {
@@ -444,8 +497,14 @@ export class GameScene extends Phaser.Scene {
 		if (this.arrowKeys.down.isDown) cam.scrollY += PAN_SPEED;
 
 		this.cloudManager.update(delta);
-		this.updateFloorLabels();
-		this.drawDynamicOverlays();
+		if (
+			this.lastFloorLabelZoom !== cam.zoom ||
+			this.lastFloorLabelWidth !== this.scale.width
+		) {
+			this.updateFloorLabels();
+		}
+		this.drawSimsIfNeeded();
+		this.drawCars();
 	}
 
 	private setupFloorLabels(): void {
@@ -488,6 +547,12 @@ export class GameScene extends Phaser.Scene {
 	private updateFloorLabels(): void {
 		const cam = this.cameras.main;
 		const zoom = cam.zoom;
+		if (
+			this.lastFloorLabelZoom === zoom &&
+			this.lastFloorLabelWidth === this.scale.width
+		) {
+			return;
+		}
 		// Camera pivots zoom around the screen center, so with scrollFactor(0):
 		//   screenX = halfW + zoom * (worldX - halfW)
 		// Inverse: worldX = halfW + (screenX - halfW) / zoom
@@ -504,6 +569,8 @@ export class GameScene extends Phaser.Scene {
 			if (!label) continue;
 			label.setX(labelX);
 		}
+		this.lastFloorLabelZoom = zoom;
+		this.lastFloorLabelWidth = this.scale.width;
 	}
 
 	private drawSky(): void {
@@ -1035,6 +1102,19 @@ export class GameScene extends Phaser.Scene {
 		this.drawCars();
 	}
 
+	private drawSimsIfNeeded(): void {
+		const worldView = this.cameras.main.worldView;
+		if (
+			this.simsDirty ||
+			this.lastSimWorldView.x !== worldView.x ||
+			this.lastSimWorldView.y !== worldView.y ||
+			this.lastSimWorldView.width !== worldView.width ||
+			this.lastSimWorldView.height !== worldView.height
+		) {
+			this.drawSims();
+		}
+	}
+
 	private drawTileLabels(): void {
 		for (const key of this.anchorSet) {
 			const tileType = this.grid.get(key);
@@ -1057,6 +1137,11 @@ export class GameScene extends Phaser.Scene {
 		const g = this.simGraphics;
 		g.clear();
 		this.queuedSimHitboxes = [];
+		const worldView = this.cameras.main.worldView;
+		const visibleLeft = worldView.x - TILE_WIDTH;
+		const visibleRight = worldView.right + TILE_WIDTH;
+		const visibleTop = worldView.y - TILE_HEIGHT;
+		const visibleBottom = worldView.bottom + TILE_HEIGHT;
 		const queueIndices = new Map<string, number>();
 		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
 			this.overlayGrid,
@@ -1086,6 +1171,18 @@ export class GameScene extends Phaser.Scene {
 				sim.stressLevel === "low"
 					? `sim_figure_low-${hashSimVariant(sim.id, 4)}`
 					: `sim_figure_${sim.stressLevel}`;
+			const left = px - simWidthPx / 2;
+			const right = px + simWidthPx / 2;
+			const top = py - simHeightPx;
+			const bottom = py;
+			if (
+				right < visibleLeft ||
+				left > visibleRight ||
+				bottom < visibleTop ||
+				top > visibleBottom
+			) {
+				continue;
+			}
 
 			if (hasTexture) {
 				let sprite = this.simSprites[usedCount];
@@ -1107,18 +1204,13 @@ export class GameScene extends Phaser.Scene {
 			} else {
 				const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
 				g.fillStyle(color, 1);
-				g.fillRect(
-					px - simWidthPx / 2,
-					py - simHeightPx,
-					simWidthPx,
-					simHeightPx,
-				);
+				g.fillRect(left, top, simWidthPx, simHeightPx);
 			}
 			this.queuedSimHitboxes.push({
-				left: px - simWidthPx / 2,
-				right: px + simWidthPx / 2,
-				top: py - simHeightPx,
-				bottom: py,
+				left,
+				right,
+				top,
+				bottom,
 				sim,
 			});
 		}
@@ -1126,12 +1218,24 @@ export class GameScene extends Phaser.Scene {
 		for (let i = usedCount; i < this.simSprites.length; i += 1) {
 			this.simSprites[i]?.setVisible(false);
 		}
+		this.lastSimWorldView.setTo(
+			worldView.x,
+			worldView.y,
+			worldView.width,
+			worldView.height,
+		);
+		this.simsDirty = false;
 	}
 
 	private drawCars(): void {
 		const simSnapshot = this.currentSimSnapshot ??
 			this.previousSimSnapshot ?? { simTime: 0, items: [] };
 		const occupancyByCar = buildOccupancyByCar(simSnapshot.items);
+		const worldView = this.cameras.main.worldView;
+		const visibleLeft = worldView.x - TILE_WIDTH;
+		const visibleRight = worldView.right + TILE_WIDTH;
+		const visibleTop = worldView.y - TILE_HEIGHT;
+		const visibleBottom = worldView.bottom + TILE_HEIGHT;
 
 		let usedCount = 0;
 		for (const car of getDisplayedCars(
@@ -1140,6 +1244,16 @@ export class GameScene extends Phaser.Scene {
 			this.presentationClock,
 		)) {
 			const { x, y, width, height } = getCarBounds(car);
+			const right = x + width;
+			const bottom = y + height;
+			if (
+				right < visibleLeft ||
+				x > visibleRight ||
+				bottom < visibleTop ||
+				y > visibleBottom
+			) {
+				continue;
+			}
 			const occupancy =
 				occupancyByCar.get(`${car.carrierId}:${car.carIndex}`) ?? 0;
 
