@@ -976,7 +976,7 @@ export class GameScene extends Phaser.Scene {
 		// Stick-figure sprites for queued sims. Low stress has 4 skin-tone
 		// variants; medium/high tint the entire figure. Rasterized extra-hi-res
 		// (viewBox 6×20) so the sprite stays crisp even at MAX_ZOOM.
-		const simScale = 32;
+		const simScale = 64;
 		for (const level of ["low-0", "low-1", "low-2", "low-3"] as const) {
 			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
 				width: 6 * simScale,
