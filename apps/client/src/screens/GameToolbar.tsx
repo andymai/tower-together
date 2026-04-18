@@ -14,6 +14,7 @@ interface Props {
 	starCount: number;
 	dateLabel: string;
 	timeOfDayLabel: string;
+	dayTick: number;
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
 	onAliasInputChange: (value: string) => void;
@@ -36,6 +37,7 @@ export function GameToolbar({
 	starCount,
 	dateLabel,
 	timeOfDayLabel,
+	dayTick,
 	playerCount,
 	connectionStatus,
 	onAliasInputChange,
@@ -128,7 +130,10 @@ export function GameToolbar({
 					</span>
 				</span>
 				<span style={styles.calendarItem}>{dateLabel}</span>
-				<span style={styles.calendarItem}>{timeOfDayLabel}</span>
+				<span style={styles.calendarItem}>
+					{timeOfDayLabel}
+					{import.meta.env.DEV ? ` (${dayTick})` : ""}
+				</span>
 				<span style={styles.statItem}>
 					{playerCount} player{playerCount !== 1 ? "s" : ""}
 				</span>

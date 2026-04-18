@@ -236,6 +236,7 @@ export function GameScreen({
 	}, [aliasInput, setTowerName, towerId]);
 
 	const day = Math.floor(simTime / DAY_TICK_MAX) + 1;
+	const dayTick = ((simTime % DAY_TICK_MAX) + DAY_TICK_MAX) % DAY_TICK_MAX;
 	const dateLabel = formatSimDate(day);
 	const timeOfDayLabel = formatSimTimeOfDay(simTime);
 	const metrics = buildTransportMetrics(sims, carriers);
@@ -264,6 +265,7 @@ export function GameScreen({
 				starCount={starCount}
 				dateLabel={dateLabel}
 				timeOfDayLabel={timeOfDayLabel}
+				dayTick={dayTick}
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
 				onAliasInputChange={handleAliasInputChange}
