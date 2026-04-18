@@ -129,6 +129,9 @@ function clearCarrierSlotsForRemovedSims(
 		for (const slot of car.activeRouteSlots) {
 			if (!slot.active) continue;
 			if (!removedIds.has(slot.routeId)) continue;
+			if (slot.boarded) {
+				car.assignedCount = Math.max(0, car.assignedCount - 1);
+			}
 			slot.active = false;
 			slot.routeId = "";
 			slot.sourceFloor = 0xff;
