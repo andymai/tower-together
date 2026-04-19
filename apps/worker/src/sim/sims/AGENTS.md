@@ -5,13 +5,13 @@ Family-specific state machines and shared runtime helpers for the placed-object-
 ## Files
 
 ### `index.ts`
-Runtime sim facade: refresh stride orchestration, venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling now lives with each family module instead of in the central dispatcher. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat.
+Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `refreshRuntimeEntitiesForTickStride`), venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling lives with each family module. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat. Phase 6: `populateCarrierRequests`, `shouldSeedElevatorDemand`, and `getElevatorDemand` deleted — demand origination moved into each family's dispatch handler (binary 1228 `dispatch_object_family_*_state_handler` inline calls `resolve_sim_route_between_floors`). `reconcileSimTransport` remains for segment-leg finalization and the defensive completed-arrival sweep.
 
 ### `states.ts`
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.
 
 ### `population.ts`
-Population construction and cleanup for placed-object-derived sims, sim-key lookup helpers, route clearing, runtime reset, and legacy sim-named compatibility aliases.
+Population construction and cleanup for placed-object-derived sims, sim-key lookup helpers, route clearing, runtime reset, and legacy sim-named compatibility aliases. Phase 5b: `clearSimRoute` intentionally does NOT touch `sim.stateCode` bits because the _TRANSIT phase byte is still needed by family arrival handlers to select the right branch. Bit-strip sites pair explicit `setSimInTransit(false)` or byte-overwrites.
 
 ### `trip-counters.ts`
 Elapsed-time rebasing, trip counter advancement, current-trip delay accounting, and facility-wide counter reset helpers.

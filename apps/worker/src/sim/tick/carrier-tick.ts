@@ -7,9 +7,13 @@
 //     for each active car: dispatch_carrier_car_arrivals (1218:07a6)
 //     for each active car: process_unit_travel_queue     (1218:0351)
 //
-// Phase 1 of the routing refactor: this module now owns the per-tick carrier
-// driver ordering. `populateCarrierRequests` and `reconcileSimTransport` still
-// sit around the carrier loop (Phase 6 removes the former; the latter stays).
+// Phase 6: `populateCarrierRequests` has been removed. Demand now originates
+// inside the stride refresh (each family's dispatch handler calls
+// `resolveSimRouteBetweenFloors` inline). The binary has no batch idle-scan
+// for demand — see ROUTING-BINARY-MAP.md §6.2 mismatch #2. `reconcileSimTransport`
+// still runs after the carrier loop for segment-leg finalization and the
+// (now-defensive) completed-arrival sweep; removing it is a separate concern
+// tracked by Phase 7 (callback removal).
 import {
 	advanceCarrierCarState,
 	type CarrierArrivalCallback,
@@ -20,7 +24,6 @@ import {
 } from "../carriers";
 import type { LedgerState } from "../ledger";
 import {
-	populateCarrierRequests,
 	reconcileSimTransport,
 	refreshRuntimeEntitiesForTickStride,
 } from "../sims";
@@ -35,7 +38,6 @@ export function carrierTick(
 	onBoarding?: CarrierBoardingCallback,
 ): void {
 	refreshRuntimeEntitiesForTickStride(world, ledger, time);
-	populateCarrierRequests(world, time);
 
 	for (const carrier of world.carriers) {
 		resetCarrierTickBookkeeping(carrier);

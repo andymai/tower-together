@@ -19,10 +19,7 @@ import {
 	type RouteCandidate,
 	selectBestRouteCandidate,
 } from "../route-scoring/select-candidate";
-import {
-	setSimInTransit,
-	setSimWaiting,
-} from "../sim-access/state-bits";
+import { setSimInTransit, setSimWaiting } from "../sim-access/state-bits";
 import { clearSimRoute, simKey } from "../sims/population";
 import { maybeApplyDistanceFeedback } from "../sims/scoring";
 import {
@@ -218,13 +215,19 @@ export function resolveSimRouteBetweenFloors(
 		directionFlag,
 	);
 	if (!queued) {
-		// Queue full: sim remains parked here and retries at its next stride slot
-		// (binary re-dispatches every 16 ticks). 5-tick elapsed penalty mirrors
-		// g_waiting_state_delay in binary's resolve_sim_route_between_floors.
-		sim.route = { mode: "queued", source: sourceFloor };
-		// Phase 5b: queue-full waiting → set 0x20 for dispatch_sim_behavior
-		// families only. Non-dispatch families (housekeeping/entertainment/
-		// recycling/parking/cathedral) drive independent state machines.
+		// Binary: resolve_sim_route_between_floors on queue-full returns 0; the
+		// binary writes sim[+8] = 0xff and sim[+7] = source floor and sets the
+		// 0x20 waiting bit on state_code. The family handler retries on its
+		// next stride slot (every 16 ticks). 5-tick penalty matches
+		// g_waiting_state_delay.
+		//
+		// Phase 6: previously the TS code set sim.route = { mode: "queued" }
+		// which excluded the sim from the stride refresh's idle-only gate and
+		// required populateCarrierRequests to reset it to idle every tick.
+		// Leaving sim.route idle here is authoritative — state_code bit 0x20
+		// (set via setSimWaiting for dispatch_sim_behavior families) carries
+		// the waiting information, matching the binary.
+		clearSimRoute(sim);
 		if (familyUsesStateBits(sim.familyCode)) setSimWaiting(sim, true);
 		sim.destinationFloor = destinationFloor;
 		sim.routeRetryDelay = 16;

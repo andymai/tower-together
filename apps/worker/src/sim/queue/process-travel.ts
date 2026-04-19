@@ -15,7 +15,30 @@ import {
 	syncPendingRouteIds,
 } from "../carriers/sync";
 import { chooseTransferFloorFromCarrierReachability } from "../reachability/mask-tests";
+import {
+	FAMILY_CONDO,
+	FAMILY_FAST_FOOD,
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_OFFICE,
+	FAMILY_RESTAURANT,
+	FAMILY_RETAIL,
+} from "../resources";
+import { setSimInTransit } from "../sim-access/state-bits";
 import { addDelayToCurrentSim } from "../sims/trip-counters";
+
+const STATE_BIT_FAMILIES = new Set<number>([
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_RESTAURANT,
+	FAMILY_OFFICE,
+	FAMILY_CONDO,
+	FAMILY_FAST_FOOD,
+	FAMILY_RETAIL,
+]);
+
 import type { TimeState } from "../time";
 import type {
 	CarrierCar,
@@ -65,6 +88,12 @@ function clearSimRouteById(world: WorldState, simId: string): void {
 		const key = `${sim.floorAnchor}:${sim.homeColumn}:${sim.familyCode}:${sim.baseOffset}`;
 		if (key !== simId) continue;
 		sim.route = { mode: "idle" };
+		// Phase 5b bit-sync: failed transfer-floor resolution returns the
+		// sim to idle. We strip only the 0x40 in-transit bit — 0x20 overlaps
+		// TS phase encodings (MORNING_GATE = 0x20 etc.) and stripping it
+		// would corrupt the post-failure phase byte. Gated to
+		// dispatch_sim_behavior families only.
+		if (STATE_BIT_FAMILIES.has(sim.familyCode)) setSimInTransit(sim, false);
 		sim.routeRetryDelay = 0;
 		return;
 	}

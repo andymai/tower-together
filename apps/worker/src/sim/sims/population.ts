@@ -116,7 +116,7 @@ export function findSiblingSims(
 
 export function clearSimRoute(sim: SimRecord): void {
 	sim.route = ROUTE_IDLE;
-	// Phase 5b: `sim.stateCode` is NOT touched here. The binary's
+	// Phase 5b: `sim.stateCode` bits are NOT cleared here. The binary's
 	// `dispatch_destination_queue_entries` sets state_code bits via the
 	// family handler it dispatches into (e.g. hotel state-0x60 → 0x01 on
 	// arrival), so the family arrival handler — called right after
@@ -124,6 +124,10 @@ export function clearSimRoute(sim: SimRecord): void {
 	// 0x40 unconditionally here corrupts the _TRANSIT phase byte that the
 	// handler still needs to read to identify the arrival branch (e.g.
 	// `sim.stateCode === STATE_MORNING_TRANSIT` in hotel.ts#handleHotelSimArrival).
+	// Explicit state-bit clears are paired at the specific sites that park
+	// the sim (resetSimRuntimeState, cleanupSimsForRemovedTile,
+	// maybe-dispatch-after-wait, and the idle transitions inside family
+	// state handlers).
 }
 
 function clearCarrierSlotsForRemovedSims(
@@ -344,6 +348,13 @@ export function resetSimRuntimeState(world: WorldState): void {
 		sim.selectedFloor = sim.floorAnchor;
 		sim.originFloor = sim.floorAnchor;
 		sim.route = ROUTE_IDLE;
+		// Phase 5b note: state_code bit cleanup is NOT done here. The reset
+		// block above already wrote a fresh stateCode (MORNING_GATE / PARKED
+		// / HK_SEARCH). In the TS encoding MORNING_GATE (0x20) overlaps with
+		// the binary's "waiting" bit — stripping 0x20 here would corrupt the
+		// post-reset phase byte. The explicit byte-write is the authoritative
+		// source; the bit helpers are reserved for transitions that keep the
+		// base phase constant (e.g. `finalizeRuntimeRouteState`).
 		sim.destinationFloor = -1;
 		sim.venueReturnState = 0;
 		sim.queueTick = 0;

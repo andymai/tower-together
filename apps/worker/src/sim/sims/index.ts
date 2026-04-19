@@ -56,16 +56,12 @@ import {
 	CATHEDRAL_FAMILIES,
 	COMMERCIAL_DWELL_STATE,
 	COMMERCIAL_VENUE_DWELL_TICKS,
-	ELEVATOR_DEMAND_STATES,
 	ENTITY_REFRESH_STRIDE,
-	EVAL_ZONE_FLOOR,
-	EVALUATABLE_FAMILIES,
 	HK_STATE_ROUTE_TO_CANDIDATE,
 	HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT,
 	HK_STATE_ROUTE_TO_TARGET,
 	INVALID_FLOOR,
 	LOBBY_FLOOR,
-	ROUTE_IDLE,
 	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
 	STATE_COMMUTE,
@@ -73,8 +69,6 @@ import {
 	STATE_DEPARTURE,
 	STATE_DEPARTURE_TRANSIT,
 	STATE_DWELL_RETURN_TRANSIT,
-	STATE_EVAL_OUTBOUND,
-	STATE_EVAL_RETURN,
 	STATE_MORNING_TRANSIT,
 	STATE_TRANSIT_FLAG,
 	STATE_VENUE_HOME_TRANSIT,
@@ -435,7 +429,7 @@ export function advanceSimRefreshStride(
 		if (
 			!isCommercial &&
 			(sim.stateCode & STATE_TRANSIT_FLAG) === 0 &&
-			(sim.route.mode === "idle" || sim.route.mode === "queued")
+			sim.route.mode === "idle"
 		) {
 			rebaseSimElapsedFromClock(sim, time);
 		}
@@ -497,94 +491,13 @@ export function advanceSimRefreshStride(
 // (tests, TowerSim.step via re-export) continue using the old name.
 export const refreshRuntimeEntitiesForTickStride = advanceSimRefreshStride;
 
-function shouldSeedElevatorDemand(sim: SimRecord): boolean {
-	if (sim.routeRetryDelay > 0) return false;
-	if (sim.route.mode !== "idle") return false;
-	if (!ELEVATOR_DEMAND_STATES.has(sim.stateCode)) return false;
-	if (
-		!EVALUATABLE_FAMILIES.has(sim.familyCode) &&
-		!CATHEDRAL_FAMILIES.has(sim.familyCode)
-	) {
-		return false;
-	}
-	return true;
-}
-
-function getElevatorDemand(sim: SimRecord): {
-	sourceFloor: number;
-	destinationFloor: number;
-	directionFlag: number;
-} | null {
-	// Active office/hotel/condo routes carry their destination on the sim.
-	if (
-		sim.destinationFloor >= 0 &&
-		(sim.stateCode === STATE_COMMUTE ||
-			sim.stateCode === STATE_COMMUTE_TRANSIT ||
-			sim.stateCode === STATE_ACTIVE_TRANSIT ||
-			sim.stateCode === STATE_VENUE_TRIP_TRANSIT ||
-			sim.stateCode === STATE_DEPARTURE_TRANSIT ||
-			sim.stateCode === STATE_MORNING_TRANSIT ||
-			sim.stateCode === STATE_AT_WORK_TRANSIT ||
-			sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
-			sim.stateCode === STATE_DWELL_RETURN_TRANSIT)
-	) {
-		return {
-			sourceFloor: sim.selectedFloor,
-			destinationFloor: sim.destinationFloor,
-			directionFlag: sim.destinationFloor > sim.selectedFloor ? 1 : 0,
-		};
-	}
-
-	// Hotel and office sims require explicit DEPARTURE dispatch — auto-seeding
-	// idle state 0x05 would short-circuit the binary's daypart-gated dispatch
-	// (office: 1228:29xx STATE_DEPARTURE handler gated on daypart >= 4).
-	if (
-		sim.stateCode === STATE_DEPARTURE &&
-		sim.familyCode !== FAMILY_HOTEL_SINGLE &&
-		sim.familyCode !== FAMILY_HOTEL_TWIN &&
-		sim.familyCode !== FAMILY_HOTEL_SUITE &&
-		sim.familyCode !== FAMILY_OFFICE
-	) {
-		return {
-			sourceFloor: sim.selectedFloor,
-			destinationFloor: LOBBY_FLOOR,
-			directionFlag: 0,
-		};
-	}
-
-	if (sim.stateCode === STATE_VENUE_TRIP && sim.destinationFloor >= 0) {
-		return {
-			sourceFloor: sim.selectedFloor,
-			destinationFloor: sim.destinationFloor,
-			directionFlag: sim.destinationFloor > sim.selectedFloor ? 1 : 0,
-		};
-	}
-
-	// Cathedral guest: outbound routes to eval zone
-	if (
-		CATHEDRAL_FAMILIES.has(sim.familyCode) &&
-		sim.stateCode === STATE_EVAL_OUTBOUND
-	) {
-		return {
-			sourceFloor: sim.selectedFloor,
-			destinationFloor: EVAL_ZONE_FLOOR,
-			directionFlag: 1,
-		};
-	}
-	// Cathedral guest: return routes to lobby
-	if (
-		CATHEDRAL_FAMILIES.has(sim.familyCode) &&
-		sim.stateCode === STATE_EVAL_RETURN
-	) {
-		return {
-			sourceFloor: sim.selectedFloor,
-			destinationFloor: LOBBY_FLOOR,
-			directionFlag: 0,
-		};
-	}
-
-	return null;
-}
+// Phase 6: `shouldSeedElevatorDemand` and `getElevatorDemand` deleted with
+// `populateCarrierRequests`. Demand now originates inside each family's
+// dispatch handler (office/hotel/condo/retail/restaurant/housekeeping/
+// cathedral/medical), which calls `resolveSimRouteBetweenFloors` inline when
+// its state machine decides the sim needs to move between floors. Matches the
+// binary's `dispatch_object_family_*_state_handler` path — see
+// ROUTING-BINARY-MAP.md §6.2 mismatch #2.
 
 // resolveSimRouteBetweenFloors now lives in queue/resolve.ts (1218:0000).
 // Re-exported here so existing callers (housekeeping, cathedral, tests, etc.)
@@ -668,72 +581,12 @@ function dispatchSimArrival(
 	}
 }
 
-export function populateCarrierRequests(
-	world: WorldState,
-	time?: TimeState,
-): void {
-	const activeDemandIds = new Set<string>();
-	for (const sim of world.sims) {
-		// Sims already in-transit on a carrier or segment are active demand —
-		// their pending routes must not be pruned.
-		if (sim.route.mode === "carrier" || sim.route.mode === "segment") {
-			activeDemandIds.add(simKey(sim));
-			continue;
-		}
-		if (!shouldSeedElevatorDemand(sim)) continue;
-		const demand = getElevatorDemand(sim);
-		if (!demand) continue;
-		// Returns -1/0/1/2/3 per ROUTING.md. Only preserve sim's route (via
-		// activeDemandIds) when resolve produced an active leg. Queue-full (0)
-		// leaves sim in "queued" mode; letting Step 4 reset it to idle allows
-		// the retryDelay countdown to drive the retry at the next stride cycle.
-		const result = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			demand.sourceFloor,
-			demand.destinationFloor,
-			demand.directionFlag,
-			time,
-		);
-		if (result !== 0) activeDemandIds.add(simKey(sim));
-	}
-
-	for (const carrier of world.carriers) {
-		carrier.pendingRoutes = carrier.pendingRoutes.filter(
-			(route) => route.boarded || activeDemandIds.has(route.simId),
-		);
-		for (const car of carrier.cars) {
-			for (const slot of car.activeRouteSlots) {
-				if (!slot.active) continue;
-				if (
-					!carrier.pendingRoutes.some((route) => route.simId === slot.routeId)
-				) {
-					slot.active = false;
-					slot.routeId = "";
-					slot.sourceFloor = INVALID_FLOOR;
-					slot.destinationFloor = INVALID_FLOOR;
-					slot.boarded = false;
-				}
-			}
-			car.pendingRouteIds = car.activeRouteSlots
-				.filter((slot) => slot.active)
-				.map((slot) => slot.routeId);
-		}
-	}
-
-	for (const sim of world.sims) {
-		if (!activeDemandIds.has(simKey(sim))) {
-			sim.route = ROUTE_IDLE;
-		}
-	}
-
-	// Decrement retryDelay AFTER seeding. Any retryDelay set during this
-	// populate call is preserved this tick so that stride-set and populate-set
-	// queue-fulls both retry exactly 16 ticks later at the next stride cycle.
-	for (const sim of world.sims) {
-		if (sim.routeRetryDelay > 0) sim.routeRetryDelay -= 1;
-	}
-}
+// Phase 6: `populateCarrierRequests` has been deleted. Demand now originates
+// inside each family's dispatch handler (see `advanceSimRefreshStride`). The
+// binary has no idle-scan function; its `refresh_runtime_entities_for_tick_stride`
+// (1228:0d64) services 1/16 of sims per tick and each family handler calls
+// `resolve_sim_route_between_floors` inline when its state machine decides to
+// move to another floor (ROUTING-BINARY-MAP.md §6.2 mismatch #2).
 
 /**
  * Invoked synchronously by `tickAllCarriers` (via the `onArrival` callback)

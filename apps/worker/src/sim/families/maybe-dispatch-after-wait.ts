@@ -73,6 +73,11 @@ export function maybeDispatchQueuedRouteAfterWait(
 	const route = carrier.pendingRoutes.find((r) => r.simId === simKey(sim));
 	if (!route || route.boarded) return;
 	evictCarrierRoute(carrier, simKey(sim));
+	// Phase 5b note: STATE_NIGHT_B (0x26) already encodes base phase 0x06
+	// plus bit 5 (0x20). In TS encoding the 0x20 bit on NIGHT_B is part of
+	// the phase byte, NOT a separate "waiting" flag — so clearSimRouteBits
+	// would corrupt the post-timeout state. The byte-overwrite here is
+	// authoritative; no bit helper is called.
 	sim.stateCode = STATE_NIGHT_B;
 	sim.destinationFloor = -1;
 	clearSimRoute(sim);

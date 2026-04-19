@@ -146,6 +146,16 @@ export interface SimRecord {
 	/** Per-floor local object index (binary sim+1 / BP+0xc): index of this sim's home object within its floor's object list, in placement (x-ascending) order. */
 	facilitySlot: number;
 	familyCode: number;
+	/**
+	 * SimRecord+5 state_code byte (ROUTING-BINARY-MAP.md §4.1):
+	 *   bits 0..3: phase (0..7)
+	 *   bit 5 (0x20): currently waiting (queue-full parked)
+	 *   bit 6 (0x40): route queued / in-transit on carrier or segment
+	 * Phase 5b makes the two mode bits the authoritative source for
+	 * routing-mode branching (via `sim-access/state-bits.ts`). The
+	 * `route` auxiliary struct stays as bookkeeping for carrier/segment
+	 * ids and direction.
+	 */
 	stateCode: number;
 	route: RouteState;
 	selectedFloor: number;

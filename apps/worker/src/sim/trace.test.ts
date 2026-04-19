@@ -295,7 +295,7 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	//   - metro_floor          (metro station floor; only metroPlaced bit is tracked)
 	//   - population           (onsite occupancy roll-up; separate from sim count)
 	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
-	it.concurrent("matches full reference trace", () => {
+	it("matches full reference trace", () => {
 		if (simEntries.length === 0) return;
 		const sim = prepareFromTrace(spec, trace);
 

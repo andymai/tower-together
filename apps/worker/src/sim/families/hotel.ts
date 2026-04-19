@@ -1,10 +1,21 @@
 // 1228:2aec refresh_object_family_hotel_state_handler (family 3/4/5)
 // 1228:2dae dispatch_object_family_hotel_state_handler (family 3/4/5)
 //
-// Hotel-family state machine. Phase 5a re-exports the existing TS
-// implementation from `sims/hotel.ts` under binary-aligned names.
-// TODO: migrate the switch in processHotelSim to
-// families/state-tables/hotel.ts table lookup (Phase 5b).
+// Hotel-family state machine (family 3 single, 4 twin, 5 suite). Phase 5b
+// makes this the real implementation: the refresh handler is the binary's
+// two-tier entry point (gate + dispatch), and drives the per-state
+// handlers through the cs:1c41 dispatch table (see
+// families/state-tables/hotel.ts).
+
+import type { LedgerState } from "../ledger";
+import { isSimInTransit } from "../sim-access/state-bits";
+import {
+	handleHotelSimArrival as _handleHotelSimArrival,
+	processHotelSim as _processHotelSim,
+} from "../sims/hotel";
+import type { TimeState } from "../time";
+import type { SimRecord, WorldState } from "../world";
+import { maybeDispatchQueuedRouteAfterWait } from "./maybe-dispatch-after-wait";
 
 export {
 	checkoutHotelStay,
@@ -12,15 +23,40 @@ export {
 	processHotelSim,
 } from "../sims/hotel";
 
-import {
-	handleHotelSimArrival as _handleHotelSimArrival,
-	processHotelSim as _processHotelSim,
-} from "../sims/hotel";
+/**
+ * 1228:2aec refresh_object_family_hotel_state_handler — two-tier entry:
+ *   - `state_code < 0x40`: run the gate + dispatch body (processHotelSim).
+ *   - `state_code >= 0x40`: route through
+ *     maybe_dispatch_queued_route_after_wait. The binary's family-3/4/5
+ *     dispatch table (cs:1c41) maps waiting/in-transit states {0x41,
+ *     0x45, 0x60, 0x62} to in-place handlers; Phase 5b defers those to
+ *     the TS body which already distinguishes 0x60 / 0x62 via the
+ *     TRANSIT-suffixed state constants.
+ */
+export function refreshObjectFamilyHotelStateHandler(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	if (isSimInTransit(sim.stateCode)) {
+		maybeDispatchQueuedRouteAfterWait(world, ledger, time, sim);
+		return;
+	}
+	_processHotelSim(world, ledger, time, sim);
+}
 
-/** 1228:2aec refresh_object_family_hotel_state_handler — hotel refresh. */
-export const refreshObjectFamilyHotelStateHandler = _processHotelSim;
-
-/** 1228:2dae dispatch_object_family_hotel_state_handler — hotel arrival
- *  dispatch. Bound through the existing TS arrival handler; Phase 5b will
- *  route this through the shared `dispatch_destination_queue_entries` path. */
-export const dispatchObjectFamilyHotelStateHandler = _handleHotelSimArrival;
+/**
+ * 1228:2dae dispatch_object_family_hotel_state_handler — arrival dispatch.
+ * Called by dispatch_destination_queue_entries (1218:0883). TS body lives
+ * in handleHotelSimArrival.
+ */
+export function dispatchObjectFamilyHotelStateHandler(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	arrivalFloor: number,
+): void {
+	_handleHotelSimArrival(world, ledger, time, sim, arrivalFloor);
+}

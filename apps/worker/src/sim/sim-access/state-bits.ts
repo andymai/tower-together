@@ -63,3 +63,16 @@ export function clearSimRouteBits(sim: SimRecord): void {
 export function setSimState(sim: SimRecord, newCode: number): void {
 	sim.stateCode = newCode & 0xff;
 }
+
+/**
+ * Replace just the base-phase bits (0..3) on `sim.stateCode`, preserving
+ * the waiting/in-transit mode bits. Phase 5b helper requested by the
+ * migration plan; not yet used by the TS state machines which currently
+ * overwrite the entire byte, but exposed for future binary-faithful
+ * handlers that mutate phase without disturbing mode.
+ */
+export function setSimBaseState(sim: SimRecord, phase: number): void {
+	sim.stateCode =
+		((sim.stateCode & SIM_STATE_MODE_MASK) | (phase & SIM_STATE_BASE_MASK)) &
+		0xff;
+}
