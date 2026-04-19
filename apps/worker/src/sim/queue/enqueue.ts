@@ -64,6 +64,10 @@ export function enqueueRequestIntoRouteQueue(
 	const floorQueue = getQueueState(carrier, sourceFloor);
 	if (!floorQueue) return false;
 	const directionQueue = getDirectionQueue(floorQueue, directionFlag);
+	// Binary: resolve_sim_route_between_floors checks count==40 upstream and
+	// returns 0 (queue-full) without invoking enqueue. Mirror that by failing
+	// the push here so the caller takes the queue-full path.
+	if (directionQueue.isFull) return false;
 	const wasDirectionQueueEmpty = directionQueue.isEmpty;
 	directionQueue.push(simId);
 	carrier.pendingRoutes.push({

@@ -107,7 +107,7 @@ see §2.2).
 ### 2.2 `TowerRouteQueueRecord` — 324 bytes per floor-slot
 
 ```
-+0x00    byte      up_queue_count           // 0..40; ==40 is full-sentinel
++0x00    byte      up_queue_count           // 0..40; resolver rejects enqueue at 40
 +0x01    byte      up_queue_head_index
 +0x02    byte      down_queue_count
 +0x03    byte      down_queue_head_index
@@ -115,7 +115,11 @@ see §2.2).
 +0xa4    dword[40] down_queue_request_refs  // 160 bytes
 ```
 
-Enqueue writes to `(head+count)%40`. A 41st enqueue silently overwrites head.
+Enqueue writes to `(head+count)%40`. The enqueue function itself has no
+capacity guard — if called at `count==40`, `(head+40)%40==head` and it would
+clobber the head entry, then increment count to 41. In practice this never
+happens: `resolve_sim_route_between_floors` checks `count==40` upstream and
+returns 0 (queue-full) without invoking enqueue.
 
 ### 2.3 `TowerUnitRouteRecord` — 346 bytes per car
 
@@ -509,9 +513,13 @@ Motion modes from `compute_car_motion_mode`:
 4. **Equality breaks toward idle-home.** `(moving − idle) < threshold` is
    strict; equal cost picks the idle-home car.
 
-5. **Queue ring is literally size-40.** `enqueue_request_into_route_queue`
-   uses `(head+count)%40` with no full flag. 41st enqueue silently overwrites
-   head.
+5. **Queue ring is size-40, gated by the resolver.**
+   `enqueue_request_into_route_queue` uses `(head+count)%40` with no full
+   flag, so calling it at `count==40` would clobber `refs[head]` and push
+   count to 41. The guard lives upstream in
+   `resolve_sim_route_between_floors`: on `count==40` it returns 0
+   (queue-full) and skips enqueue entirely. TS must mirror this — pushing
+   onto a full ring is never observable in binary behavior.
 
 6. **Parity-dependent per-stop delay.** `resolve_sim_route_between_floors`
    picks `g_per_stop_even_parity_delay` vs `..odd..` on
@@ -585,8 +593,9 @@ apps/worker/src/sim/
 
 1. **Queue-buffer layout.** TS uses two `RingBuffer<string>` objects per
    floor (generic class). Binary is a flat `TowerRouteQueueRecord` (324 B)
-   per floor-slot, packed into the carrier struct. The capacity-40 silent
-   wrap-around is not emulated.
+   per floor-slot, packed into the carrier struct. TS now rejects pushes
+   onto a full ring so the resolver's queue-full return (code 0) fires,
+   matching the binary.
 
 2. **Demand seeding is sims-initiated, not family-refresh-initiated.**
    `populateCarrierRequests` is a TS-invented function that scans idle sims
@@ -723,10 +732,10 @@ address. Cross-file imports mirror the binary call graph.
 
 ### 7.2 Data-structure changes
 
-1. **Replace `RingBuffer<string>` with a typed view over a packed
+1.. **Replace `RingBuffer<string>` with a typed view over a packed
    `Uint32Array`**, matching `TowerRouteQueueRecord`'s exact 324-byte
-   layout (4 counters + 2×40 refs). Capacity-40 wrap-around becomes
-   observable.
+   layout (4 counters + 2×40 refs). Queue-full (`count==40`) must be
+   handled by the resolver, not by `push()`.
 
 2. **Store carrier header as a `Uint8Array`-backed view** (914 bytes)
    with typed accessors, so per-floor arrays
@@ -781,7 +790,8 @@ address. Cross-file imports mirror the binary call graph.
 8. **Preserve binary quirks explicitly**:
    - degenerate car-index-0 fallback in `findBestAvailableCarForFloor`
    - equality-breaks-to-idle-home
-   - size-40 wrap-around on queue overflow (document and assert it)
+   - queue-full gate: resolver bails with code 0 when `count==40`; enqueue
+     is never called on a full ring (if it were, it would clobber `refs[head]`)
    - same-floor result code 3, not 2
    - state-byte aliasing (`0x00 == 0x40`) with prologue-only difference
 

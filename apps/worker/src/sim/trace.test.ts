@@ -275,7 +275,7 @@ function traceSimTotal(entry: TraceEntry): number {
 const FIXTURE_NAMES = [
 	"commercial",
 	"condo",
-	// "dense_office",
+	"dense_office",
 	"elevator",
 	"hotel",
 	"lobby_only",
