@@ -119,10 +119,14 @@ export const FAMILY_RETAIL = 10;
 export const FAMILY_FAST_FOOD = 12;
 export const FAMILY_SECURITY = 14;
 export const FAMILY_CINEMA = 18;
+export const FAMILY_CINEMA_LOWER = 19;
 export const FAMILY_RECYCLING_CENTER_UPPER = 20;
 export const FAMILY_RECYCLING_CENTER_LOWER = 21;
 export const FAMILY_PARKING = 24;
 export const FAMILY_PARTY_HALL = 29;
+export const FAMILY_PARTY_HALL_LOWER = 30;
+export const FAMILY_CINEMA_STAIRS_UPPER = 34;
+export const FAMILY_CINEMA_STAIRS_LOWER = 35;
 export const FAMILY_FIRE_SUPPRESSOR = 40;
 export const FAMILY_HOUSEKEEPING = 15;
 export const FAMILY_MEDICAL = 13;
@@ -204,23 +208,21 @@ export const COMMERCIAL_CAPACITY_CAPS: Record<
 };
 
 // ─── YEN #1002 — expense table ────────────────────────────────────────────────
-// Operating expenses charged every 3 days.
+// Operating expenses charged every 3 days, indexed by family code.
 
 // Binary-verified YEN resource #1002. Raw table (family code → value):
 // [1]=100, [14]=200, [15]=100, [20]=500, [22]=0, [27]=50, [31]=1000,
 // [42]=200, [43]=100, [44]=100 (all others 0). Values here are raw/10 so
 // that `value * YEN_UNIT (=1000)` matches the binary's cash_balance × 100
 // trace scale (YEN_1001 uses the same raw/10 convention).
-export const YEN_1002: Record<string, number> = {
-	elevatorLocal: 10, // family 1, per active car per 3-day period
-	security: 20, // family 14
-	housekeeping: 10, // family 15
-	recyclingCenterUpper: 50, // family 20
-	recyclingCenterLower: 0, // family 21
-	stairs: 0, // family 22
-	escalator: 5, // family 27
-	elevatorExpress: 20, // family 42
-	elevatorService: 10, // family 43
+export const QUARTERLY_EXPENSES: Record<number, number> = {
+	1: 10, // elevatorLocal, per active car per 3-day period
+	14: 20, // security
+	15: 10, // housekeeping
+	20: 50, // recyclingCenterUpper
+	27: 5, // escalator
+	42: 20, // elevatorExpress
+	43: 10, // elevatorService
 };
 
 // ─── Operational score thresholds ─────────────────────────────────────────────

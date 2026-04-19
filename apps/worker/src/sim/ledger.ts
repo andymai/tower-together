@@ -1,10 +1,23 @@
 import {
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_CONDO,
+	FAMILY_FAST_FOOD,
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
+	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 	PARKING_EXPENSE_RATE_BY_STAR,
+	QUARTERLY_EXPENSES,
 	YEN_1001,
-	YEN_1002,
 } from "./resources";
+import { ENTITY_POPULATION_BY_TYPE } from "./sims/states";
 import {
 	UNDERGROUND_FLOORS,
 	VENUE_DORMANT,
@@ -25,6 +38,17 @@ import {
 const YEN_UNIT = 1_000;
 const CASH_CAP = 99_999_999;
 
+const LEDGER_OFFICE = 0;
+const LEDGER_HOTEL_SINGLE = 1;
+const LEDGER_HOTEL_TWIN = 2;
+const LEDGER_HOTEL_SUITE = 3;
+const LEDGER_RETAIL = 4;
+const LEDGER_FAST_FOOD = 5;
+const LEDGER_RESTAURANT = 6;
+const LEDGER_PARTY_HALL = 7;
+const LEDGER_CINEMA = 8;
+const LEDGER_CONDO = 9;
+
 export interface LedgerState {
 	cashBalance: number;
 	/** Live per-family active-unit counts indexed by objectTypeCode. */
@@ -40,11 +64,42 @@ export interface LedgerState {
 export function createLedgerState(startingCash: number): LedgerState {
 	return {
 		cashBalance: startingCash,
-		populationLedger: new Array(256).fill(0),
-		incomeLedger: new Array(256).fill(0),
+		populationLedger: new Array(10).fill(0),
+		incomeLedger: new Array(10).fill(0),
 		expenseLedger: new Array(256).fill(0),
 		cashBalanceCycleBase: startingCash,
 	};
+}
+
+export function familyToLedgerIndex(familyCode: number): number {
+	switch (familyCode) {
+		case FAMILY_OFFICE:
+			return LEDGER_OFFICE;
+		case FAMILY_HOTEL_SINGLE:
+			return LEDGER_HOTEL_SINGLE;
+		case FAMILY_HOTEL_TWIN:
+			return LEDGER_HOTEL_TWIN;
+		case FAMILY_HOTEL_SUITE:
+			return LEDGER_HOTEL_SUITE;
+		case FAMILY_RETAIL:
+			return LEDGER_RETAIL;
+		case FAMILY_FAST_FOOD:
+			return LEDGER_FAST_FOOD;
+		case FAMILY_RESTAURANT:
+			return LEDGER_RESTAURANT;
+		case FAMILY_PARTY_HALL:
+		case FAMILY_PARTY_HALL_LOWER:
+			return LEDGER_PARTY_HALL;
+		case FAMILY_CINEMA:
+		case FAMILY_CINEMA_LOWER:
+		case FAMILY_CINEMA_STAIRS_UPPER:
+		case FAMILY_CINEMA_STAIRS_LOWER:
+			return LEDGER_CINEMA;
+		case FAMILY_CONDO:
+			return LEDGER_CONDO;
+		default:
+			return -1;
+	}
 }
 
 // ─── Income ───────────────────────────────────────────────────────────────────
@@ -65,7 +120,9 @@ export function addCashflowFromFamilyResource(
 	const amount = payouts[Math.min(rentLevel, 3)] * YEN_UNIT;
 	ledger.cashBalance = Math.min(CASH_CAP, ledger.cashBalance + amount);
 	if (familyCode >= 0 && familyCode < 256) {
-		ledger.incomeLedger[familyCode] += amount;
+		const index = familyToLedgerIndex(familyCode);
+		if (index === -1) return;
+		ledger.incomeLedger[index] += amount;
 	}
 }
 
@@ -80,9 +137,11 @@ export function removeCashflowFromFamilyResource(
 	const amount = payouts[Math.min(rentLevel, 3)] * YEN_UNIT;
 	ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);
 	if (familyCode >= 0 && familyCode < 256) {
-		ledger.incomeLedger[familyCode] = Math.max(
+		const index = familyToLedgerIndex(familyCode);
+		if (index === -1) return;
+		ledger.incomeLedger[index] = Math.max(
 			0,
-			ledger.incomeLedger[familyCode] - amount,
+			ledger.incomeLedger[index] - amount,
 		);
 	}
 }
@@ -120,17 +179,7 @@ export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
 			continue;
 		}
 
-		// Carriers: use elevatorLocal / elevatorExpress / escalator keys
-		let expenseKey: string;
-		if (code === 0x01) {
-			expenseKey = "elevatorLocal";
-		} else if (code === 0x02) {
-			expenseKey = "escalator";
-		} else {
-			// Map code → tile name via FAMILY_CODE_TO_TILE (imported lazily to avoid cycle)
-			expenseKey = _codeToTile(code);
-		}
-		const rate = YEN_1002[expenseKey];
+		const rate = QUARTERLY_EXPENSES[code];
 		if (!rate) continue;
 		const amount = rate * YEN_UNIT;
 		ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);
@@ -142,38 +191,25 @@ export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
 	for (const carrier of world.carriers) {
 		const activeCarCount = carrier.cars.filter((car) => car.active).length;
 		if (activeCarCount === 0) continue;
-		const expenseKey =
-			carrier.carrierMode === 0
-				? "elevatorExpress"
-				: carrier.carrierMode === 2
-					? "elevatorService"
-					: "elevatorLocal";
-		const rate = YEN_1002[expenseKey];
+		const familyCode =
+			carrier.carrierMode === 0 ? 42 : carrier.carrierMode === 2 ? 43 : 1;
+		const rate = QUARTERLY_EXPENSES[familyCode];
 		if (!rate) continue;
 		const amount = rate * YEN_UNIT * activeCarCount;
 		ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);
-		const code =
-			carrier.carrierMode === 0
-				? 0x2a
-				: carrier.carrierMode === 2
-					? 0x2b
-					: 0x01;
-		ledger.expenseLedger[code] += amount;
+		ledger.expenseLedger[familyCode] += amount;
 	}
 
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
 		const units = Math.max(1, segment.flags >> 1);
-		// Binary: bit 0 clear → escalator (family 0x1b, YEN=50);
-		// bit 0 set → stairs (family 0x16, YEN=0).
-		const isStairs = (segment.flags & 1) === 1;
-		const expenseKey = isStairs ? "stairs" : "escalator";
-		const typeCode = isStairs ? 0x16 : 0x1b;
-		const rate = YEN_1002[expenseKey];
+		// Binary: bit 0 clear → escalator (family 27); bit 0 set → stairs (family 22, rate 0).
+		const familyCode = (segment.flags & 1) === 1 ? 22 : 27;
+		const rate = QUARTERLY_EXPENSES[familyCode];
 		if (!rate) continue;
 		const amount = rate * YEN_UNIT * units;
 		ledger.cashBalance = Math.max(0, ledger.cashBalance - amount);
-		ledger.expenseLedger[typeCode] += amount;
+		ledger.expenseLedger[familyCode] += amount;
 	}
 }
 
@@ -181,6 +217,7 @@ export function doExpenseSweep(ledger: LedgerState, world: WorldState): void {
 
 /**
  * Rebuild populationLedger count by sweeping all placedObjects.
+ * Maps to rebuild_facility_ledger in the binary.
  * Called at checkpoint 0x00f0 (start of day).
  */
 export function rebuildFacilityLedger(
@@ -191,7 +228,9 @@ export function rebuildFacilityLedger(
 	for (const obj of Object.values(world.placedObjects)) {
 		const code = obj.objectTypeCode;
 		if (code >= 0 && code < 256) {
-			ledger.populationLedger[code] += 1;
+			const index = familyToLedgerIndex(code);
+			if (index === -1) continue;
+			ledger.populationLedger[index] += ENTITY_POPULATION_BY_TYPE[code];
 		}
 	}
 }
@@ -264,33 +303,4 @@ export function activateThreeDayCashflow(
 			);
 		}
 	}
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-// Inline mapping to avoid a circular import with resources.ts
-const CODE_TO_TILE: Record<number, string> = {
-	3: "hotelSingle",
-	4: "hotelTwin",
-	5: "hotelSuite",
-	6: "restaurant",
-	7: "office",
-	9: "condo",
-	10: "retail",
-	12: "fastFood",
-	14: "security",
-	15: "housekeeping",
-	18: "cinema",
-	20: "recyclingCenterUpper",
-	21: "recyclingCenterLower",
-	24: "parking",
-	29: "partyHall",
-	31: "hotelSingle",
-	32: "hotelTwin",
-	33: "hotelSuite",
-	40: "fireSuppressor",
-};
-
-function _codeToTile(code: number): string {
-	return CODE_TO_TILE[code] ?? "";
 }
