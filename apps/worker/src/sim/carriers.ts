@@ -39,9 +39,8 @@ import {
 	updateCarDirectionFlag,
 } from "./carriers/index";
 import { syncAssignmentStatus } from "./carriers/sync";
+import type { LedgerState } from "./ledger";
 import {
-	type CarrierArrivalCallback,
-	type CarrierBoardingCallback,
 	cancelRuntimeRouteRequest,
 	dispatchCarrierCarArrivals,
 	enqueueRequestIntoRouteQueue,
@@ -58,7 +57,6 @@ import {
 	yToFloor,
 } from "./world";
 
-export type { CarrierArrivalCallback, CarrierBoardingCallback };
 // Re-export the split state-machine functions so existing imports keep
 // resolving to `./carriers`.
 export {
@@ -178,12 +176,16 @@ export function makeCarrier(
  * The new carrierTick path under `tick/carrier-tick.ts` calls the individual
  * phase functions directly in binary order. After Phase 1, production code
  * paths should not call this.
+ *
+ * Phase 7: the `onArrival` / `onBoarding` callback parameters have been
+ * removed — arrival and boarding dispatch now happen inline inside
+ * `dispatchDestinationQueueEntries` and `boardWaitingRoutes` (see
+ * `queue/dispatch-arrivals.ts` and `queue/process-travel.ts`).
  */
 export function tickAllCarriers(
 	world: WorldState,
+	ledger: LedgerState,
 	time: TimeState,
-	onArrival?: CarrierArrivalCallback,
-	onBoarding?: CarrierBoardingCallback,
 ): void {
 	for (const carrier of world.carriers) {
 		carrier.completedRouteIds = [];
@@ -194,11 +196,11 @@ export function tickAllCarriers(
 		}
 		// Pass 2a: dispatch_carrier_car_arrivals (unload) for every car.
 		for (const [, car] of carrier.cars.entries()) {
-			dispatchCarrierCarArrivals(carrier, car, onArrival);
+			dispatchCarrierCarArrivals(world, ledger, time, carrier, car);
 		}
 		// Pass 2b: process_unit_travel_queue (queue drain + boarding) for every car.
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			processUnitTravelQueue(world, carrier, car, carIndex, time, onBoarding);
+			processUnitTravelQueue(world, carrier, car, carIndex, time);
 		}
 	}
 }

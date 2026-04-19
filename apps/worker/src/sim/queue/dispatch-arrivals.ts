@@ -3,10 +3,11 @@
 //
 // Per-tick arrival pass: at `dwellCounter == 5` (first dwell tick after
 // stop), walks the car's active-slot ring and drops any slot whose
-// destination matches the current floor. Each dropped slot fires the
-// family-arrival callback (in the binary this is an inline call into the
-// family dispatch handler; we still surface it as a callback because
-// `sim.route` storage has not been flipped yet — Phase 5).
+// destination matches the current floor. For each dropped slot, the binary
+// calls the matching family's `dispatch_object_family_*_state_handler`
+// inline — see `dispatchSimArrival` in ../sims/index.ts for the TS-side
+// family dispatch. Phase 7 removed the `onArrival` callback trampoline;
+// arrival now invokes the family handler directly from this file.
 
 import { floorToSlot } from "../carriers/slot";
 import {
@@ -14,33 +15,31 @@ import {
 	syncAssignmentStatus,
 	syncPendingRouteIds,
 } from "../carriers/sync";
-import type { CarrierCar, CarrierRecord } from "../world";
+import type { LedgerState } from "../ledger";
+import { dispatchSimArrival } from "../sims";
+import { simKey } from "../sims/population";
+import type { TimeState } from "../time";
+import type { CarrierCar, CarrierRecord, WorldState } from "../world";
 
 const DEPARTURE_SEQUENCE_TICKS = 5;
 
 /**
- * Optional callback invoked synchronously from the carrier tick when a
- * sim is unloaded at its destination. Mirrors the binary's
- * `dispatch_destination_queue_entries` path, which calls the family state
- * handler directly during the carrier tick.
- */
-export type CarrierArrivalCallback = (
-	routeId: string,
-	arrivalFloor: number,
-) => void;
-
-/**
  * Binary `dispatch_destination_queue_entries` (1218:0883). Scans each
  * boarded slot; when the slot's destination equals the car's current
- * floor, pops the slot, decrements rider counters, records the arrival
- * for the family dispatcher, and — in binary-land — jumps into that
- * family handler directly. The callback approach is a temporary bridge:
- * Phase 5 will replace this with a direct family-dispatch call.
+ * floor, pops the slot, decrements rider counters, then invokes the
+ * owning sim's family dispatch handler inline (`dispatchSimArrival`).
+ *
+ * In the binary, the arrival branch looks up the sim by routeId, writes
+ * `sim.selected_floor = car.currentFloor`, and jumps into the family's
+ * state handler based on `sim.family_code`. The TS `dispatchSimArrival`
+ * encapsulates that family switch.
  */
 export function dispatchDestinationQueueEntries(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
 	carrier: CarrierRecord,
 	car: CarrierCar,
-	onArrival?: CarrierArrivalCallback,
 ): boolean {
 	let changed = false;
 	const limit = activeSlotLimitFor(carrier);
@@ -75,10 +74,13 @@ export function dispatchDestinationQueueEntries(
 		changed = true;
 	}
 
-	if (onArrival) {
-		for (const arrival of arrivals) {
-			onArrival(arrival.routeId, arrival.floor);
-		}
+	// Binary inline family dispatch: for each arrival, look up the sim and
+	// call its family state handler (dispatch_object_family_*_state_handler).
+	// Replaces the pre-Phase-7 `onArrival` callback plumbing.
+	for (const arrival of arrivals) {
+		const sim = world.sims.find((s) => simKey(s) === arrival.routeId);
+		if (!sim) continue;
+		dispatchSimArrival(world, ledger, time, sim, arrival.floor);
 	}
 
 	if (changed) {
@@ -102,11 +104,13 @@ export function dispatchDestinationQueueEntries(
  * `dispatch_destination_queue_entries` for the actual slot-unload work.
  */
 export function dispatchCarrierCarArrivals(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
 	carrier: CarrierRecord,
 	car: CarrierCar,
-	onArrival?: CarrierArrivalCallback,
 ): void {
 	if (!car.active) return;
 	if (car.dwellCounter !== DEPARTURE_SEQUENCE_TICKS) return;
-	dispatchDestinationQueueEntries(carrier, car, onArrival);
+	dispatchDestinationQueueEntries(world, ledger, time, carrier, car);
 }

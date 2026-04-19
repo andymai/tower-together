@@ -41,7 +41,7 @@ Re-export shim: `SimState` bundle, `runCheckpoints()`, and `runSimulationDaySche
 Legacy generic `RingBuffer<T>`. Kept for backwards compat with old snapshot payloads; carrier floor queues now use `queue/route-record.RouteRequestRing` (fixed size 40, wraps silently on 41st enqueue).
 
 ### `carriers.ts`
-Carrier module hub — constructors (`makeCarrier`/`makeCarrierCar`), world-level lifecycle (`rebuildCarrierList`, `initCarrierState`, `flushCarriersEndOfDay`), the `tickAllCarriers` back-compat wrapper, and re-exports of the per-car state machine (`carriers/*.ts`) and queue ops (`queue/*.ts`). `enqueueCarrierRoute` / `evictCarrierRoute` are aliases over the queue's `enqueueRequestIntoRouteQueue` / `cancelRuntimeRouteRequest`.
+Carrier module hub — constructors (`makeCarrier`/`makeCarrierCar`), world-level lifecycle (`rebuildCarrierList`, `initCarrierState`, `flushCarriersEndOfDay`), the `tickAllCarriers` back-compat wrapper, and re-exports of the per-car state machine (`carriers/*.ts`) and queue ops (`queue/*.ts`). `enqueueCarrierRoute` / `evictCarrierRoute` are aliases over the queue's `enqueueRequestIntoRouteQueue` / `cancelRuntimeRouteRequest`. Phase 7: `tickAllCarriers` no longer takes `onArrival`/`onBoarding` callbacks — arrival and boarding dispatch run inline inside the queue module.
 
 ### `events.ts`
 Bomb, fire, random-news, and VIP special visitor event systems.
@@ -80,3 +80,9 @@ Hosts `refreshRuntimeEntitiesForTickStride` (1228:0d64). Phase 5a re-exports fro
 
 ### `sim-access/`
 Binary-aligned sim selectors (1228:681d..688c etc.) and state-code bit helpers (0x20 waiting, 0x40 in-transit). Phase 5a declares the names; Phase 5b wires them to replace the `sim.route` discriminated union.
+
+### `stress/`
+Per-sim stress accessors (binary segment 11e0): `advanceSimTripCounters`, `rebaseSimElapsedFromClock`, `addDelayToCurrentSim`, `accumulateElapsedDelayIntoCurrentSim`, `reduceElapsedForLobbyBoarding`. One file per binary function. Phase 8 extraction from `sims/trip-counters.ts` and `queue/process-travel.ts`.
+
+### `daily/`
+Once-per-day sweeps fired from specific day-tick checkpoints. Hosts `dispatchActiveRequestsByFamily` (1190:0977), wired into the 0x9c4 checkpoint.

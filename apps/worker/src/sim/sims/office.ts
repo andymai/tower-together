@@ -355,7 +355,8 @@ export function processOfficeSim(
 		sim.destinationFloor = sim.floorAnchor;
 		// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
 		// was just cleared), then no further rebase until next state handler invocation.
-		// Clear here so onCarrierBoarding's rebase is a no-op for this return leg.
+		// Clear here so the inline boarding-time rebase (see Phase 7 inline path in
+		// queue/process-travel.ts#boardWaitingRoutes) is a no-op for this return leg.
 		sim.lastDemandTick = -1;
 		if (routeResult === 3) {
 			finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));

@@ -10,14 +10,16 @@
 // Phase 6: `populateCarrierRequests` has been removed. Demand now originates
 // inside the stride refresh (each family's dispatch handler calls
 // `resolveSimRouteBetweenFloors` inline). The binary has no batch idle-scan
-// for demand — see ROUTING-BINARY-MAP.md §6.2 mismatch #2. `reconcileSimTransport`
-// still runs after the carrier loop for segment-leg finalization and the
-// (now-defensive) completed-arrival sweep; removing it is a separate concern
-// tracked by Phase 7 (callback removal).
+// for demand — see ROUTING-BINARY-MAP.md §6.2 mismatch #2.
+//
+// Phase 7: `onArrival` / `onBoarding` callbacks removed — the arrival path
+// (`dispatchDestinationQueueEntries`, 1218:0883) and the boarding path
+// (`boardWaitingRoutes` inside `processUnitTravelQueue`, 1218:0351) now
+// invoke the family dispatch handler and the stress accumulator inline,
+// matching the binary's call graph. `reconcileSimTransport` remains for
+// segment-leg finalization and the (defensive) completed-arrival sweep.
 import {
 	advanceCarrierCarState,
-	type CarrierArrivalCallback,
-	type CarrierBoardingCallback,
 	dispatchCarrierCarArrivals,
 	processUnitTravelQueue,
 	resetCarrierTickBookkeeping,
@@ -34,8 +36,6 @@ export function carrierTick(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
-	onArrival?: CarrierArrivalCallback,
-	onBoarding?: CarrierBoardingCallback,
 ): void {
 	refreshRuntimeEntitiesForTickStride(world, ledger, time);
 
@@ -45,10 +45,10 @@ export function carrierTick(
 			advanceCarrierCarState(car, carrier, carIndex, time);
 		}
 		for (const [, car] of carrier.cars.entries()) {
-			dispatchCarrierCarArrivals(carrier, car, onArrival);
+			dispatchCarrierCarArrivals(world, ledger, time, carrier, car);
 		}
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			processUnitTravelQueue(world, carrier, car, carIndex, time, onBoarding);
+			processUnitTravelQueue(world, carrier, car, carIndex, time);
 		}
 	}
 

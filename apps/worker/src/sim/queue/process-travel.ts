@@ -26,7 +26,9 @@ import {
 	FAMILY_RETAIL,
 } from "../resources";
 import { setSimInTransit } from "../sim-access/state-bits";
-import { addDelayToCurrentSim } from "../sims/trip-counters";
+import { addDelayToCurrentSim } from "../stress/add-delay";
+import { reduceElapsedForLobbyBoarding } from "../stress/lobby-reduction";
+import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
 
 const STATE_BIT_FAMILIES = new Set<number>([
 	FAMILY_HOTEL_SINGLE,
@@ -51,13 +53,32 @@ import type { RouteRequestRing } from "./route-record";
 const REQUEUE_FAILURE_DELAY = 0;
 
 /**
- * Optional callback invoked synchronously from inside the carrier tick
- * when a pending route is accepted onto an active car slot.
+ * Binary: at boarding, `assign_request_to_runtime_route` (1218:0d4e)
+ * invokes `accumulate_elapsed_delay_into_current_sim` for the boarding
+ * sim, which rebases `elapsed_packed` from the clock and applies the
+ * lobby discount. Promoted into the inline boarding path in Phase 7
+ * (replacing the old `onBoarding` callback).
+ *
+ * Only non-service carriers (mode != 2) perform the rebase; service
+ * carriers do not update sim stress.
  */
-export type CarrierBoardingCallback = (
+function applyBoardingStressUpdate(
+	world: WorldState,
+	time: TimeState,
+	carrier: CarrierRecord,
 	routeId: string,
 	sourceFloor: number,
-) => void;
+): void {
+	if (carrier.carrierMode === 2) return;
+	const sim = world.sims.find(
+		(candidate) =>
+			`${candidate.floorAnchor}:${candidate.homeColumn}:${candidate.familyCode}:${candidate.baseOffset}` ===
+			routeId,
+	);
+	if (!sim) return;
+	rebaseSimElapsedFromClock(sim, time);
+	reduceElapsedForLobbyBoarding(sim, sourceFloor, world);
+}
 
 function getScheduleIndex(time: TimeState): number {
 	return time.weekendFlag * 7 + time.daypartIndex;
@@ -234,12 +255,16 @@ function drainFloorQueueForCar(
 
 // Boarding-only half. Mirrors the per-slot board step inside
 // process_unit_travel_queue (1218:0351) — moves riders from active-route
-// slots (populated by drainFloorQueueForCar) onto the car.
+// slots (populated by drainFloorQueueForCar) onto the car. Phase 7: the
+// `onBoarding` callback has been inlined — the binary's boarding path
+// invokes `accumulate_elapsed_delay_into_current_sim` (stress rebase +
+// lobby discount) directly inside this loop.
 function boardWaitingRoutes(
+	world: WorldState,
+	time: TimeState,
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	carIndex: number,
-	onBoarding?: CarrierBoardingCallback,
 ): boolean {
 	let changed = false;
 	const limit = activeSlotLimitFor(carrier);
@@ -257,7 +282,15 @@ function boardWaitingRoutes(
 		route.boarded = true;
 		slot.boarded = true;
 		car.assignedCount += 1;
-		if (onBoarding) onBoarding(route.simId, route.sourceFloor);
+		// Binary: 1218:0d4e assign_request_to_runtime_route invokes
+		// accumulate_elapsed_delay_into_current_sim at boarding time.
+		applyBoardingStressUpdate(
+			world,
+			time,
+			carrier,
+			route.simId,
+			route.sourceFloor,
+		);
 		const destinationSlot = floorToSlot(carrier, route.destinationFloor);
 		if (destinationSlot >= 0) {
 			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
@@ -290,11 +323,10 @@ export function processUnitTravelQueue(
 	car: CarrierCar,
 	carIndex: number,
 	time: TimeState,
-	onBoarding?: CarrierBoardingCallback,
 ): void {
 	if (!car.active) return;
 	if ((car.dwellCounter & 1) !== 0) {
 		drainFloorQueueForCar(world, carrier, car, carIndex, time);
 	}
-	boardWaitingRoutes(carrier, car, carIndex, onBoarding);
+	boardWaitingRoutes(world, time, carrier, car, carIndex);
 }

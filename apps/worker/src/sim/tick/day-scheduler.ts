@@ -7,6 +7,7 @@
 // `TowerSim.step()` implementation.
 import { flushCarriersEndOfDay } from "../carriers";
 import { activateEvalSims, dispatchEvalMiddayReturn } from "../cathedral";
+import { dispatchActiveRequestsByFamily } from "../daily/drain-active-requests";
 import {
 	activateEntertainmentLowerHalf,
 	activateEntertainmentUpperHalf,
@@ -170,6 +171,11 @@ function checkpointDayCounter(s: SimState): void {
 function checkpointRuntimeRefresh(_s: SimState): void {
 	resetSimRuntimeState(_s.world);
 	normalizeUnitStatusEndOfDay(_s.world);
+	// Binary 1208:0196 at g_day_tick == 0x9c4 additionally fires
+	// 1190:0977 dispatch_active_requests_by_family — a once-per-day
+	// sweep over the active-request table that re-routes stuck sims
+	// through their family dispatch handler.
+	dispatchActiveRequestsByFamily(_s.world, _s.ledger, _s.time);
 }
 
 function checkpointLedgerRollover(s: SimState): void {

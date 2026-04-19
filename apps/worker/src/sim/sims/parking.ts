@@ -1,4 +1,6 @@
 import { FAMILY_PARKING } from "../resources";
+import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import {
 	type ServiceRequestEntry,
@@ -6,10 +8,6 @@ import {
 	sampleRng,
 	type WorldState,
 } from "../world";
-import {
-	advanceSimTripCounters,
-	rebaseSimElapsedFromClock,
-} from "./trip-counters";
 
 export function rebuildParkingDemandLog(world: WorldState): void {
 	world.parkingDemandLog = [];

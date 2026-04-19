@@ -14,11 +14,7 @@ import {
 import { handlePromptResponse } from "./events";
 import type { LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
-import {
-	createSimStateRecords,
-	onCarrierArrival,
-	onCarrierBoarding,
-} from "./sims";
+import { createSimStateRecords } from "./sims";
 import {
 	createInitialSnapshot,
 	hydrateSnapshot,
@@ -112,23 +108,13 @@ export class TowerSim {
 		}
 
 		// Binary 1268:01a6 service_idle_tasks: day scheduler + carrier tick.
-		// `serviceIdleTasks` mutates ctx.time in place between the two phases
-		// so the arrival/boarding callbacks below read the advanced tick.
+		// `serviceIdleTasks` mutates ctx.time in place so that the inline
+		// arrival/boarding paths (inside queue/dispatch-arrivals.ts and
+		// queue/process-travel.ts) observe the advanced tick. Phase 7 removed
+		// the `onArrival` / `onBoarding` callback plumbing — family dispatch
+		// and stress accumulation now run inline, matching the binary.
 		const ctx = { world: this.world, ledger: this.ledger, time: this.time };
-		serviceIdleTasks(ctx, {
-			onArrival: (routeId, arrivalFloor) => {
-				onCarrierArrival(
-					ctx.world,
-					ctx.ledger,
-					ctx.time,
-					routeId,
-					arrivalFloor,
-				);
-			},
-			onBoarding: (routeId, sourceFloor) => {
-				onCarrierBoarding(ctx.world, ctx.time, routeId, sourceFloor);
-			},
-		});
+		serviceIdleTasks(ctx);
 		this.time = ctx.time;
 
 		// Emit cell patches for display-facing room state changes.
@@ -404,6 +390,12 @@ export class TowerSim {
 	}
 	setStarCount(starCount: 1 | 2 | 3 | 4 | 5 | 6): void {
 		this.world.starCount = starCount;
+	}
+	get daypartIndex(): number {
+		return this.time.daypartIndex;
+	}
+	get gateFlags(): WorldState["gateFlags"] {
+		return this.world.gateFlags;
 	}
 	get rngCallCount(): number {
 		return this.world.rngCallCount;

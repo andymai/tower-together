@@ -22,10 +22,8 @@ import {
 import { setSimInTransit, setSimWaiting } from "../sim-access/state-bits";
 import { clearSimRoute, simKey } from "../sims/population";
 import { maybeApplyDistanceFeedback } from "../sims/scoring";
-import {
-	addDelayToCurrentSim,
-	advanceSimTripCounters,
-} from "../sims/trip-counters";
+import { addDelayToCurrentSim } from "../stress/add-delay";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import type { SimRecord, WorldState } from "../world";
 import { enqueueRequestIntoRouteQueue } from "./enqueue";

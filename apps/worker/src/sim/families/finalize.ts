@@ -19,7 +19,7 @@ import {
 	setSimInTransit,
 } from "../sim-access/state-bits";
 import { clearSimRoute } from "../sims/population";
-import { advanceSimTripCounters } from "../sims/trip-counters";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { SimRecord, WorldState } from "../world";
 
 export function finalizeRuntimeRouteState(

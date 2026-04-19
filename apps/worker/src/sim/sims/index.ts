@@ -43,6 +43,9 @@ export {
 	updateHotelOperationalAndOccupancy,
 } from "./hotel-facilities";
 
+import { addDelayToCurrentSim } from "../stress/add-delay";
+import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import {
 	handleMedicalSimArrival,
 	processMedicalSim,
@@ -61,7 +64,6 @@ import {
 	HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT,
 	HK_STATE_ROUTE_TO_TARGET,
 	INVALID_FLOOR,
-	LOBBY_FLOOR,
 	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
 	STATE_COMMUTE,
@@ -75,11 +77,6 @@ import {
 	STATE_VENUE_TRIP,
 	STATE_VENUE_TRIP_TRANSIT,
 } from "./states";
-import {
-	addDelayToCurrentSim,
-	advanceSimTripCounters,
-	rebaseSimElapsedFromClock,
-} from "./trip-counters";
 
 export { rebuildParkingDemandLog, tryAssignParkingService } from "./parking";
 export {
@@ -222,21 +219,10 @@ function pickAvailableVenue(
 	return picked;
 }
 
-/**
- * Reduce elapsed time when boarding a non-service carrier from the lobby.
- * Spec: reduce_elapsed_for_lobby_boarding.
- */
-function reduceElapsedForLobbyBoarding(
-	sim: SimRecord,
-	sourceFloor: number,
-	world: WorldState,
-): void {
-	if (sourceFloor !== LOBBY_FLOOR) return;
-	const lobbyHeight = Math.max(1, world.lobbyHeight ?? 1);
-	const discount = lobbyHeight >= 3 ? 50 : lobbyHeight === 2 ? 25 : 0;
-	if (discount === 0) return;
-	sim.elapsedTicks = Math.max(0, sim.elapsedTicks - discount);
-}
+// Phase 7: `reduceElapsedForLobbyBoarding` was promoted into the inline
+// boarding path in `queue/process-travel.ts`, where
+// `accumulate_elapsed_delay_into_current_sim` runs as part of the boarding
+// loop (matching the binary's 1218:0d4e `assign_request_to_runtime_route`).
 
 function completeSimTransitEvent(
 	sim: SimRecord,
@@ -537,7 +523,11 @@ function finalizePendingRouteLeg(sim: SimRecord): void {
 	sim.selectedFloor = sim.route.destination;
 }
 
-function dispatchSimArrival(
+// Phase 7: `dispatchSimArrival` is now called inline from
+// `queue/dispatch-arrivals.ts` (1218:0883 dispatch_destination_queue_entries),
+// mirroring the binary's inline family-dispatch at arrival time. The former
+// `onCarrierArrival` callback trampoline has been removed.
+export function dispatchSimArrival(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
@@ -588,54 +578,14 @@ function dispatchSimArrival(
 // `resolve_sim_route_between_floors` inline when its state machine decides to
 // move to another floor (ROUTING-BINARY-MAP.md §6.2 mismatch #2).
 
-/**
- * Invoked synchronously by `tickAllCarriers` (via the `onArrival` callback)
- * when a carrier unloads an sim at its destination, mirroring the binary's
- * `dispatch_destination_queue_entries` path which calls the family state
- * handler directly inside the carrier tick. The post-tick
- * `reconcileSimTransport` sweep is still consulted for any arrivals that
- * were not delivered through this callback (e.g. tests that drive the
- * carrier state by hand).
- */
-export function onCarrierArrival(
-	world: WorldState,
-	ledger: LedgerState,
-	time: TimeState,
-	routeId: string,
-	arrivalFloor: number,
-): void {
-	const sim = world.sims.find((candidate) => simKey(candidate) === routeId);
-	if (!sim) return;
-	dispatchSimArrival(world, ledger, time, sim, arrivalFloor);
-}
-
-/**
- * Invoked synchronously by `tickAllCarriers` (via the `onBoarding` callback)
- * when a carrier accepts a pending route onto an active car slot. Mirrors the
- * binary's `assign_request_to_runtime_route` (1218:0d4e): at boarding, it
- * calls `accumulate_elapsed_delay_into_current_sim`, which captures the
- * pre-boarding wait (`g_day_tick - last_trip_tick`), applies the lobby-height
- * reduction, stores into elapsed_packed, and clears last_trip_tick.
- *
- * This is the ONLY stress update for a carrier leg — arrival does NOT rebase
- * (the binary's arrival path invokes the family dispatch handler directly,
- * bypassing `dispatch_sim_behavior` and its rebase/advance logic).
- */
-export function onCarrierBoarding(
-	world: WorldState,
-	time: TimeState,
-	routeId: string,
-	sourceFloor: number,
-): void {
-	const sim = world.sims.find((candidate) => simKey(candidate) === routeId);
-	if (!sim) return;
-	const carrier = world.carriers.find((c) =>
-		c.pendingRoutes.some((r) => r.simId === routeId),
-	);
-	if (carrier && carrier.carrierMode === 2) return;
-	rebaseSimElapsedFromClock(sim, time);
-	reduceElapsedForLobbyBoarding(sim, sourceFloor, world);
-}
+// Phase 7: `onCarrierArrival` / `onCarrierBoarding` callback bodies have been
+// deleted. Arrival now dispatches inline inside
+// `queue/dispatch-arrivals.ts` (`dispatchDestinationQueueEntries` calls
+// `dispatchSimArrival` directly on each unloaded slot, matching the binary's
+// inline call into `dispatch_object_family_*_state_handler`). Boarding stress
+// accumulation was promoted into `queue/process-travel.ts` so
+// `accumulate_elapsed_delay_into_current_sim` runs inside the boarding loop
+// at 1218:0d4e's binary-equivalent site.
 
 export function reconcileSimTransport(
 	world: WorldState,

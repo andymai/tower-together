@@ -4,6 +4,7 @@ import {
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 } from "../resources";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import { DAY_TICK_NEW_DAY, type TimeState } from "../time";
 import {
 	GRID_HEIGHT,
@@ -38,7 +39,6 @@ import {
 	STATE_TRANSITION,
 	STATE_VENUE_TRIP,
 } from "./states";
-import { advanceSimTripCounters } from "./trip-counters";
 
 /**
  * Binary's `subtype_index` (sim record byte 1) = floor-local ROOM rank in

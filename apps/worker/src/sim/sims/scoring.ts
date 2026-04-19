@@ -11,7 +11,9 @@ import {
 	FAMILY_RETAIL,
 	OP_SCORE_THRESHOLDS,
 } from "../resources";
+import { addDelayToCurrentSim } from "../stress/add-delay";
 import {
+	type CarrierPendingRoute,
 	GRID_HEIGHT,
 	type PlacedObjectRecord,
 	type SimRecord,
@@ -34,10 +36,7 @@ import {
 	UNIT_STATUS_HOTEL_SOLD_OUT,
 	UNIT_STATUS_OFFICE_OCCUPIED,
 } from "./states";
-import {
-	addDelayToCurrentSim,
-	resetFacilitySimTripCounters,
-} from "./trip-counters";
+import { resetFacilitySimTripCounters } from "./trip-counters";
 
 export interface SimStateRecord {
 	id: string;
@@ -307,43 +306,49 @@ export function maybeApplyDistanceFeedback(
 }
 
 export function createSimStateRecords(world: WorldState): SimStateRecord[] {
-	return world.sims
-		.map((sim) => {
-			const object = findObjectForSim(world, sim);
-			if (!object) return null;
-			const carrierRoute = world.carriers.find((carrier) =>
-				carrier.pendingRoutes.some((route) => route.simId === simKey(sim)),
-			);
-			const pendingRoute = carrierRoute?.pendingRoutes.find(
-				(route) => route.simId === simKey(sim),
-			);
-			const carrierId =
-				pendingRoute || sim.route.mode === "carrier"
-					? (carrierRoute?.carrierId ??
-						(sim.route.mode === "carrier" ? sim.route.carrierId : null))
-					: null;
+	// Pre-index pending routes by simId to avoid O(sims × carriers × routes).
+	const pendingBySimId = new Map<
+		string,
+		{ carrier: (typeof world.carriers)[number]; route: CarrierPendingRoute }
+	>();
+	for (const carrier of world.carriers) {
+		for (const route of carrier.pendingRoutes) {
+			pendingBySimId.set(route.simId, { carrier, route });
+		}
+	}
 
-			const routeModeNum =
-				sim.route.mode === "carrier" ? 2 : sim.route.mode === "segment" ? 1 : 0;
-
-			return {
-				id: simKey(sim),
-				floorAnchor: sim.floorAnchor,
-				selectedFloor: sim.selectedFloor,
-				homeColumn: sim.homeColumn,
-				baseOffset: sim.baseOffset,
-				familyCode: sim.familyCode,
-				stateCode: sim.stateCode,
-				routeMode: routeModeNum,
-				destinationFloor: sim.destinationFloor,
-				carrierId,
-				assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
-				boardedOnCarrier: pendingRoute?.boarded ?? false,
-				stressLevel: simStressLevel(sim, object),
-				tripCount: sim.tripCount,
-				accumulatedTicks: sim.accumulatedTicks,
-				elapsedTicks: sim.elapsedTicks,
-			} satisfies SimStateRecord;
-		})
-		.filter((sim): sim is SimStateRecord => sim !== null);
+	const result: SimStateRecord[] = [];
+	for (const sim of world.sims) {
+		const object = findObjectForSim(world, sim);
+		if (!object) continue;
+		const id = simKey(sim);
+		const pending = pendingBySimId.get(id);
+		const pendingRoute = pending?.route;
+		const carrierId =
+			pendingRoute || sim.route.mode === "carrier"
+				? (pending?.carrier.carrierId ??
+					(sim.route.mode === "carrier" ? sim.route.carrierId : null))
+				: null;
+		const routeModeNum =
+			sim.route.mode === "carrier" ? 2 : sim.route.mode === "segment" ? 1 : 0;
+		result.push({
+			id,
+			floorAnchor: sim.floorAnchor,
+			selectedFloor: sim.selectedFloor,
+			homeColumn: sim.homeColumn,
+			baseOffset: sim.baseOffset,
+			familyCode: sim.familyCode,
+			stateCode: sim.stateCode,
+			routeMode: routeModeNum,
+			destinationFloor: sim.destinationFloor,
+			carrierId,
+			assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
+			boardedOnCarrier: pendingRoute?.boarded ?? false,
+			stressLevel: simStressLevel(sim, object),
+			tripCount: sim.tripCount,
+			accumulatedTicks: sim.accumulatedTicks,
+			elapsedTicks: sim.elapsedTicks,
+		} satisfies SimStateRecord);
+	}
+	return result;
 }

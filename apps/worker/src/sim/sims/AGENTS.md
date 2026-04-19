@@ -5,7 +5,7 @@ Family-specific state machines and shared runtime helpers for the placed-object-
 ## Files
 
 ### `index.ts`
-Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `refreshRuntimeEntitiesForTickStride`), venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling lives with each family module. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat. Phase 6: `populateCarrierRequests`, `shouldSeedElevatorDemand`, and `getElevatorDemand` deleted — demand origination moved into each family's dispatch handler (binary 1228 `dispatch_object_family_*_state_handler` inline calls `resolve_sim_route_between_floors`). `reconcileSimTransport` remains for segment-leg finalization and the defensive completed-arrival sweep.
+Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `refreshRuntimeEntitiesForTickStride`), venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling lives with each family module. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat. Phase 6: `populateCarrierRequests`, `shouldSeedElevatorDemand`, and `getElevatorDemand` deleted — demand origination moved into each family's dispatch handler (binary 1228 `dispatch_object_family_*_state_handler` inline calls `resolve_sim_route_between_floors`). Phase 7: `onCarrierArrival` / `onCarrierBoarding` callback bodies deleted — arrival dispatches `dispatchSimArrival` inline from `queue/dispatch-arrivals.ts`, and boarding stress accumulation is inlined into `queue/process-travel.ts#boardWaitingRoutes`. `reconcileSimTransport` remains for segment-leg finalization and the defensive completed-arrival sweep.
 
 ### `states.ts`
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.
@@ -14,7 +14,7 @@ Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mas
 Population construction and cleanup for placed-object-derived sims, sim-key lookup helpers, route clearing, runtime reset, and legacy sim-named compatibility aliases. Phase 5b: `clearSimRoute` intentionally does NOT touch `sim.stateCode` bits because the _TRANSIT phase byte is still needed by family arrival handlers to select the right branch. Bit-strip sites pair explicit `setSimInTransit(false)` or byte-overwrites.
 
 ### `trip-counters.ts`
-Elapsed-time rebasing, trip counter advancement, current-trip delay accounting, and facility-wide counter reset helpers.
+Back-compat facade. The binary's per-sim stress accessors (11e0:*) moved to `sim/stress/*.ts` in Phase 8; this file re-exports them and keeps the family-scoped `resetSimTripCounters` / `resetFacilitySimTripCounters` helpers (no 11e0 counterpart).
 
 ### `scoring.ts`
 Operational scoring, nearby-noise checks, distance feedback, occupied flag refreshes, and wire-facing sim state projection records.

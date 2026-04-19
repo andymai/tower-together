@@ -5,6 +5,10 @@
 // mirrors that orchestration and serves as the entry point for
 // `TowerSim.step()` (which, in Phase 1, is a thin wrapper plus UI-facing
 // cell-patch + notification draining).
+//
+// Phase 7: the `onArrival` / `onBoarding` callback plumbing has been
+// removed — family dispatch and stress accumulation happen inline inside
+// the queue path, matching the binary's call graph.
 import type { LedgerState } from "../ledger";
 import type { TimeState } from "../time";
 import type { WorldState } from "../world";
@@ -13,9 +17,9 @@ import { runSimulationDayScheduler } from "./day-scheduler";
 
 /**
  * Mutable context passed into `serviceIdleTasks`. The function updates
- * `ctx.time` in place after the day scheduler advances the tick so that
- * arrival/boarding callbacks observe the advanced time (matching the binary,
- * which updates `g_day_tick` before `carrier_tick` runs).
+ * `ctx.time` in place after the day scheduler advances the tick so the
+ * inline arrival/boarding paths observe the advanced time (matching the
+ * binary, which updates `g_day_tick` before `carrier_tick` runs).
  */
 export interface ServiceIdleTasksContext {
 	world: WorldState;
@@ -23,21 +27,7 @@ export interface ServiceIdleTasksContext {
 	time: TimeState;
 }
 
-export interface ServiceIdleTasksCallbacks {
-	onArrival?: (routeId: string, arrivalFloor: number) => void;
-	onBoarding?: (routeId: string, sourceFloor: number) => void;
-}
-
-export function serviceIdleTasks(
-	ctx: ServiceIdleTasksContext,
-	callbacks: ServiceIdleTasksCallbacks = {},
-): void {
+export function serviceIdleTasks(ctx: ServiceIdleTasksContext): void {
 	ctx.time = runSimulationDayScheduler(ctx.world, ctx.ledger, ctx.time);
-	carrierTick(
-		ctx.world,
-		ctx.ledger,
-		ctx.time,
-		callbacks.onArrival,
-		callbacks.onBoarding,
-	);
+	carrierTick(ctx.world, ctx.ledger, ctx.time);
 }

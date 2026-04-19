@@ -8,7 +8,6 @@ export {
 } from "./cancel";
 export { popUnitQueueRequest } from "./dequeue";
 export {
-	type CarrierArrivalCallback,
 	dispatchCarrierCarArrivals,
 	dispatchDestinationQueueEntries,
 } from "./dispatch-arrivals";
@@ -24,7 +23,6 @@ export {
 export { enqueueRequestIntoRouteQueue } from "./enqueue";
 export {
 	assignRequestToRuntimeRoute,
-	type CarrierBoardingCallback,
 	processUnitTravelQueue,
 } from "./process-travel";
 export {

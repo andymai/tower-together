@@ -6,6 +6,7 @@ if (typeof requestAnimationFrame === "undefined") {
 		return 0;
 	};
 }
+
 import {
 	INITIAL_TOWER_SESSION_STATE,
 	TowerSessionController,
