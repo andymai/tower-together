@@ -400,21 +400,38 @@ function handleHotelDeparture(
 	}
 }
 
-/** hotel_refresh_0x22 — venue trip dwell (STATE_VENUE_TRIP). */
+/** hotel_refresh_0x22 — venue trip dwell (STATE_VENUE_TRIP).
+ *
+ * Binary shared 0x22/0x62 handler (1228:50ef): release_commercial_venue_slot
+ * returns 1 immediately for fake-lunch (sim+6 < 0), with no dwell gate. Then
+ * resolve_route(lobby, home) runs; the carrier-enqueue branch ORs in the 0x40
+ * transit bit, producing state 0x62. The sim physically rides home; arrival
+ * drops it to STATE_CHECKOUT_QUEUE via the dispatch handler.
+ */
 function handleHotelVenueTrip(
-	_world: WorldState,
+	world: WorldState,
 	_ledger: LedgerState,
 	time: TimeState,
 	sim: SimRecord,
 	_object: PlacedObjectRecord,
 ): void {
-	// Binary shared 0x22/0x62 handler (1228:50ef): release_commercial_venue_slot
-	// returns 1 immediately for fake-lunch (slot<0); for real venue it gates
-	// on service_duration (elapsed ≥ get_commercial_venue_service_duration_ticks).
 	if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
-		if (time.dayTick - sim.queueTick < 16) return;
-		sim.stateCode = COMMERCIAL_DWELL_STATE;
-		sim.queueTick = time.dayTick;
+		const dir = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+		const result = resolveSimRouteBetweenFloors(
+			world,
+			sim,
+			LOBBY_FLOOR,
+			sim.floorAnchor,
+			dir,
+			time,
+		);
+		if (result === 3) {
+			sim.stateCode = STATE_CHECKOUT_QUEUE;
+			sim.venueReturnState = 0;
+			return;
+		}
+		// result 1 or 2: setSimInTransit set 0x40 bit, state is now 0x62.
+		// result 0 or -1: stays in 0x22, retried next refresh.
 		return;
 	}
 	// Real-venue dwell: stay in 0x22 until service_duration elapsed.
@@ -430,21 +447,35 @@ function handleHotelVenueTrip(
 	sim.queueTick = time.dayTick;
 }
 
-/** hotel_refresh_0x62 — commercial dwell state (COMMERCIAL_DWELL_STATE). */
+/** hotel_refresh_0x62 — commercial dwell state (COMMERCIAL_DWELL_STATE).
+ *
+ * For the no-venue return path, this fires when the sim is in 0x62 with no
+ * active carrier route — i.e. the previous resolve attempt returned queue-full.
+ * Retry from current floor back home; when the carrier eventually picks the
+ * sim up, refresh skips it (route.mode !== 'idle') until arrival fires the
+ * dispatch handler.
+ */
 function handleHotelCommercialDwell(
-	_world: WorldState,
+	world: WorldState,
 	_ledger: LedgerState,
 	time: TimeState,
 	sim: SimRecord,
 	_object: PlacedObjectRecord,
 ): void {
 	if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
-		// Binary 0x62 no-venue dwell: per-family stride count matches the
-		// hotel departure countdown (single=1, twin/suite=2).
-		const strides = sim.familyCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
-		if (time.dayTick - sim.queueTick < 16 * strides) return;
-		sim.stateCode = STATE_CHECKOUT_QUEUE;
-		sim.venueReturnState = 0;
+		const dir = sim.floorAnchor > LOBBY_FLOOR ? 1 : 0;
+		const result = resolveSimRouteBetweenFloors(
+			world,
+			sim,
+			sim.selectedFloor,
+			sim.floorAnchor,
+			dir,
+			time,
+		);
+		if (result === 3) {
+			sim.stateCode = STATE_CHECKOUT_QUEUE;
+			sim.venueReturnState = 0;
+		}
 		return;
 	}
 	finishCommercialVenueDwell(sim, time, STATE_ACTIVE);
@@ -561,6 +592,21 @@ export function handleHotelSimArrival(
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.queueTick = time.dayTick;
+		return;
+	}
+
+	if (
+		sim.stateCode === COMMERCIAL_DWELL_STATE &&
+		arrivalFloor === sim.floorAnchor &&
+		sim.venueReturnState === STATE_CHECKOUT_QUEUE
+	) {
+		// Binary 1228:50ef state-0x62 dispatch (jumptable entry shared with 0x22):
+		// release_commercial_venue_slot returns 1, resolve(home→home)=3, then
+		// the dispatch path effectively continues to state 0x04 (CHECKOUT_QUEUE).
+		sim.destinationFloor = -1;
+		sim.selectedFloor = arrivalFloor;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		sim.venueReturnState = 0;
 		return;
 	}
 
