@@ -88,7 +88,7 @@ export function dispatchSimBehavior(
 			return;
 		default:
 			// Entertainment (18/29), recycling (33), parking (36) still use
-			// legacy TS branches. Phase 6+ wires them through here.
+			// legacy TS branches.
 			return;
 	}
 }

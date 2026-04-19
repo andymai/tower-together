@@ -11,4 +11,4 @@ Mirrors the binary's top-level tick call graph (segments 1268, 1208, 1098).
 `runSimulationDayScheduler` (1208:0196). Advances `g_day_tick`, fires random-news/VIP/bomb/fire events, and runs checkpoint handlers. Hosts `runCheckpoints` + `SimState`. Phase 8: the 0x9c4 checkpoint additionally invokes the daily-sweep `dispatchActiveRequestsByFamily` (1190:0977) from `daily/drain-active-requests.ts`.
 
 ### `carrier-tick.ts`
-`carrierTick` (1098:03ab). Runs `refreshRuntimeEntitiesForTickStride` → per-carrier `advanceCarrierCarState`/`dispatchCarrierCarArrivals`/`processUnitTravelQueue` → `reconcileSimTransport`. Phase 6 removed `populateCarrierRequests`: demand now originates inside each family's dispatch handler during the stride refresh (ROUTING-BINARY-MAP.md §6.2 #2). Phase 7 removed `onArrival`/`onBoarding` callbacks — arrival dispatches `dispatchSimArrival` inline, boarding applies `accumulate_elapsed_delay_into_current_sim` inline.
+`carrierTick` (1098:03ab). Runs `refreshRuntimeEntitiesForTickStride` → per-carrier `advanceCarrierCarState`/`dispatchCarrierCarArrivals`/`processUnitTravelQueue` → `reconcileSimTransport`. 

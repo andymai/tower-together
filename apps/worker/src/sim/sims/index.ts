@@ -477,17 +477,6 @@ export function advanceSimRefreshStride(
 // (tests, TowerSim.step via re-export) continue using the old name.
 export const refreshRuntimeEntitiesForTickStride = advanceSimRefreshStride;
 
-// Phase 6: `shouldSeedElevatorDemand` and `getElevatorDemand` deleted with
-// `populateCarrierRequests`. Demand now originates inside each family's
-// dispatch handler (office/hotel/condo/retail/restaurant/housekeeping/
-// cathedral/medical), which calls `resolveSimRouteBetweenFloors` inline when
-// its state machine decides the sim needs to move between floors. Matches the
-// binary's `dispatch_object_family_*_state_handler` path — see
-// ROUTING-BINARY-MAP.md §6.2 mismatch #2.
-
-// resolveSimRouteBetweenFloors now lives in queue/resolve.ts (1218:0000).
-// Re-exported here so existing callers (housekeeping, cathedral, tests, etc.)
-// that pull it from `./sims` or `./sims/index` keep resolving the same name.
 export { type RouteResolution, resolveSimRouteBetweenFloors };
 
 function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
@@ -571,15 +560,7 @@ export function dispatchSimArrival(
 	}
 }
 
-// Phase 6: `populateCarrierRequests` has been deleted. Demand now originates
-// inside each family's dispatch handler (see `advanceSimRefreshStride`). The
-// binary has no idle-scan function; its `refresh_runtime_entities_for_tick_stride`
-// (1228:0d64) services 1/16 of sims per tick and each family handler calls
-// `resolve_sim_route_between_floors` inline when its state machine decides to
-// move to another floor (ROUTING-BINARY-MAP.md §6.2 mismatch #2).
-
-// Phase 7: `onCarrierArrival` / `onCarrierBoarding` callback bodies have been
-// deleted. Arrival now dispatches inline inside
+// Arrival dispatches inline inside
 // `queue/dispatch-arrivals.ts` (`dispatchDestinationQueueEntries` calls
 // `dispatchSimArrival` directly on each unloaded slot, matching the binary's
 // inline call into `dispatch_object_family_*_state_handler`). Boarding stress

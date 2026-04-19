@@ -217,13 +217,6 @@ export function resolveSimRouteBetweenFloors(
 		// 0x20 waiting bit on state_code. The family handler retries on its
 		// next stride slot (every 16 ticks). 5-tick penalty matches
 		// g_waiting_state_delay.
-		//
-		// Phase 6: previously the TS code set sim.route = { mode: "queued" }
-		// which excluded the sim from the stride refresh's idle-only gate and
-		// required populateCarrierRequests to reset it to idle every tick.
-		// Leaving sim.route idle here is authoritative — state_code bit 0x20
-		// (set via setSimWaiting for dispatch_sim_behavior families) carries
-		// the waiting information, matching the binary.
 		clearSimRoute(sim);
 		if (familyUsesStateBits(sim.familyCode)) setSimWaiting(sim, true);
 		sim.destinationFloor = destinationFloor;

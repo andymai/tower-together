@@ -7,17 +7,6 @@
 //     for each active car: dispatch_carrier_car_arrivals (1218:07a6)
 //     for each active car: process_unit_travel_queue     (1218:0351)
 //
-// Phase 6: `populateCarrierRequests` has been removed. Demand now originates
-// inside the stride refresh (each family's dispatch handler calls
-// `resolveSimRouteBetweenFloors` inline). The binary has no batch idle-scan
-// for demand — see ROUTING-BINARY-MAP.md §6.2 mismatch #2.
-//
-// Phase 7: `onArrival` / `onBoarding` callbacks removed — the arrival path
-// (`dispatchDestinationQueueEntries`, 1218:0883) and the boarding path
-// (`boardWaitingRoutes` inside `processUnitTravelQueue`, 1218:0351) now
-// invoke the family dispatch handler and the stress accumulator inline,
-// matching the binary's call graph. `reconcileSimTransport` remains for
-// segment-leg finalization and the (defensive) completed-arrival sweep.
 import {
 	advanceCarrierCarState,
 	dispatchCarrierCarArrivals,
