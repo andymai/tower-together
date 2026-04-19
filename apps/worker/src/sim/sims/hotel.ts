@@ -217,6 +217,277 @@ export function checkoutHotelStay(
 	object.activationTickCount = 0;
 }
 
+// --- Per-state handlers ---
+
+/** hotel_refresh_0x24 — parked, awaiting guest room assignment. */
+function handleHotelParked(
+	_world: WorldState,
+	_ledger: LedgerState,
+	_time: TimeState,
+	_sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// Binary: state 0x24 is NOT in the hotel jump table — it's a no-op.
+}
+
+/** hotel_refresh_0x20 — morning activation gate (STATE_MORNING_GATE). */
+function handleHotelMorningGate(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	if (object.occupiableFlag === 0) return;
+	if (time.daypartIndex === 4) {
+		if (sampleRng(world) % 12 !== 0) return;
+		if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
+			sim.stateCode = STATE_NIGHT_B;
+			return;
+		}
+		activateHotelStay(world, sim, time);
+		return;
+	}
+	// Binary refresh jumptable state 0x20 (1228:2c63): `daypart > 4 AND
+	// day_tick < 2300` dispatches the state-0x20 handler unconditionally
+	// (no RNG). The prior code converted to CHECKOUT_QUEUE here, which
+	// then rolled the CHECKOUT_QUEUE 1/12 gate — an extra LCG sample.
+	if (time.daypartIndex > 4 && time.dayTick < DAY_TICK_NEW_DAY) {
+		if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
+			sim.stateCode = STATE_NIGHT_B;
+			return;
+		}
+		activateHotelStay(world, sim, time);
+		return;
+	}
+}
+
+/** hotel_refresh_0x01 — active, route to commercial venue (STATE_ACTIVE). */
+function handleHotelActive(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex <= 3) return;
+	if (time.daypartIndex > 4) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (sampleRng(world) % 6 !== 0) return;
+	if (
+		sim.familyCode === FAMILY_HOTEL_SUITE &&
+		world.starCount > 2 &&
+		object.unitStatus !== 0
+	) {
+		tryAssignParkingService(world, time, sim);
+	}
+	const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
+		venueFamilies: HOTEL_ROOM_SELECTOR,
+		returnState: STATE_ACTIVE,
+		tripState: STATE_ACTIVE_TRANSIT,
+		skipPenaltyOnUnavailable: true,
+		advanceBeforeSameFloorDwell: true,
+		onVenueReserved: () => {
+			object.activationTickCount = Math.min(
+				ACTIVATION_TICK_CAP,
+				object.activationTickCount + 1,
+			);
+		},
+	});
+	if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
+		// Hotel same-floor venue: binary writes state=0x22, not 0x62.
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		sim.lastDemandTick = -1;
+		return;
+	}
+	if (!dispatched) {
+		routeHotelToLobbyNoVenue(world, time, sim);
+	}
+}
+
+/** hotel_refresh_0x60/0x41 — in transit to room or venue (no-op). */
+function handleHotelTransit(
+	_world: WorldState,
+	_ledger: LedgerState,
+	_time: TimeState,
+	_sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// In transit to commercial venue or room; arrival handled by dispatchSimArrival.
+}
+
+/** hotel_refresh_0x04 — checkout queue (STATE_CHECKOUT_QUEUE). */
+function handleHotelCheckoutQueue(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex < 5) return;
+	if (time.dayTick <= 2400) {
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	sim.stateCode = STATE_TRANSITION;
+}
+
+/** hotel_refresh_0x10 — transition (STATE_TRANSITION). */
+function handleHotelTransition(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex >= 5) {
+		if (time.dayTick <= 2566) return;
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	if (object.unitStatus === 0x10) {
+		object.unitStatus = object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+	}
+	sim.stateCode = STATE_DEPARTURE;
+}
+
+/** hotel_refresh_0x05 — departure (STATE_DEPARTURE). */
+function handleHotelDeparture(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	// Binary state 0x05 refresh handler at 1228:2c43:
+	// daypart 0: 1/12 RNG gate, daypart >= 6: no-op, else: dispatch.
+	if (time.daypartIndex === 0) {
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	if (time.daypartIndex >= 6) return;
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sim.floorAnchor,
+		LOBBY_FLOOR,
+		1,
+		time,
+	);
+	if (routeResult === -1 || routeResult === 0) return;
+	sim.originFloor = sim.floorAnchor;
+	sim.selectedFloor = sim.floorAnchor;
+	sim.destinationFloor = LOBBY_FLOOR;
+	// trip_prep_for_checkout: decrement unit_status; when it hits the
+	// final countdown boundary, take the payout immediately (binary
+	// books cash at dispatch, not lobby arrival).
+	object.unitStatus -= 1;
+	const ready = (object.unitStatus & 0x07) === 0;
+	if (routeResult === 3) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		if (ready) {
+			checkoutHotelStay(world, ledger, time, sim, object);
+		} else {
+			sim.stateCode =
+				sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+		}
+	} else {
+		if (ready) {
+			checkoutHotelStay(world, ledger, time, sim, object);
+		}
+		sim.stateCode = STATE_DEPARTURE_TRANSIT;
+	}
+}
+
+/** hotel_refresh_0x22 — venue trip dwell (STATE_VENUE_TRIP). */
+function handleHotelVenueTrip(
+	_world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// Binary shared 0x22/0x62 handler (1228:50ef): release_commercial_venue_slot
+	// returns 1 immediately for fake-lunch (slot<0); for real venue it gates
+	// on service_duration (elapsed ≥ get_commercial_venue_service_duration_ticks).
+	if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
+		if (time.dayTick - sim.queueTick < 16) return;
+		sim.stateCode = COMMERCIAL_DWELL_STATE;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	// Real-venue dwell: stay in 0x22 until service_duration elapsed.
+	if (time.dayTick - sim.queueTick < 64) return;
+	if (sim.selectedFloor === sim.floorAnchor) {
+		// Binary: release_venue_slot → resolve(floor→floor)=3 → advanceSimTripCounters
+		advanceSimTripCounters(sim);
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		sim.venueReturnState = 0;
+		return;
+	}
+	sim.stateCode = COMMERCIAL_DWELL_STATE;
+	sim.queueTick = time.dayTick;
+}
+
+/** hotel_refresh_0x62 — commercial dwell state (COMMERCIAL_DWELL_STATE). */
+function handleHotelCommercialDwell(
+	_world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
+		// Binary 0x62 no-venue dwell: per-family stride count matches the
+		// hotel departure countdown (single=1, twin/suite=2).
+		const strides = sim.familyCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+		if (time.dayTick - sim.queueTick < 16 * strides) return;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		sim.venueReturnState = 0;
+		return;
+	}
+	finishCommercialVenueDwell(sim, time, STATE_ACTIVE);
+}
+
+/** hotel_refresh_0x26 — night park (STATE_NIGHT_B). */
+function handleHotelNightB(
+	_world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// Binary: dayTick <= 2300 → no-op; dayTick > 2300 → reset.
+	if (time.dayTick <= DAY_TICK_NEW_DAY) return;
+	sim.stateCode =
+		sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+}
+
+export type HotelHandler = (
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+) => void;
+
+/** Hotel refresh dispatch table (state_code → handler). */
+export const HOTEL_REFRESH_HANDLER_TABLE: ReadonlyMap<number, HotelHandler> =
+	new Map([
+		[STATE_HOTEL_PARKED, handleHotelParked], // 0x24
+		[STATE_MORNING_GATE, handleHotelMorningGate], // 0x20
+		[STATE_ACTIVE, handleHotelActive], // 0x01
+		[STATE_MORNING_TRANSIT, handleHotelTransit], // 0x60
+		[STATE_ACTIVE_TRANSIT, handleHotelTransit], // 0x41
+		[STATE_CHECKOUT_QUEUE, handleHotelCheckoutQueue], // 0x04
+		[STATE_TRANSITION, handleHotelTransition], // 0x10
+		[STATE_DEPARTURE, handleHotelDeparture], // 0x05
+		[STATE_VENUE_TRIP, handleHotelVenueTrip], // 0x22
+		[COMMERCIAL_DWELL_STATE, handleHotelCommercialDwell], // 0x62
+		[STATE_NIGHT_B, handleHotelNightB], // 0x26
+	]);
+
 export function processHotelSim(
 	world: WorldState,
 	ledger: LedgerState,
@@ -228,227 +499,14 @@ export function processHotelSim(
 
 	// Binary `refresh_runtime_entities_for_tick_stride` (1228:0d64) gates the
 	// family 3/4/5 handler on `base_offset > 0` — the first occupant (sim+2==0)
-	// is never refreshed, so its state persists (e.g. STATE_ARRIVED set by
-	// housekeeping's `activate_selected_vacant_unit` stays put).
+	// is never refreshed, so its state persists.
 	if (sim.baseOffset === 0) return;
 
-	switch (sim.stateCode) {
-		case STATE_HOTEL_PARKED:
-			// Binary: state 0x24 is NOT in the hotel jump table — it's a no-op.
-			// Room assignment is handled externally; sims stay parked until then.
-			return;
-		case STATE_MORNING_GATE: {
-			// Gate on `occupiableFlag` (set to 1 at placement, cleared by checkout /
-			// scoring deactivation). Hotel fixtures without a housekeeping helper
-			// still dispatch at daypart 4, so the gate is not `housekeepingClaimedFlag`.
-			if (object.occupiableFlag === 0) return;
-			// 2. daypart === 4: 1/12 RNG gate → dispatch (all families consume RNG)
-			if (time.daypartIndex === 4) {
-				if (sampleRng(world) % 12 !== 0) return;
-				// Suite star-count check happens after RNG in the dispatch handler.
-				if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
-					sim.stateCode = STATE_NIGHT_B;
-					return;
-				}
-				activateHotelStay(world, sim, time);
-				return;
-			}
-			// Binary refresh jumptable state 0x20 (1228:2c63): `daypart > 4 AND
-			// day_tick < 2300` dispatches the state-0x20 handler unconditionally
-			// (no RNG). The prior code converted to CHECKOUT_QUEUE here, which
-			// then rolled the CHECKOUT_QUEUE 1/12 gate — an extra LCG sample.
-			if (time.daypartIndex > 4 && time.dayTick < DAY_TICK_NEW_DAY) {
-				if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {
-					sim.stateCode = STATE_NIGHT_B;
-					return;
-				}
-				activateHotelStay(world, sim, time);
-				return;
-			}
-			// daypart 0–3 or daypart > 4 with dayTick >= 2300: no-op
-			return;
-		}
-		case STATE_ACTIVE: {
-			// Gate: daypart <= 3 → no dispatch
-			if (time.daypartIndex <= 3) return;
-			// Gate: daypart > 4 → force checkout queue
-			if (time.daypartIndex > 4) {
-				sim.stateCode = STATE_CHECKOUT_QUEUE;
-				return;
-			}
-			// Gate: daypart === 4 → 1/6 chance
-			if (sampleRng(world) % 6 !== 0) return;
-			// Dispatch: decrement_unit_status, route to commercial venue
-			// Hotel suite parking demand: eligible when occupied (unitStatus != 0)
-			if (
-				sim.familyCode === FAMILY_HOTEL_SUITE &&
-				world.starCount > 2 &&
-				object.unitStatus !== 0
-			) {
-				tryAssignParkingService(world, time, sim);
-			}
-			const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
-				venueFamilies: HOTEL_ROOM_SELECTOR,
-				returnState: STATE_ACTIVE,
-				tripState: STATE_ACTIVE_TRANSIT,
-				skipPenaltyOnUnavailable: true,
-				advanceBeforeSameFloorDwell: true,
-				onVenueReserved: () => {
-					object.activationTickCount = Math.min(
-						ACTIVATION_TICK_CAP,
-						object.activationTickCount + 1,
-					);
-				},
-			});
-			if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
-				// Hotel same-floor venue: binary writes state=0x22, not 0x62.
-				// service_duration-gated exit via STATE_VENUE_TRIP handler.
-				// lastDemandTick reset here: beginCommercialVenueDwell set it, but
-				// advanceBeforeSameFloorDwell already closed the trip, so we must not
-				// accumulate more elapsed during the dwell (binary leaves it at -1).
-				sim.stateCode = STATE_VENUE_TRIP;
-				sim.queueTick = time.dayTick;
-				sim.lastDemandTick = -1;
-				return;
-			}
-			if (!dispatched) {
-				// Binary route_sim_to_commercial_venue (1238:0000) state-0x01 branch:
-				// when no venue is found, target defaults to lobby and the route
-				// resolver runs anyway. On success (1/2) sim goes to ACTIVE_TRANSIT
-				// to lobby; same-floor resolve (3) + acquire_slot(0xb0)=3 writes
-				// state 0x22. venueReturnState=CHECKOUT_QUEUE so dwell completion
-				// lands in the expected terminal state.
-				routeHotelToLobbyNoVenue(world, time, sim);
-			}
-			return;
-		}
-		case STATE_MORNING_TRANSIT:
-			// In transit from lobby to room; arrival handled by dispatchSimArrival
-			return;
-		case STATE_ACTIVE_TRANSIT:
-			// In transit to commercial venue; arrival handled by dispatchSimArrival.
-			return;
-		case STATE_CHECKOUT_QUEUE:
-			// Gate: daypart < 5 → no dispatch
-			if (time.daypartIndex < 5) return;
-			// Gate: daypart >= 5 AND tick <= 2400 → 1/12 chance
-			if (time.dayTick <= 2400) {
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			// Dispatch: sibling sync → STATE_TRANSITION
-			sim.stateCode = STATE_TRANSITION;
-			return;
-		case STATE_TRANSITION:
-			// Gate: daypart < 5 → dispatch
-			if (time.daypartIndex >= 5) {
-				// Gate: daypart >= 5 AND tick <= 2566 → no dispatch
-				if (time.dayTick <= 2566) return;
-				// Gate: daypart >= 5 AND tick > 2566 → 1/12 chance
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			// Dispatch: rewrite sync sentinel into the explicit final countdown.
-			// Per HOTEL spec: only the 0x10 sync sentinel is rewritten here; any other
-			// unit_status (e.g. occupied-band base 0x08) is left untouched and decrements
-			// naturally through DEPARTURE.
-			if (object.unitStatus === 0x10) {
-				object.unitStatus =
-					object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
-			}
-			sim.stateCode = STATE_DEPARTURE;
-			return;
-		case STATE_DEPARTURE: {
-			// Binary state 0x05 refresh handler at 1228:2c43:
-			// daypart 0: 1/12 RNG gate, daypart >= 6: no-op, else: dispatch.
-			if (time.daypartIndex === 0) {
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			if (time.daypartIndex >= 6) return;
-			// Dispatch: trip_prep + route_fn (1228:2fa7). Route from home floor
-			// to lobby; transition to DEPARTURE_TRANSIT so the carrier system
-			// carries the sim. Decrement + payout happen on lobby arrival.
-			const routeResult = resolveSimRouteBetweenFloors(
-				world,
-				sim,
-				sim.floorAnchor,
-				LOBBY_FLOOR,
-				1,
-				time,
-			);
-			if (routeResult === -1 || routeResult === 0) return;
-			sim.originFloor = sim.floorAnchor;
-			sim.selectedFloor = sim.floorAnchor;
-			sim.destinationFloor = LOBBY_FLOOR;
-			// trip_prep_for_checkout: decrement unit_status; when it hits the
-			// final countdown boundary, take the payout immediately (binary
-			// books cash at dispatch, not lobby arrival).
-			object.unitStatus -= 1;
-			const ready = (object.unitStatus & 0x07) === 0;
-			if (routeResult === 3) {
-				sim.destinationFloor = -1;
-				sim.selectedFloor = LOBBY_FLOOR;
-				if (ready) {
-					checkoutHotelStay(world, ledger, time, sim, object);
-				} else {
-					sim.stateCode =
-						sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
-				}
-			} else {
-				if (ready) {
-					checkoutHotelStay(world, ledger, time, sim, object);
-				}
-				sim.stateCode = STATE_DEPARTURE_TRANSIT;
-			}
-			return;
-		}
-		case STATE_VENUE_TRIP:
-			// Binary shared 0x22/0x62 handler (1228:50ef): release_commercial_venue_slot
-			// returns 1 immediately for fake-lunch (slot<0); for real venue it gates
-			// on service_duration (elapsed ≥ get_commercial_venue_service_duration_ticks).
-			// On release, routes home; same-floor result (3) → state=0x01, else 0x62.
-			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
-				// Fake-lunch: release succeeds immediately. Next refresh (stride 16)
-				// routes to lobby; existing model routes same-floor → 0x62 then 0x04.
-				if (time.dayTick - sim.queueTick < 16) return;
-				sim.stateCode = COMMERCIAL_DWELL_STATE;
-				sim.queueTick = time.dayTick;
-				return;
-			}
-			// Real-venue dwell: stay in 0x22 until service_duration elapsed (~64t
-			// for single/restaurant). Then same-floor exit goes directly to
-			// STATE_CHECKOUT_QUEUE (binary 0x01 → immediate 0x04).
-			if (time.dayTick - sim.queueTick < 64) return;
-			if (sim.selectedFloor === sim.floorAnchor) {
-				// Binary: release_venue_slot → resolve(floor→floor)=3 → advanceSimTripCounters
-				advanceSimTripCounters(sim);
-				sim.stateCode = STATE_CHECKOUT_QUEUE;
-				sim.venueReturnState = 0;
-				return;
-			}
-			sim.stateCode = COMMERCIAL_DWELL_STATE;
-			sim.queueTick = time.dayTick;
-			return;
-		case COMMERCIAL_DWELL_STATE:
-			if (sim.venueReturnState === STATE_CHECKOUT_QUEUE) {
-				// Binary 0x62 no-venue dwell: per-family stride count matches the
-				// hotel departure countdown (single=1, twin/suite=2). Reference:
-				// single 1729→1745 (16t), twin 1753→1785 (32t).
-				const strides = sim.familyCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
-				if (time.dayTick - sim.queueTick < 16 * strides) return;
-				sim.stateCode = STATE_CHECKOUT_QUEUE;
-				sim.venueReturnState = 0;
-				return;
-			}
-			finishCommercialVenueDwell(sim, time, STATE_ACTIVE);
-			return;
-		case STATE_NIGHT_B:
-			// Binary: dayTick <= 2300 → no-op; dayTick > 2300 → reset.
-			// base0 → HOTEL_PARKED, others → MORNING_GATE.
-			if (time.dayTick <= DAY_TICK_NEW_DAY) return;
-			sim.stateCode =
-				sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
-			return;
-		default:
-			sim.stateCode = STATE_HOTEL_PARKED;
+	const handler = HOTEL_REFRESH_HANDLER_TABLE.get(sim.stateCode);
+	if (handler) {
+		handler(world, ledger, time, sim, object);
+	} else {
+		sim.stateCode = STATE_HOTEL_PARKED;
 	}
 }
 
@@ -498,9 +556,7 @@ export function handleHotelSimArrival(
 		arrivalFloor === sim.destinationFloor
 	) {
 		// Hotel arrival at a real commercial venue (binary 1228:4fab sets
-		// state=0x22 with queueTick = dayTick as phase-start, not 0x62). The
-		// 0x22 handler gates exit on service_duration via
-		// release_commercial_venue_slot (11b0:0fae).
+		// state=0x22 with queueTick = dayTick as phase-start, not 0x62).
 		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
@@ -512,7 +568,6 @@ export function handleHotelSimArrival(
 		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
-		// Decrement/payout happened at DEPARTURE dispatch; arrival just parks.
 		sim.destinationFloor = -1;
 		sim.stateCode =
 			sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;

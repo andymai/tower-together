@@ -99,6 +99,201 @@ function dispatchCondoMorningGate(
 	sim.stateCode = STATE_MORNING_TRANSIT;
 }
 
+// --- Per-state handlers ---
+
+/** condo_refresh_0x20 — morning gate (STATE_MORNING_GATE). */
+function handleCondoMorningGate(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	// refresh_0x20: slot+0x14 != 0 AND daypart < 5 → dispatch.
+	if (object.occupiableFlag === 0) return;
+	if (time.daypartIndex >= 5) return;
+	dispatchCondoMorningGate(world, ledger, time, sim, object);
+}
+
+/** condo_refresh_0x60 — in-transit to lobby (STATE_MORNING_TRANSIT). */
+function handleCondoTransit(
+	_world: WorldState,
+	_ledger: LedgerState,
+	_time: TimeState,
+	_sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// In transit to lobby; arrival handled by handleCondoSimArrival.
+}
+
+/** condo_refresh_0x04 — checkout queue (STATE_CHECKOUT_QUEUE). */
+function handleCondoCheckoutQueue(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x04: baseOffset==2 branch dispatches unconditionally at
+	// daypart>=5 (no RNG). Other siblings roll 1/12 until dayTick>=2401,
+	// then dispatch unconditionally.
+	if (time.daypartIndex < 5) return;
+	if (sim.baseOffset !== 2 && time.dayTick < 2401) {
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	sim.stateCode = STATE_TRANSITION;
+}
+
+/** condo_refresh_0x10 — unit status transition (STATE_TRANSITION). */
+function handleCondoTransition(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x10: daypart < 5 → dispatch; daypart >= 5 AND
+	// dayTick < 2567 → skip; daypart >= 5 AND dayTick >= 2567 →
+	// 1/12 RNG → dispatch.
+	if (time.daypartIndex >= 5) {
+		if (time.dayTick < 2567) return;
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	// dispatch_0x10 per FUN_1228_397b:
+	//   weekend_flag == 1 && BP+0xc % 2 != 0 → 0x04 (CHECKOUT_QUEUE)
+	//   weekend_flag == 1 && BP+0xc % 2 == 0 → 0x01 (ACTIVE)
+	//   weekend_flag != 1 && BP+0xe == 1     → 0x01 (ACTIVE)
+	//   weekend_flag != 1 && BP+0xe != 1     → 0x00 (COMMUTE)
+	if (time.weekendFlag === 1) {
+		sim.stateCode =
+			sim.facilitySlot % 2 !== 0 ? STATE_CHECKOUT_QUEUE : STATE_ACTIVE;
+	} else {
+		sim.stateCode = sim.baseOffset === 1 ? STATE_ACTIVE : STATE_COMMUTE;
+	}
+}
+
+/** condo_refresh_0x00 — commute (STATE_COMMUTE). */
+function handleCondoCommute(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x00: daypart 0 → 1/12 RNG; daypart 6 → skip; else dispatch.
+	if (time.daypartIndex === 6) return;
+	if (time.daypartIndex === 0) {
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	dispatchCondoCommute(world, time, sim);
+}
+
+/** condo_refresh_0x01 — active / venue selection (STATE_ACTIVE). */
+function handleCondoActive(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x01 (1228:3681):
+	//   weekend_flag == 1 AND BP+8 (facilitySlot) % 4 == 0:
+	//     daypart 4: 1/6 RNG → dispatch (fallthrough)
+	//     daypart > 4: set state = 0x04 (CHECKOUT_QUEUE) directly, return
+	//     daypart < 4: return
+	//   else (non-weekend or slot%4 != 0):
+	//     daypart 0: dayTick > 240 AND 1/12 RNG → dispatch
+	//     daypart 6: skip
+	//     else: dispatch
+	if (time.weekendFlag === 1 && sim.facilitySlot % 4 === 0) {
+		if (time.daypartIndex === 4) {
+			if (sampleRng(world) % 6 === 0) {
+				dispatchCondoActive(world, time, sim);
+			}
+			return;
+		}
+		if (time.daypartIndex > 4) {
+			sim.stateCode = STATE_CHECKOUT_QUEUE;
+			return;
+		}
+		return;
+	}
+	if (time.daypartIndex === 6) return;
+	if (time.daypartIndex === 0) {
+		if (time.dayTick < 0xf1) return;
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	dispatchCondoActive(world, time, sim);
+}
+
+/** condo_refresh_0x21 — at work (STATE_AT_WORK). */
+function handleCondoAtWork(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x21: baseOffset==2 branch fires a daypart earlier.
+	if (sim.baseOffset === 2) {
+		if (time.daypartIndex < 3) return;
+		if (time.daypartIndex === 3) {
+			if (sampleRng(world) % 12 !== 0) return;
+		}
+	} else {
+		if (time.daypartIndex < 4) return;
+		if (time.daypartIndex === 4) {
+			if (sampleRng(world) % 12 !== 0) return;
+		}
+	}
+	dispatchCondoAtWork(world, time, sim);
+}
+
+/** condo_refresh_0x22 — venue trip (STATE_VENUE_TRIP). */
+function handleCondoVenueTrip(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	// refresh_0x22: daypart > 2 → dispatch.
+	if (time.daypartIndex <= 2) return;
+	// Binary release_commercial_venue_slot gates the exit on service_duration.
+	if (
+		sim.venueReturnState !== STATE_CHECKOUT_QUEUE &&
+		time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
+	) {
+		return;
+	}
+	dispatchCondoVenueTrip(world, time, sim);
+}
+
+export type CondoHandler = (
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+) => void;
+
+/** Family-9 (condo) refresh dispatch table (state_code → handler). */
+export const CONDO_REFRESH_HANDLER_TABLE: ReadonlyMap<number, CondoHandler> =
+	new Map([
+		[STATE_MORNING_GATE, handleCondoMorningGate], // 0x20
+		[STATE_MORNING_TRANSIT, handleCondoTransit], // 0x60
+		[STATE_CHECKOUT_QUEUE, handleCondoCheckoutQueue], // 0x04
+		[STATE_TRANSITION, handleCondoTransition], // 0x10
+		[STATE_COMMUTE, handleCondoCommute], // 0x00
+		[STATE_COMMUTE_TRANSIT, handleCondoTransit], // 0x40
+		[STATE_ACTIVE, handleCondoActive], // 0x01
+		[STATE_ACTIVE_TRANSIT, handleCondoTransit], // 0x41
+		[STATE_AT_WORK, handleCondoAtWork], // 0x21
+		[STATE_AT_WORK_TRANSIT, handleCondoTransit], // 0x61
+		[STATE_VENUE_TRIP, handleCondoVenueTrip], // 0x22
+		[STATE_VENUE_HOME_TRANSIT, handleCondoTransit], // 0x62
+	]);
+
 export function processCondoSim(
 	world: WorldState,
 	ledger: LedgerState,
@@ -108,127 +303,9 @@ export function processCondoSim(
 	const object = findObjectForSim(world, sim);
 	if (!object) return;
 
-	switch (sim.stateCode) {
-		case STATE_MORNING_GATE: {
-			// refresh_0x20: slot+0x14 != 0 AND daypart < 5 → dispatch.
-			if (object.occupiableFlag === 0) return;
-			if (time.daypartIndex >= 5) return;
-			dispatchCondoMorningGate(world, ledger, time, sim, object);
-			return;
-		}
-		case STATE_MORNING_TRANSIT:
-			// In transit to lobby; arrival handled by handleCondoSimArrival.
-			return;
-		case STATE_CHECKOUT_QUEUE: {
-			// refresh_0x04: baseOffset==2 branch dispatches unconditionally at
-			// daypart>=5 (no RNG). Other siblings roll 1/12 until dayTick>=2401,
-			// then dispatch unconditionally.
-			if (time.daypartIndex < 5) return;
-			if (sim.baseOffset !== 2 && time.dayTick < 2401) {
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			// dispatch_0x04: state = TRANSITION.
-			sim.stateCode = STATE_TRANSITION;
-			return;
-		}
-		case STATE_TRANSITION: {
-			// refresh_0x10: daypart < 5 → dispatch; daypart >= 5 AND
-			// dayTick < 2567 → skip; daypart >= 5 AND dayTick >= 2567 →
-			// 1/12 RNG → dispatch.
-			if (time.daypartIndex >= 5) {
-				if (time.dayTick < 2567) return;
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			// dispatch_0x10 per FUN_1228_397b:
-			//   weekend_flag == 1 && BP+0xc % 2 != 0 → 0x04 (CHECKOUT_QUEUE)
-			//   weekend_flag == 1 && BP+0xc % 2 == 0 → 0x01 (ACTIVE)
-			//   weekend_flag != 1 && BP+0xe == 1     → 0x01 (ACTIVE)
-			//   weekend_flag != 1 && BP+0xe != 1     → 0x00 (COMMUTE)
-			// BP+0xc = facilitySlot (global condo index); BP+0xe = baseOffset.
-			if (time.weekendFlag === 1) {
-				sim.stateCode =
-					sim.facilitySlot % 2 !== 0 ? STATE_CHECKOUT_QUEUE : STATE_ACTIVE;
-			} else {
-				sim.stateCode = sim.baseOffset === 1 ? STATE_ACTIVE : STATE_COMMUTE;
-			}
-			return;
-		}
-		case STATE_COMMUTE: {
-			// refresh_0x00: daypart 0 → 1/12 RNG; daypart 6 → skip; else dispatch.
-			if (time.daypartIndex === 6) return;
-			if (time.daypartIndex === 0) {
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			dispatchCondoCommute(world, time, sim);
-			return;
-		}
-		case STATE_ACTIVE: {
-			// refresh_0x01 (1228:3681):
-			//   weekend_flag == 1 AND BP+8 (facilitySlot) % 4 == 0:
-			//     daypart 4: 1/6 RNG → dispatch (fallthrough)
-			//     daypart > 4: set state = 0x04 (CHECKOUT_QUEUE) directly, return
-			//     daypart < 4: return
-			//   else (non-weekend or slot%4 != 0):
-			//     daypart 0: dayTick > 240 AND 1/12 RNG → dispatch
-			//     daypart 6: skip
-			//     else: dispatch
-			if (time.weekendFlag === 1 && sim.facilitySlot % 4 === 0) {
-				if (time.daypartIndex === 4) {
-					if (sampleRng(world) % 6 === 0) {
-						dispatchCondoActive(world, time, sim);
-					}
-					return;
-				}
-				if (time.daypartIndex > 4) {
-					sim.stateCode = STATE_CHECKOUT_QUEUE;
-					return;
-				}
-				return;
-			}
-			if (time.daypartIndex === 6) return;
-			if (time.daypartIndex === 0) {
-				if (time.dayTick < 0xf1) return;
-				if (sampleRng(world) % 12 !== 0) return;
-			}
-			dispatchCondoActive(world, time, sim);
-			return;
-		}
-		case STATE_AT_WORK: {
-			// refresh_0x21: baseOffset==2 branch fires a daypart earlier.
-			// baseOffset==2: daypart 3 → 1/12 RNG; daypart ≥ 4 → dispatch.
-			// Others:       daypart 4 → 1/12 RNG; daypart ≥ 5 → dispatch.
-			if (sim.baseOffset === 2) {
-				if (time.daypartIndex < 3) return;
-				if (time.daypartIndex === 3) {
-					if (sampleRng(world) % 12 !== 0) return;
-				}
-			} else {
-				if (time.daypartIndex < 4) return;
-				if (time.daypartIndex === 4) {
-					if (sampleRng(world) % 12 !== 0) return;
-				}
-			}
-			dispatchCondoAtWork(world, time, sim);
-			return;
-		}
-		case STATE_VENUE_TRIP: {
-			// refresh_0x22: daypart > 2 → dispatch.
-			if (time.daypartIndex <= 2) return;
-			// Binary release_commercial_venue_slot (11b0:0fae) gates the exit on
-			// `dayTick - queueTick >= service_duration` for real venues. Fake-lunch
-			// (venueReturnState=CHECKOUT_QUEUE, no reserved slot) releases
-			// immediately. Until the dwell elapses, the dispatch is a no-op.
-			if (
-				sim.venueReturnState !== STATE_CHECKOUT_QUEUE &&
-				time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
-			) {
-				return;
-			}
-			dispatchCondoVenueTrip(world, time, sim);
-			return;
-		}
-		default:
-			return;
+	const handler = CONDO_REFRESH_HANDLER_TABLE.get(sim.stateCode);
+	if (handler) {
+		handler(world, ledger, time, sim, object);
 	}
 }
 

@@ -144,18 +144,27 @@ export function maybeStartHousekeepingRoomClaim(
 /**
  * 1228:67d7 compute_object_occupant_runtime_index.
  *
- * Computes the runtime sim-array index for the first occupant of the object
- * associated with `sim`. The binary walks the facility struct pointer to find
- * the per-floor object slot, then multiplies by the per-object population to
- * get the base sim index.
- *
- * TODO: Binary 1228:67d7 — the facility struct layout (pointer arithmetic
- * from the object slot into the sim array) is not yet fully decoded.
- * Return -1 as a sentinel so callers treat no occupant as found.
+ * Returns the index in world.sims of the occupant slot identified by
+ * (sim.floorAnchor, sim.facilitySlot, sim.baseOffset). The binary walks
+ * g_unknown_ptr_array[floor].ptr facility structs to read the stored base
+ * sim index for the per-floor object, then adds the occupant offset. In TS,
+ * the equivalent is: find the index of the first sim sharing (floorAnchor,
+ * facilitySlot) and add baseOffset.
  */
 export function computeObjectOccupantRuntimeIndex(
-	_world: WorldState,
-	_sim: SimRecord,
+	world: WorldState,
+	sim: SimRecord,
 ): number {
+	const { floorAnchor, facilitySlot, baseOffset } = sim;
+	for (let i = 0; i < world.sims.length; i++) {
+		const s = world.sims[i];
+		if (
+			s.floorAnchor === floorAnchor &&
+			s.facilitySlot === facilitySlot &&
+			s.baseOffset === 0
+		) {
+			return i + baseOffset;
+		}
+	}
 	return -1;
 }

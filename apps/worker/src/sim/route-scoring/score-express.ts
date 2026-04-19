@@ -19,8 +19,13 @@ export function scoreExpressRouteSegment(
 	if ((segment.flags & 1) === 0) return ROUTE_COST_INFINITE;
 	const span = segment.flags >> 1;
 	const topFloor = segment.entryFloor + span - 1;
-	if (fromFloor < segment.entryFloor || fromFloor > topFloor)
-		return ROUTE_COST_INFINITE;
+	// Binary quirk: same terminal-floor entry gate as score_local_route_segment.
+	// Going up: must enter at entryFloor. Going down: must enter at topFloor.
+	if (toFloor > fromFloor) {
+		if (fromFloor !== segment.entryFloor) return ROUTE_COST_INFINITE;
+	} else {
+		if (fromFloor !== topFloor) return ROUTE_COST_INFINITE;
+	}
 	if (toFloor < segment.entryFloor || toFloor > topFloor)
 		return ROUTE_COST_INFINITE;
 	return (

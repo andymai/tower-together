@@ -5,13 +5,9 @@
 // when a sim walks a special-link segment. Indexed by
 // `segment.modeAndSpan & 1` (bit 0 = stairs-cost parity).
 //
-// Magnitudes preserved from the pre-refactor TS (16 for escalator,
-// 35 for stairs). The binary's SIMTOWER.EX_ initializer populates these
-// words at load time; static analysis via pyghidra reads 0 at these
-// addresses (uninitialized BSS), so the values cannot be verified
-// statically. TODO(1288:e62c, 1288:e62e): capture the runtime-initialized
-// values via the emulator (`python -m simtower.emulator`) and swap in the
-// binary values if they differ from 16/35.
+// Values confirmed by emulator capture (simtower/capture_parity_delays.py):
+//   even-parity (escalator) = 16
+//   odd-parity  (stairs)    = 35
 
 /**
  * `perStopParityDelay[0]` = even-parity (escalator) per-stop stress.

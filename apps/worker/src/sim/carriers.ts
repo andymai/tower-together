@@ -14,7 +14,7 @@
 //   - Carrier record / car constructors and world-level lifecycle
 //     (makeCarrier, makeCarrierCar, rebuildCarrierList, initCarrierState,
 //      flushCarriersEndOfDay).
-//   - The tickAllCarriers back-compat wrapper + resetCarrierTickBookkeeping.
+//   - resetCarrierTickBookkeeping.
 //   - The re-exports for state-machine + queue functions so existing import
 //     sites keep working (enqueueCarrierRoute aliases
 //     enqueueRequestIntoRouteQueue; evictCarrierRoute aliases
@@ -39,7 +39,6 @@ import {
 	updateCarDirectionFlag,
 } from "./carriers/index";
 import { syncAssignmentStatus } from "./carriers/sync";
-import type { LedgerState } from "./ledger";
 import {
 	cancelRuntimeRouteRequest,
 	dispatchCarrierCarArrivals,
@@ -47,7 +46,6 @@ import {
 	processUnitTravelQueue,
 	RouteRequestRing,
 } from "./queue";
-import type { TimeState } from "./time";
 import {
 	type CarrierCar,
 	type CarrierFloorQueue,
@@ -169,40 +167,6 @@ export function makeCarrier(
 		stopFloorEnabled: new Array(numSlots).fill(1),
 		cars,
 	};
-}
-
-/**
- * Back-compat wrapper retained for existing callers (tests, non-tick paths).
- * The new carrierTick path under `tick/carrier-tick.ts` calls the individual
- * phase functions directly in binary order. After Phase 1, production code
- * paths should not call this.
- *
- * Phase 7: the `onArrival` / `onBoarding` callback parameters have been
- * removed — arrival and boarding dispatch now happen inline inside
- * `dispatchDestinationQueueEntries` and `boardWaitingRoutes` (see
- * `queue/dispatch-arrivals.ts` and `queue/process-travel.ts`).
- */
-export function tickAllCarriers(
-	world: WorldState,
-	ledger: LedgerState,
-	time: TimeState,
-): void {
-	for (const carrier of world.carriers) {
-		carrier.completedRouteIds = [];
-		syncAssignmentStatus(carrier);
-		// Pass 1: advance_carrier_car_state for every car.
-		for (const [carIndex, car] of carrier.cars.entries()) {
-			advanceCarrierCarState(car, carrier, carIndex, time);
-		}
-		// Pass 2a: dispatch_carrier_car_arrivals (unload) for every car.
-		for (const [, car] of carrier.cars.entries()) {
-			dispatchCarrierCarArrivals(world, ledger, time, carrier, car);
-		}
-		// Pass 2b: process_unit_travel_queue (queue drain + boarding) for every car.
-		for (const [carIndex, car] of carrier.cars.entries()) {
-			processUnitTravelQueue(world, carrier, car, carIndex, time);
-		}
-	}
 }
 
 /**

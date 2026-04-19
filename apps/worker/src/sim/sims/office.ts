@@ -140,6 +140,413 @@ function runOfficeServiceEvaluation(
 	world.gateFlags.officeServiceOk = 1;
 }
 
+// --- Per-state handlers (1228:1e45 etc.) ---
+
+/** 1228:1e45 office_refresh_0x00 — normal inbound commute gate (STATE_COMMUTE). */
+function handleOfficeCommute(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex >= 4) {
+		sim.stateCode = STATE_DEPARTURE;
+		return;
+	}
+	if (sim.baseOffset === 0) {
+		if (time.daypartIndex === 0 && sampleRng(world) % 12 !== 0) return;
+	} else {
+		if (time.daypartIndex < 3) return;
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+	const sourceFloor = sim.baseOffset === 0 ? sim.floorAnchor : LOBBY_FLOOR;
+	const destinationFloor = sim.baseOffset === 0 ? LOBBY_FLOOR : sim.floorAnchor;
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		destinationFloor,
+		destinationFloor > sourceFloor ? 1 : 0,
+		time,
+	);
+	if (routeResult === -1) {
+		sim.stateCode = STATE_NIGHT_B;
+		return;
+	}
+	decrementOfficePresenceCounter(facility, time);
+	sim.selectedFloor = sourceFloor;
+	sim.destinationFloor = destinationFloor;
+	if (routeResult === 3) {
+		advanceOfficePresenceCounter(facility);
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_AT_WORK;
+	} else {
+		sim.stateCode = STATE_COMMUTE_TRANSIT;
+	}
+}
+
+/** 1228:1ed5 office_refresh_0x01/0x02 — venue selection (STATE_ACTIVE / STATE_ACTIVE_ALT). */
+function handleOfficeActive(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	runOfficeServiceEvaluation(world, time, sim, facility);
+	if (time.daypartIndex >= 4) {
+		if (tryStartMedicalTrip(world, time, sim)) return;
+		sim.stateCode = STATE_DEPARTURE;
+		sim.destinationFloor = LOBBY_FLOOR;
+		sim.selectedFloor = sim.floorAnchor;
+		return;
+	}
+	if (time.daypartIndex === 0) return;
+	if (time.daypartIndex === 1 && sampleRng(world) % 12 !== 0) return;
+
+	const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
+		venueFamilies: new Set([FAMILY_FAST_FOOD]),
+		returnState: STATE_AT_WORK,
+		tripState: STATE_ACTIVE_TRANSIT,
+		skipPenaltyOnUnavailable: true,
+		advanceBeforeSameFloorDwell: true,
+	});
+	if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
+		// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
+		// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed.
+		// dispatchCommercialVenueVisit's beginCommercialVenueDwell writes 0x62;
+		// switch to 0x22 + queueTick so the STATE_VENUE_TRIP handler's 60-tick
+		// dwell gate matches the binary's service_duration wait.
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
+		return;
+	}
+	if (!dispatched) {
+		// Spec §No Fast Food Available: route to lobby for fake lunch round-trip.
+		// Worker travels to lobby, dwells, returns to office — never gets stuck.
+		const routeResult = resolveSimRouteBetweenFloors(
+			world,
+			sim,
+			sim.floorAnchor,
+			LOBBY_FLOOR,
+			LOBBY_FLOOR > sim.floorAnchor ? 1 : 0,
+			time,
+		);
+		if (routeResult === -1) {
+			// Spec §Route to Lobby Fails: fake-transit sentinel → eventually
+			// advance_office_presence_counter → STATE_DEPARTURE (0x05).
+			advanceOfficePresenceCounter(facility);
+			sim.stateCode = STATE_DEPARTURE;
+			return;
+		}
+		sim.destinationFloor = LOBBY_FLOOR;
+		sim.selectedFloor = sim.floorAnchor;
+		if (routeResult === 3) {
+			// Office on lobby floor — start venue dwell immediately.
+			sim.venueReturnState = 0;
+			sim.stateCode = STATE_VENUE_TRIP;
+			sim.selectedFloor = LOBBY_FLOOR;
+			sim.destinationFloor = -1;
+			sim.lastDemandTick = time.dayTick;
+			clearSimRoute(sim);
+		} else {
+			// In-transit to lobby for fake lunch; arrival promotes to 0x22.
+			sim.stateCode = STATE_ACTIVE_TRANSIT;
+		}
+	}
+}
+
+/** 1228:1fac office_refresh_0x05 — evening departure (STATE_DEPARTURE). */
+function handleOfficeDeparture(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex < 4) return;
+	if (time.daypartIndex === 4 && sampleRng(world) % 6 !== 0) {
+		return;
+	}
+	decrementOfficePresenceCounter(facility, time);
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sim.floorAnchor,
+		LOBBY_FLOOR,
+		0,
+		time,
+	);
+	if (routeResult === -1) {
+		failOfficeRoute(world, sim, STATE_NIGHT_B);
+		return;
+	}
+	sim.selectedFloor = sim.floorAnchor;
+	sim.destinationFloor = LOBBY_FLOOR;
+	if (routeResult === 3) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_PARKED;
+		releaseServiceRequest(world, sim);
+	} else {
+		sim.stateCode = STATE_DEPARTURE_TRANSIT;
+	}
+}
+
+/** 1228:1dc1 office_refresh_0x20 — morning activation gate (STATE_MORNING_GATE). */
+function handleOfficeMorningGate(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (time.weekendFlag !== 0) return;
+	if (facility.occupiableFlag === 0) return;
+
+	if (time.daypartIndex >= 3) return;
+	if (time.daypartIndex === 0) {
+		if (sampleRng(world) % 12 !== 0) return;
+	}
+
+	// 3-day cashflow
+	if (
+		facility.auxValueOrTimer !== time.dayCounter + 1 &&
+		time.dayCounter % 3 === 0
+	) {
+		facility.auxValueOrTimer = time.dayCounter + 1;
+		facility.occupiableFlag = 1;
+		resetFacilitySimTripCounters(world, sim);
+		addCashflowFromFamilyResource(
+			ledger,
+			"office",
+			facility.rentLevel,
+			facility.objectTypeCode,
+		);
+	}
+
+	if (
+		world.starCount > 2 &&
+		(sim.floorAnchor + sim.homeColumn) % 4 === 1 &&
+		facility.unitStatus === 2
+	) {
+		if (!tryAssignParkingService(world, time, sim)) {
+			world.pendingNotifications.push({
+				kind: "route_failure",
+				message: "Office workers demand Parking",
+			});
+		}
+	}
+
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		LOBBY_FLOOR,
+		sim.floorAnchor,
+		sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+		time,
+	);
+	if (routeResult === -1) {
+		sim.stateCode = routeFailureStateForOffice(facility);
+		return;
+	}
+	activateOfficeCashflow(world, facility, sim);
+	sim.selectedFloor = LOBBY_FLOOR;
+	sim.destinationFloor = sim.floorAnchor;
+	if (routeResult === 0 || routeResult === 1 || routeResult === 2) {
+		sim.stateCode = STATE_MORNING_TRANSIT;
+		return;
+	}
+	advanceOfficePresenceCounter(facility);
+	sim.destinationFloor = -1;
+	sim.selectedFloor = sim.floorAnchor;
+	sim.stateCode = nextOfficeMorningState(world, sim);
+}
+
+/** 1228:1f33 office_refresh_0x21 — at office, ready for venue visits (STATE_AT_WORK). */
+function handleOfficeAtWork(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex >= 4) {
+		sim.stateCode = STATE_PARKED;
+		sim.destinationFloor = -1;
+		clearSimRoute(sim);
+		releaseServiceRequest(world, sim);
+		return;
+	}
+	if (time.daypartIndex === 3) {
+		if (sampleRng(world) % 12 !== 0) return;
+	} else {
+		return;
+	}
+
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		LOBBY_FLOOR,
+		sim.floorAnchor,
+		sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+		time,
+	);
+	if (routeResult === -1) {
+		failOfficeRoute(world, sim, STATE_NIGHT_B);
+		return;
+	}
+	sim.selectedFloor = LOBBY_FLOOR;
+	sim.destinationFloor = sim.floorAnchor;
+	if (routeResult === 3) {
+		finalizeOfficeFloorArrival(sim, facility, STATE_DEPARTURE);
+	} else {
+		sim.stateCode = STATE_AT_WORK_TRANSIT;
+	}
+}
+
+/** 1228:1f62 office_refresh_0x22/0x23 — at venue / routing home
+ * (STATE_VENUE_TRIP / STATE_VENUE_HOME_TRANSIT). */
+function handleOfficeVenueTrip(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (time.daypartIndex >= 4) {
+		sim.stateCode = STATE_PARKED;
+		releaseServiceRequest(world, sim);
+		return;
+	}
+	if (time.daypartIndex < 2) {
+		return;
+	}
+	const isFakeLunch = sim.selectedFloor === LOBBY_FLOOR;
+	if (
+		sim.stateCode === STATE_VENUE_TRIP &&
+		!isFakeLunch &&
+		time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
+	) {
+		return;
+	}
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sim.selectedFloor,
+		sim.floorAnchor,
+		sim.floorAnchor > sim.selectedFloor ? 1 : 0,
+		time,
+	);
+	if (routeResult === -1) {
+		failOfficeRoute(world, sim, STATE_NIGHT_B);
+		return;
+	}
+	sim.destinationFloor = sim.floorAnchor;
+	// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
+	// was just cleared), then no further rebase until next state handler invocation.
+	// Clear here so the inline boarding-time rebase (see Phase 7 inline path in
+	// queue/process-travel.ts#boardWaitingRoutes) is a no-op for this return leg.
+	sim.lastDemandTick = -1;
+	if (routeResult === 3) {
+		finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
+	} else {
+		sim.stateCode = STATE_VENUE_HOME_TRANSIT;
+	}
+}
+
+/** 1228:1d8e office_refresh_0x25/0x26/0x27 — night/failure park states. */
+function handleOfficeNightPark(
+	_world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_facility: PlacedObjectRecord,
+): void {
+	if (time.dayTick > 2300) {
+		sim.stateCode = STATE_MORNING_GATE;
+	}
+}
+
+/** 1228:1d8e in-transit no-op handler — transit states handled by carrier arrival. */
+function handleOfficeTransit(
+	_world: WorldState,
+	_ledger: LedgerState,
+	_time: TimeState,
+	_sim: SimRecord,
+	_facility: PlacedObjectRecord,
+): void {
+	// In transit — arrival handled by dispatchSimArrival
+}
+
+/** 1228:1d8e morning-transit retry handler (STATE_MORNING_TRANSIT with idle route).
+ * Binary: refresh dispatch for state 0x60 re-invokes the 0x20 handler
+ * (jump table at 1228:2aac maps both 0x20 and 0x60 to 1228:213c). */
+function handleOfficeMorningTransitRetry(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+): void {
+	if (sim.route.mode !== "idle") {
+		// Active transit — carrier arrival will handle it
+		return;
+	}
+	// Queue-full sims parked in 0x60: retry resolve
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		LOBBY_FLOOR,
+		sim.floorAnchor,
+		sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+		time,
+	);
+	if (routeResult === -1) {
+		sim.stateCode = routeFailureStateForOffice(facility);
+		return;
+	}
+	if (routeResult === 3) {
+		advanceOfficePresenceCounter(facility);
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = nextOfficeMorningState(world, sim);
+	}
+}
+
+export type OfficeHandler = (
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	facility: PlacedObjectRecord,
+) => void;
+
+/** cs:2005 refresh-state dispatch table (state_code → handler). */
+export const OFFICE_REFRESH_HANDLER_TABLE: ReadonlyMap<number, OfficeHandler> =
+	new Map([
+		[STATE_COMMUTE, handleOfficeCommute], // 0x00 → 1228:1e45
+		[STATE_ACTIVE, handleOfficeActive], // 0x01 → 1228:1ed5
+		[STATE_ACTIVE_ALT, handleOfficeActive], // 0x02 → 1228:1ed5 (same handler)
+		[STATE_DEPARTURE, handleOfficeDeparture], // 0x05 → 1228:1fac
+		[STATE_MORNING_GATE, handleOfficeMorningGate], // 0x20 → 1228:1dc1
+		[STATE_AT_WORK, handleOfficeAtWork], // 0x21 → 1228:1f33
+		[STATE_VENUE_TRIP, handleOfficeVenueTrip], // 0x22 → 1228:1f62
+		[STATE_NIGHT_A, handleOfficeNightPark], // 0x25 → 1228:1d8e
+		[STATE_NIGHT_B, handleOfficeNightPark], // 0x26 → 1228:1d8e (same handler)
+		[STATE_PARKED, handleOfficeNightPark], // 0x27 → 1228:1d8e (same handler)
+		[STATE_COMMUTE_TRANSIT, handleOfficeTransit], // 0x40
+		[STATE_ACTIVE_TRANSIT, handleOfficeTransit], // 0x41
+		[STATE_VENUE_TRIP_TRANSIT, handleOfficeTransit], // 0x42
+		[STATE_DEPARTURE_TRANSIT, handleOfficeTransit], // 0x45
+		[STATE_MORNING_TRANSIT, handleOfficeMorningTransitRetry], // 0x60 → 1228:213c alias
+		[STATE_AT_WORK_TRANSIT, handleOfficeTransit], // 0x61
+		[STATE_VENUE_HOME_TRANSIT, handleOfficeTransit], // 0x62
+		[STATE_DWELL_RETURN_TRANSIT, handleOfficeTransit], // 0x63
+	]);
+
 export function processOfficeSim(
 	world: WorldState,
 	ledger: LedgerState,
@@ -149,369 +556,12 @@ export function processOfficeSim(
 	const facility = findObjectForSim(world, sim);
 	if (!facility) return;
 
-	const state = sim.stateCode;
-
-	// --- Night / failure park states ---
-	// Gate: day_tick > 2300 → transition to morning activation
-	if (
-		state === STATE_NIGHT_A ||
-		state === STATE_NIGHT_B ||
-		state === STATE_PARKED
-	) {
-		if (time.dayTick > 2300) {
-			sim.stateCode = STATE_MORNING_GATE;
-		}
-		return;
+	const handler = OFFICE_REFRESH_HANDLER_TABLE.get(sim.stateCode);
+	if (handler) {
+		handler(world, ledger, time, sim, facility);
+	} else {
+		recomputeObjectOperationalStatus(world, sim, facility);
 	}
-
-	// --- Morning activation (spec state 0x20) ---
-	if (state === STATE_MORNING_GATE) {
-		// Spec 0x20 gate: must not be weekend
-		if (time.weekendFlag !== 0) return;
-		if (facility.occupiableFlag === 0) return;
-
-		// Spec 0x20 daypart gate: daypart 0 → 1/12 chance; dayparts 1–2 → dispatch;
-		// daypart >= 3 → no dispatch
-		if (time.daypartIndex >= 3) return;
-		if (time.daypartIndex === 0) {
-			if (sampleRng(world) % 12 !== 0) return;
-		}
-
-		// 3-day cashflow (first sim to dispatch triggers income once per 3-day cycle)
-		if (
-			facility.auxValueOrTimer !== time.dayCounter + 1 &&
-			time.dayCounter % 3 === 0
-		) {
-			facility.auxValueOrTimer = time.dayCounter + 1;
-			facility.occupiableFlag = 1;
-			resetFacilitySimTripCounters(world, sim);
-			addCashflowFromFamilyResource(
-				ledger,
-				"office",
-				facility.rentLevel,
-				facility.objectTypeCode,
-			);
-		}
-
-		// Office parking demand: (floorAnchor + homeColumn) % 4 === 1, unitStatus === 2
-		if (
-			world.starCount > 2 &&
-			(sim.floorAnchor + sim.homeColumn) % 4 === 1 &&
-			facility.unitStatus === 2
-		) {
-			if (!tryAssignParkingService(world, time, sim)) {
-				world.pendingNotifications.push({
-					kind: "route_failure",
-					message: "Office workers demand Parking",
-				});
-			}
-		}
-
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			LOBBY_FLOOR,
-			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
-			time,
-		);
-		if (routeResult === -1) {
-			sim.stateCode = routeFailureStateForOffice(facility);
-			return;
-		}
-		activateOfficeCashflow(world, facility, sim);
-		sim.selectedFloor = LOBBY_FLOOR;
-		sim.destinationFloor = sim.floorAnchor;
-		if (routeResult === 0 || routeResult === 1 || routeResult === 2) {
-			sim.stateCode = STATE_MORNING_TRANSIT;
-			return;
-		}
-		advanceOfficePresenceCounter(facility);
-		sim.destinationFloor = -1;
-		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = nextOfficeMorningState(world, sim);
-		return;
-	}
-
-	// --- Normal inbound commute gate (spec state 0x00) ---
-	if (state === STATE_COMMUTE) {
-		if (time.daypartIndex >= 4) {
-			sim.stateCode = STATE_DEPARTURE;
-			return;
-		}
-		if (sim.baseOffset === 0) {
-			if (time.daypartIndex === 0 && sampleRng(world) % 12 !== 0) return;
-		} else {
-			if (time.daypartIndex < 3) return;
-			if (sampleRng(world) % 12 !== 0) return;
-		}
-		const sourceFloor = sim.baseOffset === 0 ? sim.floorAnchor : LOBBY_FLOOR;
-		const destinationFloor =
-			sim.baseOffset === 0 ? LOBBY_FLOOR : sim.floorAnchor;
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			sourceFloor,
-			destinationFloor,
-			destinationFloor > sourceFloor ? 1 : 0,
-			time,
-		);
-		if (routeResult === -1) {
-			sim.stateCode = STATE_NIGHT_B;
-			return;
-		}
-		decrementOfficePresenceCounter(facility, time);
-		sim.selectedFloor = sourceFloor;
-		sim.destinationFloor = destinationFloor;
-		if (routeResult === 3) {
-			advanceOfficePresenceCounter(facility);
-			sim.destinationFloor = -1;
-			sim.selectedFloor = sim.floorAnchor;
-			sim.stateCode = STATE_AT_WORK;
-		} else {
-			sim.stateCode = STATE_COMMUTE_TRANSIT;
-		}
-		return;
-	}
-
-	// --- At office, ready for venue visits (spec state 0x21) ---
-	if (state === STATE_AT_WORK) {
-		// Gate: daypart >= 4 → depart from office back to the lobby.
-		if (time.daypartIndex >= 4) {
-			sim.stateCode = STATE_PARKED;
-			sim.destinationFloor = -1;
-			clearSimRoute(sim);
-			releaseServiceRequest(world, sim);
-			return;
-		}
-		// Gate: daypart 3 → 1/12 chance; dayparts 0–2 → no dispatch
-		if (time.daypartIndex === 3) {
-			if (sampleRng(world) % 12 !== 0) return;
-		} else {
-			return;
-		}
-
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			LOBBY_FLOOR,
-			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
-			time,
-		);
-		if (routeResult === -1) {
-			failOfficeRoute(world, sim, STATE_NIGHT_B);
-			return;
-		}
-		sim.selectedFloor = LOBBY_FLOOR;
-		sim.destinationFloor = sim.floorAnchor;
-		if (routeResult === 3) {
-			finalizeOfficeFloorArrival(sim, facility, STATE_DEPARTURE);
-		} else {
-			sim.stateCode = STATE_AT_WORK_TRANSIT;
-		}
-		return;
-	}
-
-	// --- At venue / routing home (spec states 0x22 & 0x62) ---
-	// Binary: `office_refresh_0x22_23` (1228:1f62) gates on daypart: ≥4 →
-	// PARKED+release; <2 → no-op. Otherwise dispatches `office_dispatch_0x22_62`
-	// (1228:24cd) which calls `route_sim_back_from_commercial_venue` (1238:0244).
-	// That fn gates on dwell via `release_commercial_venue_slot` (11b0:0fae)
-	// when state == 0x22 — the release fn returns success immediately when
-	// the sim has no commercial-venue slot (fake lunch), otherwise requires
-	// service_duration to elapse. It then resolves a route home and sets
-	// state → 0x62 on in-transit results. Both 0x22 and 0x62 dispatch to the
-	// same path so a sim already in transit re-drives the route each visit.
-	if (state === STATE_VENUE_TRIP || state === STATE_VENUE_HOME_TRANSIT) {
-		if (time.daypartIndex >= 4) {
-			sim.stateCode = STATE_PARKED;
-			releaseServiceRequest(world, sim);
-			return;
-		}
-		if (time.daypartIndex < 2) {
-			return;
-		}
-		const isFakeLunch = sim.selectedFloor === LOBBY_FLOOR;
-		if (
-			state === STATE_VENUE_TRIP &&
-			!isFakeLunch &&
-			time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
-		) {
-			return;
-		}
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			sim.selectedFloor,
-			sim.floorAnchor,
-			sim.floorAnchor > sim.selectedFloor ? 1 : 0,
-			time,
-		);
-		if (routeResult === -1) {
-			failOfficeRoute(world, sim, STATE_NIGHT_B);
-			return;
-		}
-		sim.destinationFloor = sim.floorAnchor;
-		// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
-		// was just cleared), then no further rebase until next state handler invocation.
-		// Clear here so the inline boarding-time rebase (see Phase 7 inline path in
-		// queue/process-travel.ts#boardWaitingRoutes) is a no-op for this return leg.
-		sim.lastDemandTick = -1;
-		if (routeResult === 3) {
-			finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
-		} else {
-			sim.stateCode = STATE_VENUE_HOME_TRANSIT;
-		}
-		return;
-	}
-
-	// --- Venue selection ---
-	if (state === STATE_ACTIVE || state === STATE_ACTIVE_ALT) {
-		runOfficeServiceEvaluation(world, time, sim, facility);
-		// Gate: daypart ≥ 4 → evening departure (with optional medical trip)
-		if (time.daypartIndex >= 4) {
-			// Per spec/facility/MEDICAL.md: at the end-of-workday transition, if
-			// starCount >= 3 the worker has a 1-in-10 chance of taking a medical
-			// trip instead of going straight home. tryStartMedicalTrip handles
-			// the gate + RNG + routing; returns true iff the sim is now on a
-			// medical trip.
-			if (tryStartMedicalTrip(world, time, sim)) return;
-			sim.stateCode = STATE_DEPARTURE;
-			sim.destinationFloor = LOBBY_FLOOR;
-			sim.selectedFloor = sim.floorAnchor;
-			return;
-		}
-		// Spec gate: daypart 0 → wait; daypart 1 → 1/12 chance; dayparts 2–3 → dispatch
-		if (time.daypartIndex === 0) return;
-		if (time.daypartIndex === 1 && sampleRng(world) % 12 !== 0) return;
-
-		const dispatched = dispatchCommercialVenueVisit(world, time, sim, {
-			venueFamilies: new Set([FAMILY_FAST_FOOD]),
-			returnState: STATE_AT_WORK,
-			tripState: STATE_ACTIVE_TRANSIT,
-			skipPenaltyOnUnavailable: true,
-			advanceBeforeSameFloorDwell: true,
-		});
-		if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
-			// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
-			// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed.
-			// dispatchCommercialVenueVisit's beginCommercialVenueDwell writes 0x62;
-			// switch to 0x22 + queueTick so the STATE_VENUE_TRIP handler's 60-tick
-			// dwell gate matches the binary's service_duration wait.
-			sim.stateCode = STATE_VENUE_TRIP;
-			sim.queueTick = time.dayTick;
-			return;
-		}
-		if (!dispatched) {
-			// Spec §No Fast Food Available: route to lobby for fake lunch round-trip.
-			// Worker travels to lobby, dwells, returns to office — never gets stuck.
-			const routeResult = resolveSimRouteBetweenFloors(
-				world,
-				sim,
-				sim.floorAnchor,
-				LOBBY_FLOOR,
-				LOBBY_FLOOR > sim.floorAnchor ? 1 : 0,
-				time,
-			);
-			if (routeResult === -1) {
-				// Spec §Route to Lobby Fails: fake-transit sentinel → eventually
-				// advance_office_presence_counter → STATE_DEPARTURE (0x05).
-				advanceOfficePresenceCounter(facility);
-				sim.stateCode = STATE_DEPARTURE;
-				return;
-			}
-			sim.destinationFloor = LOBBY_FLOOR;
-			sim.selectedFloor = sim.floorAnchor;
-			if (routeResult === 3) {
-				// Office on lobby floor — start venue dwell immediately.
-				sim.venueReturnState = 0;
-				sim.stateCode = STATE_VENUE_TRIP;
-				sim.selectedFloor = LOBBY_FLOOR;
-				sim.destinationFloor = -1;
-				sim.lastDemandTick = time.dayTick;
-				clearSimRoute(sim);
-			} else {
-				// In-transit to lobby for fake lunch; arrival promotes to 0x22.
-				sim.stateCode = STATE_ACTIVE_TRANSIT;
-			}
-		}
-		return;
-	}
-
-	// --- Morning dispatch retry: queue-full sims parked in 0x60 ---
-	// Binary: refresh dispatch for state 0x60 re-invokes the 0x20 handler
-	// (jump table at 1228:2aac maps both 0x20 and 0x60 to 1228:213c). Reaching
-	// processOfficeSim with MORNING_TRANSIT + route.mode=idle means resolve
-	// returned queue-full on a prior stride and populate reset the route; retry
-	// resolve here to mirror the binary's retry cadence.
-	if (state === STATE_MORNING_TRANSIT && sim.route.mode === "idle") {
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			LOBBY_FLOOR,
-			sim.floorAnchor,
-			sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
-			time,
-		);
-		if (routeResult === -1) {
-			sim.stateCode = routeFailureStateForOffice(facility);
-			return;
-		}
-		if (routeResult === 3) {
-			advanceOfficePresenceCounter(facility);
-			sim.destinationFloor = -1;
-			sim.selectedFloor = sim.floorAnchor;
-			sim.stateCode = nextOfficeMorningState(world, sim);
-		}
-		return;
-	}
-
-	// --- In transit — arrival handled by dispatchSimArrival ---
-	if (
-		state === STATE_COMMUTE_TRANSIT ||
-		state === STATE_ACTIVE_TRANSIT ||
-		state === STATE_DEPARTURE_TRANSIT ||
-		state === STATE_MORNING_TRANSIT ||
-		state === STATE_AT_WORK_TRANSIT ||
-		state === STATE_DWELL_RETURN_TRANSIT
-	) {
-		return;
-	}
-
-	// --- Evening departure — in transit to lobby, handled by carrier system ---
-	if (state === STATE_DEPARTURE) {
-		if (time.daypartIndex < 4) return;
-		if (time.daypartIndex === 4 && sampleRng(world) % 6 !== 0) {
-			return;
-		}
-		decrementOfficePresenceCounter(facility, time);
-		const routeResult = resolveSimRouteBetweenFloors(
-			world,
-			sim,
-			sim.floorAnchor,
-			LOBBY_FLOOR,
-			0,
-			time,
-		);
-		if (routeResult === -1) {
-			failOfficeRoute(world, sim, STATE_NIGHT_B);
-			return;
-		}
-		sim.selectedFloor = sim.floorAnchor;
-		sim.destinationFloor = LOBBY_FLOOR;
-		if (routeResult === 3) {
-			sim.destinationFloor = -1;
-			sim.selectedFloor = LOBBY_FLOOR;
-			sim.stateCode = STATE_PARKED;
-			releaseServiceRequest(world, sim);
-		} else {
-			sim.stateCode = STATE_DEPARTURE_TRANSIT;
-		}
-		return;
-	}
-
-	recomputeObjectOperationalStatus(world, sim, facility);
 }
 
 export function handleOfficeSimArrival(

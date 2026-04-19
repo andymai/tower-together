@@ -1,18 +1,18 @@
 // 11b8:1422 getCurrentSimRouteMode
 //
-// Resolves the passenger/cargo/service enum for the current sim, used by
-// the candidate selector to gate which carriers/segments are eligible.
+// Binary: reads a pixel-column height metric from the facility subtype record
+// for the current sim. The value is passed as `targetHeightMetric` into the
+// route scorers (score_carrier_transfer_route, score_local_route_segment,
+// score_express_route_segment) via select_best_route_candidate.
 //
-// The binary function consults `sim.familyCode` and picks:
-//   - 0 = passenger (default)
-//   - 1 = cargo / service (housekeeping, maintenance)
-//   - 2 = service-only (carrierMode === 2)
+// The Ghidra-assigned name "get_current_sim_route_mode" is misleading — the
+// return value is not a mode enum but a height reference used for distance
+// scoring. In the TS implementation this role is filled by `sim.homeColumn`,
+// passed directly to selectBestRouteCandidate. This function is therefore not
+// called; it is preserved as a reference mapping to the binary address.
 //
-// The current TS selector only needs the boolean `preferLocalMode`
-// (housekeeping inverts carrier-mode selection). This function exposes
-// that distinction under the binary name; the wider enum is a TODO.
-// TODO(11b8:1422): expand to the full passenger/cargo/service enum once
-// family handlers in Phase 5 need the richer classification.
+// `preferLocalMode` (whether to prefer escalator over stairs segments) is a
+// separate boolean derived from sim.familyCode in resolveSimRouteBetweenFloors.
 
 import type { SimRecord } from "../world";
 

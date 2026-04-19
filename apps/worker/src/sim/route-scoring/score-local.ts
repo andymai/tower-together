@@ -72,7 +72,10 @@ function canEnterSegmentFromFloor(
 	fromFloor: number,
 	toFloor: number,
 ): boolean {
-	// Stairs allow entry from any covered floor (you can walk in at any landing).
+	// Binary quirk: the binary stores each stair tile as a separate 2-floor segment
+	// (span=0), so its per-segment terminal-entry check is equivalent to allowing
+	// entry from any adjacent landing. The TS merges adjacent stair tiles into one
+	// multi-floor segment, so stairs must allow mid-span entry to match the binary.
 	if ((segment.flags & 1) !== 0) return true;
 	// Escalators: must enter at the bottom (going up) or top (going down).
 	if (toFloor > fromFloor) return fromFloor === segment.entryFloor;
