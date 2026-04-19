@@ -8,10 +8,12 @@
  */
 
 // @ts-expect-error vitest runs in Node; not in CF worker types
+import assert from "node:assert/strict";
+// @ts-expect-error vitest runs in Node; not in CF worker types
 import { readFileSync } from "node:fs";
 // @ts-expect-error vitest runs in Node; not in CF worker types
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 import { TowerSim } from "./index";
 import { DAY_TICK_MAX, DAY_TICK_NEW_DAY, NEW_GAME_DAY_TICK } from "./time";
 import { GROUND_Y } from "./world";
@@ -307,27 +309,39 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 			const ctx = `day=${entry.day} tick=${entry.tick}`;
 
 			// ── Scalar fields ──────────────────────────────────────────────
-			expect(sim.daypartIndex, `daypart mismatch at ${ctx}`).toBe(
-				entry.daypart,
-			);
-			expect(sim.starCount, `stars mismatch at ${ctx}`).toBe(entry.stars);
 			const gf = sim.gateFlags;
-			expect(gf.officeServiceOk !== 0, `gates.office at ${ctx}`).toBe(
+			assert.equal(
+				sim.daypartIndex,
+				entry.daypart,
+				`daypart mismatch at ${ctx}`,
+			);
+			assert.equal(sim.starCount, entry.stars, `stars mismatch at ${ctx}`);
+			assert.equal(
+				gf.officeServiceOk !== 0,
 				entry.gates.office,
+				`gates.office at ${ctx}`,
 			);
-			expect(gf.recyclingAdequate !== 0, `gates.recycling at ${ctx}`).toBe(
+			assert.equal(
+				gf.recyclingAdequate !== 0,
 				entry.gates.recycling,
+				`gates.recycling at ${ctx}`,
 			);
-			expect(gf.routesViable !== 0, `gates.route at ${ctx}`).toBe(
+			assert.equal(
+				gf.routesViable !== 0,
 				entry.gates.route,
+				`gates.route at ${ctx}`,
 			);
-			expect(entry.gates.security, `unexpected gates.security at ${ctx}`).toBe(
+			assert.equal(
+				entry.gates.security,
 				false,
+				`unexpected gates.security at ${ctx}`,
 			);
 
 			// ── Cash ───────────────────────────────────────────────────────
-			expect(sim.cash, `cash mismatch at ${ctx} fx=${fixtureName}`).toBe(
+			assert.equal(
+				sim.cash,
 				entry.cash,
+				`cash mismatch at ${ctx} fx=${fixtureName}`,
 			);
 
 			// ── Sim counts & states (only for entries with named families) ─
@@ -338,8 +352,10 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				const simArray = sim.simsToArray();
 
 				// Total sim count
-				expect(simArray.length, `sim total mismatch at ${ctx}`).toBe(
+				assert.equal(
+					simArray.length,
 					traceSimTotal(entry),
+					`sim total mismatch at ${ctx}`,
 				);
 
 				// Per-family counts, state counts, and positive-stress values
@@ -369,17 +385,19 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				for (const [key, refGroup] of Object.entries(entry.sims)) {
 					const familyCode = TRACE_SIM_KEY_TO_FAMILY[key];
 					if (familyCode === undefined) continue;
-					expect(
+					assert.equal(
 						byFamily.get(familyCode) ?? 0,
+						refGroup.count,
 						`family ${key} count mismatch at ${ctx}`,
-					).toBe(refGroup.count);
+					);
 					const ourStates = byFamilyState.get(familyCode) ?? new Map();
 					const ourObj: Record<string, number> = {};
 					for (const [st, cnt] of ourStates) ourObj[String(st)] = cnt;
-					expect(
+					assert.deepEqual(
 						ourObj,
+						refGroup.states,
 						`family ${key} state counts mismatch at ${ctx}`,
-					).toEqual(refGroup.states);
+					);
 
 					// Stress aggregates: computed over sims with stress > 0 only,
 					// to match the Python emulator's dump_tick_state.
@@ -397,14 +415,20 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 								: 0;
 						const min = stresses.length > 0 ? Math.min(...stresses) : 0;
 						const max = stresses.length > 0 ? Math.max(...stresses) : 0;
-						expect(avg, `family ${key} stress_avg mismatch at ${ctx}`).toBe(
+						assert.equal(
+							avg,
 							refGroup.stress_avg,
+							`family ${key} stress_avg mismatch at ${ctx}`,
 						);
-						expect(min, `family ${key} stress_min mismatch at ${ctx}`).toBe(
+						assert.equal(
+							min,
 							refGroup.stress_min,
+							`family ${key} stress_min mismatch at ${ctx}`,
 						);
-						expect(max, `family ${key} stress_max mismatch at ${ctx}`).toBe(
+						assert.equal(
+							max,
 							refGroup.stress_max,
+							`family ${key} stress_max mismatch at ${ctx}`,
 						);
 					}
 				}
@@ -415,10 +439,11 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				if (prevSimCalls !== undefined && prevTraceCalls !== undefined) {
 					const simDelta = sim.rngCallCount - prevSimCalls;
 					const traceDelta = entry.rng_calls - prevTraceCalls;
-					expect(
+					assert.equal(
 						simDelta,
+						traceDelta,
 						`rng_calls delta mismatch at ${ctx}: sim=${simDelta} trace=${traceDelta}`,
-					).toBe(traceDelta);
+					);
 				}
 				prevSimCalls = sim.rngCallCount;
 				prevTraceCalls = entry.rng_calls;
@@ -437,61 +462,67 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				for (const refCarrier of entry.carriers) {
 					const k = `${refCarrier.column}:${refCarrier.mode}`;
 					const cars = ourByCol.get(k);
-					expect(cars, `carrier ${k} missing at ${ctx}`).toBeDefined();
+					assert.ok(cars !== undefined, `carrier ${k} missing at ${ctx}`);
 					if (!cars) continue;
-					expect(cars.length, `car count for ${k} at ${ctx}`).toBe(
+					assert.equal(
+						cars.length,
 						refCarrier.cars.length,
+						`car count for ${k} at ${ctx}`,
 					);
 					for (let i = 0; i < refCarrier.cars.length; i++) {
 						const ours = cars[i];
 						const ref = refCarrier.cars[i];
-						expect(
+						assert.equal(
 							ours.currentFloor,
+							ref.currentFloor,
 							`car ${i} currentFloor at ${k} ${ctx}`,
-						).toBe(ref.currentFloor);
-						expect(
+						);
+						assert.equal(
 							ours.targetFloor,
+							ref.targetFloor,
 							`car ${i} targetFloor at ${k} ${ctx}`,
-						).toBe(ref.targetFloor);
-						expect(
+						);
+						assert.equal(
 							ours.directionFlag,
+							ref.directionFlag,
 							`car ${i} directionFlag at ${k} ${ctx}`,
-						).toBe(ref.directionFlag);
-						if (ref.stabilizeCounter !== undefined) {
-							expect(
+						);
+						if (ref.stabilizeCounter !== undefined)
+							assert.equal(
 								ours.settleCounter,
+								ref.stabilizeCounter,
 								`car ${i} stabilizeCounter at ${k} ${ctx}`,
-							).toBe(ref.stabilizeCounter);
-						}
-						if (ref.dwellCounter !== undefined) {
-							expect(
-								ours.dwellCounter,
-								`car ${i} dwellCounter at ${k} ${ctx}`,
-							).toBe(ref.dwellCounter);
-						}
-						if (ref.assignedCount !== undefined) {
-							expect(
-								ours.assignedCount,
-								`car ${i} assignedCount at ${k} ${ctx}`,
-							).toBe(ref.assignedCount);
-						}
-						if (ref.prevFloor !== undefined) {
-							expect(ours.prevFloor, `car ${i} prevFloor at ${k} ${ctx}`).toBe(
-								ref.prevFloor,
 							);
-						}
-						if (ref.arrivalSeen !== undefined) {
-							expect(
+						if (ref.dwellCounter !== undefined)
+							assert.equal(
+								ours.dwellCounter,
+								ref.dwellCounter,
+								`car ${i} dwellCounter at ${k} ${ctx}`,
+							);
+						if (ref.assignedCount !== undefined)
+							assert.equal(
+								ours.assignedCount,
+								ref.assignedCount,
+								`car ${i} assignedCount at ${k} ${ctx}`,
+							);
+						if (ref.prevFloor !== undefined)
+							assert.equal(
+								ours.prevFloor,
+								ref.prevFloor,
+								`car ${i} prevFloor at ${k} ${ctx}`,
+							);
+						if (ref.arrivalSeen !== undefined)
+							assert.equal(
 								ours.arrivalSeen,
+								ref.arrivalSeen,
 								`car ${i} arrivalSeen at ${k} ${ctx}`,
-							).toBe(ref.arrivalSeen);
-						}
-						if (ref.arrivalTick !== undefined) {
-							expect(
+							);
+						if (ref.arrivalTick !== undefined)
+							assert.equal(
 								ours.arrivalTick,
+								ref.arrivalTick,
 								`car ${i} arrivalTick at ${k} ${ctx}`,
-							).toBe(ref.arrivalTick);
-						}
+							);
 					}
 				}
 			}
