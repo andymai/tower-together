@@ -1,29 +1,30 @@
 // 11b8:0be2 scoreSpecialLinkRoute
 //
-// Cost for a stairs/escalator link, consumed by the selector when the
-// scorer needs to cross a derived special-link record (a "transfer zone")
-// rather than land on a direct segment.
-//
-// The current TS `selectBestRouteCandidate` reuses `scoreLocalRouteSegment`
-// for both direct and transfer-zone legs. The binary has a dedicated
-// `scoreSpecialLinkRoute` at 11b8:0be2; the wrapper below exposes the
-// binary name while delegating to the local-segment scorer.
-// TODO(11b8:0be2): port the binary-specific scoring logic once the
-// analysis reports disambiguate it from `scoreLocalRouteSegment`.
+// Binary pass/fail viability check for a special-link (stairs/escalator)
+// transfer zone. Returns 0 if the zone can reach the target floor, or
+// ROUTE_COST_INFINITE if not. The binary sets an internal direction flag
+// (source < target → upward) before probing the reachability mask.
 
+import { testSpecialLinkTransferReachability } from "../reachability/mask-tests";
 import type { WorldState } from "../world";
-import { scoreLocalRouteSegment } from "./score-local";
+import { ROUTE_COST_INFINITE } from "./constants";
 
 export function scoreSpecialLinkRoute(
-	segment: WorldState["specialLinks"][number],
+	world: WorldState,
+	entry: WorldState["transferGroupEntries"][number],
 	fromFloor: number,
 	toFloor: number,
-	targetHeightMetric: number,
 ): number {
-	return scoreLocalRouteSegment(
-		segment,
-		fromFloor,
-		toFloor,
-		targetHeightMetric,
-	);
+	// Binary quirk: direction flag is set (fromFloor < toFloor → upward) but
+	// is not used in the reachability probe — it only gates which transfer-group
+	// peer records are tested. The TS implementation of
+	// testSpecialLinkTransferReachability already scans all peer records, so the
+	// direction flag has no additional effect here.
+	if (!testSpecialLinkTransferReachability(world, entry, toFloor)) {
+		return ROUTE_COST_INFINITE;
+	}
+	if (!testSpecialLinkTransferReachability(world, entry, fromFloor)) {
+		return ROUTE_COST_INFINITE;
+	}
+	return 0;
 }

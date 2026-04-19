@@ -457,14 +457,13 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.transferGroupEntries ??= createEmptyTransferGroupEntries();
 	snapshot.world.parkingDemandLog ??= [];
 	for (const sim of snapshot.world.sims) {
-		sim.routeRetryDelay ??= 0;
 		sim.elapsedTicks ??= 0;
 		sim.targetRoomFloor ??= -1;
 		sim.targetRoomColumn ??= -1;
 		sim.spawnFloor ??= sim.floorAnchor;
 		sim.postClaimCountdown ??= 0;
 		sim.encodedTargetFloor ??= 0;
-		// Migrate old stressCounter/visitCounter fields away
+		// Migrate old fields away
 		const raw = sim as unknown as Record<string, unknown>;
 		delete raw.stressCounter;
 		delete raw.visitCounter;

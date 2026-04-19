@@ -20,13 +20,13 @@ Family 10: real `gateObjectFamilyRetailStateHandler` (1228:3ed9) + `dispatchObje
 Family 6/12: real `gateObjectFamilyRestaurantFastFoodStateHandler` (1228:466d) + `dispatchObjectFamilyRestaurantFastFoodStateHandler` (1228:4851). Same pattern as retail.
 
 ### `recycling.ts`
-Family 33: gate (1228:4d5b) + dispatch (1228:4ea0). TODO stubs — no TS counterpart yet.
+Family 33: real `gateObjectFamilyRecyclingCenterLowerStateHandler` (1228:4d5b) + `dispatchObjectFamilyRecyclingCenterLowerStateHandler` (1228:4ea0). Gate applies daypart/tick/RNG filters; dispatch delegates to the entertainment guest machine.
 
 ### `parking.ts`
 Family 36: gate (1228:5b5a) + dispatch (1228:5cd2). Re-exports the demand-log helpers; state-machine gate/dispatch are TODO stubs.
 
 ### `entertainment.ts`
-Family 18/29 guest: gate (1228:5231) + dispatch (1228:53ad). TODO stubs.
+Family 18/29 guest: real `gateEntertainmentGuestState` (1228:5231) + `dispatchEntertainmentGuestState` (1228:53ad) + four inner helper functions (phase consumption, linked-half routing, service acquisition, release/return).
 
 ### `housekeeping.ts`
 Family 15: real `gateHousekeepingRoomClaimState` (1228:5f39) + `updateObjectFamilyHousekeepingConnectionState` (1228:602b) + `activateObjectFamilyHousekeepingConnectionState` (1228:6480). Delegates to `processHousekeepingSim` / `handleHousekeepingSimArrival`. HK uses low-valued states (0..4) that don't overlap the 0x20/0x40 bits.

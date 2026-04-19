@@ -159,7 +159,8 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 }
 
 /**
- * Advance lower phase for both families, accrue cash income, reset phases.
+ * advance_entertainment_facility_phase(param_1=1, param_2=0) — checkpoint 0x640.
+ * Advance lower phase for single-link (party hall) only, accrue income, reset phase.
  */
 export function advanceEntertainmentLowerPhaseAndAccrue(
 	world: WorldState,
@@ -168,49 +169,69 @@ export function advanceEntertainmentLowerPhaseAndAccrue(
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object) continue;
+		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_SINGLE)
+			continue;
 
-		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
-			if (sidecar.linkPhaseState >= 1) {
-				sidecar.activeRuntimeCount = Math.max(
-					0,
-					sidecar.activeRuntimeCount - sidecar.lowerBudget,
-				);
-				const payout = movieTheaterPayout(sidecar.attendanceCounter);
-				if (payout > 0) {
-					ledger.cashBalance = Math.min(
-						99_999_999,
-						ledger.cashBalance + payout,
-					);
-					ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] =
-						(ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] ?? 0) + payout;
-				}
-			}
-		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
-			if (sidecar.linkPhaseState >= 1) {
-				sidecar.activeRuntimeCount = Math.max(
-					0,
-					sidecar.activeRuntimeCount - sidecar.lowerBudget,
-				);
-				if (sidecar.attendanceCounter > 0) {
-					const payout = 20_000;
-					ledger.cashBalance = Math.min(
-						99_999_999,
-						ledger.cashBalance + payout,
-					);
-					ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] =
-						(ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
-				}
+		if (sidecar.linkPhaseState >= 1) {
+			sidecar.activeRuntimeCount = Math.max(
+				0,
+				sidecar.activeRuntimeCount - sidecar.lowerBudget,
+			);
+			if (sidecar.attendanceCounter > 0) {
+				const payout = 20_000;
+				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
+				ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] =
+					(ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
 			}
 		}
 
-		// Reset phases
 		sidecar.linkPhaseState = 0;
 
-		// Park all entertainment sims for this record
 		for (const sim of world.sims) {
 			if (
-				sim.familyCode !== object.objectTypeCode ||
+				sim.familyCode !== ENTERTAINMENT_FAMILY_SINGLE ||
+				sim.homeColumn !== sidecar.ownerSubtypeIndex
+			)
+				continue;
+			if (sim.stateCode !== STATE_PARKED) {
+				sim.stateCode = STATE_PARKED;
+			}
+		}
+	}
+}
+
+/**
+ * advance_entertainment_facility_phase(param_1=1, param_2=1) — checkpoint 0x76c.
+ * Advance lower phase for paired (cinema) links, accrue income, reset phase.
+ */
+export function advanceEntertainmentLowerPairedPhaseAndAccrue(
+	world: WorldState,
+	ledger: LedgerState,
+): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		const object = findObjectBySidecarOwner(world, sidecar);
+		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
+			continue;
+
+		if (sidecar.linkPhaseState >= 1) {
+			sidecar.activeRuntimeCount = Math.max(
+				0,
+				sidecar.activeRuntimeCount - sidecar.lowerBudget,
+			);
+			const payout = movieTheaterPayout(sidecar.attendanceCounter);
+			if (payout > 0) {
+				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
+				ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] =
+					(ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] ?? 0) + payout;
+			}
+		}
+
+		sidecar.linkPhaseState = 0;
+
+		for (const sim of world.sims) {
+			if (
+				sim.familyCode !== ENTERTAINMENT_FAMILY_PAIRED ||
 				sim.homeColumn !== sidecar.ownerSubtypeIndex
 			)
 				continue;

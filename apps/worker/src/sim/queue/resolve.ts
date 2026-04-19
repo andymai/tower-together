@@ -155,7 +155,6 @@ export function resolveSimRouteBetweenFloors(
 	);
 	if (!route) {
 		clearSimRoute(sim);
-		sim.routeRetryDelay = 300;
 		addDelayToCurrentSim(sim, 300);
 		advanceSimTripCounters(sim);
 		return -1;
@@ -228,7 +227,6 @@ export function resolveSimRouteBetweenFloors(
 		clearSimRoute(sim);
 		if (familyUsesStateBits(sim.familyCode)) setSimWaiting(sim, true);
 		sim.destinationFloor = destinationFloor;
-		sim.routeRetryDelay = 16;
 		addDelayToCurrentSim(sim, 5);
 		return 0;
 	}

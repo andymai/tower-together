@@ -51,7 +51,6 @@ function makeSim(
 		venueReturnState: 0,
 		queueTick: 0,
 		elapsedTicks: 0,
-		routeRetryDelay: 0,
 		transitTicksRemaining: 0,
 		lastDemandTick: -1,
 		tripCount: 0,

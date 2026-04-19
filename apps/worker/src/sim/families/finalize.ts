@@ -39,5 +39,4 @@ export function finalizeRuntimeRouteState(
 	// do NOT strip 0x20 — that bit overlaps TS phase encodings).
 	setSimInTransit(sim, false);
 	sim.transitTicksRemaining = 0;
-	sim.routeRetryDelay = 0;
 }

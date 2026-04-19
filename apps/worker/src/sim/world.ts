@@ -136,8 +136,7 @@ export type RouteState =
 			carrierId: number;
 			direction: "up" | "down";
 			source: number;
-	  }
-	| { mode: "queued"; source: number };
+	  };
 
 export interface SimRecord {
 	floorAnchor: number;
@@ -165,8 +164,6 @@ export interface SimRecord {
 	queueTick: number;
 	/** Current elapsed ticks for the in-progress service visit (maps to low 10 bits of elapsed_packed). */
 	elapsedTicks: number;
-	/** Ticks remaining before the sim may retry routing (route-failure / wait-state delay). */
-	routeRetryDelay: number;
 	transitTicksRemaining: number;
 	lastDemandTick: number;
 	tripCount: number;

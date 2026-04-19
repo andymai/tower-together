@@ -115,7 +115,6 @@ function clearSimRouteById(world: WorldState, simId: string): void {
 		// would corrupt the post-failure phase byte. Gated to
 		// dispatch_sim_behavior families only.
 		if (STATE_BIT_FAMILIES.has(sim.familyCode)) setSimInTransit(sim, false);
-		sim.routeRetryDelay = 0;
 		return;
 	}
 }

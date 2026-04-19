@@ -11,6 +11,7 @@ import { dispatchActiveRequestsByFamily } from "../daily/drain-active-requests";
 import {
 	activateEntertainmentLowerHalf,
 	activateEntertainmentUpperHalf,
+	advanceEntertainmentLowerPairedPhaseAndAccrue,
 	advanceEntertainmentLowerPhaseAndAccrue,
 	advanceEntertainmentUpperPhase,
 	promoteAndActivateSingleLower,
@@ -23,6 +24,7 @@ import {
 	tickVipSpecialVisitor,
 	triggerRandomNewsEvent,
 } from "../events";
+import { rebuildAllSimTileSpans } from "../families/tile-spans";
 import {
 	activateThreeDayCashflow,
 	doExpenseSweep,
@@ -146,9 +148,7 @@ function checkpointNoop(_s: SimState): void {
 }
 
 function checkpointEntertainmentPhase2(_s: SimState): void {
-	// Spec 1900: entertainment paired-link reverse-half advance (TODO).
-	// Commercial closure was previously (incorrectly) fired here; it now runs
-	// at 0x7d0 (non-type-6) and 0x898 (type-6) per the binary trace.
+	advanceEntertainmentLowerPairedPhaseAndAccrue(_s.world, _s.ledger);
 }
 
 function checkpointLateFacility(_s: SimState): void {
@@ -169,6 +169,7 @@ function checkpointDayCounter(s: SimState): void {
 }
 
 function checkpointRuntimeRefresh(_s: SimState): void {
+	rebuildAllSimTileSpans(_s.world);
 	resetSimRuntimeState(_s.world);
 	normalizeUnitStatusEndOfDay(_s.world);
 	// Binary 1208:0196 at g_day_tick == 0x9c4 additionally fires
