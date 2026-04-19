@@ -307,25 +307,20 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 			const ctx = `day=${entry.day} tick=${entry.tick}`;
 
 			// ── Scalar fields ──────────────────────────────────────────────
-			const snap = sim.saveState();
-			expect(snap.time.daypartIndex, `daypart mismatch at ${ctx}`).toBe(
+			expect(sim.daypartIndex, `daypart mismatch at ${ctx}`).toBe(
 				entry.daypart,
 			);
-			expect(snap.world.starCount, `stars mismatch at ${ctx}`).toBe(
-				entry.stars,
+			expect(sim.starCount, `stars mismatch at ${ctx}`).toBe(entry.stars);
+			const gf = sim.gateFlags;
+			expect(gf.officeServiceOk !== 0, `gates.office at ${ctx}`).toBe(
+				entry.gates.office,
 			);
-			expect(
-				snap.world.gateFlags.officeServiceOk !== 0,
-				`gates.office at ${ctx}`,
-			).toBe(entry.gates.office);
-			expect(
-				snap.world.gateFlags.recyclingAdequate !== 0,
-				`gates.recycling at ${ctx}`,
-			).toBe(entry.gates.recycling);
-			expect(
-				snap.world.gateFlags.routesViable !== 0,
-				`gates.route at ${ctx}`,
-			).toBe(entry.gates.route);
+			expect(gf.recyclingAdequate !== 0, `gates.recycling at ${ctx}`).toBe(
+				entry.gates.recycling,
+			);
+			expect(gf.routesViable !== 0, `gates.route at ${ctx}`).toBe(
+				entry.gates.route,
+			);
 			expect(entry.gates.security, `unexpected gates.security at ${ctx}`).toBe(
 				false,
 			);
