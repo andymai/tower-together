@@ -1,7 +1,4 @@
 {
-	"config": {
-		"max_ticks": 600
-	},
 	"floor_extent": {
 		"0": { "left": 80, "right": 200 },
 		"1": { "left": 80, "right": 200 },
@@ -9,7 +6,10 @@
 		"3": { "left": 80, "right": 200 },
 		"4": { "left": 80, "right": 200 },
 		"5": { "left": 80, "right": 200 },
-		"6": { "left": 80, "right": 200 }
+		"6": { "left": 80, "right": 200 },
+		"7": { "left": 80, "right": 200 },
+		"8": { "left": 80, "right": 200 },
+		"9": { "left": 80, "right": 200 }
 	},
 	"facilities": [
 		{ "type": "office", "floor": 1, "left": 110 },
@@ -50,6 +50,24 @@
 		{ "type": "office", "floor": 6, "left": 137 },
 		{ "type": "office", "floor": 6, "left": 146 },
 		{ "type": "office", "floor": 6, "left": 155 },
-		{ "type": "elevator", "bottom": 0, "top": 6, "left": 100 }
+		{ "type": "office", "floor": 7, "left": 110 },
+		{ "type": "office", "floor": 7, "left": 119 },
+		{ "type": "office", "floor": 7, "left": 128 },
+		{ "type": "office", "floor": 7, "left": 137 },
+		{ "type": "office", "floor": 7, "left": 146 },
+		{ "type": "office", "floor": 7, "left": 155 },
+		{ "type": "office", "floor": 8, "left": 110 },
+		{ "type": "office", "floor": 8, "left": 119 },
+		{ "type": "office", "floor": 8, "left": 128 },
+		{ "type": "office", "floor": 8, "left": 137 },
+		{ "type": "office", "floor": 8, "left": 146 },
+		{ "type": "office", "floor": 8, "left": 155 },
+		{ "type": "office", "floor": 9, "left": 110 },
+		{ "type": "office", "floor": 9, "left": 119 },
+		{ "type": "office", "floor": 9, "left": 128 },
+		{ "type": "office", "floor": 9, "left": 137 },
+		{ "type": "office", "floor": 9, "left": 146 },
+		{ "type": "office", "floor": 9, "left": 155 },
+		{ "type": "elevator", "bottom": 0, "top": 9, "left": 100, "cars": 8 }
 	]
 }

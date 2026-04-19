@@ -187,7 +187,7 @@ function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 					type: "place_tile",
 					x: fac.left,
 					y: GROUND_Y - f,
-					tileType: "elevator",
+					tileType: fac.type,
 				});
 			}
 			const numCars = fac.cars ?? 1;
@@ -275,6 +275,7 @@ function traceSimTotal(entry: TraceEntry): number {
 const FIXTURE_NAMES = [
 	"commercial",
 	"condo",
+	"dense_hotel",
 	"dense_office",
 	"elevator",
 	"hotel",
