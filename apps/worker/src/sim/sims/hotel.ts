@@ -4,6 +4,7 @@ import {
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 } from "../resources";
+import { setSimInTransit } from "../sim-access/state-bits";
 import { advanceSimTripCounters } from "../stress/trip-counters";
 import { DAY_TICK_NEW_DAY, type TimeState } from "../time";
 import {
@@ -430,8 +431,10 @@ function handleHotelVenueTrip(
 			sim.venueReturnState = 0;
 			return;
 		}
-		// result 1 or 2: setSimInTransit set 0x40 bit, state is now 0x62.
-		// result 0 or -1: stays in 0x22, retried next refresh.
+		// Binary 1228:50ef maps resolve returns 0/1/2 all to state 0x62
+		// (commercial dwell). Resolve already flips 0x62 on success (1/2);
+		// queue-full (0) only sets the waiting bit, so promote here.
+		if (result === 0) setSimInTransit(sim, true);
 		return;
 	}
 	// Real-venue dwell: stay in 0x22 until service_duration elapsed.
