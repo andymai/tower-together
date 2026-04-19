@@ -99,4 +99,28 @@ Confirmed (subagent 2026-04-19): for our merged-segment model, **`step = 1` per 
 | src=arg, tgt=0xa (LOBBY=10) | Office 0x00 wake-up, condo 0x00 |
 | src=arg or 0xa, tgt=arg | Office state 0x20 (MORNING_GATE) |
 
-The "variant flag" passed to resolve as `is_passenger_route_emit_distance_feedback` is `1` for the base state and `0` for the +0x40 alias — affects whether `add_delay_to_current_sim` distance feedback fires.
+## Resolve flag arguments
+
+`resolve_sim_route_between_floors` (1218:0000) takes TWO short boolean arguments:
+
+- `is_passenger_route` (Stack[0x4]:2) — gates `advance_sim_trip_counters`
+  (same-floor + route-fail), `add_delay_to_current_sim(g_route_failure_delay=300)`
+  on rc=-1, `add_delay_to_current_sim(g_waiting_state_delay=5)` on rc=0,
+  `add_delay_to_current_sim(per_stop_parity_delay × step)` on rc=1, and is
+  forwarded to `select_best_route_candidate` (11b8:1484) as `prefer_local_mode`.
+  At every binary call site this is `1` for passenger families and `0` for
+  housekeeping (1228:620f / 1228:6320).
+- `emit_distance_feedback` (Stack[0x6]:2) — gates the long-trip distance
+  penalty (the 30/60-tick `add_delay_to_current_sim` branches) on rc=1
+  (segment success) and rc=2 (carrier success).
+
+At every passenger-family call site the binary computes
+`emit_distance_feedback = (current_state_code == base_state_code) ? 1 : 0`
+inline (CMP word [BP-4], <BASE_STATE>; JNZ; MOV AX,1; JMP / XOR AX,AX; PUSH AX;
+PUSH 1; CALLF). i.e. distance feedback fires once per trip on the BASE state
+handler dispatch, and is suppressed on the +0x40 transit alias re-entries.
+Housekeeping passes both flags as `0`.
+
+In TypeScript, `resolveSimRouteBetweenFloors` accepts these as two named
+booleans on the `ResolveSimRouteOptions` bag: `isPassengerRoute` (default `true`)
+and `emitDistanceFeedback` (default `true`).

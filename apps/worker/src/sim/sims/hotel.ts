@@ -319,9 +319,9 @@ function handleHotelActiveTransit(
 	if (sim.destinationFloor < 0) return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.destinationFloor;
-	// Alias state 0x41 (ACTIVE_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state when the trip
-	// began.
+	// Alias state 0x41 (ACTIVE_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here, so distance feedback was already applied by the base state
+	// when the trip began.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -329,18 +329,14 @@ function handleHotelActiveTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === 3) {
 		// Arrived. Trip counter already advanced inside resolve's same-floor
-		// branch (1218:0046); pass `tripCounterAlreadyAdvanced=true` so
-		// dispatchSimArrival does NOT advance again (double-advance causes
-		// stress_avg drift — same class of bug as build_offices tick=166).
-		// Preserve the `lastDemandTick=-1` side effect that some downstream
-		// hotel state handlers still rely on by resetting it manually.
-		sim.lastDemandTick = -1;
-		dispatchSimArrival(world, ledger, time, sim, targetFloor, true);
+		// branch (1218:0046), which also clears `lastDemandTick`. The binary
+		// arrival path `dispatch_destination_queue_entries` (1218:0883) has
+		// no further advance — it jumps straight to the family handler.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }
 
@@ -359,8 +355,9 @@ function handleHotelMorningTransit(
 ): void {
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.floorAnchor;
-	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x20 dispatch.
+	// Alias state 0x60 (MORNING_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here (current_state 0x60 != base_state 0x20). Distance feedback
+	// was already applied by the base state 0x20 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -368,8 +365,7 @@ function handleHotelMorningTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
@@ -405,8 +401,9 @@ function handleHotelDepartureTransit(
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor =
 		sim.destinationFloor >= 0 ? sim.destinationFloor : LOBBY_FLOOR;
-	// Alias state 0x45 (DEPARTURE_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x05 dispatch.
+	// Alias state 0x45 (DEPARTURE_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x05 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -414,8 +411,7 @@ function handleHotelDepartureTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
 		sim.stateCode = STATE_MORNING_GATE;

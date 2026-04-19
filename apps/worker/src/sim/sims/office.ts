@@ -484,9 +484,11 @@ function handleOfficeTransit(
 	if (sim.destinationFloor < 0) return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.destinationFloor;
-	// Alias state (+0x40 transit handler): variantFlag=0 in the binary, so
+	// Alias state (+0x40 transit handler): in the binary `emit_distance_feedback`
+	// is `0` (the comparison `current_state == base_state` is false here), so
 	// distance feedback was already applied by the base state when the trip
-	// began. Suppress here to avoid double-counting per-leg.
+	// began. Suppress here to avoid double-counting per-leg. `is_passenger_route`
+	// is still `1` for office.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -494,15 +496,14 @@ function handleOfficeTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === 3) {
 		// Arrived. Trip counter already advanced inside resolve (same-floor
-		// branch at 1218:0046). Pass `tripCounterAlreadyAdvanced=true` so
-		// dispatchSimArrival does NOT advance again — double-advance was the
-		// build_offices day=0 tick=166 stress_avg=49-vs-50 off-by-1 bug.
-		dispatchSimArrival(world, ledger, time, sim, targetFloor, true);
+		// branch at 1218:0046). dispatchSimArrival no longer advances — the
+		// binary's arrival path (1218:0883 dispatch_destination_queue_entries)
+		// has no advance call.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }
 
@@ -529,8 +530,9 @@ function handleOfficeMorningTransitRetry(
 	// last leg endpoint.
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.floorAnchor;
-	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x20 dispatch.
+	// Alias state 0x60 (MORNING_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here (current_state 0x60 != base_state 0x20). Distance feedback was
+	// already applied by the base state 0x20 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -538,8 +540,7 @@ function handleOfficeMorningTransitRetry(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
 		sim.stateCode = routeFailureStateForOffice(facility);
@@ -676,8 +677,9 @@ export function handleOfficeSimArrival(
 	// rather than lastDemandTick because the stride rebase clears lastDemandTick
 	// to -1 on every call, which would break the dwell gate.
 	// elapsedTicks is NOT accumulated here; the outbound stair penalty was already
-	// committed by advanceSimTripCounters via completeSimTransitEvent. Setting
-	// lastDemandTick would add spurious dwell ticks to the return trip's elapsed.
+	// committed by advanceSimTripCounters from inside resolve's same-floor branch
+	// (1218:0046). Setting lastDemandTick would add spurious dwell ticks to the
+	// return trip's elapsed.
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT

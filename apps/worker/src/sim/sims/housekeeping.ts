@@ -98,6 +98,11 @@ function attemptRouteToFloor(
 	// linkage key (required by `rebuildRuntimeSims`), while `selectedFloor`
 	// tracks current position as the HK helper roams.
 	const direction = targetFloor > sim.selectedFloor ? 1 : 0;
+	// Binary 1228:620f / 1228:6320: housekeeping passes `is_passenger_route = 0`
+	// AND `emit_distance_feedback = 0`. The post-resolve delay/trip-counter
+	// writes are no-ops for housekeeping anyway (advanceSimTripCounters and
+	// addDelayToCurrentSim early-return for FAMILY_HOUSEKEEPING), but pass the
+	// flags explicitly to mirror the binary call shape.
 	return resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -105,6 +110,7 @@ function attemptRouteToFloor(
 		targetFloor,
 		direction,
 		time,
+		{ isPassengerRoute: false, emitDistanceFeedback: false },
 	);
 }
 

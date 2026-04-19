@@ -144,8 +144,9 @@ function handleCondoMorningTransit(
 	if (sim.route.mode === "carrier") return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = LOBBY_FLOOR;
-	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x20 dispatch.
+	// Alias state 0x60 (MORNING_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x20 dispatch.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -153,8 +154,7 @@ function handleCondoMorningTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	const wasVacant = object.unitStatus >= UNIT_STATUS_CONDO_VACANT;
 
@@ -197,8 +197,9 @@ function handleCondoCommuteTransit(
 	if (sim.route.mode === "carrier") return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = LOBBY_FLOOR;
-	// Alias state 0x40 (COMMUTE_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x00 dispatch.
+	// Alias state 0x40 (COMMUTE_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x00 dispatch.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -206,19 +207,16 @@ function handleCondoCommuteTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (result === -1) {
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
 	if (result === 3) {
-		// Arrived. Trip counter already advanced inside resolve, but we still
-		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
-		// flag — the downstream condo state machine relies on the trip-counter
-		// side effects (resetting lastDemandTick to -1). Slight stress
-		// over-count is the lesser evil here vs. state-machine corruption.
+		// Arrived. Trip counter + lastDemandTick reset already done inside
+		// resolve's same-floor branch (1218:0046). The binary arrival path
+		// 1218:0883 has no further advance.
 		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }
@@ -243,8 +241,9 @@ function handleCondoAtWorkTransit(
 	if (sim.route.mode === "carrier") return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.floorAnchor;
-	// Alias state 0x61 (AT_WORK_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x21 dispatch.
+	// Alias state 0x61 (AT_WORK_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x21 dispatch.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -252,8 +251,7 @@ function handleCondoAtWorkTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (result === -1) {
 		sim.destinationFloor = -1;
@@ -262,11 +260,8 @@ function handleCondoAtWorkTransit(
 		return;
 	}
 	if (result === 3) {
-		// Arrived. Trip counter already advanced inside resolve, but we still
-		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
-		// flag — the downstream condo state machine relies on the trip-counter
-		// side effects (resetting lastDemandTick to -1). Slight stress
-		// over-count is the lesser evil here vs. state-machine corruption.
+		// Arrived. Trip counter + lastDemandTick reset already done inside
+		// resolve's same-floor branch (1218:0046).
 		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }
@@ -291,10 +286,10 @@ function handleCondoActiveTransit(
 	if (sim.destinationFloor < 0) return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.destinationFloor;
-	// Alias state 0x41 (ACTIVE_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x01 dispatch
-	// (which uses the venue selector, not resolve, but follows the same
-	// base-vs-alias contract).
+	// Alias state 0x41 (ACTIVE_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x01 dispatch (which uses the venue selector, not resolve, but follows
+	// the same base-vs-alias contract).
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -302,19 +297,15 @@ function handleCondoActiveTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (result === -1) {
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
 	if (result === 3) {
-		// Arrived. Trip counter already advanced inside resolve, but we still
-		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
-		// flag — the downstream condo state machine relies on the trip-counter
-		// side effects (resetting lastDemandTick to -1). Slight stress
-		// over-count is the lesser evil here vs. state-machine corruption.
+		// Arrived. Trip counter + lastDemandTick reset already done inside
+		// resolve's same-floor branch (1218:0046).
 		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }
@@ -337,8 +328,9 @@ function handleCondoVenueHomeTransit(
 	if (sim.destinationFloor < 0) return;
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.destinationFloor;
-	// Alias state 0x62 (VENUE_HOME_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x22 dispatch.
+	// Alias state 0x62 (VENUE_HOME_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x22 dispatch.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -346,8 +338,7 @@ function handleCondoVenueHomeTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (result === -1) {
 		sim.destinationFloor = -1;
@@ -356,11 +347,8 @@ function handleCondoVenueHomeTransit(
 		return;
 	}
 	if (result === 3) {
-		// Arrived. Trip counter already advanced inside resolve, but we still
-		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
-		// flag — the downstream condo state machine relies on the trip-counter
-		// side effects (resetting lastDemandTick to -1). Slight stress
-		// over-count is the lesser evil here vs. state-machine corruption.
+		// Arrived. Trip counter + lastDemandTick reset already done inside
+		// resolve's same-floor branch (1218:0046).
 		dispatchSimArrival(world, ledger, time, sim, targetFloor);
 	}
 }

@@ -26,6 +26,7 @@ export {
 	processUnitTravelQueue,
 } from "./process-travel";
 export {
+	type ResolveSimRouteOptions,
 	type RouteResolution,
 	resolveSimRouteBetweenFloors,
 } from "./resolve";

@@ -164,10 +164,13 @@ function handleEntertainmentPhaseConsumption(
 	}
 
 	const venueFloor = getEntertainmentLinkVenueFloor(sim);
-	const sourceFloor =
-		sim.stateCode === ENT_STATE_PHASE_CONSUME ? LOBBY_FLOOR : sim.originFloor;
+	const isFreshDispatch = sim.stateCode === ENT_STATE_PHASE_CONSUME;
+	const sourceFloor = isFreshDispatch ? LOBBY_FLOOR : sim.originFloor;
 	const directionFlag = venueFloor >= sourceFloor ? 1 : 0;
 
+	// Binary 1228:5592 (handle_entertainment_phase_consumption call site):
+	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x20) ? 1 : 0`.
+	// Distance feedback fires on the BASE state 0x20, not the +0x40 alias 0x60.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -175,6 +178,7 @@ function handleEntertainmentPhaseConsumption(
 		venueFloor,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	switch (result) {
@@ -215,12 +219,15 @@ function handleEntertainmentLinkedHalfRouting(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	const sourceFloor =
-		sim.stateCode === ENT_STATE_LINKED_HALF
-			? getEntertainmentLinkReverseFloor(sim)
-			: sim.originFloor;
+	const isFreshDispatch = sim.stateCode === ENT_STATE_LINKED_HALF;
+	const sourceFloor = isFreshDispatch
+		? getEntertainmentLinkReverseFloor(sim)
+		: sim.originFloor;
 	const directionFlag = LOBBY_FLOOR >= sourceFloor ? 1 : 0;
 
+	// Binary 1228:579d (handle_entertainment_linked_half_routing call site):
+	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x05) ? 1 : 0`.
+	// Distance feedback fires on the BASE state 0x05, not the +0x40 alias 0x45.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -228,6 +235,7 @@ function handleEntertainmentLinkedHalfRouting(
 		LOBBY_FLOOR,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	switch (result) {
@@ -289,12 +297,15 @@ function handleEntertainmentServiceAcquisition(
 		break;
 	}
 
-	const sourceFloor =
-		sim.stateCode === ENT_STATE_SERVICE_ACQUIRE
-			? getEntertainmentLinkReverseFloor(sim)
-			: sim.originFloor;
+	const isFreshDispatch = sim.stateCode === ENT_STATE_SERVICE_ACQUIRE;
+	const sourceFloor = isFreshDispatch
+		? getEntertainmentLinkReverseFloor(sim)
+		: sim.originFloor;
 	const directionFlag = destFloor >= sourceFloor ? 1 : 0;
 
+	// Binary 1228:5899 (handle_entertainment_service_acquisition call site):
+	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x01) ? 1 : 0`.
+	// Distance feedback fires on the BASE state 0x01, not the +0x40 alias 0x41.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -302,6 +313,7 @@ function handleEntertainmentServiceAcquisition(
 		destFloor,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	switch (result) {
@@ -354,6 +366,10 @@ function handleEntertainmentServiceReleaseReturn(
 	const sourceFloor = sim.originFloor >= 0 ? sim.originFloor : sim.floorAnchor;
 	const directionFlag = LOBBY_FLOOR >= sourceFloor ? 1 : 0;
 
+	// Binary 1228:5aa2 (handle_entertainment_service_release_return call site):
+	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x22) ? 1 : 0`.
+	// Distance feedback fires on the BASE state 0x22, not the +0x40 alias 0x62.
+	const isFreshDispatch = sim.stateCode === ENT_STATE_VENUE_DWELL;
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -361,6 +377,7 @@ function handleEntertainmentServiceReleaseReturn(
 		LOBBY_FLOOR,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	switch (result) {

@@ -224,19 +224,34 @@ function pickAvailableVenue(
 // `accumulate_elapsed_delay_into_current_sim` runs as part of the boarding
 // loop (matching the binary's 1218:0d4e `assign_request_to_runtime_route`).
 
-function completeSimTransitEvent(
-	sim: SimRecord,
-	_time: TimeState | undefined,
-): void {
-	// Binary: the arrival path invokes the family dispatch handler directly
-	// (dispatch_carrier_car_arrivals → dispatch_destination_queue_entries),
-	// bypassing dispatch_sim_behavior. No rebase happens at arrival. For
-	// segment legs, the stair/escalator penalty applied at resolve time IS
-	// the trip's stress contribution. Trip-count is still advanced here to
-	// mirror the binary's finalize_runtime_route_state → advance_sim_trip_counters
-	// path that runs when the sim's tile position updates post-arrival.
-	advanceSimTripCounters(sim);
-}
+// NOTE: there is no `completeSimTransitEvent` in the binary. The 6
+// `add_or_update_sim_trip_counters` (== `advance_sim_trip_counters` 11e0:0000)
+// call sites are:
+//   1218:0046  resolve_sim_route_between_floors rc=3 (same-floor arrival)
+//                — modeled in queue/resolve.ts:171 + same-floor short-circuit
+//                  paths (sims/index.ts:364, sims/hotel.ts:564)
+//   1218:00a4  resolve_sim_route_between_floors rc=-1 (no-route failure)
+//                — modeled in queue/resolve.ts:189 + 247 (no-carrier failure)
+//   1228:18dc  dispatch_sim_behavior (per-tick refresh; HK family 0x0f bypassed)
+//                — modeled via families/maybe-dispatch-after-wait.ts:104
+//   1228:1592  finalize_runtime_route_state (called from update_sim_tile_span)
+//                — modeled in families/finalize.ts:36
+//   11b0:0e0e  acquire_commercial_venue_slot venue-unavailable failure branch
+//                — modeled in dispatchCommercialVenueVisit no-venue path
+//                  (sims/index.ts:332). The advance fires ONLY in the failure
+//                  branch (owner_subtype==0xff || venue offset+2 in {-1,3});
+//                  the retry-overflow (rc=2) and success (rc=3) paths do NOT
+//                  advance.
+//   1178:02e1  office_sim_check_medical_service_slot target-gone failure branch
+//                — modeled in sims/medical.ts processMedicalSim targetGone
+//                  branch. Advance fires ONLY when slot.target == -1; the
+//                  retry-overflow and success paths do NOT advance.
+//
+// The arrival dispatcher `dispatch_destination_queue_entries` (1218:0883)
+// does NOT invoke `dispatch_sim_behavior` and does NOT advance trip counters
+// — it writes sim+7 to the destination floor and jumps directly into the
+// family-specific state handler. Mirrors of that path therefore must NOT
+// advance counters at arrival.
 
 function reserveVenue(record: CommercialVenueRecord): void {
 	record.todayVisitCount += 1;
@@ -572,32 +587,21 @@ function finalizePendingRouteLeg(sim: SimRecord): void {
 // `queue/dispatch-arrivals.ts` (1218:0883 dispatch_destination_queue_entries),
 // mirroring the binary's inline family-dispatch at arrival time. The former
 // `onCarrierArrival` callback trampoline has been removed.
+//
+// NOTE: arrival does NOT advance trip counters in the binary —
+// `dispatch_destination_queue_entries` writes sim+7 then calls the family
+// handler directly (no `dispatch_sim_behavior`, no `advance_sim_trip_counters`).
+// All advance sites that would naturally fire as part of an arrival are
+// covered by `resolve_sim_route_between_floors` rc=3 inside the per-stride
+// state handlers, which is the only legitimate "trip ended" advance for
+// segment-based progression.
 export function dispatchSimArrival(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
 	sim: SimRecord,
 	arrivalFloor: number,
-	tripCounterAlreadyAdvanced: boolean = false,
 ): void {
-	if (
-		!tripCounterAlreadyAdvanced &&
-		sim.destinationFloor >= 0 &&
-		arrivalFloor === sim.destinationFloor
-	) {
-		// Phase 5: per-leg per-stride re-resolution callers (office +
-		// condo + hotel `handleXxxTransit`) hit the same-floor branch of
-		// `resolveSimRouteBetweenFloors` (1218:0046), which already
-		// advanced the trip counter. They pass `tripCounterAlreadyAdvanced=true`
-		// to suppress the redundant advance here and avoid double-counting
-		// (which undercuts stress_avg — e.g. build_offices day=0 tick=166
-		// floor-1 baseOffset=0 sim before this fix).
-		//
-		// Carrier arrivals and the legacy whole-trip segment finalizer
-		// (`reconcileSimTransport`) DO advance here — resolve never returned
-		// 3 for them.
-		completeSimTransitEvent(sim, time);
-	}
 	sim.selectedFloor = arrivalFloor;
 	clearSimRoute(sim);
 	switch (sim.familyCode) {

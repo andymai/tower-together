@@ -258,8 +258,9 @@ function handleCommercialMorningTransit(
 	const object = findObjectForSim(world, sim);
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor = sim.floorAnchor;
-	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x20 dispatch.
+	// Alias state 0x60 (MORNING_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x20 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -267,8 +268,7 @@ function handleCommercialMorningTransit(
 		targetFloor,
 		targetFloor > sourceFloor ? 1 : 0,
 		time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
 		// Binary 1228:4297 -1 path: TENANTED venue → STATE_PARKED.
@@ -320,8 +320,9 @@ function handleCommercialDepartureTransit(
 	sim: SimRecord,
 ): void {
 	const sourceFloor = sim.selectedFloor;
-	// Alias state 0x45 (DEPARTURE_TRANSIT): variantFlag=0 in the binary, so
-	// distance feedback was already applied by the base state 0x05 dispatch.
+	// Alias state 0x45 (DEPARTURE_TRANSIT): in the binary `emit_distance_feedback`
+	// is `0` here. Distance feedback was already applied by the base state
+	// 0x05 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -329,8 +330,7 @@ function handleCommercialDepartureTransit(
 		LOBBY_FLOOR,
 		LOBBY_FLOOR > sourceFloor ? 1 : 0,
 		_time,
-		sim.homeColumn,
-		false,
+		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
 		releaseServiceRequest(world, sim);

@@ -1,6 +1,5 @@
 import { FAMILY_PARKING } from "../resources";
 import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
-import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import {
 	type ServiceRequestEntry,
@@ -44,7 +43,10 @@ export function tryAssignParkingService(
 		world.parkingDemandLog[sampleRng(world) % world.parkingDemandLog.length];
 	const rec = world.sidecars[idx] as ServiceRequestEntry | undefined;
 	if (!rec || rec.kind !== "service_request") return false;
+	// Binary parity: process_family_parking_destination_arrival (1048:00f0)
+	// is NOT one of the 6 advance_sim_trip_counters call sites. The previous
+	// advanceSimTripCounters call here did not correspond to any binary site
+	// and has been removed.
 	rebaseSimElapsedFromClock(sim, time);
-	advanceSimTripCounters(sim);
 	return true;
 }

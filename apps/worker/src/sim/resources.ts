@@ -130,6 +130,12 @@ export const FAMILY_CINEMA_STAIRS_LOWER = 35;
 export const FAMILY_FIRE_SUPPRESSOR = 40;
 export const FAMILY_HOUSEKEEPING = 15;
 export const FAMILY_MEDICAL = 13;
+// Cathedral guests occupy 5 family codes (one per cathedral floor slice). All
+// five share the parking-style state machine at 1228:5b5a / 1228:5cd2 and
+// route via `handle_family_parking_outbound_route` (1228:5ddd) /
+// `handle_family_parking_return_route` (1228:5e7e), both passenger-mode.
+export const FAMILY_CATHEDRAL_BASE = 0x24;
+export const FAMILY_CATHEDRAL_MAX = 0x28;
 
 // ─── Family code ↔ tile name mappings ────────────────────────────────────────
 

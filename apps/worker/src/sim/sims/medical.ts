@@ -1,4 +1,6 @@
 import { FAMILY_MEDICAL } from "../resources";
+import { addDelayToCurrentSim } from "../stress/add-delay";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import {
 	MAX_MEDICAL_SERVICE_SLOTS,
@@ -257,6 +259,12 @@ export function processMedicalSim(
 		sidecar.kind !== "medical_center" ||
 		sidecar.ownerSubtypeIndex === 0xff;
 	if (targetGone) {
+		// Binary 1178:02e1 (site 6 of 6 add_or_update_sim_trip_counters callers):
+		// office_sim_check_medical_service_slot fires
+		// add_delay_to_current_sim(g_venue_unavailable_delay) followed by
+		// advance_sim_trip_counters in the target-gone (slot.target == -1) branch.
+		addDelayToCurrentSim(sim, 300);
+		advanceSimTripCounters(sim);
 		freeMedicalSlot(world, slotIndex);
 		fireMedicalFailureBanner(world);
 		routeOfficeWorkerHome(world, time, sim);

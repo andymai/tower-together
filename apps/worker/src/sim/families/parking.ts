@@ -35,7 +35,13 @@ export {
 // States 0x05/0x45 → handle_family_parking_return_route (1228:5e7e).
 // States 0x20/0x60 → handle_family_parking_outbound_route (1228:5ddd).
 
-/** 1228:5ddd handle_family_parking_outbound_route. */
+/** 1228:5ddd handle_family_parking_outbound_route.
+ *
+ * Binary call site at 1228:5e04 passes `is_passenger_route = 1` and
+ * `emit_distance_feedback = (sim.stateCode == 0x20) ? 1 : 0` — i.e. distance
+ * feedback fires only on the BASE state 0x20 dispatch, not on the +0x40
+ * alias 0x60 retry strides.
+ */
 function handleFamilyParkingOutboundRoute(
 	world: WorldState,
 	time: TimeState,
@@ -55,6 +61,7 @@ function handleFamilyParkingOutboundRoute(
 		EVAL_ZONE_FLOOR,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	if (result === 3) {
@@ -67,7 +74,13 @@ function handleFamilyParkingOutboundRoute(
 	}
 }
 
-/** 1228:5e7e handle_family_parking_return_route. */
+/** 1228:5e7e handle_family_parking_return_route.
+ *
+ * Binary call site at 1228:5ea5 passes `is_passenger_route = 1` and
+ * `emit_distance_feedback = (sim.stateCode == 0x05) ? 1 : 0` — i.e. distance
+ * feedback fires only on the BASE state 0x05 dispatch, not on the +0x40
+ * alias 0x45 retry strides.
+ */
 function handleFamilyParkingReturnRoute(
 	world: WorldState,
 	time: TimeState,
@@ -87,6 +100,7 @@ function handleFamilyParkingReturnRoute(
 		LOBBY_FLOOR,
 		directionFlag,
 		time,
+		{ emitDistanceFeedback: isFreshDispatch },
 	);
 
 	if (result === 0 || result === 1 || result === 2) {

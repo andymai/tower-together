@@ -5,11 +5,14 @@
 // carrier queue, or (c) reports no-route / same-floor.
 
 import {
+	FAMILY_CATHEDRAL_BASE,
+	FAMILY_CATHEDRAL_MAX,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
+	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
@@ -19,6 +22,8 @@ import {
 	type RouteCandidate,
 	selectBestRouteCandidate,
 } from "../route-scoring/select-candidate";
+import { selectCathedralRoute } from "../route-scoring/select-cathedral";
+import { selectHousekeepingRoute } from "../route-scoring/select-housekeeping";
 import { setSimInTransit, setSimWaiting } from "../sim-access/state-bits";
 import { clearSimRoute, simKey } from "../sims/population";
 import { maybeApplyDistanceFeedback } from "../sims/scoring";
@@ -29,13 +34,36 @@ import type { SimRecord, WorldState } from "../world";
 import { enqueueRequestIntoRouteQueue } from "./enqueue";
 
 /**
- * Family selector tables.
+ * Family → route-selector dispatch.
  *
- * Per ROUTING.md, the binary's `assign_request_to_runtime_route` uses one
- * shared route selector for families {3,4,5,6,7,9,10,0x0c} and dispatches to
- * custom selectors for {0x0f, 0x12, 0x1d, 0x21, 0x24}. The custom selectors
- * are not yet modeled in the clean-room sim — for now they fall through to the
- * shared selector so the call site can still ask "is there any route?".
+ * Earlier comments here claimed the binary's `assign_request_to_runtime_route`
+ * (1218:0d4e) hosted per-family *route* selectors for families
+ * {0x0f, 0x12, 0x1d, 0x21, 0x24}. That was a misreading: the jump table at
+ * 1218:0f4b dispatches to per-family **target-floor** selectors
+ * (`get_housekeeping_room_claim_selector` 1228:6757,
+ * `dispatch_entertainment_guest_substate` 1228:662a,
+ * `resolve_family_recycling_center_lower_selector_value` 1228:65c1,
+ * `resolve_family_parking_selector_value` 1228:6700) whose results feed
+ * `choose_transfer_floor_from_carrier_reachability` (11b8:0e41) on the
+ * carrier-queue boarding path — not `select_best_route_candidate` (11b8:1484).
+ *
+ * The actual route selector (`select_best_route_candidate`) is family-agnostic.
+ * Family differentiation happens only via the `is_passenger_route` argument
+ * passed to `resolve_sim_route_between_floors` (1218:0000), which forwards it
+ * as `prefer_local_mode` to `select_best_route_candidate`. Per the binary
+ * call-site survey:
+ *
+ *   - Housekeeping (0x0f): `is_passenger_route = 0` (service mode).
+ *     Sources: `update_object_family_housekeeping_connection_state`
+ *     (1228:602b) at 1228:620f and 1228:6320.
+ *   - Cathedral (0x24-0x28): `is_passenger_route = 1` (passenger mode).
+ *     Sources: `handle_family_parking_outbound_route` (1228:5ddd) and
+ *     `handle_family_parking_return_route` (1228:5e7e).
+ *   - All other passenger families: `is_passenger_route = 1`.
+ *
+ * The per-family wrappers below make the family→selector mapping explicit and
+ * binary-traceable; each is a thin shim over `selectBestRouteCandidate` with
+ * the binary-correct `prefer_local_mode` value baked in.
  */
 const SHARED_ROUTE_SELECTOR_FAMILIES = new Set<number>([
 	FAMILY_HOTEL_SINGLE,
@@ -47,9 +75,12 @@ const SHARED_ROUTE_SELECTOR_FAMILIES = new Set<number>([
 	FAMILY_FAST_FOOD,
 	FAMILY_RETAIL,
 ]);
-const CUSTOM_ROUTE_SELECTOR_FAMILIES = new Set<number>([
-	0x0f, 0x12, 0x1d, 0x21, 0x24, 0x25, 0x26, 0x27, 0x28,
-]);
+
+function isCathedralFamily(familyCode: number): boolean {
+	return (
+		familyCode >= FAMILY_CATHEDRAL_BASE && familyCode <= FAMILY_CATHEDRAL_MAX
+	);
+}
 
 /**
  * Phase 5b: families whose state machine reads the 0x40 / 0x20 bits of
@@ -80,18 +111,25 @@ function selectRouteForFamily(
 	familyCode: number,
 	fromFloor: number,
 	toFloor: number,
-	preferLocalMode: boolean,
 	targetHeightMetric: number,
 ): RouteCandidate | null {
-	if (
-		SHARED_ROUTE_SELECTOR_FAMILIES.has(familyCode) ||
-		CUSTOM_ROUTE_SELECTOR_FAMILIES.has(familyCode)
-	) {
+	if (familyCode === FAMILY_HOUSEKEEPING) {
+		return selectHousekeepingRoute(
+			world,
+			fromFloor,
+			toFloor,
+			targetHeightMetric,
+		);
+	}
+	if (isCathedralFamily(familyCode)) {
+		return selectCathedralRoute(world, fromFloor, toFloor, targetHeightMetric);
+	}
+	if (SHARED_ROUTE_SELECTOR_FAMILIES.has(familyCode)) {
 		return selectBestRouteCandidate(
 			world,
 			fromFloor,
 			toFloor,
-			preferLocalMode,
+			/* preferLocalMode = */ true,
 			targetHeightMetric,
 		);
 	}
@@ -116,6 +154,43 @@ function selectRouteForFamily(
  */
 export type RouteResolution = -1 | 0 | 1 | 2 | 3;
 
+/**
+ * Optional flags for `resolveSimRouteBetweenFloors`. These mirror the binary's
+ * two short arguments to `resolve_sim_route_between_floors` (1218:0000):
+ *
+ *   Stack[0x4]:2 → `is_passenger_route` (the variable Ghidra previously named
+ *     `prefer_local_mode` for the helper). In the binary it gates:
+ *       - `advance_sim_trip_counters` on same-floor (rc=3) and route-failure
+ *         (rc=-1) branches
+ *       - `add_delay_to_current_sim(g_route_failure_delay = 300)` on rc=-1
+ *       - `add_delay_to_current_sim(g_waiting_state_delay = 5)` on rc=0
+ *       - `add_delay_to_current_sim(per_stop_parity_delay × step)` on rc=1
+ *     and is forwarded as `prefer_local_mode` to `select_best_route_candidate`
+ *     (11b8:1484), which biases scoring toward escalators over stairs.
+ *
+ *     At every binary call site this is `1` for passenger families (office,
+ *     hotel, condo, commercial, cathedral, entertainment) and `0` for service
+ *     families (housekeeping at 1228:620f / 1228:6320).
+ *
+ *   Stack[0x6]:2 → `emit_distance_feedback`. Gates the long-trip distance
+ *     penalty (`add_delay_to_current_sim` 30-tick / 60-tick branches) on the
+ *     segment success and carrier success branches.
+ *
+ *     At every passenger-family binary call site this is computed as
+ *     `(current_state_code == base_state_code) ? 1 : 0` — i.e. fire the
+ *     distance penalty exactly once per trip, on the BASE state handler, and
+ *     suppress it on the +0x40 transit alias re-entries. Housekeeping passes
+ *     `0` at both call sites (1228:620f / 1228:6320).
+ *
+ * Defaults: `isPassengerRoute = true` and `emitDistanceFeedback = true` match
+ * the most common base-state passenger-family call site.
+ */
+export interface ResolveSimRouteOptions {
+	targetHeightMetric?: number;
+	isPassengerRoute?: boolean;
+	emitDistanceFeedback?: boolean;
+}
+
 export function resolveSimRouteBetweenFloors(
 	world: WorldState,
 	sim: SimRecord,
@@ -123,33 +198,46 @@ export function resolveSimRouteBetweenFloors(
 	destinationFloor: number,
 	directionFlag: number,
 	time: TimeState | undefined,
-	targetHeightMetric: number = sim.homeColumn,
-	emitDistanceFeedback: boolean = true,
+	options: ResolveSimRouteOptions = {},
 ): RouteResolution {
+	const targetHeightMetric = options.targetHeightMetric ?? sim.homeColumn;
+	const isPassengerRoute = options.isPassengerRoute ?? true;
+	const emitDistanceFeedback = options.emitDistanceFeedback ?? true;
+
 	if (sourceFloor === destinationFloor) {
 		// Binary quirk: same-floor result code is 3 (not 2). The caller treats
 		// this as an immediate arrival and does not enqueue onto a carrier.
-		// Binary 1218:0046: same-floor branch is one of the 6 advance call sites.
-		advanceSimTripCounters(sim);
+		// Binary 1218:0046: same-floor branch is one of the 6 advance call sites,
+		// gated on `is_passenger_route != 0`.
+		if (isPassengerRoute) advanceSimTripCounters(sim);
 		return 3;
 	}
 
-	// Family 0x0f (housekeeping) uses stairs-only routing (rejects escalators).
-	// All other families use local (escalator-preferred) routing.
-	const preferLocalMode = sim.familyCode !== 0x0f;
-
+	// `prefer_local_mode` is now baked into the per-family selector wrappers
+	// (`selectHousekeepingRoute` passes false, `selectCathedralRoute` and the
+	// shared passenger families pass true), matching the binary's call-site
+	// pattern in 1228:602b vs 1228:5ddd/5e7e vs all other family handlers.
+	//
+	// Note: the binary forwards `is_passenger_route` to `select_best_route_candidate`
+	// as `prefer_local_mode`. Here we already differentiate per-family in
+	// `selectRouteForFamily`, so the value of `isPassengerRoute` does not feed
+	// route selection — it only gates the post-resolve delay/trip-counter writes
+	// below.
 	const route = selectRouteForFamily(
 		world,
 		sim.familyCode,
 		sourceFloor,
 		destinationFloor,
-		preferLocalMode,
 		targetHeightMetric,
 	);
 	if (!route) {
 		clearSimRoute(sim);
-		addDelayToCurrentSim(sim, 300);
-		advanceSimTripCounters(sim);
+		// Binary 1218:00ec-ish (no-route path): both the failure-delay (300) and
+		// trip-counter advance are gated on `is_passenger_route`.
+		if (isPassengerRoute) {
+			addDelayToCurrentSim(sim, 300);
+			advanceSimTripCounters(sim);
+		}
 		return -1;
 	}
 
@@ -190,10 +278,13 @@ export function resolveSimRouteBetweenFloors(
 		sim.destinationFloor = destinationFloor;
 		// Per-leg stress penalty (binary: add_delay_to_current_sim with per-stop
 		// parity delay × step). Step is 1 here (one floor per leg), matching the
-		// binary's per-tile segment processing.
-		const segment = world.specialLinks[route.id];
-		const parityBit = segment ? segment.flags & 1 : 0;
-		addDelayToCurrentSim(sim, perStopParityDelay[parityBit]);
+		// binary's per-tile segment processing. Gated on `is_passenger_route` —
+		// service routes (housekeeping) skip this entirely in the binary.
+		if (isPassengerRoute) {
+			const segment = world.specialLinks[route.id];
+			const parityBit = segment ? segment.flags & 1 : 0;
+			addDelayToCurrentSim(sim, perStopParityDelay[parityBit]);
+		}
 		// transitTicksRemaining is no longer used to gate segment progression —
 		// the per-stride state handler re-resolves the next leg.
 		sim.transitTicksRemaining = 0;
@@ -206,8 +297,10 @@ export function resolveSimRouteBetweenFloors(
 	);
 	if (!carrier) {
 		clearSimRoute(sim);
-		addDelayToCurrentSim(sim, 300);
-		advanceSimTripCounters(sim);
+		if (isPassengerRoute) {
+			addDelayToCurrentSim(sim, 300);
+			advanceSimTripCounters(sim);
+		}
 		return -1;
 	}
 
@@ -221,12 +314,13 @@ export function resolveSimRouteBetweenFloors(
 	if (!queued) {
 		// Binary 1218:021f-ish (queue-full path): writes sim+8 = 0xff and
 		// sim+7 = source floor, sets waiting bit. 5-tick penalty matches
-		// g_waiting_state_delay. The family handler retries next stride.
+		// g_waiting_state_delay and is gated on `is_passenger_route` in the
+		// binary; the family handler retries next stride.
 		clearSimRoute(sim);
 		if (familyUsesStateBits(sim.familyCode)) setSimWaiting(sim, true);
 		sim.selectedFloor = sourceFloor;
 		sim.destinationFloor = destinationFloor;
-		addDelayToCurrentSim(sim, 5);
+		if (isPassengerRoute) addDelayToCurrentSim(sim, 5);
 		return 0;
 	}
 
