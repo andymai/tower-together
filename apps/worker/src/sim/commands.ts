@@ -15,6 +15,7 @@ import {
 	FAMILY_RECYCLING_CENTER_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RETAIL,
+	FAMILY_SECURITY,
 	LEGACY_TILE_ALIASES,
 	LEGACY_VIP_TILE_TO_STANDARD,
 	TILE_COSTS,
@@ -299,11 +300,14 @@ export function runGlobalRebuilds(
 ): void {
 	world.gateFlags.officePlaced = 0;
 	world.gateFlags.metroPlaced = 0;
+	world.gateFlags.securityPlaced = 0;
 	world.gateFlags.vipSuiteFloor = 0xffff;
 	world.gateFlags.recyclingCenterCount = 0;
 	for (const object of Object.values(world.placedObjects)) {
 		if (object.objectTypeCode === FAMILY_OFFICE)
 			world.gateFlags.officePlaced = 1;
+		if (object.objectTypeCode === FAMILY_SECURITY)
+			world.gateFlags.securityPlaced = 1;
 		if (object.objectTypeCode === FAMILY_RECYCLING_CENTER_UPPER)
 			world.gateFlags.recyclingCenterCount += 1;
 	}

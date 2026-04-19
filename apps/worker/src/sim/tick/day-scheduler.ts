@@ -32,6 +32,7 @@ import {
 	type LedgerState,
 	rebuildFacilityLedger,
 } from "../ledger";
+import { tryAdvanceStarCount } from "../progression";
 import {
 	resetRecyclingCenterDutyTier,
 	updateRecyclingCenterState,
@@ -155,6 +156,7 @@ function checkpointLateFacility(_s: SimState): void {
 	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_RETAIL);
 	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_FAST_FOOD);
 	updateRecyclingCenterState(_s.world, _s.ledger, 2);
+	tryAdvanceStarCount(_s.world, _s.time);
 }
 
 function checkpointType6Advance(_s: SimState): void {

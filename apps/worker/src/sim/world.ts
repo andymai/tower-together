@@ -259,6 +259,8 @@ export interface GateFlags {
 	metroPlaced: number;
 	/** Set when an office object is placed. */
 	officePlaced: number;
+	/** Set when a security-office (family 0x0e) object is placed. 2→3 gate. */
+	securityPlaced: number;
 	/** Updated by office-service evaluation every 9th day. */
 	officeServiceOk: number;
 	/** Daily "office medical service ok" flag; latched at day-start (star > 2),
@@ -287,6 +289,7 @@ export function createGateFlags(): GateFlags {
 		unknownC198: 0xffffffff,
 		metroPlaced: 0,
 		officePlaced: 0,
+		securityPlaced: 0,
 		officeServiceOk: 0,
 		officeServiceOkMedical: 0,
 		recyclingAdequate: 0,
@@ -570,7 +573,8 @@ export type SimNotification = {
 		| "end_of_day"
 		| "route_failure"
 		| "event"
-		| "news";
+		| "news"
+		| "star_advanced";
 	message?: string;
 };
 

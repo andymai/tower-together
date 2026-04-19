@@ -10,6 +10,7 @@ import {
 import {
 	clearSimRoute,
 	dispatchCommercialVenueVisit,
+	dispatchSimArrival,
 	findObjectForSim,
 	recomputeObjectOperationalStatus,
 	releaseServiceRequest,
@@ -175,8 +176,8 @@ function handleOfficeCommute(
 		return;
 	}
 	decrementOfficePresenceCounter(facility, time);
-	sim.selectedFloor = sourceFloor;
-	sim.destinationFloor = destinationFloor;
+	// Phase 1d-ii: resolve owns sim+7 (selectedFloor) and sim+0x12
+	// (destinationFloor). Don't overwrite — that cancels per-leg progression.
 	if (routeResult === 3) {
 		advanceOfficePresenceCounter(facility);
 		sim.destinationFloor = -1;
@@ -241,8 +242,7 @@ function handleOfficeActive(
 			sim.stateCode = STATE_DEPARTURE;
 			return;
 		}
-		sim.destinationFloor = LOBBY_FLOOR;
-		sim.selectedFloor = sim.floorAnchor;
+		// Phase 1d-ii: resolve owns sim.selectedFloor/destinationFloor.
 		if (routeResult === 3) {
 			// Office on lobby floor — start venue dwell immediately.
 			sim.venueReturnState = 0;
@@ -283,8 +283,7 @@ function handleOfficeDeparture(
 		failOfficeRoute(world, sim, STATE_NIGHT_B);
 		return;
 	}
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// Phase 1d-ii: resolve owns sim.selectedFloor/destinationFloor.
 	if (routeResult === 3) {
 		sim.destinationFloor = -1;
 		sim.selectedFloor = LOBBY_FLOOR;
@@ -353,8 +352,7 @@ function handleOfficeMorningGate(
 		return;
 	}
 	activateOfficeCashflow(world, facility, sim);
-	sim.selectedFloor = LOBBY_FLOOR;
-	sim.destinationFloor = sim.floorAnchor;
+	// Phase 1d-ii: resolve owns sim+7/sim+0x12. Handler sets state only.
 	if (routeResult === 0 || routeResult === 1 || routeResult === 2) {
 		sim.stateCode = STATE_MORNING_TRANSIT;
 		return;
@@ -398,8 +396,7 @@ function handleOfficeAtWork(
 		failOfficeRoute(world, sim, STATE_NIGHT_B);
 		return;
 	}
-	sim.selectedFloor = LOBBY_FLOOR;
-	sim.destinationFloor = sim.floorAnchor;
+	// Phase 1d-ii: resolve owns sim+7/sim+0x12.
 	if (routeResult === 3) {
 		finalizeOfficeFloorArrival(sim, facility, STATE_DEPARTURE);
 	} else {
@@ -444,7 +441,7 @@ function handleOfficeVenueTrip(
 		failOfficeRoute(world, sim, STATE_NIGHT_B);
 		return;
 	}
-	sim.destinationFloor = sim.floorAnchor;
+	// Phase 1d-ii: resolve owns sim.selectedFloor/destinationFloor.
 	// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
 	// was just cleared), then no further rebase until next state handler invocation.
 	// Clear here so the inline boarding-time rebase (see Phase 7 inline path in
@@ -470,20 +467,56 @@ function handleOfficeNightPark(
 	}
 }
 
-/** 1228:1d8e in-transit no-op handler — transit states handled by carrier arrival. */
+/** Per-stride in-transit handler. Binary state-handler jump table for the +0x40
+ * transit aliases (0x40/0x42/0x45/0x61/0x63) reuses the base handler (0x00/0x02/
+ * 0x05/0x21/0x23), each of which calls resolve_sim_route_between_floors per
+ * stride. For an in-segment sim, that resolve advances sim+7 by one leg; when
+ * sim+7 reaches the target, resolve returns 3 (same-floor, advance fires inside
+ * resolve) and the handler triggers state transition via dispatchSimArrival. */
 function handleOfficeTransit(
-	_world: WorldState,
-	_ledger: LedgerState,
-	_time: TimeState,
-	_sim: SimRecord,
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
 	_facility: PlacedObjectRecord,
 ): void {
-	// In transit — arrival handled by dispatchSimArrival
+	if (sim.route.mode === "carrier") return;
+	if (sim.destinationFloor < 0) return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.destinationFloor;
+	// Alias state (+0x40 transit handler): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state when the trip
+	// began. Suppress here to avoid double-counting per-leg.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === 3) {
+		// Arrived. Trip counter already advanced inside resolve (same-floor
+		// branch at 1218:0046). Pass `tripCounterAlreadyAdvanced=true` so
+		// dispatchSimArrival does NOT advance again — double-advance was the
+		// build_offices day=0 tick=166 stress_avg=49-vs-50 off-by-1 bug.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor, true);
+	}
 }
 
-/** 1228:1d8e morning-transit retry handler (STATE_MORNING_TRANSIT with idle route).
- * Binary: refresh dispatch for state 0x60 re-invokes the 0x20 handler
- * (jump table at 1228:2aac maps both 0x20 and 0x60 to 1228:213c). */
+/** 1228:213c morning-transit handler (STATE_MORNING_TRANSIT 0x60). Alias of
+ * state 0x20 in the binary jump table, but with `variantFlag=0` (distance
+ * feedback off). Per binary AX=3 branch (1228:23bb), the same medical-roll
+ * dispatch fires for both 0x20 and 0x60: rc=3 → ACTIVE_ALT or ACTIVE (or
+ * STATE_COMMUTE for baseOffset==0).
+ *   rc=-1 → release + state per routeFailureStateForOffice
+ *   rc=0/1/2 → state 0x60 (stays in transit; next stride re-resolves)
+ *   rc=3 → nextOfficeMorningState
+ * The variant flag affects `add_delay_to_current_sim` distance feedback, but
+ * our resolver applies the penalty unconditionally — accept the slight stress
+ * mismatch for now (Phase 4 task constraint). */
 function handleOfficeMorningTransitRetry(
 	world: WorldState,
 	_ledger: LedgerState,
@@ -491,29 +524,36 @@ function handleOfficeMorningTransitRetry(
 	sim: SimRecord,
 	facility: PlacedObjectRecord,
 ): void {
-	if (sim.route.mode !== "idle") {
-		// Active transit — carrier arrival will handle it
-		return;
-	}
-	// Queue-full sims parked in 0x60: retry resolve
+	// Source is the sim's current floor (binary sim+7). For idle/queue-full sims,
+	// selectedFloor is the home floor; for in-segment sims, selectedFloor is the
+	// last leg endpoint.
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.floorAnchor;
+	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x20 dispatch.
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
-		LOBBY_FLOOR,
-		sim.floorAnchor,
-		sim.floorAnchor > LOBBY_FLOOR ? 1 : 0,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
 		time,
+		sim.homeColumn,
+		false,
 	);
 	if (routeResult === -1) {
 		sim.stateCode = routeFailureStateForOffice(facility);
+		releaseServiceRequest(world, sim);
 		return;
 	}
 	if (routeResult === 3) {
+		// Trip arrived at target floor; resolve already advanced trip counters.
 		advanceOfficePresenceCounter(facility);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		sim.stateCode = nextOfficeMorningState(world, sim);
 	}
+	// rc 0/1/2: stay in STATE_MORNING_TRANSIT; next stride will re-resolve.
 }
 
 export type OfficeHandler = (

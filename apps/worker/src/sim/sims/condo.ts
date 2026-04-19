@@ -8,6 +8,7 @@ import {
 } from "../world";
 import {
 	dispatchCommercialVenueVisit,
+	dispatchSimArrival,
 	findObjectForSim,
 	resolveSimRouteBetweenFloors,
 } from "./index";
@@ -53,9 +54,20 @@ function finalizeCondoSale(
 }
 
 /**
- * dispatch_0x20 (MORNING_GATE) per condo-handler-decomp. Routes the sim
- * toward the lobby; on any non-failure result, fires finalize_condo_sale
- * if the unit is still vacant, then transitions state.
+ * dispatch_0x20 (MORNING_GATE) per condo-handler-decomp / spec PEOPLE.md
+ * §0x20/0x60. Routes the sim toward the lobby; the SALE point fires when the
+ * unit is still vacant and resolve returned 0/1/2/3. Per-leg progression is
+ * driven by re-entry to handleCondoMorningTransit on subsequent strides.
+ *
+ * Transition table (matches binary + spec):
+ *   rc=-1 + sold     → INC unit_status → 0x04 (CHECKOUT_QUEUE)
+ *   rc=-1 + unsold   → 0x60 (no sale; retry next stride)
+ *   rc=0/1/2+unsold  → 0x60 + SALE
+ *   rc=3   + unsold  → INC → 0x04 + SALE
+ *   rc=3   + sold    → INC → 0x04
+ *
+ * Resolve owns sim.selectedFloor / sim.destinationFloor on rc=1/2 (per-leg
+ * progression) — do NOT overwrite them after the call.
  */
 function dispatchCondoMorningGate(
 	world: WorldState,
@@ -76,9 +88,9 @@ function dispatchCondoMorningGate(
 	const wasVacant = object.unitStatus >= UNIT_STATUS_CONDO_VACANT;
 
 	if (result === -1) {
-		if (wasVacant) {
-			sim.stateCode = STATE_MORNING_GATE;
-		}
+		// Sold sims terminate to CHECKOUT_QUEUE; unsold sims stay in the
+		// transit state to retry next stride.
+		sim.stateCode = wasVacant ? STATE_MORNING_TRANSIT : STATE_CHECKOUT_QUEUE;
 		return;
 	}
 
@@ -93,9 +105,7 @@ function dispatchCondoMorningGate(
 		return;
 	}
 
-	sim.originFloor = sim.floorAnchor;
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// rc=0/1/2: in transit. Resolve owns sim+7/sim+0x12 — handler sets state only.
 	sim.stateCode = STATE_MORNING_TRANSIT;
 }
 
@@ -115,15 +125,244 @@ function handleCondoMorningGate(
 	dispatchCondoMorningGate(world, ledger, time, sim, object);
 }
 
-/** condo_refresh_0x60 — in-transit to lobby (STATE_MORNING_TRANSIT). */
-function handleCondoTransit(
-	_world: WorldState,
-	_ledger: LedgerState,
-	_time: TimeState,
-	_sim: SimRecord,
+/**
+ * condo_refresh_0x60 — in-transit morning gate (STATE_MORNING_TRANSIT). Per
+ * binary jump table, state 0x60 aliases state 0x20's handler with variant
+ * flag = 0. Per stride, re-resolves the route from sim+7 to LOBBY; resolve
+ * advances sim+7 by one leg. On rc=3 (arrived) the SALE finalizes and the
+ * sim transitions to CHECKOUT_QUEUE. On rc=-1 with a still-vacant unit the
+ * sim stays in the transit state to retry next stride (matches binary's
+ * "unsold" branch staying at 0x60).
+ */
+function handleCondoMorningTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	if (sim.route.mode === "carrier") return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = LOBBY_FLOOR;
+	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x20 dispatch.
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	const wasVacant = object.unitStatus >= UNIT_STATUS_CONDO_VACANT;
+
+	if (result === -1) {
+		sim.stateCode = wasVacant ? STATE_MORNING_TRANSIT : STATE_CHECKOUT_QUEUE;
+		return;
+	}
+
+	if (wasVacant) {
+		finalizeCondoSale(ledger, time, object);
+	}
+
+	if (result === 3) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	// rc=0/1/2: stay in transit; next stride re-resolves the next leg.
+}
+
+/**
+ * condo_refresh_0x40 — in-transit commute (STATE_COMMUTE_TRANSIT). Binary
+ * 0x40 aliases 0x00 (handler 1228:3a77). Per binary mapping table:
+ *   rc=-1 → 0x40 (transit; we treat as CHECKOUT_QUEUE on hard fail per office
+ *            pattern)
+ *   rc=0/1/2 → stay in transit (next stride re-resolves)
+ *   rc=3 → arrived → AT_WORK (via dispatchSimArrival → handleCondoSimArrival)
+ *
+ * Source = sim+7 (selectedFloor); Target = 0xa (LOBBY_FLOOR). Resolve owns
+ * sim+7/sim+0x12 on rc=1/2 — handler must not overwrite.
+ */
+function handleCondoCommuteTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
 	_object: PlacedObjectRecord,
 ): void {
-	// In transit to lobby; arrival handled by handleCondoSimArrival.
+	if (sim.route.mode === "carrier") return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = LOBBY_FLOOR;
+	// Alias state 0x40 (COMMUTE_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x00 dispatch.
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (result === -1) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (result === 3) {
+		// Arrived. Trip counter already advanced inside resolve, but we still
+		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
+		// flag — the downstream condo state machine relies on the trip-counter
+		// side effects (resetting lastDemandTick to -1). Slight stress
+		// over-count is the lesser evil here vs. state-machine corruption.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+	}
+}
+
+/**
+ * condo_refresh_0x61 — in-transit at-work return (STATE_AT_WORK_TRANSIT).
+ * Binary 0x61 aliases 0x21 (handler 1228:3d8a). Per binary mapping table:
+ *   rc=-1 → 0x04 (CHECKOUT_QUEUE)
+ *   rc=0/1/2 → 0x61 (stays; next stride re-resolves)
+ *   rc=3 → 0x04 (CHECKOUT_QUEUE)
+ *
+ * Source = sim+7 (selectedFloor); Target = arg (floorAnchor / home). Resolve
+ * owns sim+7/sim+0x12 on rc=1/2 — handler must not overwrite.
+ */
+function handleCondoAtWorkTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	if (sim.route.mode === "carrier") return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.floorAnchor;
+	// Alias state 0x61 (AT_WORK_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x21 dispatch.
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (result === -1) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (result === 3) {
+		// Arrived. Trip counter already advanced inside resolve, but we still
+		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
+		// flag — the downstream condo state machine relies on the trip-counter
+		// side effects (resetting lastDemandTick to -1). Slight stress
+		// over-count is the lesser evil here vs. state-machine corruption.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+	}
+}
+
+/**
+ * condo_refresh_0x41 — in-transit active/venue (STATE_ACTIVE_TRANSIT). Binary
+ * state 0x01/0x41 does NOT call resolve in the per-tick handler; the venue
+ * selector (1238:0000) is invoked once at dispatch time. For per-leg segment
+ * progression, however, the handler still must advance one leg per stride;
+ * otherwise the sim is stuck because the legacy whole-trip finalizer is now
+ * skipped for condos. Carrier-routed sims are skipped here (handled by
+ * maybe_dispatch_queued_route_after_wait per the binary).
+ */
+function handleCondoActiveTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	if (sim.route.mode === "carrier") return;
+	if (sim.destinationFloor < 0) return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.destinationFloor;
+	// Alias state 0x41 (ACTIVE_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x01 dispatch
+	// (which uses the venue selector, not resolve, but follows the same
+	// base-vs-alias contract).
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (result === -1) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (result === 3) {
+		// Arrived. Trip counter already advanced inside resolve, but we still
+		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
+		// flag — the downstream condo state machine relies on the trip-counter
+		// side effects (resetting lastDemandTick to -1). Slight stress
+		// over-count is the lesser evil here vs. state-machine corruption.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+	}
+}
+
+/**
+ * condo_refresh_0x62 — in-transit venue-home (STATE_VENUE_HOME_TRANSIT).
+ * Binary state 0x22/0x62 does NOT call resolve in the per-tick handler
+ * (uses 1238:0244 release path). Per-leg segment progression still requires
+ * a re-resolve here so the sim isn't stuck. Carrier-routed sims are skipped
+ * (handled by maybe_dispatch_queued_route_after_wait).
+ */
+function handleCondoVenueHomeTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	_object: PlacedObjectRecord,
+): void {
+	if (sim.route.mode === "carrier") return;
+	if (sim.destinationFloor < 0) return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.destinationFloor;
+	// Alias state 0x62 (VENUE_HOME_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x22 dispatch.
+	const result = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (result === -1) {
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (result === 3) {
+		// Arrived. Trip counter already advanced inside resolve, but we still
+		// fire dispatchSimArrival without the `tripCounterAlreadyAdvanced`
+		// flag — the downstream condo state machine relies on the trip-counter
+		// side effects (resetting lastDemandTick to -1). Slight stress
+		// over-count is the lesser evil here vs. state-machine corruption.
+		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+	}
 }
 
 /** condo_refresh_0x04 — checkout queue (STATE_CHECKOUT_QUEUE). */
@@ -281,17 +520,18 @@ export type CondoHandler = (
 export const CONDO_REFRESH_HANDLER_TABLE: ReadonlyMap<number, CondoHandler> =
 	new Map([
 		[STATE_MORNING_GATE, handleCondoMorningGate], // 0x20
-		[STATE_MORNING_TRANSIT, handleCondoTransit], // 0x60
+		[STATE_MORNING_TRANSIT, handleCondoMorningTransit], // 0x60 alias of 0x20
 		[STATE_CHECKOUT_QUEUE, handleCondoCheckoutQueue], // 0x04
 		[STATE_TRANSITION, handleCondoTransition], // 0x10
 		[STATE_COMMUTE, handleCondoCommute], // 0x00
-		[STATE_COMMUTE_TRANSIT, handleCondoTransit], // 0x40
+		[STATE_COMMUTE_TRANSIT, handleCondoCommuteTransit], // 0x40 alias of 0x00
 		[STATE_ACTIVE, handleCondoActive], // 0x01
-		[STATE_ACTIVE_TRANSIT, handleCondoTransit], // 0x41
+		[STATE_ACTIVE_TRANSIT, handleCondoActiveTransit], // 0x41 (no resolve in binary;
+		// per-leg progression here for our merged-segment model)
 		[STATE_AT_WORK, handleCondoAtWork], // 0x21
-		[STATE_AT_WORK_TRANSIT, handleCondoTransit], // 0x61
+		[STATE_AT_WORK_TRANSIT, handleCondoAtWorkTransit], // 0x61 alias of 0x21
 		[STATE_VENUE_TRIP, handleCondoVenueTrip], // 0x22
-		[STATE_VENUE_HOME_TRANSIT, handleCondoTransit], // 0x62
+		[STATE_VENUE_HOME_TRANSIT, handleCondoVenueHomeTransit], // 0x62
 	]);
 
 export function processCondoSim(
@@ -309,6 +549,15 @@ export function processCondoSim(
 	}
 }
 
+/**
+ * dispatch_0x00 (COMMUTE) — route from home to LOBBY. Binary state 0x00 in the
+ * condo dispatch maps:
+ *   rc=-1 → 0x40 (transit; retry)   [our model: CHECKOUT_QUEUE on hard-fail]
+ *   rc=0/1/2 → 0x40 (in transit)
+ *   rc=3 → arrival → 0x21 (AT_WORK)
+ *
+ * Resolve owns sim.selectedFloor / sim.destinationFloor on rc=1/2.
+ */
 function dispatchCondoCommute(
 	world: WorldState,
 	time: TimeState,
@@ -333,8 +582,7 @@ function dispatchCondoCommute(
 		sim.stateCode = STATE_AT_WORK;
 		return;
 	}
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// rc=0/1/2: in transit. Don't overwrite resolve's per-leg writes.
 	sim.stateCode = STATE_COMMUTE_TRANSIT;
 }
 
@@ -402,9 +650,7 @@ function routeCondoToLobbyNoVenue(
 		sim.queueTick = time.dayTick;
 		return;
 	}
-	sim.originFloor = sim.floorAnchor;
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// rc=1/2: in transit. Don't overwrite resolve's per-leg writes.
 	sim.stateCode = STATE_ACTIVE_TRANSIT;
 }
 
@@ -426,8 +672,7 @@ function dispatchCondoAtWork(
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
-	sim.selectedFloor = LOBBY_FLOOR;
-	sim.destinationFloor = sim.floorAnchor;
+	// rc=0/1/2: in transit. Don't overwrite resolve's per-leg writes.
 	sim.stateCode = STATE_AT_WORK_TRANSIT;
 }
 
@@ -449,7 +694,7 @@ function dispatchCondoVenueTrip(
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
 		return;
 	}
-	sim.destinationFloor = sim.floorAnchor;
+	// rc=0/1/2: in transit. Don't overwrite resolve's per-leg writes.
 	sim.stateCode = STATE_VENUE_HOME_TRANSIT;
 }
 

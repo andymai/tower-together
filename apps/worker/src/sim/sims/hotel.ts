@@ -16,8 +16,8 @@ import {
 } from "../world";
 import {
 	dispatchCommercialVenueVisit,
+	dispatchSimArrival,
 	findObjectForSim,
-	findSiblingSims,
 	finishCommercialVenueDwell,
 	resolveSimRouteBetweenFloors,
 	tryAssignParkingService,
@@ -129,8 +129,7 @@ function routeHotelToLobbyNoVenue(
 		return;
 	}
 	sim.originFloor = sim.floorAnchor;
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// Phase 4: resolve owns sim.selectedFloor / destinationFloor (per-leg).
 	sim.stateCode = STATE_ACTIVE_TRANSIT;
 }
 
@@ -169,9 +168,8 @@ function activateHotelStay(
 		sim.stateCode = hotelArrivalState(world, sim);
 		sim.selectedFloor = sim.floorAnchor;
 	} else {
+		// Phase 4: resolve owns sim.selectedFloor / destinationFloor (per-leg).
 		sim.stateCode = STATE_MORNING_TRANSIT;
-		sim.selectedFloor = LOBBY_FLOOR;
-		sim.destinationFloor = sim.floorAnchor;
 	}
 }
 
@@ -179,11 +177,9 @@ export function checkoutHotelStay(
 	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
-	sim: SimRecord,
+	_sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
-	const siblings = findSiblingSims(world, sim);
-
 	const tileName =
 		object.objectTypeCode === FAMILY_HOTEL_SINGLE
 			? "hotelSingle"
@@ -206,13 +202,11 @@ export function checkoutHotelStay(
 	} else {
 		world.gateFlags.newspaperTrigger = 0;
 	}
-	// Per binary NIGHT_B semantics: base 0 sim stays parked, others return to
-	// MORNING_GATE to re-enter the check-in cycle (room re-activates with next
-	// arrival).
-	for (const sibling of siblings) {
-		sibling.stateCode =
-			sibling.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
-	}
+	// Binary 1228:2fa7 (dispatch state-0x05) does NOT touch sibling state
+	// bytes at checkout. The base-0→PARKED / others→MORNING_GATE rewrite lives
+	// in the per-sim NIGHT_B (state 0x26) handler at 1228:2bc5, applied only
+	// to the sim being dispatched. Iterating siblings here clobbers any twin
+	// already mid-trip on the carrier (state 0x45 → 0x20 anomaly).
 	object.unitStatus = time.daypartIndex < 4 ? 0x28 : 0x30;
 	object.occupiableFlag = 0;
 	object.activationTickCount = 0;
@@ -309,15 +303,140 @@ function handleHotelActive(
 	}
 }
 
-/** hotel_refresh_0x60/0x41 — in transit to room or venue (no-op). */
-function handleHotelTransit(
-	_world: WorldState,
-	_ledger: LedgerState,
-	_time: TimeState,
-	_sim: SimRecord,
+/** Per-stride in-transit handler for STATE_ACTIVE_TRANSIT (0x41) and other
+ * transit states whose binary base handler does NOT call resolve. The binary's
+ * 0x41 handler (0x3126, alias of 0x01) uses the venue selector, not resolve;
+ * for in-segment sims here we must still re-resolve the segment so the leg
+ * progresses (carrier-routed sims are gated out by the caller). */
+function handleHotelActiveTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
 	_object: PlacedObjectRecord,
 ): void {
-	// In transit to commercial venue or room; arrival handled by dispatchSimArrival.
+	if (sim.route.mode === "carrier") return;
+	if (sim.destinationFloor < 0) return;
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.destinationFloor;
+	// Alias state 0x41 (ACTIVE_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state when the trip
+	// began.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === 3) {
+		// Arrived. Trip counter already advanced inside resolve's same-floor
+		// branch (1218:0046); pass `tripCounterAlreadyAdvanced=true` so
+		// dispatchSimArrival does NOT advance again (double-advance causes
+		// stress_avg drift — same class of bug as build_offices tick=166).
+		// Preserve the `lastDemandTick=-1` side effect that some downstream
+		// hotel state handlers still rely on by resetting it manually.
+		sim.lastDemandTick = -1;
+		dispatchSimArrival(world, ledger, time, sim, targetFloor, true);
+	}
+}
+
+/** Per-stride STATE_MORNING_TRANSIT (0x60) handler. Binary alias of state 0x20
+ * (handler 0x317b @ 0x327d): src=lookup 11a0:0650 (assigned target floor),
+ * tgt=arg [BP+0xa]. Post-resolve transitions:
+ *   rc=-1 → clear or state=0x04 (CHECKOUT_QUEUE)
+ *   rc=0/1/2 → state=0x60 (stay in transit; next stride re-resolves)
+ *   rc=3 → state=0x01 / 0x04 via hotelArrivalState (parity-split). */
+function handleHotelMorningTransit(
+	world: WorldState,
+	_ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.floorAnchor;
+	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x20 dispatch.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === -1) {
+		sim.stateCode = STATE_CHECKOUT_QUEUE;
+		return;
+	}
+	if (routeResult === 3) {
+		// Same-floor success. Binary 1228:3434 path: activate (if vacant), bump
+		// stay phase, then parity-split via hotelArrivalState.
+		activateFamily345Unit(object, time);
+		incrementStayPhase345(object, time);
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = hotelArrivalState(world, sim);
+		return;
+	}
+	// rc=0/1/2: stay in STATE_MORNING_TRANSIT; next stride will re-resolve.
+}
+
+/** Per-stride STATE_DEPARTURE_TRANSIT (0x45) handler. Binary alias of state
+ * 0x05 (handler 0x2fa7 @ 0x2fd9): src=lookup 11a0:0650, tgt=arg [BP+0xa].
+ * Post-resolve transitions:
+ *   rc=-1 → state=0x20 (MORNING_GATE) + service-eval-fail
+ *   rc=0/1/2 → state=0x45 (stay in transit; next stride re-resolves)
+ *   rc=3 → state=0x20 (MORNING_GATE) — readies the sim to be morning-gated
+ *           when checkout is complete. */
+function handleHotelDepartureTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+	object: PlacedObjectRecord,
+): void {
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor =
+		sim.destinationFloor >= 0 ? sim.destinationFloor : LOBBY_FLOOR;
+	// Alias state 0x45 (DEPARTURE_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x05 dispatch.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === -1) {
+		sim.stateCode = STATE_MORNING_GATE;
+		return;
+	}
+	if (routeResult === 3) {
+		// Lobby arrived. Apply the same checkout-readiness gate as the
+		// state-0x05 handler so cash books at the binary's expected time
+		// (1228:2fa7 dispatch). Then either checkout (ready) or transition
+		// to 0x20 / 0x24 per baseOffset.
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		if ((object.unitStatus & 0x07) === 0) {
+			checkoutHotelStay(world, ledger, time, sim, object);
+		} else {
+			sim.stateCode =
+				sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
+		}
+		return;
+	}
+	// rc=0/1/2: stay in STATE_DEPARTURE_TRANSIT; next stride will re-resolve.
 }
 
 /** hotel_refresh_0x04 — checkout queue (STATE_CHECKOUT_QUEUE). */
@@ -372,13 +491,17 @@ function handleHotelDeparture(
 		sim,
 		sim.floorAnchor,
 		LOBBY_FLOOR,
-		1,
+		sim.floorAnchor > LOBBY_FLOOR ? 0 : 1,
 		time,
 	);
-	if (routeResult === -1 || routeResult === 0) return;
+	if (routeResult === 0) return;
+	if (routeResult === -1) {
+		// Binary mapping: rc=-1 → state=0x20 (MORNING_GATE) + service-eval-fail.
+		sim.stateCode = STATE_MORNING_GATE;
+		return;
+	}
 	sim.originFloor = sim.floorAnchor;
-	sim.selectedFloor = sim.floorAnchor;
-	sim.destinationFloor = LOBBY_FLOOR;
+	// Phase 4: resolve owns sim.selectedFloor / destinationFloor.
 	// trip_prep_for_checkout: decrement unit_status; when it hits the
 	// final countdown boundary, take the payout immediately (binary
 	// books cash at dispatch, not lobby arrival).
@@ -512,8 +635,9 @@ export const HOTEL_REFRESH_HANDLER_TABLE: ReadonlyMap<number, HotelHandler> =
 		[STATE_HOTEL_PARKED, handleHotelParked], // 0x24
 		[STATE_MORNING_GATE, handleHotelMorningGate], // 0x20
 		[STATE_ACTIVE, handleHotelActive], // 0x01
-		[STATE_MORNING_TRANSIT, handleHotelTransit], // 0x60
-		[STATE_ACTIVE_TRANSIT, handleHotelTransit], // 0x41
+		[STATE_MORNING_TRANSIT, handleHotelMorningTransit], // 0x60 → 0x317b alias of 0x20
+		[STATE_ACTIVE_TRANSIT, handleHotelActiveTransit], // 0x41 → 0x3126 alias of 0x01
+		[STATE_DEPARTURE_TRANSIT, handleHotelDepartureTransit], // 0x45 → 0x2fa7 alias of 0x05
 		[STATE_CHECKOUT_QUEUE, handleHotelCheckoutQueue], // 0x04
 		[STATE_TRANSITION, handleHotelTransition], // 0x10
 		[STATE_DEPARTURE, handleHotelDeparture], // 0x05

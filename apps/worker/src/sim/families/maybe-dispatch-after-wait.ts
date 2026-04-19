@@ -2,20 +2,24 @@
 //
 // Fires when a queued sim has waited past the route-failure delay. The binary
 // reaches this path via `refresh_object_family_office_state_handler` (1228:1cb5)
-// when `state_code >= 0x40` AND `encoded_route_target >= 0x40` — i.e. the sim
-// is still sitting on a carrier queue, not a segment. When elapsed ticks since
+// AND `refresh_object_family_hotel_state_handler` (1228:2aec) when
+// `state_code >= 0x40` AND `encoded_route_target >= 0x40` — i.e. the sim is
+// still sitting on a carrier queue, not a segment. When elapsed ticks since
 // enqueue exceed 300 (`g_route_failure_delay`), the dispatch is force-driven
-// into the family's 0x60-state handler (office: 1228:193d → sim[+5] = 0x26
-// NIGHT_B).
-//
-// Phase 5b hosts the office-specific logic here, ported from
-// `sims/index.ts#maybeFireOfficeWaitTimeout`. Other families remain without a
-// wait-timeout counterpart today (this is consistent with the binary jump
-// tables for family 3/4/5/9 which route the same states to in-place handlers).
+// into the family's per-state timeout handler:
+//   office: 1228:193d → sim[+5] = 0x26 (NIGHT_B), evict route
+//   hotel:  1228:19f4 → sim[+5] = 0x26 (NIGHT_B), evict route, fail service eval
+// Both share the same NIGHT_B + eviction effect; hotel additionally calls
+// fail_office_service_evaluation (1248:017d) — not yet modeled.
 
 import { evictCarrierRoute } from "../carriers";
 import type { LedgerState } from "../ledger";
-import { FAMILY_OFFICE } from "../resources";
+import {
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_SUITE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_OFFICE,
+} from "../resources";
 import { isSimInTransit } from "../sim-access/state-bits";
 import { clearSimRoute, simKey } from "../sims/population";
 import {
@@ -26,6 +30,8 @@ import {
 	STATE_NIGHT_B,
 	STATE_VENUE_HOME_TRANSIT,
 } from "../sims/states";
+import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import { DAY_TICK_MAX, type TimeState } from "../time";
 import type { SimRecord, WorldState } from "../world";
 
@@ -46,6 +52,19 @@ const OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES = new Set<number>([
 	STATE_DWELL_RETURN_TRANSIT,
 ]);
 
+// Binary family-3/4/5 dispatch_sim_behavior jumptable at cs:1c41. Only state
+// 0x45 → 1228:19f4 writes NIGHT_B; entries for {0x41, 0x60, 0x62} point to
+// 1228:1a4f (different handler — not yet decoded).
+const HOTEL_WAIT_TIMEOUT_TO_NIGHT_B_STATES = new Set<number>([
+	STATE_DEPARTURE_TRANSIT,
+]);
+
+const HOTEL_FAMILY_CODES = new Set<number>([
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_TWIN,
+	FAMILY_HOTEL_SUITE,
+]);
+
 export function maybeDispatchQueuedRouteAfterWait(
 	world: WorldState,
 	_ledger: LedgerState,
@@ -56,9 +75,14 @@ export function maybeDispatchQueuedRouteAfterWait(
 	// The 0x40 bit check is the state_code half; the sim.route.mode === "carrier"
 	// check is the encoded_route_target >= 0x40 half.
 	if (!isSimInTransit(sim.stateCode)) return;
-	if (sim.familyCode !== FAMILY_OFFICE) return;
 	if (sim.route.mode !== "carrier") return;
-	if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+	if (sim.familyCode === FAMILY_OFFICE) {
+		if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+	} else if (HOTEL_FAMILY_CODES.has(sim.familyCode)) {
+		if (!HOTEL_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+	} else {
+		return;
+	}
 	if (sim.lastDemandTick < 0) return;
 	// Day-tick wraps 0..DAY_TICK_MAX-1; the binary uses 16-bit unsigned
 	// subtraction so a stamp from before rollover compares correctly.
@@ -73,6 +97,11 @@ export function maybeDispatchQueuedRouteAfterWait(
 	const route = carrier.pendingRoutes.find((r) => r.simId === simKey(sim));
 	if (!route || route.boarded) return;
 	evictCarrierRoute(carrier, simKey(sim));
+	// Binary: dispatch_sim_behavior (1228:186c) calls rebase_sim_elapsed_from_clock
+	// then advance_sim_trip_counters before the family handler fires. Mirror that
+	// here since we bypass dispatch_sim_behavior in the TS timeout path.
+	rebaseSimElapsedFromClock(sim, time);
+	advanceSimTripCounters(sim);
 	// Phase 5b note: STATE_NIGHT_B (0x26) already encodes base phase 0x06
 	// plus bit 5 (0x20). In TS encoding the 0x20 bit on NIGHT_B is part of
 	// the phase byte, NOT a separate "waiting" flag — so clearSimRouteBits

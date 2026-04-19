@@ -25,6 +25,9 @@ Cinema and entertainment link state machines — budget seeding, phase advance, 
 ### `cathedral.ts`
 Cathedral guest sims (families 0x24–0x28) — activation, dispatch, return routing, award path.
 
+### `progression.ts`
+Daily star-advancement check (`tryAdvanceStarCount`) — tier-from-ledger + per-tier qualitative gates. Fired at checkpoint 0x7d0.
+
 ### `resources.ts`
 Compile-time constants: tile widths/costs/types, family mappings, binary-aligned build-menu star requirements, income/expense tables, route delay constants.
 

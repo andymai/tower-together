@@ -98,15 +98,6 @@ function selectRouteForFamily(
 	return null;
 }
 
-function completeSimTransitEvent(sim: SimRecord): void {
-	// Binary: the arrival path invokes the family dispatch handler directly
-	// (dispatch_carrier_car_arrivals → dispatch_destination_queue_entries),
-	// bypassing dispatch_sim_behavior. No rebase happens at arrival. For
-	// segment legs, the stair/escalator penalty applied at resolve time IS
-	// the trip's stress contribution.
-	advanceSimTripCounters(sim);
-}
-
 /**
  * Return codes mirror `resolveSimRouteBetweenFloors` from
  * ROUTING.md / SPEC.md:
@@ -133,11 +124,13 @@ export function resolveSimRouteBetweenFloors(
 	directionFlag: number,
 	time: TimeState | undefined,
 	targetHeightMetric: number = sim.homeColumn,
+	emitDistanceFeedback: boolean = true,
 ): RouteResolution {
 	if (sourceFloor === destinationFloor) {
 		// Binary quirk: same-floor result code is 3 (not 2). The caller treats
 		// this as an immediate arrival and does not enqueue onto a carrier.
-		completeSimTransitEvent(sim);
+		// Binary 1218:0046: same-floor branch is one of the 6 advance call sites.
+		advanceSimTripCounters(sim);
 		return 3;
 	}
 
@@ -161,7 +154,28 @@ export function resolveSimRouteBetweenFloors(
 	}
 
 	if (route.kind === "segment") {
-		maybeApplyDistanceFeedback(world, sim, sourceFloor, destinationFloor, true);
+		// Binary 1218:0140-019d: resolve writes ONE leg per call. sim+7 jumps to
+		// `source ± ((segment.mode_and_span >> 1) + 1)` (the leg endpoint), and
+		// sim+8 = leg index. The per-tick stride dispatcher re-invokes the state
+		// handler every 16 ticks per sim, which re-calls resolve to advance the
+		// next leg. When source == destination on a re-call, the same-floor branch
+		// (1218:0046) advances trip counters and returns 3, signaling arrival.
+		//
+		// Our TS merges adjacent stair tiles into a multi-floor segment, so we
+		// emulate the binary by stepping ONE FLOOR per call regardless of the
+		// merged segment's span — matching how the binary processes a stack of
+		// 1-floor stair segments tile-by-tile.
+		if (emitDistanceFeedback) {
+			maybeApplyDistanceFeedback(
+				world,
+				sim,
+				sourceFloor,
+				destinationFloor,
+				true,
+			);
+		}
+		const direction = destinationFloor > sourceFloor ? 1 : -1;
+		const nextFloor = sourceFloor + direction;
 		sim.route = {
 			mode: "segment",
 			segmentId: route.id,
@@ -169,27 +183,20 @@ export function resolveSimRouteBetweenFloors(
 		};
 		// Phase 5b: `sim.stateCode` bits are authoritative for routing mode
 		// in the hotel / office / condo / restaurant / fast-food / retail
-		// families (the `dispatch_sim_behavior` families per cs:1c71). Other
-		// families (housekeeping, entertainment, recycling, parking,
-		// cathedral) drive their own low-valued state machines that do not
-		// use the 0x40 / 0x20 bits; their trace states would regress if we
-		// set the bits here. This setter mirrors the binary's
-		// `state_code |= 0x40` which only fires for the dispatch_sim_behavior
-		// families.
+		// families (the `dispatch_sim_behavior` families per cs:1c71).
 		if (familyUsesStateBits(sim.familyCode)) setSimInTransit(sim, true);
 		sim.queueTick = time?.dayTick ?? sim.queueTick;
+		sim.selectedFloor = nextFloor;
 		sim.destinationFloor = destinationFloor;
-		const floors = Math.abs(destinationFloor - sourceFloor);
-		// Segment transit is one stride (16 ticks) per floor traversed.
-		sim.transitTicksRemaining = floors * 16;
-		// Per-floor stress penalty (spec: add_delay_to_current_sim). The binary
-		// indexes `g_per_stop_even_parity_delay` / `g_per_stop_odd_parity_delay`
-		// by `segment.modeAndSpan & 1` (bit 0 = stairs parity). Magnitudes
-		// preserved from pre-refactor TS: 16 (escalator) / 35 (stairs).
+		// Per-leg stress penalty (binary: add_delay_to_current_sim with per-stop
+		// parity delay × step). Step is 1 here (one floor per leg), matching the
+		// binary's per-tile segment processing.
 		const segment = world.specialLinks[route.id];
 		const parityBit = segment ? segment.flags & 1 : 0;
-		addDelayToCurrentSim(sim, perStopParityDelay[parityBit] * floors);
-		// Route-start timestamp: start the clock for elapsed tracking.
+		addDelayToCurrentSim(sim, perStopParityDelay[parityBit]);
+		// transitTicksRemaining is no longer used to gate segment progression —
+		// the per-stride state handler re-resolves the next leg.
+		sim.transitTicksRemaining = 0;
 		if (time) sim.lastDemandTick = time.dayTick;
 		return 1;
 	}
@@ -212,13 +219,12 @@ export function resolveSimRouteBetweenFloors(
 		directionFlag,
 	);
 	if (!queued) {
-		// Binary: resolve_sim_route_between_floors on queue-full returns 0; the
-		// binary writes sim[+8] = 0xff and sim[+7] = source floor and sets the
-		// 0x20 waiting bit on state_code. The family handler retries on its
-		// next stride slot (every 16 ticks). 5-tick penalty matches
-		// g_waiting_state_delay.
+		// Binary 1218:021f-ish (queue-full path): writes sim+8 = 0xff and
+		// sim+7 = source floor, sets waiting bit. 5-tick penalty matches
+		// g_waiting_state_delay. The family handler retries next stride.
 		clearSimRoute(sim);
 		if (familyUsesStateBits(sim.familyCode)) setSimWaiting(sim, true);
+		sim.selectedFloor = sourceFloor;
 		sim.destinationFloor = destinationFloor;
 		addDelayToCurrentSim(sim, 5);
 		return 0;
@@ -234,16 +240,20 @@ export function resolveSimRouteBetweenFloors(
 	// dispatch_sim_behavior families. See `familyUsesStateBits` below.
 	if (familyUsesStateBits(sim.familyCode)) setSimInTransit(sim, true);
 	sim.queueTick = time?.dayTick ?? sim.queueTick;
+	// Binary: carrier branch writes sim+7 = source_floor (sim parks at source
+	// while waiting for the carrier; the carrier-arrival path will later set
+	// sim+7 = destination_floor when the car deposits the sim).
+	sim.selectedFloor = sourceFloor;
 	sim.destinationFloor = destinationFloor;
-	maybeApplyDistanceFeedback(
-		world,
-		sim,
-		sourceFloor,
-		destinationFloor,
-		carrier.carrierMode !== 2,
-	);
-	// Route-start timestamp: start the clock so the boarding-time
-	// accumulate_elapsed_delay can measure the pre-boarding queue wait.
+	if (emitDistanceFeedback) {
+		maybeApplyDistanceFeedback(
+			world,
+			sim,
+			sourceFloor,
+			destinationFloor,
+			carrier.carrierMode !== 2,
+		);
+	}
 	if (time) sim.lastDemandTick = time.dayTick;
 	return 2;
 }

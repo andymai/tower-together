@@ -178,8 +178,8 @@ export function processCommercialSim(
 		) {
 			activateRetailShop(object, record, ledger);
 		}
-		sim.selectedFloor = LOBBY_FLOOR;
-		sim.destinationFloor = sim.floorAnchor;
+		// Phase 1d-ii parity: resolve owns sim.selectedFloor and sim.destinationFloor.
+		// Don't overwrite — that cancels per-leg progression set by resolve.
 		if (routeResult === 3) {
 			sim.destinationFloor = -1;
 			sim.selectedFloor = sim.floorAnchor;
@@ -203,32 +203,148 @@ export function processCommercialSim(
 		if (time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS) {
 			return;
 		}
+		// Binary retail/restaurant state-0x05 handler (1228:4517 / 1228:4bd7):
+		// src = sim+7 lookup (current/home floor), tgt = LOBBY (0xa).
+		// rc=-1 → fail; rc=0/1/2 → ok (in-transit); rc=3 → fail (binary collapses
+		// the same-floor return into the fail tail at 1228:45a8 / 1228:4c68).
+		const sourceFloor = sim.selectedFloor;
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,
 			sim,
-			sim.floorAnchor,
+			sourceFloor,
 			LOBBY_FLOOR,
-			LOBBY_FLOOR > sim.floorAnchor ? 1 : 0,
+			LOBBY_FLOOR > sourceFloor ? 1 : 0,
 			time,
 		);
-		if (routeResult === -1) {
+		if (routeResult === -1 || routeResult === 3) {
+			// Fail tail: park the sim, release any held service request.
+			releaseServiceRequest(world, sim);
 			sim.stateCode = STATE_NIGHT_B;
 			return;
 		}
-		sim.selectedFloor = sim.floorAnchor;
-		sim.destinationFloor = LOBBY_FLOOR;
-		if (routeResult === 3) {
-			sim.destinationFloor = -1;
-			sim.selectedFloor = LOBBY_FLOOR;
-			sim.stateCode = STATE_PARKED;
-			releaseServiceRequest(world, sim);
-		} else {
-			sim.stateCode = STATE_DEPARTURE_TRANSIT;
-		}
+		// Phase 1d-ii parity: resolve owns sim.selectedFloor/destinationFloor.
+		// rc=0/1/2 → in-transit; next stride re-enters via STATE_DEPARTURE_TRANSIT.
+		sim.stateCode = STATE_DEPARTURE_TRANSIT;
 		return;
 	}
 
-	// Transit states handled by carrier/segment system.
+	// --- Per-stride in-transit handlers ---
+	// Binary jump table aliases: 0x60 (MORNING_TRANSIT) → state 0x20 handler;
+	// 0x45 (DEPARTURE_TRANSIT) → state 0x05 handler. variantFlag=0 (distance
+	// feedback off), but our resolver applies the penalty unconditionally.
+	if (state === STATE_MORNING_TRANSIT) {
+		handleCommercialMorningTransit(world, ledger, time, sim);
+		return;
+	}
+	if (state === STATE_DEPARTURE_TRANSIT) {
+		handleCommercialDepartureTransit(world, time, sim);
+		return;
+	}
+}
+
+/** Per-stride in-transit handler for STATE_MORNING_TRANSIT (0x60).
+ * Binary alias of state 0x20 (1228:41cb retail / 1228:495c ff+restaurant) with
+ * variantFlag=0. src = sim+7 (last leg endpoint or home), tgt = floorAnchor.
+ *   rc=-1 → reverts try_consume on dormant venue path (best effort: park).
+ *   rc=0/1/2 → stay in MORNING_TRANSIT; next stride re-resolves the next leg.
+ *   rc=3 → arrived at home venue; activate (already done at dispatch) and park.
+ */
+function handleCommercialMorningTransit(
+	world: WorldState,
+	ledger: LedgerState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	const object = findObjectForSim(world, sim);
+	const sourceFloor = sim.selectedFloor;
+	const targetFloor = sim.floorAnchor;
+	// Alias state 0x60 (MORNING_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x20 dispatch.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		targetFloor,
+		targetFloor > sourceFloor ? 1 : 0,
+		time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === -1) {
+		// Binary 1228:4297 -1 path: TENANTED venue → STATE_PARKED.
+		sim.stateCode = STATE_PARKED;
+		releaseServiceRequest(world, sim);
+		return;
+	}
+	if (routeResult === 3) {
+		// Arrived at home venue floor. Trip counter advanced inside resolve.
+		sim.destinationFloor = -1;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.stateCode = STATE_DEPARTURE;
+		// Stamp dwell-start (mirrors handleCommercialSimArrival path).
+		sim.elapsedTicks = 0;
+		sim.lastDemandTick = time.dayTick;
+		// Activate retail shop on arrival when venue is still DORMANT (binary
+		// 1228:42d0 fires activate on success paths).
+		if (
+			object &&
+			sim.familyCode === FAMILY_RETAIL &&
+			object.linkedRecordIndex >= 0
+		) {
+			const venue = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (
+				venue?.kind === "commercial_venue" &&
+				venue.availabilityState === VENUE_DORMANT
+			) {
+				activateRetailShop(object, venue, ledger);
+			}
+		}
+	}
+	// rc=0/1/2: stay in STATE_MORNING_TRANSIT; next stride re-resolves.
+}
+
+/** Per-stride in-transit handler for STATE_DEPARTURE_TRANSIT (0x45).
+ * Binary alias of state 0x05 (1228:4517 retail / 1228:4bd7 ff+restaurant) with
+ * variantFlag=0. src = sim+7 (last leg endpoint), tgt = LOBBY.
+ *   rc=-1 → fail (park).
+ *   rc=0/1/2 → stay in DEPARTURE_TRANSIT; next stride re-resolves next leg.
+ *   rc=3 → arrived at LOBBY; binary collapses to fail tail per state 0x05 table,
+ *          but at the transit alias the same-floor result represents arrival —
+ *          park the sim and release the service request.
+ */
+function handleCommercialDepartureTransit(
+	world: WorldState,
+	_time: TimeState,
+	sim: SimRecord,
+): void {
+	const sourceFloor = sim.selectedFloor;
+	// Alias state 0x45 (DEPARTURE_TRANSIT): variantFlag=0 in the binary, so
+	// distance feedback was already applied by the base state 0x05 dispatch.
+	const routeResult = resolveSimRouteBetweenFloors(
+		world,
+		sim,
+		sourceFloor,
+		LOBBY_FLOOR,
+		LOBBY_FLOOR > sourceFloor ? 1 : 0,
+		_time,
+		sim.homeColumn,
+		false,
+	);
+	if (routeResult === -1) {
+		releaseServiceRequest(world, sim);
+		sim.stateCode = STATE_NIGHT_B;
+		return;
+	}
+	if (routeResult === 3) {
+		// Arrived at lobby. Trip counter advanced inside resolve.
+		sim.destinationFloor = -1;
+		sim.selectedFloor = LOBBY_FLOOR;
+		sim.stateCode = STATE_PARKED;
+		releaseServiceRequest(world, sim);
+	}
+	// rc=0/1/2: stay in STATE_DEPARTURE_TRANSIT; next stride re-resolves.
 }
 
 export function handleCommercialSimArrival(

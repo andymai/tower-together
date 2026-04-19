@@ -263,7 +263,19 @@ function beginCommercialVenueTrip(
 	tripState: number,
 ): void {
 	sim.destinationFloor = destinationFloor;
-	sim.selectedFloor = sim.floorAnchor;
+	// For office + hotel + condo families the prior resolve already wrote
+	// selectedFloor to the next leg endpoint; preserve it. For other families
+	// that don't yet do per-tick re-resolution, reset to floorAnchor
+	// (legacy behavior).
+	const usesPerLeg =
+		sim.familyCode === FAMILY_OFFICE ||
+		sim.familyCode === FAMILY_CONDO ||
+		sim.familyCode === FAMILY_HOTEL_SINGLE ||
+		sim.familyCode === FAMILY_HOTEL_TWIN ||
+		sim.familyCode === FAMILY_HOTEL_SUITE;
+	if (!usesPerLeg) {
+		sim.selectedFloor = sim.floorAnchor;
+	}
 	sim.stateCode = tripState;
 }
 
@@ -427,10 +439,28 @@ export function advanceSimRefreshStride(
 		// state-0x60 handler at 1228:193d which writes sim[+5] = 0x26 (NIGHT_B).
 		// Phase 5b: delegated to families/maybe-dispatch-after-wait.ts.
 		maybeDispatchQueuedRouteAfterWait(world, ledger, time, sim);
-		// Binary: sims with the transit flag (0x40) are not in the family dispatch
-		// tables. Skip the state machine for sims actively in transit — the
-		// arrival handler (reconcileSimTransport) will fire later this tick.
-		if (sim.route.mode !== "idle") {
+		// Binary: sims with carrier route (sim+8 >= 0x40) are gated by
+		// maybe_dispatch_queued_route_after_wait above; the family state handler
+		// is NOT re-invoked. Sims with segment route (sim+8 < 0x40) DO go through
+		// the family handler every stride — that's how segment legs progress
+		// (each call to resolve writes one leg into sim+7, sim+8). Idle sims
+		// also dispatch the family handler.
+		// Other families have not migrated to per-leg progression yet; skip the
+		// state handler for any non-idle route to preserve their legacy behavior.
+		if (sim.route.mode === "carrier") {
+			continue;
+		}
+		// Phase 4: office + condo + hotel have migrated to per-stride per-leg
+		// re-resolution. Other families still rely on the legacy whole-trip
+		// finalizer in `reconcileSimTransport`.
+		if (
+			sim.route.mode === "segment" &&
+			sim.familyCode !== FAMILY_OFFICE &&
+			sim.familyCode !== FAMILY_CONDO &&
+			sim.familyCode !== FAMILY_HOTEL_SINGLE &&
+			sim.familyCode !== FAMILY_HOTEL_TWIN &&
+			sim.familyCode !== FAMILY_HOTEL_SUITE
+		) {
 			continue;
 		}
 		switch (sim.familyCode) {
@@ -480,6 +510,18 @@ export const refreshRuntimeEntitiesForTickStride = advanceSimRefreshStride;
 export { type RouteResolution, resolveSimRouteBetweenFloors };
 
 function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
+	// Phase 1d-ii / Phase 4: office + condo + hotel families are now driven by
+	// per-stride per-leg re-resolution; arrivals fire from inside the
+	// per-state handler when resolve returns 3 (same-floor). Skip the
+	// legacy whole-trip finalizer for these segment sims.
+	if (sim.familyCode === FAMILY_OFFICE) return false;
+	if (sim.familyCode === FAMILY_CONDO) return false;
+	if (
+		sim.familyCode === FAMILY_HOTEL_SINGLE ||
+		sim.familyCode === FAMILY_HOTEL_TWIN ||
+		sim.familyCode === FAMILY_HOTEL_SUITE
+	)
+		return false;
 	if (sim.familyCode === FAMILY_HOUSEKEEPING) {
 		// HK routing states reuse low state codes (1/3/4) that collide with
 		// hotel-family state values, so gate on family first.
@@ -507,6 +549,20 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 function finalizePendingRouteLeg(sim: SimRecord): void {
 	if (sim.route.mode !== "segment") return;
 	if (sim.transitTicksRemaining > 0) return;
+	// Phase 1d-ii: office family is now driven by per-stride per-leg re-resolution
+	// (resolveSimRouteBetweenFloors writes sim.selectedFloor to the next leg
+	// endpoint). Skip the legacy whole-trip teleport for office sims so it
+	// doesn't race with per-leg progression. Other families still rely on
+	// this finalizer to advance segment trips until they migrate to the
+	// per-tick model.
+	if (sim.familyCode === FAMILY_OFFICE) return;
+	if (sim.familyCode === FAMILY_CONDO) return;
+	if (
+		sim.familyCode === FAMILY_HOTEL_SINGLE ||
+		sim.familyCode === FAMILY_HOTEL_TWIN ||
+		sim.familyCode === FAMILY_HOTEL_SUITE
+	)
+		return;
 	// Transit countdown is handled by reconcileSimTransport; here we just
 	// sync selectedFloor once the leg is complete so processXxxSim sees it.
 	sim.selectedFloor = sim.route.destination;
@@ -522,8 +578,24 @@ export function dispatchSimArrival(
 	time: TimeState,
 	sim: SimRecord,
 	arrivalFloor: number,
+	tripCounterAlreadyAdvanced: boolean = false,
 ): void {
-	if (sim.destinationFloor >= 0 && arrivalFloor === sim.destinationFloor) {
+	if (
+		!tripCounterAlreadyAdvanced &&
+		sim.destinationFloor >= 0 &&
+		arrivalFloor === sim.destinationFloor
+	) {
+		// Phase 5: per-leg per-stride re-resolution callers (office +
+		// condo + hotel `handleXxxTransit`) hit the same-floor branch of
+		// `resolveSimRouteBetweenFloors` (1218:0046), which already
+		// advanced the trip counter. They pass `tripCounterAlreadyAdvanced=true`
+		// to suppress the redundant advance here and avoid double-counting
+		// (which undercuts stress_avg — e.g. build_offices day=0 tick=166
+		// floor-1 baseOffset=0 sim before this fix).
+		//
+		// Carrier arrivals and the legacy whole-trip segment finalizer
+		// (`reconcileSimTransport`) DO advance here — resolve never returned
+		// 3 for them.
 		completeSimTransitEvent(sim, time);
 	}
 	sim.selectedFloor = arrivalFloor;

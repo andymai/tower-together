@@ -5,7 +5,7 @@
 Maintain at least:
 
 - `star_count`
-- `calendar_phase_flag`
+- `weekend_flag`
 - `facility_progress_override`
 - metro-station presence and floor
 - evaluation-site presence and floor
@@ -14,18 +14,14 @@ Maintain at least:
 - route-viable flag
 - office-service-ok flag
 
-## `calendar_phase_flag`
+## `weekend_flag`
 
-`calendar_phase_flag` alternates inside a 12-day cycle and affects:
+`weekend_flag` alternates inside a 3-day cycle and affects:
 
 - commercial capacity selection
 - some hotel timing
 - condo staggering
 - some progression gates
-
-Wrap behavior is exact: at the end-of-day increment, if `day_counter` reaches `11988`,
-the scheduler resets it to `0` and immediately recomputes the flag from that wrapped
-counter, so the next day starts at phase `0`.
 
 ## `facility_progress_override`
 

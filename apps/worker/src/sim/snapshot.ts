@@ -310,6 +310,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.gateFlags.family345SaleCount ??= 0;
 	snapshot.world.gateFlags.newspaperTrigger ??= 0;
 	snapshot.world.gateFlags.officeServiceOkMedical ??= 0;
+	snapshot.world.gateFlags.securityPlaced ??= 0;
 	if (
 		!Array.isArray(snapshot.world.medicalServiceSlots) ||
 		snapshot.world.medicalServiceSlots.length === 0
