@@ -5,7 +5,7 @@ Family-specific state machines and shared runtime helpers for the placed-object-
 ## Files
 
 ### `index.ts`
-Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `refreshRuntimeEntitiesForTickStride`), venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling lives with each family module. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat.
+Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `refreshRuntimeEntitiesForTickStride`), venue visits, transport routing plumbing, compatibility aliases, and public re-exports for the split sim modules. Family-specific arrival handling lives with each family module. `resolveSimRouteBetweenFloors` moved to `queue/resolve.ts`; this module re-exports it for back-compat. Hosts `findCommercialVenueAtFloor`, `tryAcquireOfficeVenueSlot`, and `releaseOfficeVenueSlot` mirroring binary `acquire_commercial_venue_slot` (11b0:0d92) / `release_commercial_venue_slot` (11b0:0fae) for office workers visiting commercial venues.
 
 ### `states.ts`
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.
@@ -33,6 +33,9 @@ Hotel-family sim state machine: check-in routing, active-stay venue visits, chec
 
 ### `housekeeping.ts`
 Housekeeping helper (family 0x0f) state machine: vacant-room search, route-to-candidate/target legs, and the post-claim countdown.
+
+### `commercial.ts`
+Restaurant/fast-food/retail family state machine: morning activation gates, per-stride state-0x20/0x60/0x05/0x45 handlers, and commercial-specific arrival handling. Mirrors binary `dispatch_object_family_retail_state_handler` (1228:40c0) and `dispatch_object_family_restaurant_fast_food_state_handler` (1228:4851); calls `acquire_commercial_venue_slot` (11b0:0d92) only at venue arrival (rc=3) so `currentPopulation` matches the binary's accounting.
 
 ### `office.ts`
 Office-family sim state machine: morning activation, worker commute/service-demand handling, presence counters, venue trips, evening departure, office service evaluation entry points, and office-specific arrival handling.

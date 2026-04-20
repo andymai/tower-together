@@ -16,6 +16,8 @@ import {
 	findObjectForSim,
 	releaseServiceRequest,
 	resolveSimRouteBetweenFloors,
+	tryAcquireOfficeVenueSlot,
+	VENUE_SLOT_FULL,
 } from "./index";
 import {
 	COMMERCIAL_VENUE_DWELL_TICKS,
@@ -131,10 +133,17 @@ export function processCommercialSim(
 			return;
 		}
 
+		// Binary `try_consume_commercial_venue_capacity` (11b0:1150) decrements
+		// record+6 (remainingCapacity), increments record+7 (visitCount), and
+		// increments record+0x10 (todayVisitCount). It does NOT touch record+9
+		// (currentPopulation) — that field is incremented only by
+		// `acquire_commercial_venue_slot` (11b0:0d92), which the binary calls
+		// at the per-stride state-0x20/0x60 handler ONLY when route_result == 3
+		// (i.e. the sim has actually arrived at the venue floor). Mirror that
+		// here: at MORNING_GATE we run try_consume but defer the
+		// currentPopulation increment to the arrival site
+		// (handleCommercialMorningTransit / handleCommercialSimArrival).
 		record.remainingCapacity -= 1;
-		if (record.currentPopulation < 39) {
-			record.currentPopulation += 1;
-		}
 		record.lastAcquireTick = time.dayTick;
 		record.todayVisitCount += 1;
 		record.visitCount += 1;
@@ -166,7 +175,6 @@ export function processCommercialSim(
 				sim.elapsedTicks = 0;
 				sim.accumulatedTicks = 0;
 				record.remainingCapacity += 1;
-				record.currentPopulation -= 1;
 				record.visitCount -= 1;
 			} else {
 				sim.stateCode = STATE_PARKED;
@@ -179,12 +187,26 @@ export function processCommercialSim(
 		) {
 			activateRetailShop(object, record, ledger);
 		}
-		// Phase 1d-ii parity: resolve owns sim.selectedFloor and sim.destinationFloor.
-		// Don't overwrite — that cancels per-leg progression set by resolve.
 		if (routeResult === 3) {
+			// Same-floor venue (LOBBY-anchored): binary state-0x20 handler at
+			// rc=3 (1228:4415 retail / 1228:4b37 ff) immediately calls
+			// `acquire_commercial_venue_slot` (11b0:0d92):
+			//   acquire returns -1 (UNAVAILABLE) → state 0x05 (DEPARTURE)
+			//   acquire returns 2 (FULL)        → state 0x60 (MORNING_TRANSIT,
+			//                                     re-attempt acquire next stride)
+			//   acquire returns 3 (ACQUIRED)    → state 0x05 (DEPARTURE)
+			// Acquire stamps sim+0xa = g_day_tick on success/full paths; that's
+			// the dwell-start latch read by release.
 			sim.destinationFloor = -1;
 			sim.selectedFloor = sim.floorAnchor;
-			sim.stateCode = STATE_PARKED;
+			const acquireResult = tryAcquireOfficeVenueSlot(record, sim, time);
+			if (acquireResult === VENUE_SLOT_FULL) {
+				sim.stateCode = STATE_MORNING_TRANSIT;
+			} else {
+				sim.stateCode = STATE_DEPARTURE;
+				sim.elapsedTicks = 0;
+				sim.lastDemandTick = time.dayTick;
+			}
 		} else {
 			sim.stateCode = STATE_MORNING_TRANSIT;
 		}
@@ -203,6 +225,24 @@ export function processCommercialSim(
 	if (state === STATE_DEPARTURE) {
 		if (time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS) {
 			return;
+		}
+		// Binary retail/restaurant state-0x05 handler (1228:454e / 1228:4c0e)
+		// calls `release_commercial_venue_slot` (11b0:0fae) which decrements
+		// record+9 (currentPopulation) on the success path. Mirror that here
+		// so the venue's effective capacity gate is restored for visiting
+		// office workers / hotel guests / entertainment guests.
+		if (object.linkedRecordIndex >= 0) {
+			const venue = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (
+				venue?.kind === "commercial_venue" &&
+				venue.availabilityState !== VENUE_DORMANT &&
+				venue.availabilityState !== VENUE_CLOSED &&
+				venue.currentPopulation > 0
+			) {
+				venue.currentPopulation -= 1;
+			}
 		}
 		// Binary retail/restaurant state-0x05 handler (1228:4517 / 1228:4bd7):
 		// src = sim+7 lookup (current/home floor), tgt = LOBBY (0xa).
@@ -246,9 +286,11 @@ export function processCommercialSim(
 /** Per-stride in-transit handler for STATE_MORNING_TRANSIT (0x60).
  * Binary alias of state 0x20 (1228:41cb retail / 1228:495c ff+restaurant) with
  * variantFlag=0. src = sim+7 (last leg endpoint or home), tgt = floorAnchor.
- *   rc=-1 → reverts try_consume on dormant venue path (best effort: park).
+ *   rc=-1 → fail (park).
  *   rc=0/1/2 → stay in MORNING_TRANSIT; next stride re-resolves the next leg.
- *   rc=3 → arrived at home venue; activate (already done at dispatch) and park.
+ *   rc=3 → arrived at home venue; activate retail (DORMANT case) and call
+ *          acquire_commercial_venue_slot. ACQUIRED/UNAVAILABLE → state 0x05;
+ *          FULL → stay in 0x60 (re-attempt acquire next stride).
  */
 function handleCommercialMorningTransit(
 	world: WorldState,
@@ -279,29 +321,46 @@ function handleCommercialMorningTransit(
 	}
 	if (routeResult === 3) {
 		// Arrived at home venue floor. Trip counter advanced inside resolve.
+		// Binary state-0x60 handler at rc=3 (1228:4415 retail / 1228:4b37 ff)
+		// calls `acquire_commercial_venue_slot` (11b0:0d92):
+		//   acquire returns -1 (UNAVAILABLE) → state 0x05 (DEPARTURE)
+		//   acquire returns 2  (FULL)        → stay in 0x60, retry next stride
+		//   acquire returns 3  (ACQUIRED)    → state 0x05 (DEPARTURE)
+		// Acquire stamps sim+0xa = g_day_tick on success/full paths; that's
+		// the dwell-start latch read by release.
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
-		sim.stateCode = STATE_DEPARTURE;
-		// Stamp dwell-start (mirrors handleCommercialSimArrival path).
-		sim.elapsedTicks = 0;
-		sim.lastDemandTick = time.dayTick;
 		// Activate retail shop on arrival when venue is still DORMANT (binary
-		// 1228:42d0 fires activate on success paths).
-		if (
-			object &&
-			sim.familyCode === FAMILY_RETAIL &&
-			object.linkedRecordIndex >= 0
-		) {
-			const venue = world.sidecars[object.linkedRecordIndex] as
-				| CommercialVenueRecord
-				| undefined;
-			if (
-				venue?.kind === "commercial_venue" &&
-				venue.availabilityState === VENUE_DORMANT
-			) {
-				activateRetailShop(object, venue, ledger);
+		// 1228:42d0 fires activate on success paths). This must happen before
+		// the acquire call because acquire short-circuits to UNAVAILABLE on
+		// dormant venues; activation flips availabilityState to OPEN first.
+		let venue: CommercialVenueRecord | undefined;
+		if (object && object.linkedRecordIndex >= 0) {
+			const candidate = world.sidecars[object.linkedRecordIndex];
+			if (candidate?.kind === "commercial_venue") {
+				venue = candidate;
+				if (
+					sim.familyCode === FAMILY_RETAIL &&
+					venue.availabilityState === VENUE_DORMANT
+				) {
+					activateRetailShop(object, venue, ledger);
+				}
 			}
 		}
+		if (!venue) {
+			sim.stateCode = STATE_DEPARTURE;
+			sim.elapsedTicks = 0;
+			sim.lastDemandTick = time.dayTick;
+			return;
+		}
+		const acquireResult = tryAcquireOfficeVenueSlot(venue, sim, time);
+		if (acquireResult === VENUE_SLOT_FULL) {
+			// Stay in STATE_MORNING_TRANSIT; next stride retries acquire.
+			return;
+		}
+		sim.stateCode = STATE_DEPARTURE;
+		sim.elapsedTicks = 0;
+		sim.lastDemandTick = time.dayTick;
 	}
 	// rc=0/1/2: stay in STATE_MORNING_TRANSIT; next stride re-resolves.
 }
@@ -365,9 +424,38 @@ export function handleCommercialSimArrival(
 		// which restaurant/fast-food/retail pass) advances the trip counters
 		// before returning rc=3. Mirror that advance here because
 		// dispatchSimArrival shortcuts the per-stride re-entry.
+		//
+		// At rc=3 the binary state-0x60 handler (1228:4415 retail / 1228:4b37
+		// ff) calls `acquire_commercial_venue_slot` (11b0:0d92):
+		//   acquire returns -1 (UNAVAILABLE) → state 0x05 (DEPARTURE)
+		//   acquire returns 2  (FULL)        → stay in 0x60, retry next stride
+		//   acquire returns 3  (ACQUIRED)    → state 0x05 (DEPARTURE)
+		// Acquire stamps sim+0xa = g_day_tick on success/full paths; that's
+		// the dwell-start latch read by release.
 		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
+		const object = findObjectForSim(world, sim);
+		let venue: CommercialVenueRecord | undefined;
+		if (object && object.linkedRecordIndex >= 0) {
+			const candidate = world.sidecars[object.linkedRecordIndex];
+			if (candidate?.kind === "commercial_venue") {
+				venue = candidate;
+			}
+		}
+		if (!venue) {
+			sim.stateCode = STATE_DEPARTURE;
+			sim.elapsedTicks = 0;
+			sim.lastDemandTick = time.dayTick;
+			return;
+		}
+		const acquireResult = tryAcquireOfficeVenueSlot(venue, sim, time);
+		if (acquireResult === VENUE_SLOT_FULL) {
+			// Stay in STATE_MORNING_TRANSIT; next stride re-attempts acquire.
+			// Restore route fields the per-stride handler expects.
+			sim.destinationFloor = -1;
+			return;
+		}
 		sim.stateCode = STATE_DEPARTURE;
 		// Binary: sim[+0x0A] (dword last_activity_tick) is stamped at dwell
 		// start; release_commercial_venue_slot uses it to gate the service

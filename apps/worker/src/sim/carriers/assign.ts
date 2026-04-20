@@ -14,11 +14,12 @@ import { recomputeCarTargetAndDirection } from "./target";
 // scheduleFlag||dirMatch), C (idle-home candidate already at floor), D (dead).
 // Normal path and degenerate: return 1 with param_4 set (fullAssign=true).
 //
-// The wrap-cost "turn floor" and the idle-home test BOTH use the car's
-// `nearestWorkFloor` field (binary -0x51), NOT `targetFloor` or `homeFloor`.
-// `nearestWorkFloor` is refreshed at the tail of every
-// `recomputeCarTargetAndDirection` and seeded to `homeFloor` in
-// `resetOutOfRangeCar` / `makeCarrierCar`.
+// The wrap-cost "turn floor" uses the car's `nearestWorkFloor` field (binary
+// -0x51), refreshed at the tail of every `recomputeCarTargetAndDirection`.
+// The idle-home test uses the static per-car `homeFloor` field (binary
+// reachability_masks_by_floor[carIdx-8]), NOT `nearestWorkFloor` — this is
+// what determines whether a parked car at its home is treated as available
+// for an idle-home dispatch (binary 1098:0eef..0efe).
 //
 // The binary has NO assignedCount-vs-capacity early-skip — the per-leg
 // capacity gate lives inside the per-direction phase scans of
@@ -50,11 +51,14 @@ export function findBestAvailableCarForFloor(
 		const turnFloor = car.nearestWorkFloor;
 		const distance = Math.abs(floor - car.currentFloor);
 
+		// Idle-home candidate: parked at static home floor with no work pending.
+		// Binary 1098:0ee9..0efe: reads reachability_masks_by_floor[carIdx-8]
+		// (== car.homeFloor) and compares to currentFloor. NOT nearestWorkFloor.
 		const isIdleHome =
 			car.pendingAssignmentCount === 0 &&
 			car.nonemptyDestinationCount === 0 &&
 			car.settleCounter === 0 &&
-			car.currentFloor === turnFloor;
+			car.currentFloor === car.homeFloor;
 
 		if (isIdleHome) {
 			// Case C: idle-home candidate already at floor

@@ -12,12 +12,16 @@ import {
 	advanceSimTripCounters,
 	clearSimRoute,
 	dispatchCommercialVenueVisit,
+	findCommercialVenueAtFloor,
 	findObjectForSim,
 	recomputeObjectOperationalStatus,
+	releaseOfficeVenueSlot,
 	releaseServiceRequest,
 	resetFacilitySimTripCounters,
 	resolveSimRouteBetweenFloors,
+	tryAcquireOfficeVenueSlot,
 	tryAssignParkingService,
+	VENUE_SLOT_FULL,
 } from "./index";
 import { tryStartMedicalTrip } from "./medical";
 import {
@@ -229,10 +233,28 @@ function handleOfficeActive(
 	});
 	if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
 		// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
-		// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed.
-		// dispatchCommercialVenueVisit's beginCommercialVenueDwell writes 0x62;
-		// switch to 0x22 + queueTick so the STATE_VENUE_TRIP handler's 60-tick
-		// dwell gate matches the binary's service_duration wait.
+		// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed,
+		// or state 0x41 (STATE_ACTIVE_TRANSIT) when acquire_slot returns 2
+		// (capacity > 39). dispatchCommercialVenueVisit's
+		// beginCommercialVenueDwell writes 0x62; we override based on the slot
+		// acquire result to match the binary.
+		const venue = findCommercialVenueAtFloor(
+			world,
+			sim.floorAnchor,
+			new Set([FAMILY_FAST_FOOD]),
+		);
+		if (venue) {
+			const result = tryAcquireOfficeVenueSlot(venue, sim, time);
+			if (result === VENUE_SLOT_FULL) {
+				// Binary: stay in 0x41 (in-transit alias). The per-stride 0x41
+				// handler will re-attempt acquire next stride. Clear the dwell
+				// state set by beginCommercialVenueDwell.
+				sim.stateCode = STATE_ACTIVE_TRANSIT;
+				sim.venueReturnState = STATE_AT_WORK;
+				sim.destinationFloor = sim.floorAnchor;
+				return;
+			}
+		}
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.queueTick = time.dayTick;
 		return;
@@ -427,6 +449,16 @@ function handleOfficeVenueTrip(
 	facility: PlacedObjectRecord,
 ): void {
 	if (time.daypartIndex >= 4) {
+		// Late-day forced park: release the venue slot so the venue's
+		// currentPopulation tracks workers leaving (binary
+		// release_commercial_venue_slot, 11b0:0fae, called from the same
+		// state handler before the park transition).
+		const venue = findCommercialVenueAtFloor(
+			world,
+			sim.selectedFloor,
+			new Set([FAMILY_FAST_FOOD]),
+		);
+		if (venue) releaseOfficeVenueSlot(venue, sim, time, true);
 		sim.stateCode = STATE_PARKED;
 		releaseServiceRequest(world, sim);
 		return;
@@ -441,6 +473,19 @@ function handleOfficeVenueTrip(
 		time.dayTick - sim.queueTick < COMMERCIAL_VENUE_DWELL_TICKS
 	) {
 		return;
+	}
+	// Binary route_sim_back_from_commercial_venue (1238:0244) calls
+	// release_commercial_venue_slot (11b0:0fae) BEFORE resolving the return
+	// route. Mirror the decrement here. Skip the dwell gate inside
+	// releaseOfficeVenueSlot because the caller's `dayTick - queueTick >=
+	// COMMERCIAL_VENUE_DWELL_TICKS` check above already enforces it.
+	if (sim.stateCode === STATE_VENUE_TRIP && !isFakeLunch) {
+		const venue = findCommercialVenueAtFloor(
+			world,
+			sim.selectedFloor,
+			new Set([FAMILY_FAST_FOOD]),
+		);
+		if (venue) releaseOfficeVenueSlot(venue, sim, time, true);
 	}
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
@@ -726,27 +771,57 @@ export function handleOfficeSimArrival(
 	}
 
 	// Arrival while in ACTIVE_TRANSIT (0x41) or VENUE_TRIP_TRANSIT (0x42) —
-	// binary promotes to state 0x22 (STATE_VENUE_TRIP). For real venue visits
-	// (selectedFloor != LOBBY_FLOOR), queueTick records the arrival time so
-	// the 60-tick dwell gate in processOfficeSim can block correctly. We use
-	// queueTick rather than lastDemandTick because the stride rebase clears
-	// lastDemandTick to -1 on every call, which would break the dwell gate.
+	// binary re-runs the 0x01/0x41 (or 0x02/0x42) state handler at arrival via
+	// `dispatch_destination_queue_entries` (1218:0883), which calls
+	// `route_sim_to_commercial_venue` (1238:0000). That helper resolves
+	// floor→floor (rc=3 same-floor since arrival floor == venue floor), then
+	// calls `acquire_commercial_venue_slot` (11b0:0d92):
+	//   - rc=3 (slot acquired): writes entity[+5] = 0x22 (STATE_VENUE_TRIP)
+	//   - rc=2 (full, currentPopulation > 39): JMP caseD_0 → entity[+5] = 0x41
+	//     (stays in STATE_ACTIVE_TRANSIT; the per-stride 0x41 handler will
+	//     re-attempt acquire next stride until a slot opens up)
+	//   - rc=-1 (closed/dormant): falls through to writing 0x22, but the
+	//     subsequent 0x22 release handler short-circuits via the same gates.
 	//
-	// Both aliases advance trip counters at arrival:
-	//  - 0x41's base 0x01 calls 1238:0000 route_sim_to_commercial_venue, which
-	//    invokes resolve_sim_route_between_floors with `is_passenger_route=1`
-	//    (1238:00d8 PUSH 0x1). At arrival sim+7 == venue_dest_floor, so resolve
-	//    hits the same-floor branch (1218:0046) which calls
-	//    advance_sim_trip_counters because is_passenger_route != 0.
-	//  - 0x42's base 0x02 dispatches via resolve directly (1228:2775 handler at
-	//    1228:27e4 PUSH 0x1 is_passenger_route), same advance via 1218:0046.
+	// queueTick records the arrival time so the 60-tick dwell gate in
+	// processOfficeSim can block correctly. We use queueTick rather than
+	// lastDemandTick because the stride rebase clears lastDemandTick to -1
+	// on every call, which would break the dwell gate.
+	//
+	// Both aliases advance trip counters at arrival via the resolve same-floor
+	// branch (1218:0046, is_passenger_route=1).
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
 	) {
 		advanceIfNeeded();
-		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
+		// Real fast-food venue lookup. The lobby fallback path (sim being
+		// routed to LOBBY_FLOOR because no venue was available) is identified
+		// by selectedFloor == LOBBY_FLOOR; for that path the binary's
+		// `acquire_commercial_venue_slot` short-circuits at
+		// `facility_slot_index < 0` and returns 3 (no capacity check). Mirror
+		// that by skipping the lookup and going straight to STATE_VENUE_TRIP.
+		const venue =
+			arrivalFloor === LOBBY_FLOOR
+				? null
+				: findCommercialVenueAtFloor(
+						world,
+						arrivalFloor,
+						new Set([FAMILY_FAST_FOOD]),
+					);
+		if (venue) {
+			const result = tryAcquireOfficeVenueSlot(venue, sim, time);
+			if (result === VENUE_SLOT_FULL) {
+				// Stay in STATE_ACTIVE_TRANSIT; the per-stride 0x41 handler
+				// will re-attempt acquire next stride. Don't clear
+				// destinationFloor — the binary keeps entity[+6] (venue index)
+				// intact and re-runs the handler.
+				return;
+			}
+			// VENUE_SLOT_ACQUIRED or VENUE_SLOT_UNAVAILABLE → state 0x22.
+		}
+		sim.destinationFloor = -1;
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.queueTick = time.dayTick;
 		return;

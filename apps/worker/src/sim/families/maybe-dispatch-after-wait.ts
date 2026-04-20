@@ -43,7 +43,10 @@ const ROUTE_WAIT_TIMEOUT_TICKS = 300;
 // Binary family-7 dispatch_sim_behavior jumptable at 1228:1c51. Entries for
 // states {0x45, 0x60, 0x61, 0x62, 0x63} all point to handler 1228:193d, which
 // unconditionally writes sim[+5] = 0x26 (NIGHT_B). Entries for {0x40, 0x41,
-// 0x42} point to a different handler (1228:1989) — not yet decoded.
+// 0x42} point to handler 1228:1989, which writes sim[+5] = 0x05 (DEPARTURE)
+// after calling advance_stay_phase_or_wrap (1228:68c3). The 0x40/0x41/0x42
+// timeout path is reached for FULL-stuck sims (sim+8 = 0xfe queue-full
+// marker) once the 300-tick wait threshold passes.
 const OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES = new Set<number>([
 	STATE_DEPARTURE_TRANSIT,
 	STATE_MORNING_TRANSIT,

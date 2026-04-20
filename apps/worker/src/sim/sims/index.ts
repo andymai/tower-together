@@ -44,7 +44,6 @@ export {
 } from "./hotel-facilities";
 
 import { addDelayToCurrentSim } from "../stress/add-delay";
-import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
 import { advanceSimTripCounters } from "../stress/trip-counters";
 import {
 	handleMedicalSimArrival,
@@ -69,7 +68,6 @@ import {
 	STATE_DEPARTURE_TRANSIT,
 	STATE_DWELL_RETURN_TRANSIT,
 	STATE_MORNING_TRANSIT,
-	STATE_TRANSIT_FLAG,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP,
 	STATE_VENUE_TRIP_TRANSIT,
@@ -160,6 +158,119 @@ interface VenueSelection {
 	record: CommercialVenueRecord;
 	floor: number;
 	heightMetric: number;
+}
+
+/**
+ * Mirror of binary helper that finds an office worker's chosen commercial
+ * venue at a specific floor by family. The binary keeps the picked venue
+ * record index in entity[+6] and re-resolves through that on each
+ * dispatch; we don't currently store the index, so we look up by
+ * `(arrival floor, family set)`. For the current fixtures (one venue per
+ * floor of each family), this is unambiguous and matches the binary.
+ *
+ * Returns the first venue found at `floor` whose family is in `families`
+ * and whose record is non-INVALID; null otherwise.
+ */
+export function findCommercialVenueAtFloor(
+	world: WorldState,
+	floor: number,
+	families: Set<number>,
+): CommercialVenueRecord | null {
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (!families.has(object.objectTypeCode)) continue;
+		if (object.linkedRecordIndex < 0) continue;
+		const [, y] = key.split(",").map(Number);
+		if (yToFloor(y) !== floor) continue;
+		const record = world.sidecars[object.linkedRecordIndex] as
+			| CommercialVenueRecord
+			| undefined;
+		if (!record || record.kind !== "commercial_venue") continue;
+		if (record.ownerSubtypeIndex === INVALID_FLOOR) continue;
+		return record;
+	}
+	return null;
+}
+
+/** Result code mirroring binary `acquire_commercial_venue_slot` (11b0:0d92). */
+export const VENUE_SLOT_ACQUIRED = 3;
+export const VENUE_SLOT_FULL = 2;
+export const VENUE_SLOT_UNAVAILABLE = -1;
+
+/**
+ * Mirror of binary `acquire_commercial_venue_slot` (11b0:0d92) for an
+ * office worker arriving at a venue. Returns the binary's service-route
+ * state code (3=acquired, 2=full, -1=unavailable). Increments the venue's
+ * `currentPopulation` (binary record+9) on the success path and stamps
+ * the sim's `lastDemandTick` with the current dayTick (binary entity+0xa).
+ *
+ * Capacity gate: binary uses `if ('\'' < currentPopulation)` i.e. > 39.
+ * Match that exactly (rather than the off-by-one `< 39` used in
+ * commercial.ts:135 for venue owners' own arrivals) so visiting workers
+ * see the same threshold the binary's elevator-arrival handler does.
+ */
+export function tryAcquireOfficeVenueSlot(
+	venue: CommercialVenueRecord,
+	sim: SimRecord,
+	time: TimeState,
+):
+	| typeof VENUE_SLOT_ACQUIRED
+	| typeof VENUE_SLOT_FULL
+	| typeof VENUE_SLOT_UNAVAILABLE {
+	if (
+		venue.ownerSubtypeIndex === 0xff ||
+		venue.availabilityState === VENUE_DORMANT ||
+		venue.availabilityState === VENUE_CLOSED
+	) {
+		return VENUE_SLOT_UNAVAILABLE;
+	}
+	if (venue.currentPopulation > 39) {
+		// Binary 11b0:0f6c+: writes entity[+0xa] = g_day_tick on the full path
+		// before returning 2. We don't mirror that latch in TS because our
+		// per-stride office handler doesn't gate on lastDemandTick (it gates
+		// on queueTick, set only on successful 0x22 transition); stamping
+		// lastDemandTick on the rejection path here would interfere with the
+		// stress-rebase pipeline without a corresponding gating use.
+		return VENUE_SLOT_FULL;
+	}
+	venue.currentPopulation += 1;
+	sim.lastDemandTick = time.dayTick;
+	return VENUE_SLOT_ACQUIRED;
+}
+
+/**
+ * Mirror of binary `release_commercial_venue_slot` (11b0:0fae) for an
+ * office worker leaving a venue. Decrements `currentPopulation` if the
+ * venue is non-dormant. Returns true if the slot was released (and the
+ * caller may proceed with the return route), false if the dwell timer
+ * has not expired yet (binary returns 0 in that case).
+ *
+ * The dwell gate is the standard `dayTick - lastAcquireTick >=
+ * COMMERCIAL_VENUE_DWELL_TICKS` (60 ticks) check. Office callers that
+ * already enforce the dwell gate themselves can pass `skipDwellGate=true`.
+ */
+export function releaseOfficeVenueSlot(
+	venue: CommercialVenueRecord,
+	sim: SimRecord,
+	time: TimeState,
+	skipDwellGate = false,
+): boolean {
+	if (
+		venue.ownerSubtypeIndex === 0xff ||
+		venue.availabilityState === VENUE_DORMANT ||
+		venue.availabilityState === VENUE_CLOSED
+	) {
+		return true;
+	}
+	if (
+		!skipDwellGate &&
+		time.dayTick - sim.lastDemandTick < COMMERCIAL_VENUE_DWELL_TICKS
+	) {
+		return false;
+	}
+	if (venue.currentPopulation > 0) {
+		venue.currentPopulation -= 1;
+	}
+	return true;
 }
 
 function pickAvailableVenue(
@@ -418,35 +529,23 @@ export function advanceSimRefreshStride(
 	for (let index = 0; index < world.sims.length; index++) {
 		if (index % ENTITY_REFRESH_STRIDE !== stride) continue;
 		const sim = world.sims[index];
-		// Binary: refresh_runtime_entities_for_tick_stride (1228:0d64) does NOT
-		// call rebase_sim_elapsed_from_clock for sims that are still on a
-		// carrier — rebase only fires in dispatch_sim_behavior (1228:186c)
-		// reached via the route-queue drainer. Skipping rebase for on-carrier
-		// sims preserves sim.field_10 (lastDemandTick) so
-		// maybe_dispatch_queued_route_after_wait can fire after the
-		// 300-tick threshold elapses. Segment transits are likewise in-flight
-		// and must not rebase — the add_delay_to_current_sim penalty applied
-		// at resolve time already represents the trip's stress contribution,
-		// and a stride rebase would erroneously add live clock ticks on top.
+		// Binary parity: `refresh_runtime_entities_for_tick_stride` (1228:0d64)
+		// does NOT call `rebase_sim_elapsed_from_clock` at all. The only stride-
+		// time rebase points in the binary are inside `dispatch_sim_behavior`
+		// (1228:186c) — invoked by `dispatch_queued_route_until_request` when a
+		// queued carrier route pops — and `cancel_runtime_route_request`
+		// (1218:1b85) when a request is canceled. Per-family refresh handlers
+		// (1228:1cb5 office, 1228:2aec hotel, 1228:3a2f condo, etc.) drive the
+		// state machine directly without rebasing.
 		//
-		// Commercial families (6/0xa/0xc) dispatch through their own family
-		// handler (1228:40c0 / 1228:4851), NOT through dispatch_sim_behavior,
-		// so they never rebase via the stride refresh in the binary. During
-		// state 0x05 DEPARTURE dwell, sim[+0x0a] is used as the dwell-start
-		// stamp (set by acquire_commercial_venue_slot), and rebase must not
-		// zero it — otherwise the release_commercial_venue_slot gate fires
-		// immediately.
-		const isCommercial =
-			sim.familyCode === FAMILY_RESTAURANT ||
-			sim.familyCode === FAMILY_FAST_FOOD ||
-			sim.familyCode === FAMILY_RETAIL;
-		if (
-			!isCommercial &&
-			(sim.stateCode & STATE_TRANSIT_FLAG) === 0 &&
-			sim.route.mode === "idle"
-		) {
-			rebaseSimElapsedFromClock(sim, time);
-		}
+		// Sim+0xa (`lastDemandTick`) is multipurpose in the binary: it serves as
+		// the carrier-queue enqueue stamp (set by `resolve_sim_route_between_floors`
+		// rc=2), the commercial-venue acquire/dwell stamp (set by
+		// `acquire_commercial_venue_slot` rc=2/3), and the medical-slot acquire
+		// stamp (set by `office_sim_check_medical_service_slot`). A per-stride
+		// rebase would corrupt those stamps — most visibly, after an office
+		// worker acquires a fast-food slot, the next stride would add the
+		// 16-tick delta into elapsedTicks, inflating stress by ~6 per visit.
 		finalizePendingRouteLeg(sim);
 		// Binary: refresh_object_family_office_state_handler (1228:1cb5) for
 		// state >= 0x40 + on-carrier sims calls maybe_dispatch_queued_route_after_wait
@@ -466,9 +565,10 @@ export function advanceSimRefreshStride(
 		if (sim.route.mode === "carrier") {
 			continue;
 		}
-		// Phase 4 + housekeeping: office + condo + hotel + housekeeping have
-		// migrated to per-stride per-leg re-resolution. Other families still
-		// rely on the legacy whole-trip finalizer in `reconcileSimTransport`.
+		// Phase 4 + housekeeping + commercial: office + condo + hotel +
+		// housekeeping + restaurant/fast-food/retail have migrated to per-stride
+		// per-leg re-resolution. Other families still rely on the legacy
+		// whole-trip finalizer in `reconcileSimTransport`.
 		if (
 			sim.route.mode === "segment" &&
 			sim.familyCode !== FAMILY_OFFICE &&
@@ -476,7 +576,10 @@ export function advanceSimRefreshStride(
 			sim.familyCode !== FAMILY_HOTEL_SINGLE &&
 			sim.familyCode !== FAMILY_HOTEL_TWIN &&
 			sim.familyCode !== FAMILY_HOTEL_SUITE &&
-			sim.familyCode !== FAMILY_HOUSEKEEPING
+			sim.familyCode !== FAMILY_HOUSEKEEPING &&
+			sim.familyCode !== FAMILY_RESTAURANT &&
+			sim.familyCode !== FAMILY_FAST_FOOD &&
+			sim.familyCode !== FAMILY_RETAIL
 		) {
 			continue;
 		}
@@ -539,6 +642,18 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 		sim.familyCode === FAMILY_HOTEL_SUITE
 	)
 		return false;
+	if (
+		sim.familyCode === FAMILY_RESTAURANT ||
+		sim.familyCode === FAMILY_FAST_FOOD ||
+		sim.familyCode === FAMILY_RETAIL
+	) {
+		// Commercial families (restaurant/fast-food/retail) migrated to
+		// per-stride per-leg re-resolution via processCommercialSim's
+		// MORNING_TRANSIT (0x60) and DEPARTURE_TRANSIT (0x45) handlers.
+		// The legacy whole-trip teleport here would short-circuit the binary's
+		// 16-tick stride wait between MORNING_GATE -> MORNING_TRANSIT -> arrival.
+		return false;
+	}
 	if (sim.familyCode === FAMILY_HOUSEKEEPING) {
 		// Phase 5b/c: HK migrated to per-stride per-leg re-resolution like
 		// office/condo/hotel. The whole-trip teleport here would race with the
@@ -580,6 +695,12 @@ function finalizePendingRouteLeg(sim: SimRecord): void {
 		sim.familyCode === FAMILY_HOTEL_SINGLE ||
 		sim.familyCode === FAMILY_HOTEL_TWIN ||
 		sim.familyCode === FAMILY_HOTEL_SUITE
+	)
+		return;
+	if (
+		sim.familyCode === FAMILY_RESTAURANT ||
+		sim.familyCode === FAMILY_FAST_FOOD ||
+		sim.familyCode === FAMILY_RETAIL
 	)
 		return;
 	// Transit countdown is handled by reconcileSimTransport; here we just
@@ -672,6 +793,17 @@ export function reconcileSimTransport(
 	for (const sim of world.sims) {
 		if (sim.destinationFloor < 0) continue;
 		if (!completed.has(simKey(sim))) continue;
+		// Office FULL-retry path: `handleOfficeSimArrival` may intentionally
+		// leave `destinationFloor` set when `acquire_commercial_venue_slot`
+		// returns 2 (capacity FULL), so the per-stride 0x41 handler can
+		// re-attempt next stride. The binary mirrors this by NOT re-dispatching
+		// the same arrival — `dispatch_destination_queue_entries` (1218:0883)
+		// fires the family handler exactly once per arrival. Mirror that here:
+		// if the sim's route was already cleared (mode=idle) it means the
+		// inline dispatch in `dispatchDestinationQueueEntries` already ran, so
+		// the legacy completion-sweep re-fire would be a duplicate trip-counter
+		// advance via the resolve same-floor branch.
+		if (sim.route.mode === "idle") continue;
 		dispatchSimArrival(world, ledger, time, sim, sim.destinationFloor);
 	}
 }
