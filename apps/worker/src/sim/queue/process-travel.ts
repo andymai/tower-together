@@ -132,6 +132,7 @@ export function assignRequestToRuntimeRoute(
 	carrier: CarrierRecord,
 	car: CarrierCar,
 	route: CarrierRecord["pendingRoutes"][number],
+	carIndex?: number,
 ): boolean {
 	const resolvedFloor = chooseTransferFloorFromCarrierReachability(
 		world,
@@ -156,6 +157,15 @@ export function assignRequestToRuntimeRoute(
 		return false;
 	}
 	route.destinationFloor = resolvedFloor;
+	// Binary 1218:0d4e: store_request_in_active_route_slot writes the request
+	// into THIS car's slot table — there's no per-car-index check on the slot
+	// itself. If the route was previously assigned to a different car (via
+	// assign_car_to_floor_request), the slot ownership transfers to the actual
+	// boarding car. Mirror that by reassigning here so `boardWaitingRoutes` can
+	// fire on the next pass without being blocked by a stale carIndex.
+	if (carIndex !== undefined) {
+		route.assignedCarIndex = carIndex;
+	}
 	return addRouteSlot(carrier, car, route);
 }
 
@@ -215,26 +225,46 @@ function drainFloorQueueForCar(
 					.join(",")}]`,
 			);
 		}
-		// Binary drains directly from the floor queue; we also accept routes
-		// with ci=-1 (unassigned by cases A/B/C) and routes previously
-		// assigned to this car index.
-		const assignedRoutes = buf
-			.peekAll()
-			.map((routeId) => findRouteById(carrier, routeId))
-			.filter(
-				(route): route is NonNullable<typeof route> =>
-					route !== undefined &&
-					!route.boarded &&
-					(route.assignedCarIndex === carIndex ||
-						route.assignedCarIndex === -1) &&
-					!hasActiveSlot(car, route.simId),
-			);
-		for (const route of assignedRoutes.slice(
-			0,
-			Math.min(popCap, remainingSlots),
-		)) {
-			buf.pop();
-			if (assignRequestToRuntimeRoute(world, carrier, car, route)) {
+		// Binary 1218:0351 drains the queue strictly FIFO via repeated
+		// `pop_unit_queue_request` + `assign_request_to_runtime_route` calls.
+		// Pops `queue_count` items from the head (capped at `remainingSlots`
+		// when dc==1, else 1). Each pop processes whoever is at the head; if
+		// assignment fails the binary calls `force_dispatch_sim_state_by_family`
+		// which may re-enqueue at the tail. There is NO per-car-index filter
+		// in the binary; pre-assignment via `primary_route_status_by_floor`
+		// selects a single car at enqueue time and that car drains the queue.
+		//
+		// Earlier code built a filtered preview of the queue (skipping boarded
+		// duplicates and routes assigned to other cars) and then called
+		// `buf.pop()` once per filtered match. Because pop() always removes the
+		// head, the pop and the assigned route diverged: a popped head that
+		// did not match the filter was discarded but the matching route a few
+		// positions deeper was assigned without being removed from the queue,
+		// leaving a stale duplicate. Subsequent pulses then re-popped that
+		// duplicate, creating a self-perpetuating set of stale entries that
+		// caused trace-test divergence (e.g., sim 22 in build_dense_office at
+		// day=0 tick=187 boarded car 1 instead of car 5).
+		//
+		// Strict-FIFO behavior matching the binary: pop from the head and
+		// attempt `assign_request_to_runtime_route`. Cap on REAL assignment
+		// attempts (mirroring the binary's `queue_count`); stale duplicates
+		// are silently popped without consuming an attempt, since the binary
+		// never produces them in the first place. Cleaning them up is just a
+		// background side effect of the strict-FIFO drain.
+		const maxAssignments = Math.min(popCap, remainingSlots);
+		let assignmentAttempts = 0;
+		while (assignmentAttempts < maxAssignments && buf.size > 0) {
+			const routeId = buf.pop();
+			if (routeId === undefined) break;
+			const route = findRouteById(carrier, routeId);
+			if (!route) continue;
+			if (route.boarded || hasActiveSlot(car, route.simId)) {
+				// Stale duplicate left over from a prior pulse — drop and keep
+				// popping without consuming an assignment attempt.
+				continue;
+			}
+			assignmentAttempts += 1;
+			if (assignRequestToRuntimeRoute(world, carrier, car, route, carIndex)) {
 				remainingSlots -= 1;
 			}
 		}

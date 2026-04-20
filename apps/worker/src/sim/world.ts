@@ -48,6 +48,15 @@ export interface CarrierCar {
 	targetFloor: number;
 	prevFloor: number;
 	homeFloor: number;
+	/**
+	 * Binary -0x51 nearest_work_floor: scan-direction nearest floor with
+	 * pending work for this car (queued rider OR primary/secondary slot ==
+	 * carIndex+1), with `homeFloor` as the no-work fallback. Maintained at
+	 * the end of `recomputeCarTargetAndDirection`. Used as the wrap-cost
+	 * "turn floor" in `findBestAvailableCarForFloor` and as the idle-home
+	 * test (current == nearest_work_floor) in the same routine.
+	 */
+	nearestWorkFloor: number;
 	scheduleFlag: number;
 	/** Binary -0x57: latch set once car reaches a target; gates A1 dwell write. */
 	arrivalSeen: number;
@@ -558,6 +567,21 @@ export interface WorldState {
 	rngCallCount: number;
 	/** 1–6 (6 = Tower). */
 	starCount: number;
+	/**
+	 * Binary `g_primary_family_ledger_total` @ 1288:c13a. Population-weighted
+	 * activation total used by `compute_tower_tier_from_ledger` (1148:041d) to
+	 * gate star advancement. Updated via `add_to_primary_family_ledger_bucket`
+	 * (1068:07f7) and `clear_primary_family_ledger_bucket` (1068:07b3) on the
+	 * binary's family-ledger events:
+	 *   - office (family 7) activate/deactivate: ±6
+	 *   - hotel single (family 3) activate/deactivate: ±1
+	 *   - hotel twin/suite (family 4/5) activate/deactivate: ±2
+	 *   - condo (family 9) sale/refund: ±3
+	 *   - retail (family 10) activation: +10
+	 *   - restaurant/fastfood (family 6/12) and entertainment families: rebuilt
+	 *     daily from runtime budgets (clear+seed pattern).
+	 */
+	primaryFamilyLedgerTotal: number;
 	/** Bomb/fire/VIP event state. */
 	eventState: EventState;
 	/** Pending notifications emitted during the current tick (drained by the transport layer). */

@@ -60,9 +60,6 @@ import {
 	COMMERCIAL_DWELL_STATE,
 	COMMERCIAL_VENUE_DWELL_TICKS,
 	ENTITY_REFRESH_STRIDE,
-	HK_STATE_ROUTE_TO_CANDIDATE,
-	HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT,
-	HK_STATE_ROUTE_TO_TARGET,
 	INVALID_FLOOR,
 	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
@@ -204,7 +201,11 @@ function pickAvailableVenue(
 	) {
 		return null;
 	}
-	if (picked.record.todayVisitCount >= picked.record.capacity) return null;
+	// Binary `select_random_commercial_venue_record_from_bucket` (11b0:1361)
+	// does NOT filter on capacity at pick time; capacity is enforced later by
+	// `acquire_commercial_venue_slot` (11b0:0d92) at arrival. Filtering here
+	// triggered the `route_sim_to_commercial_venue` lobby fallback too often,
+	// inflating floor-down enqueues (build_dense_office day=0 tick=459).
 	if (
 		!hasViableRouteBetweenFloors(
 			world,
@@ -465,16 +466,17 @@ export function advanceSimRefreshStride(
 		if (sim.route.mode === "carrier") {
 			continue;
 		}
-		// Phase 4: office + condo + hotel have migrated to per-stride per-leg
-		// re-resolution. Other families still rely on the legacy whole-trip
-		// finalizer in `reconcileSimTransport`.
+		// Phase 4 + housekeeping: office + condo + hotel + housekeeping have
+		// migrated to per-stride per-leg re-resolution. Other families still
+		// rely on the legacy whole-trip finalizer in `reconcileSimTransport`.
 		if (
 			sim.route.mode === "segment" &&
 			sim.familyCode !== FAMILY_OFFICE &&
 			sim.familyCode !== FAMILY_CONDO &&
 			sim.familyCode !== FAMILY_HOTEL_SINGLE &&
 			sim.familyCode !== FAMILY_HOTEL_TWIN &&
-			sim.familyCode !== FAMILY_HOTEL_SUITE
+			sim.familyCode !== FAMILY_HOTEL_SUITE &&
+			sim.familyCode !== FAMILY_HOUSEKEEPING
 		) {
 			continue;
 		}
@@ -538,13 +540,15 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 	)
 		return false;
 	if (sim.familyCode === FAMILY_HOUSEKEEPING) {
-		// HK routing states reuse low state codes (1/3/4) that collide with
-		// hotel-family state values, so gate on family first.
-		return (
-			sim.stateCode === HK_STATE_ROUTE_TO_CANDIDATE ||
-			sim.stateCode === HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT ||
-			sim.stateCode === HK_STATE_ROUTE_TO_TARGET
-		);
+		// Phase 5b/c: HK migrated to per-stride per-leg re-resolution like
+		// office/condo/hotel. The whole-trip teleport here would race with the
+		// per-stride state-3 dispatch — for a 1-floor route the same-tick
+		// teleport fires `dispatchSimArrival` → `handleHousekeepingSimArrival`
+		// → `tryClaimOnCurrentFloor` → `promoteClaim`, advancing the HK helper
+		// to state 2 in the same tick the route is initiated. The binary
+		// requires a separate stride for the state-3 re-resolve to return 3
+		// (same-floor) before the claim fires. Skip the legacy finalizer.
+		return false;
 	}
 	return (
 		sim.stateCode === STATE_COMMUTE ||

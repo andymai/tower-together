@@ -32,7 +32,6 @@ import {
 	type LedgerState,
 	rebuildFacilityLedger,
 } from "../ledger";
-import { tryAdvanceStarCount } from "../progression";
 import {
 	resetRecyclingCenterDutyTier,
 	updateRecyclingCenterState,
@@ -156,7 +155,10 @@ function checkpointLateFacility(_s: SimState): void {
 	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_RETAIL);
 	closeCommercialVenuesByFamily(_s.world, _s.ledger, FAMILY_FAST_FOOD);
 	updateRecyclingCenterState(_s.world, _s.ledger, 2);
-	tryAdvanceStarCount(_s.world, _s.time);
+	// Note: `tryAdvanceStarCount` no longer fires from this checkpoint. The
+	// binary calls `check_and_advance_star_rating` (1148:002d) every tick
+	// from `FUN_1098_03ab` (1098:03ab), which we mirror by invoking it at
+	// the top of `carrierTick` in tick/carrier-tick.ts.
 }
 
 function checkpointType6Advance(_s: SimState): void {

@@ -1,34 +1,52 @@
-// Star advancement (binary `check_star_advancement_conditions` /
-// `compute_tower_tier_from_ledger` / `reset_star_gate_state`).
+// Star advancement (binary `check_and_advance_star_rating` @ 1148:002d /
+// `compute_tower_tier_from_ledger` @ 1148:041d / `reset_star_gate_state`).
 //
-// Runs once per day at checkpoint 0x7d0 (tick 2000). Two independent
-// checks must both pass for starCount to advance:
+// Runs every tick from `FUN_1098_03ab` (the per-tick scheduler that we mirror
+// in `tick/carrier-tick.ts`). Two independent checks must both pass for
+// starCount to advance:
 //
-// 1. `computeTowerTierFromLedger()` > current starCount — cumulative
-//    activation tick count across all placed objects exceeds the
-//    threshold for the next tier (STAR_THRESHOLDS in resources.ts).
-// 2. `checkStarAdvancementConditions()` — all qualitative gates for
-//    the current-tier transition are satisfied.
+// 1. `computeTowerTierFromLedger()` > current starCount — the ledger total
+//    `g_primary_family_ledger_total` (1288:c13a, modeled here as
+//    `world.primaryFamilyLedgerTotal`) crosses the next tier threshold.
+//    Thresholds (binary DS:e630..e63c + hardcoded 15000): [300, 1000, 5000,
+//    10000, 15000]. Comparison is `>=` (binary uses `< threshold` for the
+//    lower-tier branch).
+// 2. `checkStarAdvancementConditions()` — all qualitative gates for the
+//    current-tier transition are satisfied.
 //
-// On success, starCount is incremented (capped at 5 here — rank 6
-// "Tower" is reached exclusively via the cathedral evaluation path in
-// cathedral.ts), the per-day star-gate flags are reset, and a
-// `star_advanced` notification is queued.
+// On success, starCount is incremented (capped at 5 here — rank 6 "Tower"
+// is reached exclusively via the cathedral evaluation path in cathedral.ts),
+// the per-day star-gate flags are reset, and a `star_advanced` notification
+// is queued.
 
 import { STAR_THRESHOLDS } from "./resources";
 import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
 export function computeTowerTierFromLedger(world: WorldState): number {
-	let total = 0;
-	for (const object of Object.values(world.placedObjects)) {
-		total += object.activationTickCount ?? 0;
-	}
+	const total = world.primaryFamilyLedgerTotal;
 	let tier = 1;
 	for (let index = 0; index < STAR_THRESHOLDS.length; index++) {
-		if (total > STAR_THRESHOLDS[index]) tier = index + 2;
+		// Binary compares `total < THRESHOLD[index]` to keep tier == index+1;
+		// the inverse here (>=) advances tier to index+2.
+		if (total >= STAR_THRESHOLDS[index]) tier = index + 2;
 	}
 	return tier;
+}
+
+/**
+ * Mirrors binary `add_to_primary_family_ledger_bucket` (1068:07f7). The
+ * binary also routes the delta into a per-family slot lookup, but only the
+ * primary running total is observable in the trace; we track only the total
+ * here. Family code is accepted to match the binary signature and to make
+ * the call sites self-documenting.
+ */
+export function addToPrimaryFamilyLedger(
+	world: WorldState,
+	_familyCode: number,
+	amount: number,
+): void {
+	world.primaryFamilyLedgerTotal += amount;
 }
 
 export function checkStarAdvancementConditions(

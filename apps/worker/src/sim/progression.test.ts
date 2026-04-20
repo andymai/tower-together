@@ -24,6 +24,7 @@ function makeWorld(): WorldState {
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
 		starCount: 1,
+		primaryFamilyLedgerTotal: 0,
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
@@ -51,7 +52,7 @@ function makeWorld(): WorldState {
 function addObjectWithActivation(
 	world: WorldState,
 	key: string,
-	activationTickCount: number,
+	ledgerContribution: number,
 ): PlacedObjectRecord {
 	const object: PlacedObjectRecord = {
 		leftTileIndex: 0,
@@ -64,10 +65,14 @@ function addObjectWithActivation(
 		evalLevel: 0,
 		evalScore: -1,
 		rentLevel: 1,
-		activationTickCount,
+		activationTickCount: 0,
 		housekeepingClaimedFlag: 0,
 	};
 	world.placedObjects[key] = object;
+	// Mirrors `add_to_primary_family_ledger_bucket` (1068:07f7): the binary
+	// stores the ledger total in g_primary_family_ledger_total; this test
+	// helper bumps the same field so star-tier checks see the contribution.
+	world.primaryFamilyLedgerTotal += ledgerContribution;
 	return object;
 }
 
@@ -86,29 +91,32 @@ describe("computeTowerTierFromLedger", () => {
 		expect(computeTowerTierFromLedger(world)).toBe(1);
 	});
 
-	it("returns tier 2 once first threshold is exceeded", () => {
+	it("returns tier 2 once first threshold is met", () => {
 		const world = makeWorld();
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0] + 1);
+		// Binary `compute_tower_tier_from_ledger` (1148:041d) compares
+		// `total < THRESHOLD` for the lower-tier branch, so reaching the
+		// threshold value (e.g. 300) is enough to advance.
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0]);
 		expect(computeTowerTierFromLedger(world)).toBe(2);
 	});
 
-	it("requires strict inequality to advance a tier", () => {
+	it("stays in lower tier just below the threshold", () => {
 		const world = makeWorld();
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0]);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0] - 1);
 		expect(computeTowerTierFromLedger(world)).toBe(1);
 	});
 
-	it("sums across placed objects", () => {
+	it("sums contributions to the primary ledger total", () => {
 		const world = makeWorld();
 		addObjectWithActivation(world, "a", 200);
 		expect(computeTowerTierFromLedger(world)).toBe(1);
-		addObjectWithActivation(world, "b", 200);
+		addObjectWithActivation(world, "b", 100);
 		expect(computeTowerTierFromLedger(world)).toBe(2);
 	});
 
-	it("returns tier 6 when ledger exceeds the top threshold", () => {
+	it("returns tier 6 when ledger reaches the top threshold", () => {
 		const world = makeWorld();
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[4] + 1);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[4]);
 		expect(computeTowerTierFromLedger(world)).toBe(6);
 	});
 });
@@ -184,9 +192,9 @@ describe("checkStarAdvancementConditions", () => {
 });
 
 describe("tryAdvanceStarCount", () => {
-	it("advances 1→2 once the activity threshold is exceeded", () => {
+	it("advances 1→2 once the activity threshold is met", () => {
 		const world = makeWorld();
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0] + 1);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0]);
 		expect(tryAdvanceStarCount(world, lateAfternoonTime())).toBe(true);
 		expect(world.starCount).toBe(2);
 		expect(world.pendingNotifications).toEqual([
@@ -205,7 +213,7 @@ describe("tryAdvanceStarCount", () => {
 	it("does nothing if qualitative gate fails (2→3 without security)", () => {
 		const world = makeWorld();
 		world.starCount = 2;
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[1] + 1);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[1]);
 		expect(tryAdvanceStarCount(world, lateAfternoonTime())).toBe(false);
 		expect(world.starCount).toBe(2);
 	});
@@ -213,7 +221,7 @@ describe("tryAdvanceStarCount", () => {
 	it("resets officeServiceOk on advancement", () => {
 		const world = makeWorld();
 		world.starCount = 3;
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[2] + 1);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[2]);
 		world.gateFlags.officePlaced = 1;
 		world.gateFlags.recyclingAdequate = 1;
 		world.gateFlags.officeServiceOk = 1;
@@ -227,7 +235,7 @@ describe("tryAdvanceStarCount", () => {
 	it("caps at 5 stars (Tower rank reached via cathedral only)", () => {
 		const world = makeWorld();
 		world.starCount = 5;
-		addObjectWithActivation(world, "a", STAR_THRESHOLDS[4] + 1);
+		addObjectWithActivation(world, "a", STAR_THRESHOLDS[4]);
 		expect(tryAdvanceStarCount(world, lateAfternoonTime())).toBe(false);
 		expect(world.starCount).toBe(5);
 	});

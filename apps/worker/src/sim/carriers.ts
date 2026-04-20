@@ -110,6 +110,7 @@ export function makeCarrierCar(
 		targetFloor: homeFloor,
 		prevFloor: homeFloor,
 		homeFloor,
+		nearestWorkFloor: homeFloor,
 		scheduleFlag: 0,
 		arrivalSeen: 0,
 		arrivalTick: 0,
@@ -297,6 +298,13 @@ export function rebuildCarrierList(world: WorldState): void {
 					}),
 				);
 				car.homeFloor = Math.min(top, Math.max(bottom, car.homeFloor));
+				if (
+					car.nearestWorkFloor === undefined ||
+					car.nearestWorkFloor < bottom ||
+					car.nearestWorkFloor > top
+				) {
+					car.nearestWorkFloor = car.homeFloor;
+				}
 				if (car.currentFloor < bottom || car.currentFloor > top) {
 					resetOutOfRangeCar(existing, car);
 				}

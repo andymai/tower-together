@@ -238,10 +238,12 @@ export function processHousekeepingSim(
 			return;
 		}
 
-		case HK_STATE_ROUTE_TO_CANDIDATE: {
-			// Binary state-1 handler: route toward spawn_floor. Same-floor
-			// arrival with no committed target resets; same-floor arrival with
-			// a valid target advances to state 3 (claim).
+		case HK_STATE_ROUTE_TO_CANDIDATE:
+		case HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT: {
+			// Binary state-1/4 handler (jump table @ 1228:6404 / 1228:640a both
+			// → 0x62ec): both call resolve(sim+7=spawn, sim+0a=arg) every
+			// stride. rc=0/1/2 → state=4 (stay in transit; per-stride re-resolve
+			// advances the leg). rc=-1/3 → state=0 (reset to search).
 			if (sim.selectedFloor === sim.spawnFloor) {
 				if (sim.targetRoomFloor === HK_SEARCHING_SENTINEL) {
 					resetToSearch(sim);
@@ -266,10 +268,6 @@ export function processHousekeepingSim(
 			}
 			return;
 		}
-
-		case HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT:
-			// In transit; arrival handler advances to HK_STATE_ROUTE_TO_TARGET.
-			return;
 
 		case HK_STATE_ROUTE_TO_TARGET:
 			tryClaimOnCurrentFloor(world, time, sim);

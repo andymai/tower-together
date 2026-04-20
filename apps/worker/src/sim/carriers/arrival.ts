@@ -66,6 +66,8 @@ export function resetOutOfRangeCar(
 	car.directionFlag = 1;
 	car.arrivalSeen = 0;
 	car.arrivalTick = 0;
+	// Binary 1098:0192 sets car[-0x51] (nearestWorkFloor) to homeFloor.
+	car.nearestWorkFloor = homeFloor;
 	car.destinationCountByFloor.fill(0);
 	car.nonemptyDestinationCount = 0;
 	for (const slot of car.activeRouteSlots) {
@@ -79,18 +81,36 @@ export function resetOutOfRangeCar(
 }
 
 // Mirrors binary cancel_stale_floor_assignment (1098:12c9). Invoked from
-// advance_carrier_car_state's A2 (motion) branch. The binary routine is
-// visual-grid housekeeping only — it does NOT touch route-status tables or
-// pendingAssignmentCount (those are persistent state). Current TS carrier
-// model does not track the grid view, so this is a no-op.
+// advance_carrier_car_state's A2 (motion) branch when a car LEAVES a floor.
+// Clears the per-direction route-status slot if it was assigned to THIS car
+// (carIndex+1) and the gate (scheduleFlag != 0 || direction match) holds,
+// then decrements this car's pendingAssignmentCount.
 //
-// TODO(1098:12c9): If/when grid-visual bookkeeping is migrated into the TS
-// sim, fill this in. For now it exists as a named no-op so the A2 branch
-// call site mirrors the binary.
+// (Note: an earlier same-name function at binary 1098:0d15 is a separate
+// visual-grid housekeeping helper — that one does NOT touch route status.)
 export function cancelStaleFloorAssignment(
-	_carrier: CarrierRecord,
-	_car: CarrierCar,
-	_floor: number,
+	carrier: CarrierRecord,
+	car: CarrierCar,
+	floor: number,
+	carIndex: number,
 ): void {
-	// Intentionally empty. See TODO above.
+	const slot = floorToSlot(carrier, floor);
+	if (slot < 0) return;
+	const carTag = carIndex + 1;
+
+	// Clause 1: clear primary[floor] if (sched != 0 || dir != 0) AND primary[floor] == carIndex+1
+	if (car.scheduleFlag !== 0 || car.directionFlag !== 0) {
+		if ((carrier.primaryRouteStatusByFloor[slot] ?? 0) === carTag) {
+			carrier.primaryRouteStatusByFloor[slot] = 0;
+			if (car.pendingAssignmentCount > 0) car.pendingAssignmentCount -= 1;
+		}
+	}
+
+	// Clause 2: clear secondary[floor] if (sched != 0 || dir == 0) AND secondary[floor] == carIndex+1
+	if (car.scheduleFlag !== 0 || car.directionFlag === 0) {
+		if ((carrier.secondaryRouteStatusByFloor[slot] ?? 0) === carTag) {
+			carrier.secondaryRouteStatusByFloor[slot] = 0;
+			if (car.pendingAssignmentCount > 0) car.pendingAssignmentCount -= 1;
+		}
+	}
 }

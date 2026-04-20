@@ -1,5 +1,6 @@
 import type { LedgerState } from "../ledger";
 import { FAMILY_RESTAURANT, FAMILY_RETAIL } from "../resources";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import {
 	type CommercialVenueRecord,
@@ -357,6 +358,14 @@ export function handleCommercialSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// Binary `dispatch_destination_queue_entries` (1218:0883) writes
+		// sim+7 = arrival_floor then invokes the family handler with
+		// arg = arrival_floor. For state 0x60 (alias of 0x20) the resolve
+		// call's same-floor branch (1218:0046, gated on is_passenger_route=1
+		// which restaurant/fast-food/retail pass) advances the trip counters
+		// before returning rc=3. Mirror that advance here because
+		// dispatchSimArrival shortcuts the per-stride re-entry.
+		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		sim.stateCode = STATE_DEPARTURE;
@@ -372,6 +381,11 @@ export function handleCommercialSimArrival(
 		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
+		// Binary 1228:4bd7 (state 0x45 alias of 0x05) calls resolve with
+		// `is_passenger_route=1`. At carrier arrival sim+7 == LOBBY (target),
+		// so resolve hits the same-floor branch (1218:0046) which calls
+		// advance_sim_trip_counters because is_passenger_route != 0.
+		advanceSimTripCounters(sim);
 		sim.stateCode = STATE_PARKED;
 		sim.selectedFloor = LOBBY_FLOOR;
 		releaseServiceRequest(world, sim);

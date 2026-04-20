@@ -7,16 +7,22 @@ import type { CarrierCar, CarrierRecord } from "../world";
 import { floorToSlot } from "./slot";
 import { recomputeCarTargetAndDirection } from "./target";
 
-function getCarCapacity(carrier: CarrierRecord): number {
-	return carrier.assignmentCapacity;
-}
-
 // Mirrors binary find_best_available_car_for_floor (1098:0dfc).
 // Binary returns (int return_value, int *param_4). The caller
 // assign_car_to_floor_request gates all its writes on `return_value != 0`.
 // Cases that return 0 (fullAssign=false): A/B (same-floor, doors closed,
 // scheduleFlag||dirMatch), C (idle-home candidate already at floor), D (dead).
 // Normal path and degenerate: return 1 with param_4 set (fullAssign=true).
+//
+// The wrap-cost "turn floor" and the idle-home test BOTH use the car's
+// `nearestWorkFloor` field (binary -0x51), NOT `targetFloor` or `homeFloor`.
+// `nearestWorkFloor` is refreshed at the tail of every
+// `recomputeCarTargetAndDirection` and seeded to `homeFloor` in
+// `resetOutOfRangeCar` / `makeCarrierCar`.
+//
+// The binary has NO assignedCount-vs-capacity early-skip — the per-leg
+// capacity gate lives inside the per-direction phase scans of
+// `selectNextTargetFloor` instead.
 export function findBestAvailableCarForFloor(
 	carrier: CarrierRecord,
 	floor: number,
@@ -31,7 +37,6 @@ export function findBestAvailableCarForFloor(
 
 	for (const [carIndex, car] of carrier.cars.entries()) {
 		if (!car.active) continue;
-		if (car.assignedCount >= getCarCapacity(carrier)) continue;
 
 		// Cases A/B: car at floor with doors closed, and either scheduleFlag is
 		// set or direction already matches. Binary returns 0 immediately.
@@ -42,13 +47,14 @@ export function findBestAvailableCarForFloor(
 			// else fall through to idle-home / forward / wrap accumulation
 		}
 
-		const distance = Math.abs(car.currentFloor - floor);
+		const turnFloor = car.nearestWorkFloor;
+		const distance = Math.abs(floor - car.currentFloor);
 
 		const isIdleHome =
 			car.pendingAssignmentCount === 0 &&
 			car.nonemptyDestinationCount === 0 &&
 			car.settleCounter === 0 &&
-			car.currentFloor === car.homeFloor;
+			car.currentFloor === turnFloor;
 
 		if (isIdleHome) {
 			// Case C: idle-home candidate already at floor
@@ -66,17 +72,21 @@ export function findBestAvailableCarForFloor(
 					? floor - car.currentFloor
 					: car.currentFloor - floor;
 			if (forward >= 0) {
+				if (forward === 0 && car.settleCounter === 0) {
+					// Case C alternate: same-floor same-direction with doors open.
+					return { carIndex, fullAssign: false };
+				}
 				if (forward < bestForwardCost) {
 					bestForwardCost = forward;
 					bestForwardIndex = carIndex;
 				}
 				continue;
 			}
-			// Past sweep end: wrap
+			// Past sweep end: wrap, with nearest_work_floor as turn floor.
 			const cost =
 				directionFlag === 1
-					? car.targetFloor - car.currentFloor + (car.targetFloor - floor)
-					: car.currentFloor - car.targetFloor + (floor - car.targetFloor);
+					? turnFloor * 2 - car.currentFloor - floor
+					: car.currentFloor + floor - turnFloor * 2;
 			if (cost < bestWrapCost) {
 				bestWrapCost = cost;
 				bestWrapIndex = carIndex;
@@ -84,12 +94,11 @@ export function findBestAvailableCarForFloor(
 			continue;
 		}
 
-		// Opposite direction: wrap via turn floor. Binary 1098:0fe0 branches on
-		// (request floor vs turnFloor), not (request floor vs currentFloor): if
+		// Opposite direction: wrap via nearest_work as turn floor. Binary 1098:0fe0
+		// branches on (request floor vs turn), not (request floor vs current): if
 		// the request lies on the car's return leg past its reversal point, cost
 		// is the wrap distance; otherwise the car passes the request going the
 		// wrong way and the cost is the direct separation.
-		const turnFloor = car.targetFloor;
 		let cost: number;
 		if (directionFlag === 1) {
 			if (turnFloor < floor) {

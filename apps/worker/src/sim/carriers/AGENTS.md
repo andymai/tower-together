@@ -23,7 +23,7 @@ One binary function per file; each file header carries its `SEG:OFFSET name`.
 `assignCarToFloorRequest` (1098:0a4c), `findBestAvailableCarForFloor` (1098:0dfc). Preserves car-index-0 degenerate fallback and idle-home equality tiebreak.
 
 ### `arrival.ts`
-`clearFloorRequestsOnArrival` (1098:13cc), `cancelStaleFloorAssignment` (1098:12c9, TODO stub), `resetOutOfRangeCar` (1098:0192).
+`clearFloorRequestsOnArrival` (1098:13cc), `cancelStaleFloorAssignment` (1098:12c9 — clears this car's primary/secondary slot when leaving a floor), `resetOutOfRangeCar` (1098:0192).
 
 ### `pending.ts`
 `decrementCarPendingAssignmentCount` (1098:0b10). TODO stub — TS currently folds this into the inline decrement inside `clearFloorRequestsOnArrival`.

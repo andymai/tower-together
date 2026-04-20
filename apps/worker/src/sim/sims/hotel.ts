@@ -389,14 +389,20 @@ function handleHotelMorningTransit(
  * Post-resolve transitions:
  *   rc=-1 → state=0x20 (MORNING_GATE) + service-eval-fail
  *   rc=0/1/2 → state=0x45 (stay in transit; next stride re-resolves)
- *   rc=3 → state=0x20 (MORNING_GATE) — readies the sim to be morning-gated
- *           when checkout is complete. */
+ *   rc=3 → state=0x20 (MORNING_GATE)
+ *
+ * NOTE: The binary's shared 0x05/0x45 handler at 1228:2fa7 has a
+ * `CMP [BP-0x4], 0x5; JNZ 0x3503` at 1228:30bd that gates the
+ * unit_status decrement + checkoutHotelStay block on state == 0x05.
+ * State 0x45 SKIPS the checkout — payment was already booked by the
+ * base 0x05 dispatch. Mirror that here: do NOT call checkoutHotelStay
+ * from this transit handler. */
 function handleHotelDepartureTransit(
 	world: WorldState,
-	ledger: LedgerState,
+	_ledger: LedgerState,
 	time: TimeState,
 	sim: SimRecord,
-	object: PlacedObjectRecord,
+	_object: PlacedObjectRecord,
 ): void {
 	const sourceFloor = sim.selectedFloor;
 	const targetFloor =
@@ -418,18 +424,14 @@ function handleHotelDepartureTransit(
 		return;
 	}
 	if (routeResult === 3) {
-		// Lobby arrived. Apply the same checkout-readiness gate as the
-		// state-0x05 handler so cash books at the binary's expected time
-		// (1228:2fa7 dispatch). Then either checkout (ready) or transition
-		// to 0x20 / 0x24 per baseOffset.
+		// Lobby arrived. Binary 0x45 handler skips the checkout/unit_status
+		// decrement block (CMP/JNZ at 1228:30bd) — cash was already booked
+		// by the state-0x05 dispatch that initiated this trip. Just transition
+		// to MORNING_GATE (or HOTEL_PARKED for baseOffset==0).
 		sim.destinationFloor = -1;
 		sim.selectedFloor = LOBBY_FLOOR;
-		if ((object.unitStatus & 0x07) === 0) {
-			checkoutHotelStay(world, ledger, time, sim, object);
-		} else {
-			sim.stateCode =
-				sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
-		}
+		sim.stateCode =
+			sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;
 		return;
 	}
 	// rc=0/1/2: stay in STATE_DEPARTURE_TRANSIT; next stride will re-resolve.
@@ -677,6 +679,15 @@ export function handleHotelSimArrival(
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// Binary `dispatch_destination_queue_entries` (1218:0883) writes
+		// sim+7 = arrival_floor then invokes the family handler with
+		// arg = arrival_floor. For state 0x60 (alias of 0x20) at handler
+		// 0x317b, the resolve call is src=sim+7, tgt=arg — both equal to
+		// the arrival floor. Resolve's same-floor branch (1218:0046,
+		// gated on is_passenger_route=1 which 0x317b passes) advances the
+		// sim trip counters before returning rc=3. We mirror that advance
+		// here because dispatchSimArrival shortcuts the per-stride re-entry.
+		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
 		if (object) {

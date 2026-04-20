@@ -92,10 +92,12 @@ export function advanceCarrierCarState(
 		}
 
 		// A2 — motion step. Binary 1098:06fb A2 calls cancel_stale_floor_assignment
-		// (1098:12c9), which is visual-grid housekeeping only — it does NOT touch
-		// route-status tables or pac. Those are persistent state.
+		// (1098:12c9) FIRST (which may clear primary/secondary[floor] if assigned
+		// to this car), THEN reads the queue + status to decide whether to re-assign.
+		// Order matters: cancel runs before the up/down gate check.
 		const departFloor = car.currentFloor;
 		const departSlot = floorToSlot(carrier, departFloor);
+		cancelStaleFloorAssignment(carrier, car, departFloor, carIndex);
 		const queue = departSlot >= 0 ? carrier.floorQueues[departSlot] : null;
 		const hasUpRequest =
 			queue != null &&
@@ -105,7 +107,6 @@ export function advanceCarrierCarState(
 			queue != null &&
 			!queue.down.isEmpty &&
 			(carrier.secondaryRouteStatusByFloor[departSlot] ?? 0) === 0;
-		cancelStaleFloorAssignment(carrier, car, departFloor);
 		advanceCarPositionOneStep(carrier, car, carIndex);
 		if (hasUpRequest) assignCarToFloorRequest(carrier, departFloor, 1);
 		if (hasDownRequest) assignCarToFloorRequest(carrier, departFloor, 0);

@@ -87,6 +87,7 @@ export function createInitialSnapshot(
 			parkingDemandLog: [],
 			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
+			primaryFamilyLedgerTotal: 0,
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
@@ -176,6 +177,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			parkingDemandLog: [],
 			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
+			primaryFamilyLedgerTotal: 0,
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
@@ -296,6 +298,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		snapshot.world.transferGroupCache = new Array(GRID_HEIGHT).fill(0);
 	}
 	snapshot.world.starCount ??= 1;
+	snapshot.world.primaryFamilyLedgerTotal ??= 0;
 	snapshot.world.rngState ??= 1;
 	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
@@ -446,6 +449,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 			car.active ??= true;
 			car.pendingAssignmentCount ??= 0;
 			car.homeFloor ??= car.currentFloor ?? carrier.bottomServedFloor;
+			car.nearestWorkFloor ??= car.homeFloor;
 			car.destinationCountByFloor ??= new Array(
 				Math.max(0, carrier.topServedFloor - carrier.bottomServedFloor + 1),
 			).fill(0);
@@ -479,6 +483,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 		raw.evalScore ??= -1;
 	}
 	snapshot.world.starCount ??= 1;
+	snapshot.world.primaryFamilyLedgerTotal ??= 0;
 	snapshot.world.rngState ??= 1;
 	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
@@ -535,6 +540,7 @@ export function serializeSimState(
 				JSON.stringify(world.medicalServiceSlots),
 			) as WorldState["medicalServiceSlots"],
 			starCount: world.starCount,
+			primaryFamilyLedgerTotal: world.primaryFamilyLedgerTotal,
 			rngState: world.rngState,
 			rngCallCount: world.rngCallCount,
 			eventState: JSON.parse(

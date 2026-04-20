@@ -28,6 +28,10 @@ export function recomputeCarTargetAndDirection(
 	}
 	car.targetFloor = next;
 	updateCarDirectionFlag(carrier, car);
+	// Binary 1098:0bcf tail: refresh nearest_work_floor (car[-0x51]) for use
+	// as the wrap turn-floor by find_best_available_car_for_floor and as the
+	// idle-home test target (current == nearest_work_floor) in the same.
+	car.nearestWorkFloor = findNearestWorkFloor(carrier, car, carIndex);
 }
 
 export function updateCarDirectionFlag(
@@ -212,22 +216,47 @@ export function selectNextTargetFloor(
 	return -1;
 }
 
-// Binary find_nearest_work_floor (1098:1f4c). In the binary this is a
-// dedicated helper invoked from selectNextTargetFloor as the fallback when
-// no queued riders or assignment slots are found. Current TS folds the
-// equivalent fallback (homeFloor when idle, -1 otherwise) inline inside
-// selectNextTargetFloor.
-//
-// TODO(1098:1f4c): Split the fallback into a dedicated helper here if the
-// binary turns out to pick a non-home "nearest work" floor in cases the
-// current inline code treats as idle.
+/**
+ * Binary `find_nearest_work_floor` @ 1098:1f4c. Scans the current direction
+ * for the nearest floor with pending work for THIS car: a queued rider
+ * (destinationCountByFloor[floor] != 0) OR a primary/secondary route-status
+ * slot tagged with this car (== carIndex+1). Scan range/direction follow
+ * `directionFlag`: dir=0 (down) scans bottom..current; dir=1 (up) scans
+ * top..current. If no work floor is found, falls back to the per-car home
+ * floor stored in the carrier's reachability_masks_by_floor[carIndex-8] —
+ * we keep that as `car.homeFloor`.
+ *
+ * Result is cached as `car.nearestWorkFloor` and used by
+ * `findBestAvailableCarForFloor` for both the wrap-cost "turn floor" and
+ * the idle-home test (current == nearest_work).
+ */
 export function findNearestWorkFloor(
 	carrier: CarrierRecord,
 	car: CarrierCar,
+	carIndex: number,
 ): number {
-	// Match the inline homeFloor fallback currently used in selectNextTargetFloor.
-	return Math.min(
-		carrier.topServedFloor,
-		Math.max(carrier.bottomServedFloor, car.homeFloor),
-	);
+	const dir = car.directionFlag;
+	const cur = car.currentFloor;
+	const bottom = carrier.bottomServedFloor;
+	const top = carrier.topServedFloor;
+
+	function hasWork(floor: number): boolean {
+		const slot = floorToSlot(carrier, floor);
+		if (slot < 0) return false;
+		if ((car.destinationCountByFloor[slot] ?? 0) !== 0) return true;
+		if (carrier.primaryRouteStatusByFloor[slot] === carIndex + 1) return true;
+		if (carrier.secondaryRouteStatusByFloor[slot] === carIndex + 1) return true;
+		return false;
+	}
+
+	if (dir === 0) {
+		for (let floor = bottom; floor <= cur; floor++) {
+			if (hasWork(floor)) return floor;
+		}
+	} else {
+		for (let floor = top; floor >= cur; floor--) {
+			if (hasWork(floor)) return floor;
+		}
+	}
+	return car.homeFloor;
 }

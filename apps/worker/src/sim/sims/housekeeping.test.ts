@@ -33,6 +33,7 @@ function makeWorld(): WorldState {
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
 		starCount: 1,
+		primaryFamilyLedgerTotal: 0,
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},

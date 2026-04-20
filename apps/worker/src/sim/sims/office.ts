@@ -1,4 +1,5 @@
 import { addCashflowFromFamilyResource, type LedgerState } from "../ledger";
+import { addToPrimaryFamilyLedger } from "../progression";
 import { FAMILY_FAST_FOOD, FAMILY_OFFICE } from "../resources";
 import type { TimeState } from "../time";
 import {
@@ -8,9 +9,9 @@ import {
 	type WorldState,
 } from "../world";
 import {
+	advanceSimTripCounters,
 	clearSimRoute,
 	dispatchCommercialVenueVisit,
-	dispatchSimArrival,
 	findObjectForSim,
 	recomputeObjectOperationalStatus,
 	releaseServiceRequest,
@@ -63,6 +64,14 @@ function decrementOfficePresenceCounter(
 	}
 }
 
+/**
+ * Mirrors binary `activate_office_cashflow` (1180:0d2e) for the
+ * `is_reopening==0` path called from the per-tick state-0x20 handler at
+ * 1228:2329 / 1228:23a5. The cashflow side (`add_cashflow_from_family_resource`)
+ * is owned in TS by the 3-day rollover guard in `handleOfficeMorningGate`,
+ * so this routine only flips `unitStatus`/`occupiableFlag` and contributes
+ * +6 to the primary family ledger total used by star advancement.
+ */
 function activateOfficeCashflow(
 	world: WorldState,
 	object: PlacedObjectRecord,
@@ -71,6 +80,10 @@ function activateOfficeCashflow(
 	if (object.unitStatus <= UNIT_STATUS_OFFICE_OCCUPIED) return;
 	object.unitStatus = 0;
 	object.occupiableFlag = 1;
+	// Binary: add_to_primary_family_ledger_bucket(7, 6) — population
+	// contribution that feeds compute_tower_tier_from_ledger and gates
+	// star advancement (e.g. 1→2 at total >= 300).
+	addToPrimaryFamilyLedger(world, FAMILY_OFFICE, 6);
 
 	resetFacilitySimTripCounters(world, sim);
 }
@@ -472,10 +485,12 @@ function handleOfficeNightPark(
  * 0x05/0x21/0x23), each of which calls resolve_sim_route_between_floors per
  * stride. For an in-segment sim, that resolve advances sim+7 by one leg; when
  * sim+7 reaches the target, resolve returns 3 (same-floor, advance fires inside
- * resolve) and the handler triggers state transition via dispatchSimArrival. */
+ * resolve) and the handler triggers state transition. We pass
+ * `alreadyAdvanced=true` to `handleOfficeSimArrival` because the resolve call
+ * above already invoked `advance_sim_trip_counters`. */
 function handleOfficeTransit(
 	world: WorldState,
-	ledger: LedgerState,
+	_ledger: LedgerState,
 	time: TimeState,
 	sim: SimRecord,
 	_facility: PlacedObjectRecord,
@@ -500,10 +515,12 @@ function handleOfficeTransit(
 	);
 	if (routeResult === 3) {
 		// Arrived. Trip counter already advanced inside resolve (same-floor
-		// branch at 1218:0046). dispatchSimArrival no longer advances — the
-		// binary's arrival path (1218:0883 dispatch_destination_queue_entries)
-		// has no advance call.
-		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+		// branch at 1218:0046). Skip `dispatchSimArrival` so we can pass
+		// `alreadyAdvanced=true` and avoid double-counting; mirror the small
+		// pieces dispatchSimArrival does (selectedFloor, clearSimRoute) inline.
+		sim.selectedFloor = targetFloor;
+		clearSimRoute(sim);
+		handleOfficeSimArrival(world, time, sim, targetFloor, true);
 	}
 }
 
@@ -605,18 +622,46 @@ export function processOfficeSim(
 	}
 }
 
+/**
+ * Carrier/segment arrival dispatch for office sims (called from
+ * `dispatch_destination_queue_entries` 1218:0883 → office state handler, and
+ * also from `handleOfficeTransit` after a per-stride segment-leg arrival).
+ *
+ * Binary behavior: at carrier arrival, the office state-code dispatcher
+ * (1228:2031) jumps to the per-state handler for the alias state (0x40-0x45,
+ * 0x60-0x63). Each handler invokes `resolve_sim_route_between_floors` with
+ * `is_passenger_route=1` (every binary call site pushes 0x1). For alias
+ * states, `source = sim+7 = arrival_floor` and `target = anchor / lobby /
+ * venue floor` matching the trip's destination. When source == target, the
+ * resolve same-floor branch (1218:0046) calls `advance_sim_trip_counters`
+ * because is_passenger_route != 0. We mirror that advance directly here
+ * for the carrier-arrival path (which bypasses the per-state-handler
+ * resolve).
+ *
+ * `alreadyAdvanced=true` is passed by `handleOfficeTransit` because the
+ * per-stride resolve already invoked `advance_sim_trip_counters` inside its
+ * same-floor (rc=3) branch. The caller passes `true` to avoid a double
+ * advance. The carrier-arrival path leaves it `false` so this routine
+ * fires the advance itself.
+ */
 export function handleOfficeSimArrival(
 	world: WorldState,
 	time: TimeState,
 	sim: SimRecord,
 	arrivalFloor: number,
+	alreadyAdvanced = false,
 ): void {
 	const object = findObjectForSim(world, sim);
+	const advanceIfNeeded = (): void => {
+		if (!alreadyAdvanced) advanceSimTripCounters(sim);
+	};
 
 	if (
 		sim.stateCode === STATE_MORNING_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// 1228:213c alias 0x60 of 0x20 — resolve same-floor advance fires.
+		advanceIfNeeded();
 		finalizeOfficeFloorArrival(sim, object, nextOfficeMorningState(world, sim));
 		return;
 	}
@@ -625,6 +670,8 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_AT_WORK_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// 1228:2429 alias 0x61 of 0x21 — resolve same-floor advance fires.
+		advanceIfNeeded();
 		finalizeOfficeFloorArrival(sim, object, STATE_DEPARTURE);
 		return;
 	}
@@ -634,6 +681,9 @@ export function handleOfficeSimArrival(
 			sim.stateCode === STATE_DWELL_RETURN_TRANSIT) &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// 1228:24cd / 1228:2505 alias 0x62/0x63 — route_sim_back_from_commercial_venue
+		// (1238:0244) calls resolve with `is_passenger_route=1` (1238:02fa PUSH 0x1).
+		advanceIfNeeded();
 		finalizeOfficeFloorArrival(sim, object, nextOfficeReturnState(sim));
 		return;
 	}
@@ -642,6 +692,8 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
+		// 1228:2980 alias 0x45 of 0x05 — resolve same-floor advance fires.
+		advanceIfNeeded();
 		sim.stateCode = STATE_PARKED;
 		sim.selectedFloor = LOBBY_FLOOR;
 		releaseServiceRequest(world, sim);
@@ -652,6 +704,10 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_COMMUTE_TRANSIT &&
 		arrivalFloor === sim.floorAnchor
 	) {
+		// 1228:2644 alias 0x40 of 0x00 — resolve same-floor advance fires when
+		// source (sim+7=arrival) == target (lobby for baseOffset==0, anchor for
+		// baseOffset>0).
+		advanceIfNeeded();
 		finalizeOfficeFloorArrival(sim, object, STATE_AT_WORK);
 		return;
 	}
@@ -661,33 +717,37 @@ export function handleOfficeSimArrival(
 		sim.baseOffset === 0 &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
+		// 1228:2644 alias 0x40 of 0x00 (baseOffset==0 lobby leg) → advance.
+		advanceIfNeeded();
 		sim.destinationFloor = -1;
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.stateCode = STATE_AT_WORK;
 		return;
 	}
 
-	// Arrival while in ACTIVE_TRANSIT (outbound lunch trip, real or fake) —
-	// binary promotes to state 0x22 (STATE_VENUE_TRIP) which gates on daypart
-	// before releasing the venue and routing home.
-	// Arrival while in ACTIVE_TRANSIT (outbound lunch trip, real or fake) —
+	// Arrival while in ACTIVE_TRANSIT (0x41) or VENUE_TRIP_TRANSIT (0x42) —
 	// binary promotes to state 0x22 (STATE_VENUE_TRIP). For real venue visits
-	// (selectedFloor != LOBBY_FLOOR), queueTick records the arrival time so the
-	// 60-tick dwell gate in processOfficeSim can block correctly. We use queueTick
-	// rather than lastDemandTick because the stride rebase clears lastDemandTick
-	// to -1 on every call, which would break the dwell gate.
-	// elapsedTicks is NOT accumulated here; the outbound stair penalty was already
-	// committed by advanceSimTripCounters from inside resolve's same-floor branch
-	// (1218:0046). Setting lastDemandTick would add spurious dwell ticks to the
-	// return trip's elapsed.
+	// (selectedFloor != LOBBY_FLOOR), queueTick records the arrival time so
+	// the 60-tick dwell gate in processOfficeSim can block correctly. We use
+	// queueTick rather than lastDemandTick because the stride rebase clears
+	// lastDemandTick to -1 on every call, which would break the dwell gate.
+	//
+	// Both aliases advance trip counters at arrival:
+	//  - 0x41's base 0x01 calls 1238:0000 route_sim_to_commercial_venue, which
+	//    invokes resolve_sim_route_between_floors with `is_passenger_route=1`
+	//    (1238:00d8 PUSH 0x1). At arrival sim+7 == venue_dest_floor, so resolve
+	//    hits the same-floor branch (1218:0046) which calls
+	//    advance_sim_trip_counters because is_passenger_route != 0.
+	//  - 0x42's base 0x02 dispatches via resolve directly (1228:2775 handler at
+	//    1228:27e4 PUSH 0x1 is_passenger_route), same advance via 1218:0046.
 	if (
 		sim.stateCode === STATE_ACTIVE_TRANSIT ||
 		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
 	) {
+		advanceIfNeeded();
 		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_VENUE_TRIP;
-		sim.elapsedTicks = 0;
 		sim.queueTick = time.dayTick;
 		return;
 	}
