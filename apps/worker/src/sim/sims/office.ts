@@ -500,11 +500,16 @@ function handleOfficeVenueTrip(
 		return;
 	}
 	// Phase 1d-ii: resolve owns sim.selectedFloor/destinationFloor.
-	// Binary: dispatch_sim_behavior rebases at dispatch (delta≈0 since lastDemandTick
-	// was just cleared), then no further rebase until next state handler invocation.
-	// Clear here so the inline boarding-time rebase (see Phase 7 inline path in
-	// queue/process-travel.ts#boardWaitingRoutes) is a no-op for this return leg.
-	sim.lastDemandTick = -1;
+	// Binary 1238:0244 (route_sim_back_from_commercial_venue): after the
+	// resolve_sim_route_between_floors call, only the state byte (sim+5) is
+	// written; sim+0xa (last_trip_tick, our `lastDemandTick`) is left at the
+	// dayTick value the resolver's carrier-enqueue branch (returning 2)
+	// stamped. The boarding-time `accumulate_elapsed_delay_into_current_sim`
+	// later folds (boardingTick - dayTick) into elapsed_packed so the wait
+	// time on the carrier queue is counted into stress. Don't clobber lt
+	// here — the previous `sim.lastDemandTick = -1;` made the boarding rebase
+	// a no-op and lost ~4 ticks per return trip on dense_office (sim 2 at
+	// d0t802→d0t806 was missing 4 ticks vs the binary trace).
 	if (routeResult === 3) {
 		finalizeOfficeFloorArrival(sim, facility, nextOfficeReturnState(sim));
 	} else {

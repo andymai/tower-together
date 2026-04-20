@@ -127,7 +127,6 @@ export const FAMILY_PARTY_HALL = 29;
 export const FAMILY_PARTY_HALL_LOWER = 30;
 export const FAMILY_CINEMA_STAIRS_UPPER = 34;
 export const FAMILY_CINEMA_STAIRS_LOWER = 35;
-export const FAMILY_FIRE_SUPPRESSOR = 40;
 export const FAMILY_HOUSEKEEPING = 15;
 export const FAMILY_MEDICAL = 13;
 // Cathedral guests occupy 5 family codes (one per cathedral floor slice). All
@@ -157,7 +156,6 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
 	[FAMILY_PARKING]: "parking",
 	[FAMILY_PARTY_HALL]: "partyHall",
-	[FAMILY_FIRE_SUPPRESSOR]: "fireSuppressor",
 	[FAMILY_HOUSEKEEPING]: "housekeeping",
 	[FAMILY_MEDICAL]: "medical",
 };
