@@ -479,13 +479,8 @@ export function CellInspectionDialog({
 							0,
 						);
 						const avgStress =
-							facilitySims.reduce((s, e) => {
-								const avg =
-									e.tripCount > 0
-										? e.accumulatedTicks / e.tripCount
-										: e.elapsedTicks;
-								return s + avg;
-							}, 0) / facilitySims.length;
+							facilitySims.reduce((s, e) => s + e.elapsedTicks, 0) /
+							facilitySims.length;
 						return (
 							<div style={styles.inspectSection}>
 								<div style={styles.inspectLabel}>
@@ -500,27 +495,20 @@ export function CellInspectionDialog({
 									<strong>{avgStress.toFixed(1)}</strong>
 								</div>
 								<div style={{ maxHeight: 120, overflowY: "auto" }}>
-									{facilitySims.map((e) => {
-										const simStress =
-											e.tripCount > 0
-												? e.accumulatedTicks / e.tripCount
-												: e.elapsedTicks;
-										return (
-											<div key={e.id} style={styles.inspectRow}>
-												<span style={{ color: "#e0e0e0" }}>
-													{e.id.slice(0, 6)} · {e.tripCount}t · {e.elapsedTicks}
-													el
-												</span>
-												<span
-													style={{
-														color: STRESS_COLORS[e.stressLevel],
-													}}
-												>
-													{simStress.toFixed(1)}
-												</span>
-											</div>
-										);
-									})}
+									{facilitySims.map((e) => (
+										<div key={e.id} style={styles.inspectRow}>
+											<span style={{ color: "#e0e0e0" }}>
+												{e.id.slice(0, 6)} · {e.tripCount}t
+											</span>
+											<span
+												style={{
+													color: STRESS_COLORS[e.stressLevel],
+												}}
+											>
+												{e.elapsedTicks}
+											</span>
+										</div>
+									))}
 								</div>
 							</div>
 						);
