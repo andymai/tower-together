@@ -254,11 +254,22 @@ function hasMisalignedAdjacentOverlay(
 }
 
 /**
- * Minimum empty-tile gap required between two distinct elevator shafts
- * (edge-to-edge). For two standard (width 4) shafts this works out to 8
- * tiles left-edge-to-left-edge.
+ * Minimum empty-tile gap a shaft requires on each side, edge-to-edge.
+ * Express shafts want 8 clear tiles; standard and service want 4. When
+ * two shafts are adjacent, the required gap is `max` of the two.
  */
-const ELEVATOR_MIN_SHAFT_SPACING = 4;
+const ELEVATOR_STANDARD_MIN_GAP = 4;
+const ELEVATOR_EXPRESS_MIN_GAP = 8;
+
+function shaftMinGap(mode: 0 | 1 | 2): number {
+	return mode === 0 ? ELEVATOR_EXPRESS_MIN_GAP : ELEVATOR_STANDARD_MIN_GAP;
+}
+
+function overlayTypeToMode(type: string): 0 | 1 | 2 {
+	if (type === "elevatorExpress") return 0;
+	if (type === "elevatorService") return 2;
+	return 1;
+}
 
 function carrierOverlayWidth(mode: 0 | 1 | 2): number {
 	if (mode === 0) return TILE_WIDTHS.elevatorExpress ?? 6;
@@ -270,6 +281,7 @@ function tooCloseToExistingShaft(
 	world: WorldState,
 	x: number,
 	width: number,
+	newMode: 0 | 1 | 2,
 ): boolean {
 	const newRight = x + width - 1;
 	for (const carrier of world.carriers) {
@@ -282,7 +294,11 @@ function tooCloseToExistingShaft(
 				: x > otherRight
 					? x - otherRight - 1
 					: -1;
-		if (gap < ELEVATOR_MIN_SHAFT_SPACING) return true;
+		const requiredGap = Math.max(
+			shaftMinGap(newMode),
+			shaftMinGap(carrier.carrierMode),
+		);
+		if (gap < requiredGap) return true;
 	}
 	return false;
 }
@@ -772,10 +788,14 @@ export function handlePlaceTile(
 		if (!freeBuild && shaftCost > ledger.cashBalance) {
 			return { accepted: false, reason: "Insufficient funds" };
 		}
-		if (isNewShaft && tooCloseToExistingShaft(world, x, overlayWidth)) {
+		const newShaftMode = overlayTypeToMode(normalizedTileType);
+		if (
+			isNewShaft &&
+			tooCloseToExistingShaft(world, x, overlayWidth, newShaftMode)
+		) {
 			return {
 				accepted: false,
-				reason: `Elevator must be at least ${ELEVATOR_MIN_SHAFT_SPACING} tiles from another shaft`,
+				reason: "Elevator too close to an adjacent shaft",
 			};
 		}
 		if (

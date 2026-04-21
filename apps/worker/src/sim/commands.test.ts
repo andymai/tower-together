@@ -49,22 +49,36 @@ describe("elevator shaft spacing", () => {
 		// 3 empty tiles (104,105,106) between shafts.
 		const rejection = placeElevatorSegment(sim, 107, 0);
 		expect(rejection.accepted).toBe(false);
-		expect(rejection.reason).toMatch(/tiles from another shaft/);
+		expect(rejection.reason).toMatch(/too close/);
 	});
 
-	it("accepts a second shaft exactly 4 tiles away (8 tiles left-to-left)", () => {
+	it("accepts a second standard shaft exactly 4 tiles away (8 tiles left-to-left)", () => {
 		const sim = makeSimWithLobbyStrip();
 		expect(placeElevatorSegment(sim, 100, 0).accepted).toBe(true);
 		expect(placeElevatorSegment(sim, 108, 0).accepted).toBe(true);
 	});
 
-	it("enforces spacing against an express shaft (width 6)", () => {
+	it("requires 8 clear tiles on either side of an express shaft", () => {
+		// Express (width 6) at column 100 → right=105. A standard shaft needs
+		// ≥8 empty tiles from the express, so its left must be ≥114
+		// (that's 14 tiles left-edge-to-left-edge).
 		const sim = makeSimWithLobbyStrip();
 		expect(placeElevatorSegment(sim, 100, 0, "elevatorExpress").accepted).toBe(
 			true,
 		);
-		// Express right-edge at 105; need gap ≥4, so new left ≥110.
-		expect(placeElevatorSegment(sim, 109, 0).accepted).toBe(false);
-		expect(placeElevatorSegment(sim, 110, 0).accepted).toBe(true);
+		expect(placeElevatorSegment(sim, 113, 0).accepted).toBe(false);
+		expect(placeElevatorSegment(sim, 114, 0).accepted).toBe(true);
+	});
+
+	it("requires 8 clear tiles when the new shaft is express", () => {
+		// Standard at 100 (right=103). Next express needs ≥8 gap, so left ≥112.
+		const sim = makeSimWithLobbyStrip();
+		expect(placeElevatorSegment(sim, 100, 0).accepted).toBe(true);
+		expect(placeElevatorSegment(sim, 111, 0, "elevatorExpress").accepted).toBe(
+			false,
+		);
+		expect(placeElevatorSegment(sim, 112, 0, "elevatorExpress").accepted).toBe(
+			true,
+		);
 	});
 });
