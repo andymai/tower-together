@@ -1,5 +1,8 @@
 import {
 	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
@@ -7,6 +10,7 @@ import {
 	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
 	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 	OP_SCORE_THRESHOLDS,
@@ -37,6 +41,15 @@ import {
 	UNIT_STATUS_OFFICE_OCCUPIED,
 } from "./states";
 import { resetFacilitySimTripCounters } from "./trip-counters";
+
+const ENTERTAINMENT_NOISE_FAMILIES = new Set([
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
+]);
 
 // Binary compute_object_operational_score (1138:040f) divisor per family. For
 // hotels the binary loops bo=1..N (skipping bo=0) and divides by the loop
@@ -72,10 +85,7 @@ function isNoiseSource(
 	originFamilyCode: number,
 	targetFamilyCode: number,
 ): boolean {
-	if (
-		targetFamilyCode === FAMILY_CINEMA ||
-		targetFamilyCode === FAMILY_PARTY_HALL
-	) {
+	if (ENTERTAINMENT_NOISE_FAMILIES.has(targetFamilyCode)) {
 		return EVALUATABLE_FAMILIES.has(originFamilyCode);
 	}
 

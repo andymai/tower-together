@@ -230,7 +230,8 @@ export function rebuildFacilityLedger(
 		if (code >= 0 && code < 256) {
 			const index = familyToLedgerIndex(code);
 			if (index === -1) continue;
-			ledger.populationLedger[index] += ENTITY_POPULATION_BY_TYPE[code];
+			const pop = ENTITY_POPULATION_BY_TYPE[code] ?? 0;
+			ledger.populationLedger[index] += pop;
 		}
 	}
 }

@@ -25,8 +25,12 @@ import type { LedgerState } from "../ledger";
 import { resolveSimRouteBetweenFloors } from "../queue/resolve";
 import {
 	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
 	FAMILY_FAST_FOOD,
 	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
@@ -36,6 +40,19 @@ import type { TimeState } from "../time";
 import type { EntertainmentLinkRecord, SimRecord, WorldState } from "../world";
 import { sampleRng } from "../world";
 import { maybeDispatchQueuedRouteAfterWait } from "./maybe-dispatch-after-wait";
+
+// Family codes emitted by cinema / party hall placement. Cinema is split
+// into 4 sub-records (2 per floor: stairway + theater); party hall into 2
+// (one per floor). The state machine below treats any sub-record's sim as a
+// guest of the same venue.
+const ENTERTAINMENT_GUEST_FAMILIES = new Set([
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
+]);
 
 // Entertainment state codes (match binary sim[+5] values).
 const ENT_STATE_SERVICE_ACQUIRE = 0x01; // select venue and route to it
@@ -450,8 +467,7 @@ export function gateEntertainmentGuestState(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	if (sim.familyCode !== FAMILY_CINEMA && sim.familyCode !== FAMILY_PARTY_HALL)
-		return;
+	if (!ENTERTAINMENT_GUEST_FAMILIES.has(sim.familyCode)) return;
 
 	if (!isSimInTransit(sim.stateCode)) {
 		const state = sim.stateCode;

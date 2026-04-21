@@ -1,10 +1,30 @@
 import type { LedgerState } from "./ledger";
-import { FAMILY_CINEMA, FAMILY_PARTY_HALL } from "./resources";
+import {
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
+} from "./resources";
 import { STATE_ACTIVE, STATE_ARRIVED, STATE_PARKED } from "./sims/states";
-import type { PlacedObjectRecord, WorldState } from "./world";
+import type { EntertainmentLinkRecord, WorldState } from "./world";
 
-const ENTERTAINMENT_FAMILY_PAIRED = FAMILY_CINEMA;
-const ENTERTAINMENT_FAMILY_SINGLE = FAMILY_PARTY_HALL;
+// Family codes emitted by cinema placement (upper stairway, upper theater,
+// lower stairway, lower theater). All 4 share one sidecar.
+const CINEMA_FAMILY_CODES = new Set([
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+]);
+
+// Family codes emitted by party hall placement (upper, lower). Both share one
+// sidecar.
+const PARTY_HALL_FAMILY_CODES = new Set([
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
+]);
 
 /**
  * Paired-link budget tiers indexed by `linkAgeCounter / 3`.
@@ -19,35 +39,25 @@ function pairedBudget(linkAgeCounter: number, selector: number): number {
 	return table[ageTier] ?? table[table.length - 1] ?? 20;
 }
 
-function findObjectBySidecarOwner(
-	world: WorldState,
-	sidecar: { ownerSubtypeIndex: number },
-): PlacedObjectRecord | undefined {
-	for (const object of Object.values(world.placedObjects)) {
-		if (
-			object.linkedRecordIndex >= 0 &&
-			world.sidecars[object.linkedRecordIndex] === sidecar
-		) {
-			return object;
-		}
-	}
-	return undefined;
+/**
+ * A sidecar is "paired" (cinema) iff its `familySelectorOrSingleLinkFlag`
+ * is a real selector bucket (0..13). Party-hall records store 0xff.
+ */
+function isPairedSidecar(sidecar: EntertainmentLinkRecord): boolean {
+	return sidecar.familySelectorOrSingleLinkFlag !== 0xff;
 }
 
 /**
  * Seed entertainment link budgets and increment link age.
  * Called as part of the facility ledger rebuild checkpoint.
+ *
+ * Iterates sidecars directly: each placement owns exactly one sidecar,
+ * shared by its 4 (cinema) or 2 (party hall) sub-records.
  */
 export function seedEntertainmentBudgets(world: WorldState): void {
-	for (const object of Object.values(world.placedObjects)) {
-		if (
-			object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED &&
-			object.objectTypeCode !== ENTERTAINMENT_FAMILY_SINGLE
-		)
-			continue;
-		if (object.linkedRecordIndex < 0) continue;
-		const sidecar = world.sidecars[object.linkedRecordIndex];
-		if (!sidecar || sidecar.kind !== "entertainment_link") continue;
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
 
 		sidecar.attendanceCounter = 0;
 		sidecar.activeRuntimeCount = 0;
@@ -55,7 +65,7 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 		sidecar.pendingTransitionFlag = 0;
 		sidecar.linkAgeCounter = Math.min(0x7f, sidecar.linkAgeCounter + 1);
 
-		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
+		if (isPairedSidecar(sidecar)) {
 			const budget = pairedBudget(
 				sidecar.linkAgeCounter,
 				sidecar.familySelectorOrSingleLinkFlag,
@@ -76,9 +86,8 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 export function activateEntertainmentUpperHalf(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
-			continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (!isPairedSidecar(sidecar)) continue;
 		if (sidecar.linkPhaseState === 0) {
 			sidecar.linkPhaseState = 1;
 		}
@@ -91,14 +100,13 @@ export function activateEntertainmentUpperHalf(world: WorldState): void {
 export function promoteAndActivateSingleLower(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object) continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
 
-		if (object.objectTypeCode === ENTERTAINMENT_FAMILY_PAIRED) {
+		if (isPairedSidecar(sidecar)) {
 			if (sidecar.linkPhaseState === 2) {
 				sidecar.linkPhaseState = 3;
 			}
-		} else if (object.objectTypeCode === ENTERTAINMENT_FAMILY_SINGLE) {
+		} else {
 			if (sidecar.linkPhaseState === 0) {
 				sidecar.linkPhaseState = 1;
 			}
@@ -112,9 +120,8 @@ export function promoteAndActivateSingleLower(world: WorldState): void {
 export function activateEntertainmentLowerHalf(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
-			continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (!isPairedSidecar(sidecar)) continue;
 		if (sidecar.linkPhaseState === 1) {
 			sidecar.linkPhaseState = 2;
 		}
@@ -136,9 +143,8 @@ function movieTheaterPayout(attendance: number): number {
 export function advanceEntertainmentUpperPhase(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
-			continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (!isPairedSidecar(sidecar)) continue;
 		if (sidecar.linkPhaseState < 1) continue;
 
 		sidecar.activeRuntimeCount = Math.max(
@@ -147,9 +153,8 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 		);
 		sidecar.linkPhaseState = sidecar.activeRuntimeCount === 0 ? 1 : 2;
 
-		// Park upper-half sims for this entertainment record
 		for (const sim of world.sims) {
-			if (sim.familyCode !== ENTERTAINMENT_FAMILY_PAIRED) continue;
+			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
 			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
 			if (sim.stateCode >= STATE_ACTIVE && sim.stateCode <= STATE_ARRIVED) {
 				sim.stateCode = STATE_PARKED;
@@ -168,9 +173,8 @@ export function advanceEntertainmentLowerPhaseAndAccrue(
 ): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_SINGLE)
-			continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (isPairedSidecar(sidecar)) continue;
 
 		if (sidecar.linkPhaseState >= 1) {
 			sidecar.activeRuntimeCount = Math.max(
@@ -180,19 +184,16 @@ export function advanceEntertainmentLowerPhaseAndAccrue(
 			if (sidecar.attendanceCounter > 0) {
 				const payout = 20_000;
 				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
-				ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] =
-					(ledger.incomeLedger[ENTERTAINMENT_FAMILY_SINGLE] ?? 0) + payout;
+				ledger.incomeLedger[FAMILY_PARTY_HALL] =
+					(ledger.incomeLedger[FAMILY_PARTY_HALL] ?? 0) + payout;
 			}
 		}
 
 		sidecar.linkPhaseState = 0;
 
 		for (const sim of world.sims) {
-			if (
-				sim.familyCode !== ENTERTAINMENT_FAMILY_SINGLE ||
-				sim.homeColumn !== sidecar.ownerSubtypeIndex
-			)
-				continue;
+			if (!PARTY_HALL_FAMILY_CODES.has(sim.familyCode)) continue;
+			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
 			if (sim.stateCode !== STATE_PARKED) {
 				sim.stateCode = STATE_PARKED;
 			}
@@ -210,9 +211,8 @@ export function advanceEntertainmentLowerPairedPhaseAndAccrue(
 ): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
-		const object = findObjectBySidecarOwner(world, sidecar);
-		if (!object || object.objectTypeCode !== ENTERTAINMENT_FAMILY_PAIRED)
-			continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (!isPairedSidecar(sidecar)) continue;
 
 		if (sidecar.linkPhaseState >= 1) {
 			sidecar.activeRuntimeCount = Math.max(
@@ -222,19 +222,16 @@ export function advanceEntertainmentLowerPairedPhaseAndAccrue(
 			const payout = movieTheaterPayout(sidecar.attendanceCounter);
 			if (payout > 0) {
 				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
-				ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] =
-					(ledger.incomeLedger[ENTERTAINMENT_FAMILY_PAIRED] ?? 0) + payout;
+				ledger.incomeLedger[FAMILY_CINEMA] =
+					(ledger.incomeLedger[FAMILY_CINEMA] ?? 0) + payout;
 			}
 		}
 
 		sidecar.linkPhaseState = 0;
 
 		for (const sim of world.sims) {
-			if (
-				sim.familyCode !== ENTERTAINMENT_FAMILY_PAIRED ||
-				sim.homeColumn !== sidecar.ownerSubtypeIndex
-			)
-				continue;
+			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
+			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
 			if (sim.stateCode !== STATE_PARKED) {
 				sim.stateCode = STATE_PARKED;
 			}

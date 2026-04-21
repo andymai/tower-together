@@ -6,12 +6,18 @@ import {
 } from "./reachability/rebuild-tables";
 import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-records";
 import {
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
 	FAMILY_RECYCLING_CENTER_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RETAIL,
@@ -188,23 +194,9 @@ function allocSidecar(
 			pendingVisitorsCount: 0,
 		};
 		record = r;
-	} else if (tileType === "cinema" || tileType === "partyHall") {
-		const r: EntertainmentLinkRecord = {
-			kind: "entertainment_link",
-			ownerSubtypeIndex: x,
-			pairedSubtypeIndex: 0xff,
-			familySelectorOrSingleLinkFlag:
-				tileType === "partyHall" ? sampleRng(world) % 14 : 0xff,
-			linkAgeCounter: 0,
-			upperBudget: 0,
-			lowerBudget: 0,
-			linkPhaseState: 0,
-			pendingTransitionFlag: 0,
-			attendanceCounter: 0,
-			activeRuntimeCount: 0,
-		};
-		record = r;
 	}
+	// Cinema and party hall allocate their sidecar in placeEntertainmentVenue
+	// (they share one sidecar across 4 / 2 sub-records).
 
 	if (!record) return -1;
 	world.sidecars.push(record);
@@ -465,10 +457,68 @@ function placeRecyclingCenterStack(
 	return { accepted: true, patch, economyChanged: cost > 0 };
 }
 
-function placeTwoFloorStructure(
+/**
+ * Sub-record layout for a cinema or party-hall placement. The binary splits
+ * cinema placements through `split_entertainment_object_into_link_pair`
+ * (1188:0352) into a stairway sub-object and a theater sub-object per floor,
+ * yielding 4 PlacedObjectRecords per cinema. Party halls are not split —
+ * they keep a single sub-object per floor (2 total).
+ *
+ * All sub-records for a single placement share one EntertainmentLinkRecord
+ * sidecar (allocated by `register_entertainment_upper_half` @ 1188:01ad on
+ * first upper-half dispatch; theater sub-records inherit the link index via
+ * the adjacent-record read in `recompute_object_runtime_links_by_type`).
+ */
+interface EntertainmentSubRecord {
+	offsetX: number;
+	rowY: number;
+	width: number;
+	familyCode: number;
+}
+
+function cinemaSubRecords(
+	x: number,
+	upperY: number,
+	lowerY: number,
+): EntertainmentSubRecord[] {
+	return [
+		{
+			offsetX: 0,
+			rowY: upperY,
+			width: 7,
+			familyCode: FAMILY_CINEMA_STAIRS_UPPER,
+		},
+		{ offsetX: 7, rowY: upperY, width: 24, familyCode: FAMILY_CINEMA },
+		{
+			offsetX: 0,
+			rowY: lowerY,
+			width: 7,
+			familyCode: FAMILY_CINEMA_STAIRS_LOWER,
+		},
+		{ offsetX: 7, rowY: lowerY, width: 24, familyCode: FAMILY_CINEMA_LOWER },
+	].map((r) => ({ ...r, offsetX: x + r.offsetX }) as EntertainmentSubRecord);
+}
+
+function partyHallSubRecords(
+	x: number,
+	upperY: number,
+	lowerY: number,
+): EntertainmentSubRecord[] {
+	return [
+		{ offsetX: x, rowY: upperY, width: 27, familyCode: FAMILY_PARTY_HALL },
+		{
+			offsetX: x,
+			rowY: lowerY,
+			width: 27,
+			familyCode: FAMILY_PARTY_HALL_LOWER,
+		},
+	];
+}
+
+function placeEntertainmentVenue(
 	x: number,
 	y: number,
-	tileType: string,
+	tileType: "cinema" | "partyHall",
 	world: WorldState,
 	ledger: LedgerState,
 	freeBuild: boolean,
@@ -512,9 +562,6 @@ function placeTwoFloorStructure(
 		}
 	}
 
-	// Support: the lower row's support row (below it for above-ground, above it
-	// for underground) must be filled. The upper row is supported by the lower
-	// row itself, which we're placing in this operation.
 	const supportY = lowerY >= UNDERGROUND_Y ? lowerY - 1 : lowerY + 1;
 	if (supportY < 0 || supportY >= world.height) {
 		return { accepted: false, reason: "No support" };
@@ -526,29 +573,68 @@ function placeTwoFloorStructure(
 		}
 	}
 
+	// Binary `allocate_entertainment_link_record` @ 1188:0073: `venue_selector`
+	// (offset 7) is `rand() % 14` iff the registering sub-type is 0x22/0x23
+	// (cinema stairway). Party hall (and any other caller) gets 0xff.
+	const sidecar: EntertainmentLinkRecord = {
+		kind: "entertainment_link",
+		ownerSubtypeIndex: x,
+		pairedSubtypeIndex: 0xff,
+		familySelectorOrSingleLinkFlag:
+			tileType === "cinema" ? sampleRng(world) % 14 : 0xff,
+		linkAgeCounter: 0,
+		upperBudget: 0,
+		lowerBudget: 0,
+		linkPhaseState: 0,
+		pendingTransitionFlag: 0,
+		attendanceCounter: 0,
+		activeRuntimeCount: 0,
+	};
+	world.sidecars.push(sidecar);
+	const sidecarIndex = world.sidecars.length - 1;
+
 	for (const key of floorToRemove) delete world.cells[key];
-	const anchorKey = `${x},${upperY}`;
-	world.cells[anchorKey] = tileType;
-	for (let dx = 1; dx < tileWidth; dx++) {
-		const key = `${x + dx},${upperY}`;
-		world.cells[key] = tileType;
-		world.cellToAnchor[key] = anchorKey;
+
+	// Lay down cells with the facility's visual tile string. All cells route
+	// to the upper-left visual anchor for rendering/removal lookups.
+	const visualAnchorKey = `${x},${upperY}`;
+	for (const rowY of [upperY, lowerY]) {
+		for (let dx = 0; dx < tileWidth; dx++) {
+			const key = `${x + dx},${rowY}`;
+			world.cells[key] = tileType;
+			if (key !== visualAnchorKey) world.cellToAnchor[key] = visualAnchorKey;
+		}
 	}
-	for (let dx = 0; dx < tileWidth; dx++) {
-		const key = `${x + dx},${lowerY}`;
-		world.cells[key] = tileType;
-		world.cellToAnchor[key] = anchorKey;
+
+	// Emit one PlacedObjectRecord per binary sub-record, all sharing the
+	// single sidecar. Keys use each sub-record's top-left position.
+	const subs =
+		tileType === "cinema"
+			? cinemaSubRecords(x, upperY, lowerY)
+			: partyHallSubRecords(x, upperY, lowerY);
+	for (const sub of subs) {
+		const key = `${sub.offsetX},${sub.rowY}`;
+		world.placedObjects[key] = {
+			leftTileIndex: sub.offsetX,
+			rightTileIndex: sub.offsetX + sub.width - 1,
+			objectTypeCode: sub.familyCode,
+			unitStatus: 0,
+			linkedRecordIndex: sidecarIndex,
+			auxValueOrTimer: 0,
+			evalLevel: 0xff,
+			evalScore: -1,
+			occupiableFlag: 1,
+			activationTickCount: 0,
+			rentLevel: 4,
+			housekeepingClaimedFlag: 0,
+			vipFlag: false,
+		};
 	}
-	world.placedObjects[anchorKey] = makePlacedObject(
-		x,
-		upperY,
-		tileType,
-		world,
-		time,
-	);
+	void time;
+
 	if (!freeBuild) ledger.cashBalance -= cost;
 
-	const record = world.placedObjects[anchorKey];
+	const anchorRecord = world.placedObjects[visualAnchorKey];
 	const patch: CellPatch[] = [];
 	for (const rowY of [upperY, lowerY]) {
 		for (let dx = 0; dx < tileWidth; dx++) {
@@ -558,10 +644,10 @@ function placeTwoFloorStructure(
 				y: rowY,
 				tileType,
 				isAnchor,
-				...(isAnchor && record
+				...(isAnchor && anchorRecord
 					? {
-							evalActiveFlag: record.occupiableFlag,
-							unitStatus: record.unitStatus,
+							evalActiveFlag: anchorRecord.occupiableFlag,
+							unitStatus: anchorRecord.unitStatus,
 						}
 					: {}),
 			});
@@ -600,7 +686,7 @@ export function handlePlaceTile(
 	}
 
 	if (normalizedTileType === "cinema" || normalizedTileType === "partyHall") {
-		return placeTwoFloorStructure(
+		return placeEntertainmentVenue(
 			x,
 			y,
 			normalizedTileType,
@@ -955,17 +1041,33 @@ export function handleRemoveTile(
 		}
 	}
 
-	// Remove PlacedObjectRecord and free sidecar
-	const rec = world.placedObjects[anchorKey];
-	if (rec) {
-		if (rec.linkedRecordIndex >= 0) {
+	// Remove PlacedObjectRecord(s) and free sidecar.
+	// Entertainment venues (cinema / party hall) store 4 / 2 sub-records that
+	// share one sidecar; collect all records referencing the same sidecar
+	// within the placement footprint before deleting.
+	const subRecordKeys = isTwoFloor
+		? Object.keys(world.placedObjects).filter((key) => {
+				const [kx, ky] = key.split(",").map(Number);
+				return ky >= ay && ky <= ay + 1 && kx >= ax && kx <= ax + tileWidth - 1;
+			})
+		: [anchorKey];
+
+	const freedSidecars = new Set<number>();
+	for (const key of subRecordKeys) {
+		const rec = world.placedObjects[key];
+		if (!rec) continue;
+		if (
+			rec.linkedRecordIndex >= 0 &&
+			!freedSidecars.has(rec.linkedRecordIndex)
+		) {
 			const sidecar = world.sidecars[rec.linkedRecordIndex];
 			if (sidecar?.kind === "medical_center") {
 				invalidateMedicalSlotsForSidecar(world, rec.linkedRecordIndex);
 			}
 			freeSidecar(rec.linkedRecordIndex, world);
+			freedSidecars.add(rec.linkedRecordIndex);
 		}
-		delete world.placedObjects[anchorKey];
+		delete world.placedObjects[key];
 	}
 
 	cleanupSimsForRemovedTile(world, ax, ay);
