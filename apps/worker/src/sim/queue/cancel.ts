@@ -9,7 +9,10 @@
 
 import { syncAssignmentStatus } from "../carriers/sync";
 import type { CarrierRecord } from "../world";
-import { removeRequestFromUnitQueue } from "./scan";
+import {
+	removeRequestFromActiveRouteSlots,
+	removeRequestFromUnitQueue,
+} from "./scan";
 
 function findRoute(carrier: CarrierRecord, simId: string) {
 	return carrier.pendingRoutes.find((route) => route.simId === simId);
@@ -66,12 +69,6 @@ export function dispatchQueuedRouteUntilRequest(
  * `maybe_dispatch_queued_route_after_wait` (1228:15a0) when an office sim
  * times out waiting for its queued elevator.
  *
- * TODO(1218:1a86): the binary also scans every car's `active_request_refs`
- * ring and clears any slot matching this request. The prior TS
- * `evictCarrierRoute` did not do that (it trusted `syncAssignmentStatus` to
- * cull orphaned slots on the next tick). Phase 3 preserves the prior
- * behavior; wiring in `removeRequestFromActiveRouteSlots` needs a
- * companion trace regression pass.
  */
 export function cancelRuntimeRouteRequest(
 	carrier: CarrierRecord,
@@ -79,12 +76,15 @@ export function cancelRuntimeRouteRequest(
 ): void {
 	const route = findRoute(carrier, simId);
 	if (!route) return;
-	removeRequestFromUnitQueue(
-		carrier,
-		simId,
-		route.sourceFloor,
-		route.directionFlag,
-	);
+	const clearedSlots = removeRequestFromActiveRouteSlots(carrier, simId);
+	if (clearedSlots === 0) {
+		removeRequestFromUnitQueue(
+			carrier,
+			simId,
+			route.sourceFloor,
+			route.directionFlag,
+		);
+	}
 	carrier.pendingRoutes = carrier.pendingRoutes.filter(
 		(candidate) => candidate.simId !== simId,
 	);

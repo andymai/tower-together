@@ -48,4 +48,19 @@ describe("RouteRequestRing", () => {
 		expect(ring.peekAll()).toEqual(["a", "b", "d"]);
 		expect(ring.removeFirst("z")).toBe(false);
 	});
+
+	it("removeFirst rebuilds the ring from the advanced head", () => {
+		const ring = new RouteRequestRing();
+		for (let i = 0; i < 8; i++) ring.push(`r${i}`);
+		for (let i = 0; i < 5; i++) ring.pop();
+		expect(ring.head).toBe(5);
+
+		ring.push("r8");
+		ring.push("r9");
+		expect(ring.peekAll()).toEqual(["r5", "r6", "r7", "r8", "r9"]);
+
+		expect(ring.removeFirst("r7")).toBe(true);
+		expect(ring.head).toBe(10);
+		expect(ring.peekAll()).toEqual(["r5", "r6", "r8", "r9"]);
+	});
 });

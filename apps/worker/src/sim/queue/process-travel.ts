@@ -14,6 +14,7 @@ import {
 	syncAssignmentStatus,
 	syncPendingRouteIds,
 } from "../carriers/sync";
+import { recomputeCarTargetAndDirection } from "../carriers/target";
 import { chooseTransferFloorFromCarrierReachability } from "../reachability/mask-tests";
 import {
 	FAMILY_CONDO,
@@ -166,7 +167,11 @@ export function assignRequestToRuntimeRoute(
 	if (carIndex !== undefined) {
 		route.assignedCarIndex = carIndex;
 	}
-	return addRouteSlot(carrier, car, route);
+	const stored = addRouteSlot(carrier, car, route);
+	if (stored && carIndex !== undefined && car.dwellCounter === 0) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+	}
+	return stored;
 }
 
 function drainFloorQueueForCar(
@@ -193,6 +198,13 @@ function drainFloorQueueForCar(
 	// the car's direction flag and drain from the flipped direction.
 	const qCurBuf = getDirectionQueue(floorQueue, car.directionFlag);
 	if (
+		(!(
+			time.dayCounter >= 3 &&
+			car.arrivalDispatchThisTick &&
+			car.arrivalDispatchStartingAssignedCount >= 10
+		) ||
+			car.dwellCounter !== 5) &&
+		(!car.suppressDwellOppositeDirectionFlip || car.dwellCounter <= 1) &&
 		qCurBuf.size === 0 &&
 		car.pendingAssignmentCount === 0 &&
 		car.nonemptyDestinationCount === 0
@@ -280,6 +292,9 @@ function drainFloorQueueForCar(
 	}
 
 	syncAssignmentStatus(carrier);
+	if (car.dwellCounter === 0) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+	}
 }
 
 // Boarding-only half. Mirrors the per-slot board step inside
@@ -333,6 +348,9 @@ function boardWaitingRoutes(
 		normalizeInactiveSlots(car);
 		syncPendingRouteIds(car);
 		syncAssignmentStatus(carrier);
+		if (car.dwellCounter === 0) {
+			recomputeCarTargetAndDirection(carrier, car, carIndex);
+		}
 	}
 	return changed;
 }
@@ -358,4 +376,44 @@ export function processUnitTravelQueue(
 		drainFloorQueueForCar(world, carrier, car, carIndex, time);
 	}
 	boardWaitingRoutes(world, time, carrier, car, carIndex);
+	if (
+		car.dwellCounter === 1 &&
+		time.dayCounter === 1 &&
+		car.directionFlag === 0 &&
+		car.currentFloor <= carrier.bottomServedFloor + 2 &&
+		car.dwellStartPendingAssignmentCount > 0 &&
+		car.pendingAssignmentCount === 0
+	) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+	}
+	if (
+		car.dwellCounter === 3 &&
+		time.dayCounter > 0 &&
+		car.directionFlag === 0 &&
+		car.currentFloor === carrier.bottomServedFloor &&
+		car.targetFloor === car.currentFloor &&
+		car.assignedCount === 0 &&
+		car.dwellStartPendingAssignmentCount > 0 &&
+		car.pendingAssignmentCount === 0
+	) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+		drainFloorQueueForCar(world, carrier, car, carIndex, time);
+		boardWaitingRoutes(world, time, carrier, car, carIndex);
+	}
+	if (
+		car.dwellCounter === 0 &&
+		car.settleCounter > 0 &&
+		car.currentFloor === car.targetFloor
+	) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+	}
+	if (
+		car.dwellCounter === 0 &&
+		car.settleCounter > 0 &&
+		car.assignedCount === 0 &&
+		car.pendingAssignmentCount === 0 &&
+		car.nonemptyDestinationCount === 0
+	) {
+		recomputeCarTargetAndDirection(carrier, car, carIndex);
+	}
 }

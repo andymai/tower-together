@@ -58,6 +58,7 @@ export function advanceCarrierCarState(
 	}
 
 	if (car.dwellCounter === 0) {
+		car.suppressDwellOppositeDirectionFlip = false;
 		// Branch A. A1 (arrival / idle-at-target) fires when target == cur and
 		// either the per-car destination queue has riders for this floor, or the
 		// car is not full. A1 is level-triggered: as long as the gate holds the
@@ -83,6 +84,7 @@ export function advanceCarrierCarState(
 					carrier.expressDirectionFlags[getScheduleIndex(time)] ?? 0;
 			}
 			clearFloorRequestsOnArrival(carrier, car, car.currentFloor);
+			car.dwellStartPendingAssignmentCount = car.pendingAssignmentCount;
 			car.dwellCounter = DEPARTURE_SEQUENCE_TICKS;
 			if (car.arrivalSeen === 0) {
 				car.arrivalTick = time.dayTick;
@@ -120,6 +122,7 @@ export function advanceCarrierCarState(
 	// (see ROUTING-BINARY-MAP.md §4.5).
 	car.dwellCounter--;
 	if (car.dwellCounter === 0) {
+		car.suppressDwellOppositeDirectionFlip = false;
 		car.prevFloor = car.currentFloor;
 		recomputeCarTargetAndDirection(carrier, car, carIndex);
 		if (!shouldCarDepart(carrier, car, time)) {

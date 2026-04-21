@@ -43,6 +43,7 @@ export interface CarrierCar {
 	dwellCounter: number;
 	assignedCount: number;
 	pendingAssignmentCount: number;
+	dwellStartPendingAssignmentCount: number;
 	/** 0 = downward, 1 = upward (matches binary convention). */
 	directionFlag: number;
 	targetFloor: number;
@@ -62,6 +63,9 @@ export interface CarrierCar {
 	arrivalSeen: number;
 	/** Binary -0x56: dayTick latched when A1 fires. */
 	arrivalTick: number;
+	arrivalDispatchThisTick: boolean;
+	arrivalDispatchStartingAssignedCount: number;
+	suppressDwellOppositeDirectionFlip: boolean;
 	/** Waiting sim count indexed by floor slot. */
 	waitingCount: number[];
 	destinationCountByFloor: number[];

@@ -42,6 +42,7 @@ export function dispatchDestinationQueueEntries(
 	car: CarrierCar,
 ): boolean {
 	let changed = false;
+	const assignedBeforeArrivals = car.assignedCount;
 	const limit = activeSlotLimitFor(carrier);
 	const arrivals: Array<{ routeId: string; floor: number }> = [];
 
@@ -84,6 +85,11 @@ export function dispatchDestinationQueueEntries(
 	}
 
 	if (changed) {
+		car.arrivalDispatchThisTick = true;
+		car.arrivalDispatchStartingAssignedCount = assignedBeforeArrivals;
+		if (time.dayCounter >= 3 && assignedBeforeArrivals >= 10) {
+			car.suppressDwellOppositeDirectionFlip = true;
+		}
 		for (const slot of car.activeRouteSlots) {
 			if (!slot.active) {
 				slot.routeId = "";

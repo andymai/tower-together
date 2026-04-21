@@ -111,11 +111,27 @@ function syncWaitingCount(
 	}
 }
 
-// Rebuilds per-car derived state (active route slots, waiting/destination
-// counts) from pendingRoutes. Route-status tables and pendingAssignmentCount
-// are persistent — the binary keeps them mutated only by
-// assign_car_to_floor_request and clear_floor_requests_on_arrival.
+// Rebuilds per-car derived state from the authoritative route/status tables.
+// The binary mutates pendingAssignmentCount incrementally with the route-slot
+// ownership tables, so if a TS path misses one of those inline decrements the
+// count drifts. Recompute it here from primary/secondary ownership so target
+// selection and dwell gates observe the same ownership state as the tables.
 export function syncAssignmentStatus(carrier: CarrierRecord): void {
+	for (const car of carrier.cars) {
+		car.pendingAssignmentCount = 0;
+	}
+	for (const owner of carrier.primaryRouteStatusByFloor) {
+		if (owner > 0) {
+			const car = carrier.cars[owner - 1];
+			if (car) car.pendingAssignmentCount += 1;
+		}
+	}
+	for (const owner of carrier.secondaryRouteStatusByFloor) {
+		if (owner > 0) {
+			const car = carrier.cars[owner - 1];
+			if (car) car.pendingAssignmentCount += 1;
+		}
+	}
 	for (const [carIndex, car] of carrier.cars.entries()) {
 		syncRouteSlots(carrier, car);
 		syncWaitingCount(carrier, car, carIndex);

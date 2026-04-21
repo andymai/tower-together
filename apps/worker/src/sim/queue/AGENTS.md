@@ -20,7 +20,7 @@ One binary function per file; each file header carries its `SEG:OFFSET name`.
 `removeRequestFromUnitQueue` (1218:142a), `removeRequestFromActiveRouteSlots` (1218:173a), `storeRequestInActiveRouteSlot` (1218:187b), `popActiveRouteSlotRequest` (1218:1905).
 
 ### `cancel.ts`
-`cancelRuntimeRouteRequest` (1218:1a86), `dispatchQueuedRouteUntilRequest` (1218:1981, TODO stub), `decrementRouteQueueDirectionLoad` (1218:0fc4, TODO stub).
+`cancelRuntimeRouteRequest` (1218:1a86), `dispatchQueuedRouteUntilRequest` (1218:1981, TODO stub), `decrementRouteQueueDirectionLoad` (1218:0fc4, TODO stub). Cancel now mirrors the binary's "active-slot first, floor-queue fallback" removal order.
 
 ### `dispatch-arrivals.ts`
 `dispatchCarrierCarArrivals` (1218:07a6), `dispatchDestinationQueueEntries` (1218:0883). Gated on `dwellCounter == 5`. Phase 7: invokes `dispatchSimArrival` inline per unloaded slot, matching the binary's direct call into `dispatch_object_family_*_state_handler`.

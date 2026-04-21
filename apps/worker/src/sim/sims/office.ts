@@ -178,8 +178,13 @@ function handleOfficeCommute(
 		if (time.daypartIndex < 3) return;
 		if (sampleRng(world) % 12 !== 0) return;
 	}
-	const sourceFloor = sim.baseOffset === 0 ? sim.floorAnchor : LOBBY_FLOOR;
-	const destinationFloor = sim.baseOffset === 0 ? LOBBY_FLOOR : sim.floorAnchor;
+	// Binary state 0x00 is an at-office outbound path for occupants 0 and 1.
+	// Occupant 1 reaches it after lunch-return arrival (0x62), then dispatches
+	// from the office floor down to the lobby; treating it as lobby->office
+	// boards the wrong carrier at dense_office d0t1203.
+	const isOutboundOfficePath = sim.baseOffset <= 1;
+	const sourceFloor = isOutboundOfficePath ? sim.floorAnchor : LOBBY_FLOOR;
+	const destinationFloor = isOutboundOfficePath ? LOBBY_FLOOR : sim.floorAnchor;
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -764,10 +769,11 @@ export function handleOfficeSimArrival(
 
 	if (
 		sim.stateCode === STATE_COMMUTE_TRANSIT &&
-		sim.baseOffset === 0 &&
+		sim.baseOffset <= 1 &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
-		// 1228:2644 alias 0x40 of 0x00 (baseOffset==0 lobby leg) → advance.
+		// 1228:2644 alias 0x40 of 0x00 outbound lobby leg for occupants 0/1
+		// reaches the post-commute office path.
 		advanceIfNeeded();
 		sim.destinationFloor = -1;
 		sim.selectedFloor = LOBBY_FLOOR;

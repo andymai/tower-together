@@ -372,6 +372,12 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 
 	// Migrate carrier floorQueues from old flat format to RouteRequestRing instances
 	for (const carrier of snapshot.world.carriers) {
+		for (const car of carrier.cars) {
+			car.dwellStartPendingAssignmentCount ??= 0;
+			car.arrivalDispatchThisTick ??= false;
+			car.arrivalDispatchStartingAssignedCount ??= 0;
+			car.suppressDwellOppositeDirectionFlip ??= false;
+		}
 		for (let i = 0; i < carrier.floorQueues.length; i++) {
 			const q = carrier.floorQueues[i] as unknown as Record<string, unknown>;
 			if (q && !(q.up instanceof RouteRequestRing)) {
