@@ -217,7 +217,6 @@ export class GameScene extends Scene {
 	private cellGraphics!: GameObjects.Graphics;
 	private simGraphics!: GameObjects.Graphics;
 	private simQueueCache: Map<string, SimQueueCacheEntry> = new Map();
-	private simStagingSprite: GameObjects.Sprite | null = null;
 	private cockroachSprites: GameObjects.Sprite[] = [];
 	private cockroaches: CockroachState[] = [];
 	private carRects: GameObjects.Rectangle[] = [];
@@ -1730,15 +1729,14 @@ export class GameScene extends Scene {
 		}
 
 		const scale = SIM_QUEUE_TEXTURE_SCALE;
-		let staging = this.simStagingSprite;
-		if (!staging) {
-			staging = this.make.sprite(
-				{ x: 0, y: 0, key: "sim_figure_low-0", add: false },
-				false,
-			);
-			staging.setOrigin(0.5, 1);
-			this.simStagingSprite = staging;
-		}
+		// All sim SVGs are preloaded at the same source dimensions; sample one to
+		// convert the world-space sim size into stamp-space scale factors.
+		const probeTexture = this.textures.get("sim_figure_low-0");
+		const probeSource = probeTexture.getSourceImage();
+		const sourceW = probeSource.width || 1;
+		const sourceH = probeSource.height || 1;
+		const stampScaleX = (simWidthPx * scale) / sourceW;
+		const stampScaleY = (simHeightPx * scale) / sourceH;
 
 		for (const [queueKey, { ascending, sims }] of queues) {
 			if (sims.length === 0) continue;
@@ -1819,15 +1817,23 @@ export class GameScene extends Scene {
 			}
 
 			entry.renderTexture.clear();
-			staging.setFlipX(!ascending);
-			staging.setDisplaySize(simWidthPx * scale, simHeightPx * scale);
+			// stamp() captures the texture key by value in the command buffer, so
+			// unlike draw(sprite), it's safe to change the key across calls before
+			// the single render() flush. draw() would re-read the sprite's state at
+			// render time, collapsing every sim onto the last-set texture.
+			const flippedScaleX = ascending ? stampScaleX : -stampScaleX;
 			for (const { px, py, textureKey } of sims) {
 				if (!this.textures.exists(textureKey)) continue;
-				staging.setTexture(textureKey);
 				const rtX = (px - bboxX) * scale;
 				const rtY = (py - bboxY) * scale;
-				entry.renderTexture.draw(staging, rtX, rtY);
+				entry.renderTexture.stamp(textureKey, undefined, rtX, rtY, {
+					originX: 0.5,
+					originY: 1,
+					scaleX: flippedScaleX,
+					scaleY: stampScaleY,
+				});
 			}
+			entry.renderTexture.render();
 			entry.hash = hash;
 			entry.renderTexture.setVisible(true);
 			entry.seen = true;
