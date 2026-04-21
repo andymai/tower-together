@@ -139,7 +139,8 @@ export function CellInspectionDialog({
 						</div>
 					)}
 
-				{inspectedCell.objectInfo &&
+				{!inspectedCell.carrierInfo &&
+					inspectedCell.objectInfo &&
 					RENT_ADJUSTABLE_FAMILIES.has(
 						inspectedCell.objectInfo.objectTypeCode,
 					) && (
