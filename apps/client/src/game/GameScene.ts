@@ -89,6 +89,16 @@ type StaticRowChunk = {
 	image: GameObjects.Image;
 };
 
+type SimQueueCacheEntry = {
+	hash: string;
+	renderTexture: GameObjects.RenderTexture;
+	worldX: number;
+	worldY: number;
+	width: number;
+	height: number;
+	seen: boolean;
+};
+
 type CockroachState = {
 	roomKey: string;
 	offsetX: number;
@@ -119,6 +129,7 @@ const NUMBER_TEXTURE_RESOLUTION = Math.max(
 	Math.round(window.devicePixelRatio * 4),
 );
 const STATIC_ROW_TEXTURE_SCALE = 8;
+const SIM_QUEUE_TEXTURE_SCALE = 8;
 const STATIC_ROW_DEPTH = 2;
 const STATIC_OVERLAY_DEPTH = 2.9;
 const DYNAMIC_ENTITY_DEPTH = 3;
@@ -205,7 +216,8 @@ export class GameScene extends Scene {
 
 	private cellGraphics!: GameObjects.Graphics;
 	private simGraphics!: GameObjects.Graphics;
-	private simSprites: GameObjects.Sprite[] = [];
+	private simQueueCache: Map<string, SimQueueCacheEntry> = new Map();
+	private simStagingSprite: GameObjects.Sprite | null = null;
 	private cockroachSprites: GameObjects.Sprite[] = [];
 	private cockroaches: CockroachState[] = [];
 	private carRects: GameObjects.Rectangle[] = [];
@@ -1617,7 +1629,6 @@ export class GameScene extends Scene {
 		const visibleRight = worldView.right + TILE_WIDTH;
 		const visibleTop = worldView.y - TILE_HEIGHT;
 		const visibleBottom = worldView.bottom + TILE_HEIGHT;
-		const queueIndices = new Map<string, number>();
 		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
 			this.overlayGrid,
 		);
@@ -1629,70 +1640,206 @@ export class GameScene extends Scene {
 		const simWidthPx = 0.75 * TILE_WIDTH;
 		const simHeightPx = simWidthPx * (20 / 6);
 
-		let usedCount = 0;
+		type QueuedSimLayoutEntry = {
+			sim: SimStateData;
+			px: number;
+			py: number;
+			textureKey: string;
+		};
+
+		// Group queued sims by queueKey, sorted by id for stable layout (so the
+		// cache hash only changes when queue membership or variants actually change,
+		// not when the snapshot happens to reorder).
+		const byQueueKey = new Map<string, SimStateData[]>();
 		for (const sim of simSnapshot.items) {
 			if (!isQueuedSim(sim)) continue;
-			const queueKey = getQueuedSimQueueKey(sim, elevatorColumnsByFloor);
-			const queueIndex = queueIndices.get(queueKey) ?? 0;
-			queueIndices.set(queueKey, queueIndex + 1);
-			const { gridX, gridY } = getQueuedSimLayout(
-				sim,
-				elevatorColumnsByFloor,
-				queueIndex,
+			const key = getQueuedSimQueueKey(sim, elevatorColumnsByFloor);
+			const arr = byQueueKey.get(key);
+			if (arr) arr.push(sim);
+			else byQueueKey.set(key, [sim]);
+		}
+
+		const queues = new Map<
+			string,
+			{ ascending: boolean; sims: QueuedSimLayoutEntry[] }
+		>();
+		for (const [queueKey, sims] of byQueueKey) {
+			sims.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+			const ascending = isSimAscending(sims[0] as SimStateData);
+			const list: QueuedSimLayoutEntry[] = [];
+			for (let queueIndex = 0; queueIndex < sims.length; queueIndex += 1) {
+				const sim = sims[queueIndex] as SimStateData;
+				const { gridX, gridY } = getQueuedSimLayout(
+					sim,
+					elevatorColumnsByFloor,
+					queueIndex,
+				);
+				const px = gridX * TILE_WIDTH;
+				const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
+				const textureKey =
+					sim.stressLevel === "low"
+						? `sim_figure_low-${hashSimVariant(sim.id, 4)}`
+						: `sim_figure_${sim.stressLevel}`;
+				list.push({ sim, px, py, textureKey });
+				this.queuedSimHitboxes.push({
+					left: px - simWidthPx / 2,
+					right: px + simWidthPx / 2,
+					top: py - simHeightPx,
+					bottom: py,
+					sim,
+				});
+			}
+			queues.set(queueKey, { ascending, sims: list });
+		}
+
+		if (!hasTexture) {
+			// Pre-load fallback: rectangles via the graphics object, no caching.
+			for (const { sims } of queues.values()) {
+				for (const { sim, px, py } of sims) {
+					const left = px - simWidthPx / 2;
+					const top = py - simHeightPx;
+					if (
+						left + simWidthPx < visibleLeft ||
+						left > visibleRight ||
+						py < visibleTop ||
+						top > visibleBottom
+					) {
+						continue;
+					}
+					const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
+					g.fillStyle(color, 1);
+					g.fillRect(left, top, simWidthPx, simHeightPx);
+				}
+			}
+			for (const entry of this.simQueueCache.values()) {
+				this.destroyQueueCacheEntry(entry);
+			}
+			this.simQueueCache.clear();
+			this.lastSimWorldView.setTo(
+				worldView.x,
+				worldView.y,
+				worldView.width,
+				worldView.height,
 			);
-			const px = gridX * TILE_WIDTH;
-			const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
-			const textureKey =
-				sim.stressLevel === "low"
-					? `sim_figure_low-${hashSimVariant(sim.id, 4)}`
-					: `sim_figure_${sim.stressLevel}`;
-			const left = px - simWidthPx / 2;
-			const right = px + simWidthPx / 2;
-			const top = py - simHeightPx;
-			const bottom = py;
+			this.simsDirty = false;
+			return;
+		}
+
+		for (const entry of this.simQueueCache.values()) {
+			entry.seen = false;
+		}
+
+		const scale = SIM_QUEUE_TEXTURE_SCALE;
+		let staging = this.simStagingSprite;
+		if (!staging) {
+			staging = this.make.sprite(
+				{ x: 0, y: 0, key: "sim_figure_low-0", add: false },
+				false,
+			);
+			staging.setOrigin(0.5, 1);
+			this.simStagingSprite = staging;
+		}
+
+		for (const [queueKey, { ascending, sims }] of queues) {
+			if (sims.length === 0) continue;
+
+			let minLeft = Number.POSITIVE_INFINITY;
+			let maxRight = Number.NEGATIVE_INFINITY;
+			let minTop = Number.POSITIVE_INFINITY;
+			let maxBottom = Number.NEGATIVE_INFINITY;
+			for (const { px, py } of sims) {
+				if (px - simWidthPx / 2 < minLeft) minLeft = px - simWidthPx / 2;
+				if (px + simWidthPx / 2 > maxRight) maxRight = px + simWidthPx / 2;
+				if (py - simHeightPx < minTop) minTop = py - simHeightPx;
+				if (py > maxBottom) maxBottom = py;
+			}
+			const bboxX = Math.floor(minLeft);
+			const bboxY = Math.floor(minTop);
+			const bboxW = Math.max(1, Math.ceil(maxRight - bboxX));
+			const bboxH = Math.max(1, Math.ceil(maxBottom - bboxY));
+
+			const existing = this.simQueueCache.get(queueKey);
 			if (
-				right < visibleLeft ||
-				left > visibleRight ||
-				bottom < visibleTop ||
-				top > visibleBottom
+				bboxX + bboxW < visibleLeft ||
+				bboxX > visibleRight ||
+				bboxY + bboxH < visibleTop ||
+				bboxY > visibleBottom
 			) {
+				if (existing) {
+					existing.renderTexture.setVisible(false);
+					existing.seen = true;
+				}
 				continue;
 			}
 
-			if (hasTexture) {
-				let sprite = this.simSprites[usedCount];
-				if (!sprite) {
-					sprite = this.add.sprite(0, 0, textureKey);
-					sprite.setOrigin(0.5, 1);
-					sprite.setDepth(3);
-					sprite.texture.setFilter(Textures.FilterMode.LINEAR);
-					this.simSprites.push(sprite);
-				} else if (sprite.texture.key !== textureKey) {
-					sprite.setTexture(textureKey);
-					sprite.texture.setFilter(Textures.FilterMode.LINEAR);
-				}
-				sprite.setVisible(true);
-				sprite.setPosition(px, py);
-				sprite.setDisplaySize(simWidthPx, simHeightPx);
-				sprite.setFlipX(!isSimAscending(sim));
-				usedCount += 1;
-			} else {
-				const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
-				g.fillStyle(color, 1);
-				g.fillRect(left, top, simWidthPx, simHeightPx);
+			const hashParts: string[] = [];
+			for (const { sim, textureKey } of sims) {
+				hashParts.push(`${sim.id}|${textureKey}`);
 			}
-			this.queuedSimHitboxes.push({
-				left,
-				right,
-				top,
-				bottom,
-				sim,
-			});
+			const hash = `${ascending ? "u" : "d"}|${bboxW}x${bboxH}@${bboxX},${bboxY}|${hashParts.join(";")}`;
+
+			if (existing && existing.hash === hash) {
+				existing.renderTexture.setVisible(true);
+				existing.seen = true;
+				continue;
+			}
+
+			let entry: SimQueueCacheEntry;
+			if (!existing) {
+				const rt = this.add.renderTexture(
+					bboxX,
+					bboxY,
+					bboxW * scale,
+					bboxH * scale,
+				);
+				rt.setOrigin(0, 0);
+				rt.setDisplaySize(bboxW, bboxH);
+				rt.setDepth(DYNAMIC_ENTITY_DEPTH);
+				entry = {
+					hash: "",
+					renderTexture: rt,
+					worldX: bboxX,
+					worldY: bboxY,
+					width: bboxW,
+					height: bboxH,
+					seen: true,
+				};
+				this.simQueueCache.set(queueKey, entry);
+			} else {
+				entry = existing;
+				if (entry.width !== bboxW || entry.height !== bboxH) {
+					entry.renderTexture.resize(bboxW * scale, bboxH * scale);
+					entry.renderTexture.setDisplaySize(bboxW, bboxH);
+					entry.width = bboxW;
+					entry.height = bboxH;
+				}
+				entry.renderTexture.setPosition(bboxX, bboxY);
+				entry.worldX = bboxX;
+				entry.worldY = bboxY;
+			}
+
+			entry.renderTexture.clear();
+			staging.setFlipX(!ascending);
+			staging.setDisplaySize(simWidthPx * scale, simHeightPx * scale);
+			for (const { px, py, textureKey } of sims) {
+				if (!this.textures.exists(textureKey)) continue;
+				staging.setTexture(textureKey);
+				const rtX = (px - bboxX) * scale;
+				const rtY = (py - bboxY) * scale;
+				entry.renderTexture.draw(staging, rtX, rtY);
+			}
+			entry.hash = hash;
+			entry.renderTexture.setVisible(true);
+			entry.seen = true;
 		}
 
-		for (let i = usedCount; i < this.simSprites.length; i += 1) {
-			this.simSprites[i]?.setVisible(false);
+		for (const [key, entry] of this.simQueueCache) {
+			if (!entry.seen) {
+				this.destroyQueueCacheEntry(entry);
+				this.simQueueCache.delete(key);
+			}
 		}
+
 		this.lastSimWorldView.setTo(
 			worldView.x,
 			worldView.y,
@@ -1700,6 +1847,10 @@ export class GameScene extends Scene {
 			worldView.height,
 		);
 		this.simsDirty = false;
+	}
+
+	private destroyQueueCacheEntry(entry: SimQueueCacheEntry): void {
+		entry.renderTexture.destroy();
 	}
 
 	private drawCars(): void {
