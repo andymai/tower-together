@@ -368,6 +368,43 @@ export class GameScene extends Scene {
 		}
 	}
 
+	/** Signature of a cell's visually-rendered state. Changes when (and only
+	 *  when) something in drawStaticRowContent would draw differently. */
+	private computeCellVisualSig(key: string): string {
+		const tileType = this.grid.get(key);
+		if (!tileType) return "";
+		const isAnchor = this.anchorSet.has(key) ? 1 : 0;
+		const unitStatus = this.unitStatusMap.get(key) ?? 0;
+		const evalFlag = this.evalActiveFlagMap.get(key);
+
+		let dirty = 0;
+		let banner = 0;
+		if (HOTEL_TILE_TYPES.has(tileType)) {
+			dirty = unitStatus >= HOTEL_TURNOVER_STATUS_MIN ? 1 : 0;
+		} else if (tileType === "office") {
+			banner = unitStatus > 0x0f ? 1 : 0;
+		} else if (tileType === "condo") {
+			banner = unitStatus > 0x17 ? 1 : 0;
+		} else {
+			banner = evalFlag === 0 ? 1 : 0;
+		}
+
+		let badge = "";
+		if (import.meta.env.DEV) {
+			const level = this.evalLevelMap.get(key);
+			const score = this.evalScoreMap.get(key);
+			if (
+				level !== undefined &&
+				level <= 2 &&
+				score !== undefined &&
+				score >= 0
+			) {
+				badge = `${level}:${score}`;
+			}
+		}
+		return `${tileType}:${isAnchor}:${dirty}:${banner}:${badge}`;
+	}
+
 	/** Check whether the cell at (x, y) has an elevator overlay. */
 	hasElevatorOverlayAt(x: number, y: number): boolean {
 		return this.overlayGrid.get(`${x},${y}`) === "elevator";
@@ -477,7 +514,11 @@ export class GameScene extends Scene {
 						needsRedraw = true;
 					}
 				}
-			} else if (cell.tileType === "empty") {
+				continue;
+			}
+
+			const prevSig = this.computeCellVisualSig(key);
+			if (cell.tileType === "empty") {
 				const hadContent =
 					this.grid.has(key) ||
 					this.anchorSet.has(key) ||
@@ -492,14 +533,10 @@ export class GameScene extends Scene {
 					this.unitStatusMap.delete(key);
 					this.evalLevelMap.delete(key);
 					this.evalScoreMap.delete(key);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
 			} else {
 				if (this.grid.get(key) !== cell.tileType) {
 					this.grid.set(key, cell.tileType);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
 				if (this.anchorSet.has(key) !== cell.isAnchor) {
 					if (cell.isAnchor) {
@@ -507,41 +544,24 @@ export class GameScene extends Scene {
 					} else {
 						this.removeAnchorKey(key, cell.y);
 					}
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
-				if (
-					cell.evalActiveFlag !== undefined &&
-					this.evalActiveFlagMap.get(key) !== cell.evalActiveFlag
-				) {
+				if (cell.evalActiveFlag !== undefined) {
 					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
-				if (
-					cell.unitStatus !== undefined &&
-					this.unitStatusMap.get(key) !== cell.unitStatus
-				) {
+				if (cell.unitStatus !== undefined) {
 					this.unitStatusMap.set(key, cell.unitStatus);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
-				if (
-					cell.evalLevel !== undefined &&
-					this.evalLevelMap.get(key) !== cell.evalLevel
-				) {
+				if (cell.evalLevel !== undefined) {
 					this.evalLevelMap.set(key, cell.evalLevel);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
-				if (
-					cell.evalScore !== undefined &&
-					this.evalScoreMap.get(key) !== cell.evalScore
-				) {
+				if (cell.evalScore !== undefined) {
 					this.evalScoreMap.set(key, cell.evalScore);
-					this.markDirtyRows(dirtyRows, cell.y);
-					needsRedraw = true;
 				}
+			}
+			const newSig = this.computeCellVisualSig(key);
+			if (newSig !== prevSig) {
+				this.markDirtyRows(dirtyRows, cell.y);
+				needsRedraw = true;
 			}
 		}
 		if (needsRedraw) {
