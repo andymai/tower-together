@@ -1054,10 +1054,10 @@ export function handleAddElevatorCar(
 	if (activeCars >= 8) {
 		return { accepted: false, reason: "Maximum 8 cars per shaft" };
 	}
-	const homeFloor = Math.min(
-		carrier.topServedFloor,
-		Math.max(carrier.bottomServedFloor, yToFloor(y)),
-	);
+	// Binary writes bottom_served_floor to every car's home_floor byte at
+	// shaft placement; the click coordinate is unused.
+	void y;
+	const homeFloor = carrier.bottomServedFloor;
 	// Activate first inactive car
 	for (const car of carrier.cars) {
 		if (!car.active) {

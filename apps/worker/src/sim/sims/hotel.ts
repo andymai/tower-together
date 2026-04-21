@@ -16,7 +16,6 @@ import {
 } from "../world";
 import {
 	dispatchCommercialVenueVisit,
-	dispatchSimArrival,
 	findObjectForSim,
 	finishCommercialVenueDwell,
 	resolveSimRouteBetweenFloors,
@@ -333,10 +332,18 @@ function handleHotelActiveTransit(
 	);
 	if (routeResult === 3) {
 		// Arrived. Trip counter already advanced inside resolve's same-floor
-		// branch (1218:0046), which also clears `lastDemandTick`. The binary
-		// arrival path `dispatch_destination_queue_entries` (1218:0883) has
-		// no further advance — it jumps straight to the family handler.
-		dispatchSimArrival(world, ledger, time, sim, targetFloor);
+		// branch (1218:0046), which also clears `lastDemandTick`. Mirror the
+		// binary's `handle_hotel_guest_venue_acquisition` (1228:4fab) inline
+		// state transition: rc=3 → acquire_slot → state=0x22. Don't go through
+		// `dispatchSimArrival` → `handleHotelSimArrival` here because that path
+		// fires its own advance (matching binary's `dispatch_destination_queue_entries`
+		// arrival site). Routing per-stride arrivals back through the carrier-
+		// arrival handler causes a double-advance for the same trip.
+		void ledger;
+		sim.destinationFloor = -1;
+		sim.selectedFloor = targetFloor;
+		sim.stateCode = STATE_VENUE_TRIP;
+		sim.queueTick = time.dayTick;
 	}
 }
 
@@ -706,9 +713,13 @@ export function handleHotelSimArrival(
 		sim.venueReturnState === STATE_CHECKOUT_QUEUE
 	) {
 		// Binary state-0x41 reentry on arrival at lobby with no venue reserved
-		// (sim+6 = 0xb0 sentinel): resolve(lobby→lobby)=3 → acquire_slot=3 →
-		// sim+5 = 0x22. In TS we jump straight to STATE_VENUE_TRIP; the marker
-		// steers the DWELL handler to exit via STATE_CHECKOUT_QUEUE.
+		// (sim+6 = 0xb0 sentinel): handle_hotel_guest_venue_acquisition (1228:4fab)
+		// calls resolve_sim_route_between_floors(is_passenger_route=1, src=lobby,
+		// dst=lobby) → same-floor rc=3 → advance_sim_trip_counters at 1218:0046.
+		// Always fire advance (binary is unconditional). Per-stride
+		// handleHotelActiveTransit's resolve+advance path is suppressed below
+		// (we no longer call dispatchSimArrival from there).
+		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.stateCode = STATE_VENUE_TRIP;
@@ -736,7 +747,10 @@ export function handleHotelSimArrival(
 	) {
 		// Binary 1228:50ef state-0x62 dispatch (jumptable entry shared with 0x22):
 		// release_commercial_venue_slot returns 1, resolve(home→home)=3, then
-		// the dispatch path effectively continues to state 0x04 (CHECKOUT_QUEUE).
+		// advance_sim_trip_counters fires inside resolve at 1218:0046.
+		// Unconditional to match binary; double-firing is prevented by NOT
+		// calling dispatchSimArrival from the per-stride handler below.
+		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = arrivalFloor;
 		sim.stateCode = STATE_CHECKOUT_QUEUE;
@@ -748,6 +762,10 @@ export function handleHotelSimArrival(
 		sim.stateCode === STATE_DEPARTURE_TRANSIT &&
 		arrivalFloor === LOBBY_FLOOR
 	) {
+		// Binary state-0x45 dispatch jumptable entry → handler invokes
+		// resolve(rc=3, isPassengerRoute=1) on same-floor lobby arrival, which
+		// advances trip counters at 1218:0046. Unconditional to match binary.
+		advanceSimTripCounters(sim);
 		sim.destinationFloor = -1;
 		sim.stateCode =
 			sim.baseOffset === 0 ? STATE_HOTEL_PARKED : STATE_MORNING_GATE;

@@ -106,6 +106,7 @@ export function makeCarrierCar(
 		dwellCounter: 0,
 		assignedCount: 0,
 		pendingAssignmentCount: 0,
+		dwellStartPendingAssignmentCount: 0,
 		directionFlag: 1,
 		targetFloor: homeFloor,
 		prevFloor: homeFloor,
@@ -114,6 +115,9 @@ export function makeCarrierCar(
 		scheduleFlag: 0,
 		arrivalSeen: 0,
 		arrivalTick: 0,
+		arrivalDispatchThisTick: false,
+		arrivalDispatchStartingAssignedCount: 0,
+		suppressDwellOppositeDirectionFlip: false,
 		waitingCount: new Array(numSlots).fill(0),
 		destinationCountByFloor: new Array(numSlots).fill(0),
 		nonemptyDestinationCount: 0,
@@ -138,14 +142,14 @@ export function makeCarrier(
 ): CarrierRecord {
 	const numSlots = top - bottom + 1;
 	const clampedCars = Math.max(1, Math.min(8, numCars));
-	const span = Math.max(0, top - bottom);
-	const cars = Array.from({ length: clampedCars }, (_, index) => {
-		const homeFloor =
-			clampedCars === 1
-				? bottom
-				: bottom + Math.floor((span * index) / (clampedCars - 1));
-		return makeCarrierCar(numSlots, Math.min(top, homeFloor));
-	});
+	// Binary `place_carrier_shaft` / `_add_shaft_cars` writes
+	// bottom_served_floor to every car's home_floor byte at carrier+0xBA..0xC1.
+	// Find-best-car's idle-home test (`car.currentFloor == car.homeFloor`)
+	// observes this all-bottom layout, so spacing the homes here would let an
+	// idle-home tiebreak fire on the wrong cars.
+	const cars = Array.from({ length: clampedCars }, () =>
+		makeCarrierCar(numSlots, bottom),
+	);
 
 	return {
 		carrierId: id,
@@ -178,6 +182,10 @@ export function makeCarrier(
  */
 export function resetCarrierTickBookkeeping(carrier: CarrierRecord): void {
 	carrier.completedRouteIds = [];
+	for (const car of carrier.cars) {
+		car.arrivalDispatchThisTick = false;
+		car.arrivalDispatchStartingAssignedCount = 0;
+	}
 	syncAssignmentStatus(carrier);
 }
 
@@ -191,9 +199,7 @@ export function resetCarrierTickBookkeeping(carrier: CarrierRecord): void {
 export function flushCarriersEndOfDay(world: WorldState): void {
 	for (const carrier of world.carriers) {
 		for (const queue of carrier.floorQueues.values()) {
-			queue.up.head = 0;
 			queue.up.count = 0;
-			queue.down.head = 0;
 			queue.down.count = 0;
 		}
 		carrier.pendingRoutes = [];

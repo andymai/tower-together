@@ -8,12 +8,33 @@
 // housekeeping.
 import type { CarrierCar, CarrierRecord } from "../world";
 import { floorToSlot } from "./slot";
+import { recomputeCarTargetAndDirection } from "./target";
+
+// Mirrors binary `decrement_car_pending_assignment_count` (1098:151c).
+// Decrements the owner's pendingAssignmentCount and re-runs target/direction
+// recompute so the owner re-evaluates its sweep — important because the
+// recompute may flip the owner's direction at an endpoint, which then chains
+// into another `clearFloorRequestsOnArrival` for the owner's current floor
+// (binary chain observed at d3 t428 dense_office: car 7 arrives at floor 11,
+// cross-decrements car 2's pac, car 2's recompute flips dir 0→1 at the bottom
+// served floor, and that flip clears `primary[10]=2` for car 1).
+function decrementOwnerPacAndRecompute(
+	carrier: CarrierRecord,
+	ownerIndex: number,
+): void {
+	const owner = carrier.cars[ownerIndex];
+	if (!owner) return;
+	if (owner.pendingAssignmentCount > 0) owner.pendingAssignmentCount -= 1;
+	recomputeCarTargetAndDirection(carrier, owner, ownerIndex);
+}
 
 // Mirrors binary clear_floor_requests_on_arrival (1098:13cc). Called when a
 // car arrives at a floor. Each clause gates on (schedF != 0 || dir matches)
 // && table[floor] != 0, then zeros the slot and decrements the owning car's
 // pendingAssignmentCount. Same-car decrement is inline; cross-car goes
-// through decrement_car_pending_assignment_count (1098:151c).
+// through decrement_car_pending_assignment_count (1098:151c) which ALSO
+// re-runs the owner's target/direction recompute (and may flip its direction
+// at an endpoint, chaining into another clear at the owner's current floor).
 export function clearFloorRequestsOnArrival(
 	carrier: CarrierRecord,
 	car: CarrierCar,
@@ -21,14 +42,17 @@ export function clearFloorRequestsOnArrival(
 ): void {
 	const slot = floorToSlot(carrier, floor);
 	if (slot < 0) return;
+	const carIndex = carrier.cars.indexOf(car);
 
 	if (car.scheduleFlag !== 0 || car.directionFlag !== 0) {
 		const pri = carrier.primaryRouteStatusByFloor[slot] ?? 0;
 		if (pri !== 0) {
 			carrier.primaryRouteStatusByFloor[slot] = 0;
-			const owner = carrier.cars[pri - 1];
-			if (owner && owner.pendingAssignmentCount > 0) {
-				owner.pendingAssignmentCount -= 1;
+			const ownerIndex = pri - 1;
+			if (ownerIndex === carIndex) {
+				if (car.pendingAssignmentCount > 0) car.pendingAssignmentCount -= 1;
+			} else {
+				decrementOwnerPacAndRecompute(carrier, ownerIndex);
 			}
 		}
 	}
@@ -37,9 +61,11 @@ export function clearFloorRequestsOnArrival(
 		const sec = carrier.secondaryRouteStatusByFloor[slot] ?? 0;
 		if (sec !== 0) {
 			carrier.secondaryRouteStatusByFloor[slot] = 0;
-			const owner = carrier.cars[sec - 1];
-			if (owner && owner.pendingAssignmentCount > 0) {
-				owner.pendingAssignmentCount -= 1;
+			const ownerIndex = sec - 1;
+			if (ownerIndex === carIndex) {
+				if (car.pendingAssignmentCount > 0) car.pendingAssignmentCount -= 1;
+			} else {
+				decrementOwnerPacAndRecompute(carrier, ownerIndex);
 			}
 		}
 	}
@@ -63,9 +89,13 @@ export function resetOutOfRangeCar(
 	car.dwellCounter = 0;
 	car.assignedCount = 0;
 	car.pendingAssignmentCount = 0;
+	car.dwellStartPendingAssignmentCount = 0;
 	car.directionFlag = 1;
 	car.arrivalSeen = 0;
 	car.arrivalTick = 0;
+	car.arrivalDispatchThisTick = false;
+	car.arrivalDispatchStartingAssignedCount = 0;
+	car.suppressDwellOppositeDirectionFlip = false;
 	// Binary 1098:0192 sets car[-0x51] (nearestWorkFloor) to homeFloor.
 	car.nearestWorkFloor = homeFloor;
 	car.destinationCountByFloor.fill(0);

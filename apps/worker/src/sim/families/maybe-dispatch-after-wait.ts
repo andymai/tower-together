@@ -12,8 +12,10 @@
 // Both share the same NIGHT_B + eviction effect; hotel additionally calls
 // fail_office_service_evaluation (1248:017d) — not yet modeled.
 
-import { evictCarrierRoute } from "../carriers";
+import { floorToSlot } from "../carriers/slot";
+import { syncAssignmentStatus } from "../carriers/sync";
 import type { LedgerState } from "../ledger";
+import { popUnitQueueRequest } from "../queue/dequeue";
 import {
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
@@ -21,14 +23,19 @@ import {
 	FAMILY_OFFICE,
 } from "../resources";
 import { isSimInTransit } from "../sim-access/state-bits";
-import { clearSimRoute, simKey } from "../sims/population";
+import { advanceOfficePresenceCounter } from "../sims/office";
+import { clearSimRoute, findObjectForSim, simKey } from "../sims/population";
 import {
+	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
+	STATE_COMMUTE_TRANSIT,
+	STATE_DEPARTURE,
 	STATE_DEPARTURE_TRANSIT,
 	STATE_DWELL_RETURN_TRANSIT,
 	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
 	STATE_VENUE_HOME_TRANSIT,
+	STATE_VENUE_TRIP_TRANSIT,
 } from "../sims/states";
 import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
 import { advanceSimTripCounters } from "../stress/trip-counters";
@@ -68,6 +75,98 @@ const HOTEL_FAMILY_CODES = new Set<number>([
 	FAMILY_HOTEL_SUITE,
 ]);
 
+function dispatchTimedOutOfficeQueueEntry(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	rebaseSimElapsedFromClock(sim, time);
+	advanceSimTripCounters(sim);
+
+	if (
+		sim.stateCode === STATE_COMMUTE_TRANSIT ||
+		sim.stateCode === STATE_ACTIVE_TRANSIT ||
+		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
+	) {
+		const object = findObjectForSim(world, sim);
+		if (object) advanceOfficePresenceCounter(object);
+		sim.selectedFloor = sim.floorAnchor;
+		sim.destinationFloor = -1;
+		sim.stateCode = STATE_DEPARTURE;
+		clearSimRoute(sim);
+		return;
+	}
+
+	if (OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) {
+		sim.stateCode = STATE_NIGHT_B;
+	}
+	sim.destinationFloor = -1;
+	clearSimRoute(sim);
+}
+
+function dispatchTimedOutHotelQueueEntry(
+	_world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	// Mirror dispatch_sim_behavior (1228:186c) prologue for non-housekeeping
+	// families before the per-state handler fires.
+	rebaseSimElapsedFromClock(sim, time);
+	advanceSimTripCounters(sim);
+	if (HOTEL_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) {
+		sim.stateCode = STATE_NIGHT_B;
+	}
+	sim.destinationFloor = -1;
+	clearSimRoute(sim);
+}
+
+function dispatchQueuedRouteUntilRequest(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	const routeState = sim.route;
+	if (routeState.mode !== "carrier") {
+		if (sim.familyCode === FAMILY_OFFICE) {
+			dispatchTimedOutOfficeQueueEntry(world, time, sim);
+		} else if (HOTEL_FAMILY_CODES.has(sim.familyCode)) {
+			dispatchTimedOutHotelQueueEntry(world, time, sim);
+		}
+		return;
+	}
+	const carrier = world.carriers.find(
+		(c) => c.carrierId === routeState.carrierId,
+	);
+	if (!carrier) return;
+	const routeId = simKey(sim);
+	const route = carrier.pendingRoutes.find(
+		(candidate) => candidate.simId === routeId,
+	);
+	if (!route || route.boarded) return;
+	const slot = floorToSlot(carrier, route.sourceFloor);
+	if (slot < 0) return;
+	const queue = carrier.floorQueues[slot];
+	if (!queue) return;
+
+	while (true) {
+		const poppedRouteId = popUnitQueueRequest(queue, route.directionFlag);
+		if (!poppedRouteId) break;
+		carrier.pendingRoutes = carrier.pendingRoutes.filter(
+			(candidate) => candidate.simId !== poppedRouteId,
+		);
+		const poppedSim = world.sims.find(
+			(candidate) => simKey(candidate) === poppedRouteId,
+		);
+		if (poppedSim?.familyCode === FAMILY_OFFICE) {
+			dispatchTimedOutOfficeQueueEntry(world, time, poppedSim);
+		} else if (poppedSim && HOTEL_FAMILY_CODES.has(poppedSim.familyCode)) {
+			dispatchTimedOutHotelQueueEntry(world, time, poppedSim);
+		}
+		if (poppedRouteId === routeId) break;
+	}
+	syncAssignmentStatus(carrier);
+}
+
 export function maybeDispatchQueuedRouteAfterWait(
 	world: WorldState,
 	_ledger: LedgerState,
@@ -80,7 +179,9 @@ export function maybeDispatchQueuedRouteAfterWait(
 	if (!isSimInTransit(sim.stateCode)) return;
 	if (sim.route.mode !== "carrier") return;
 	if (sim.familyCode === FAMILY_OFFICE) {
-		if (!OFFICE_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+		// Binary 1228:15a0 itself has no office-state filter; the caller reaches
+		// it for queued office transit aliases 0x40/0x41/0x42/0x45/0x60..0x63.
+		// The per-state dispatch result is decided after the queue pop.
 	} else if (HOTEL_FAMILY_CODES.has(sim.familyCode)) {
 		if (!HOTEL_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
 	} else {
@@ -99,18 +200,13 @@ export function maybeDispatchQueuedRouteAfterWait(
 	// carrier picks them up, the arrival handler transitions state naturally.
 	const route = carrier.pendingRoutes.find((r) => r.simId === simKey(sim));
 	if (!route || route.boarded) return;
-	evictCarrierRoute(carrier, simKey(sim));
-	// Binary: dispatch_sim_behavior (1228:186c) calls rebase_sim_elapsed_from_clock
-	// then advance_sim_trip_counters before the family handler fires. Mirror that
-	// here since we bypass dispatch_sim_behavior in the TS timeout path.
-	rebaseSimElapsedFromClock(sim, time);
-	advanceSimTripCounters(sim);
-	// Phase 5b note: STATE_NIGHT_B (0x26) already encodes base phase 0x06
-	// plus bit 5 (0x20). In TS encoding the 0x20 bit on NIGHT_B is part of
-	// the phase byte, NOT a separate "waiting" flag — so clearSimRouteBits
-	// would corrupt the post-timeout state. The byte-overwrite here is
-	// authoritative; no bit helper is called.
-	sim.stateCode = STATE_NIGHT_B;
-	sim.destinationFloor = -1;
-	clearSimRoute(sim);
+	// Binary 1228:15a0 unconditionally calls dispatch_queued_route_until_request
+	// (1218:1981) for both office and hotel families: pop the floor queue in
+	// FIFO order and dispatch each popped sim through its family handler until
+	// the requesting sim itself is popped. Without this drain the floor queue
+	// keeps stale entries even though `pendingRoutes`/`sim.route` were cleared,
+	// which causes the next dwell-1 drain to over-board the late-comers (e.g.
+	// dense_hotel d1 t398 carrier@84 over-boarded 7 sims that the binary had
+	// already cancelled via this timeout path).
+	dispatchQueuedRouteUntilRequest(world, time, sim);
 }

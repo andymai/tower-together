@@ -38,6 +38,17 @@ import {
 } from "./states";
 import { resetFacilitySimTripCounters } from "./trip-counters";
 
+// Binary compute_object_operational_score (1138:040f) divisor per family. For
+// hotels the binary loops bo=1..N (skipping bo=0) and divides by the loop
+// count: single=1, twin=2, suite=2. Office and condo do a full sweep.
+const OPERATIONAL_SCORE_DIVISOR: Record<number, number> = {
+	[FAMILY_HOTEL_SINGLE]: 1,
+	[FAMILY_HOTEL_TWIN]: 2,
+	[FAMILY_HOTEL_SUITE]: 2,
+	[FAMILY_OFFICE]: 6,
+	[FAMILY_CONDO]: 3,
+};
+
 export interface SimStateRecord {
 	id: string;
 	floorAnchor: number;
@@ -164,9 +175,23 @@ export function recomputeObjectOperationalStatus(
 	}
 
 	const siblings = findSiblingSims(world, sim);
-	const populationCount = ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ?? 1;
+	// Binary compute_object_operational_score (1138:040f) sums stress over the
+	// non-primary occupants only (loop starts at occupant index 1) and divides
+	// by the loop iteration count: single (3) → 1 non-primary occupant, twin/
+	// suite (4/5) → 2, office (7) → 6 (full sweep), condo (9) → 3 (full sweep).
+	// ENTITY_POPULATION_BY_TYPE counts ALL occupants including bo=0, so it
+	// overestimates the divisor for hotels by 1 — using it would lower scores
+	// and force eval=1/2 → midday-reset more rooms than the binary does.
+	const populationCount =
+		OPERATIONAL_SCORE_DIVISOR[object.objectTypeCode] ??
+		ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ??
+		1;
 	let stressSum = 0;
 	for (const sibling of siblings) {
+		if (sibling.baseOffset === 0 && HOTEL_FAMILIES.has(object.objectTypeCode)) {
+			// Binary skips bo=0 in the hotel loop (occupant index starts at 1).
+			continue;
+		}
 		if (sibling.tripCount > 0) {
 			stressSum += Math.trunc(sibling.accumulatedTicks / sibling.tripCount);
 		}
