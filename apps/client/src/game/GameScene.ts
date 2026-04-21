@@ -130,6 +130,13 @@ const NUMBER_TEXTURE_RESOLUTION = Math.max(
 );
 const STATIC_ROW_TEXTURE_SCALE = 8;
 const SIM_QUEUE_TEXTURE_SCALE = 8;
+// Sim figure SVG aspect matches its 6×20 viewBox.
+const SIM_FIGURE_WIDTH_PX = 0.75 * TILE_WIDTH;
+const SIM_FIGURE_HEIGHT_PX = SIM_FIGURE_WIDTH_PX * (20 / 6);
+// The sim SVGs are rasterized once at this exact size so they can be stamped
+// into the queue RT at 1:1 without any per-stamp scaling.
+const SIM_FIGURE_SOURCE_WIDTH = SIM_FIGURE_WIDTH_PX * SIM_QUEUE_TEXTURE_SCALE;
+const SIM_FIGURE_SOURCE_HEIGHT = SIM_FIGURE_HEIGHT_PX * SIM_QUEUE_TEXTURE_SCALE;
 const STATIC_ROW_DEPTH = 2;
 const STATIC_OVERLAY_DEPTH = 2.9;
 const DYNAMIC_ENTITY_DEPTH = 3;
@@ -356,7 +363,7 @@ export class GameScene extends Scene {
 	}
 
 	private markDirtyRows(dirtyRows: Set<number>, y: number): void {
-		for (let row = y - 1; row <= y + 1; row += 1) {
+		for (let row = y; row <= y + 1; row += 1) {
 			if (row >= 0 && row < GRID_HEIGHT) dirtyRows.add(row);
 		}
 	}
@@ -599,17 +606,16 @@ export class GameScene extends Scene {
 				height: bridgeH,
 			});
 		}
-		const simScale = 64;
 		for (const level of ["low-0", "low-1", "low-2", "low-3"] as const) {
 			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
-				width: 6 * simScale,
-				height: 20 * simScale,
+				width: SIM_FIGURE_SOURCE_WIDTH,
+				height: SIM_FIGURE_SOURCE_HEIGHT,
 			});
 		}
 		for (const level of ["medium", "high"] as const) {
 			this.load.svg(`sim_figure_${level}`, `/rooms/sim-${level}.svg`, {
-				width: 6 * simScale,
-				height: 20 * simScale,
+				width: SIM_FIGURE_SOURCE_WIDTH,
+				height: SIM_FIGURE_SOURCE_HEIGHT,
 			});
 		}
 		const cockroachSvgW = 10 * COCKROACH_SVG_SCALE;
@@ -1729,14 +1735,6 @@ export class GameScene extends Scene {
 		}
 
 		const scale = SIM_QUEUE_TEXTURE_SCALE;
-		// All sim SVGs are preloaded at the same source dimensions; sample one to
-		// convert the world-space sim size into stamp-space scale factors.
-		const probeTexture = this.textures.get("sim_figure_low-0");
-		const probeSource = probeTexture.getSourceImage();
-		const sourceW = probeSource.width || 1;
-		const sourceH = probeSource.height || 1;
-		const stampScaleX = (simWidthPx * scale) / sourceW;
-		const stampScaleY = (simHeightPx * scale) / sourceH;
 
 		for (const [queueKey, { ascending, sims }] of queues) {
 			if (sims.length === 0) continue;
@@ -1817,11 +1815,12 @@ export class GameScene extends Scene {
 			}
 
 			entry.renderTexture.clear();
-			// stamp() captures the texture key by value in the command buffer, so
-			// unlike draw(sprite), it's safe to change the key across calls before
-			// the single render() flush. draw() would re-read the sprite's state at
-			// render time, collapsing every sim onto the last-set texture.
-			const flippedScaleX = ascending ? stampScaleX : -stampScaleX;
+			// Sim SVGs are preloaded at exactly the RT's per-sim pixel footprint,
+			// so each stamp is 1:1 — flip via a negative x-scale for descenders.
+			// stamp() also captures the texture key by value in the command buffer,
+			// unlike draw(sprite) which re-reads sprite state at render time and
+			// would collapse every sim onto the last-set texture.
+			const flippedScaleX = ascending ? 1 : -1;
 			for (const { px, py, textureKey } of sims) {
 				if (!this.textures.exists(textureKey)) continue;
 				const rtX = (px - bboxX) * scale;
@@ -1830,7 +1829,6 @@ export class GameScene extends Scene {
 					originX: 0.5,
 					originY: 1,
 					scaleX: flippedScaleX,
-					scaleY: stampScaleY,
 				});
 			}
 			entry.renderTexture.render();
