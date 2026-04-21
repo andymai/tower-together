@@ -730,6 +730,14 @@ export function handlePlaceTile(
 				return { accepted: false, reason: "Cell already has an overlay" };
 			}
 		}
+		// Shaft creation charge: only the first segment on a column pays;
+		// later floors extending the shaft are free, matching binary
+		// place_carrier_shaft semantics.
+		const isNewShaft = !world.carriers.some((c) => c.column === x);
+		const shaftCost = isNewShaft ? (TILE_COSTS[normalizedTileType] ?? 0) : 0;
+		if (!freeBuild && shaftCost > ledger.cashBalance) {
+			return { accepted: false, reason: "Insufficient funds" };
+		}
 		if (
 			(normalizedTileType === "elevator" ||
 				normalizedTileType === "elevatorExpress" ||
@@ -786,6 +794,7 @@ export function handlePlaceTile(
 			isAnchor: true,
 			isOverlay: true,
 		});
+		if (!freeBuild) ledger.cashBalance -= shaftCost;
 		runGlobalRebuilds(world, ledger);
 		return { accepted: true, patch };
 	}
