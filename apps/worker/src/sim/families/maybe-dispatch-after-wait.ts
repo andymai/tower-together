@@ -17,12 +17,16 @@ import { syncAssignmentStatus } from "../carriers/sync";
 import type { LedgerState } from "../ledger";
 import { popUnitQueueRequest } from "../queue/dequeue";
 import {
+	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_SUITE,
 	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
+	FAMILY_RESTAURANT,
+	FAMILY_RETAIL,
 } from "../resources";
 import { isSimInTransit } from "../sim-access/state-bits";
+import { releaseServiceRequest } from "../sims/index";
 import { advanceOfficePresenceCounter } from "../sims/office";
 import { clearSimRoute, findObjectForSim, simKey } from "../sims/population";
 import {
@@ -34,6 +38,7 @@ import {
 	STATE_DWELL_RETURN_TRANSIT,
 	STATE_MORNING_TRANSIT,
 	STATE_NIGHT_B,
+	STATE_PARKED,
 	STATE_VENUE_HOME_TRANSIT,
 	STATE_VENUE_TRIP_TRANSIT,
 } from "../sims/states";
@@ -73,6 +78,23 @@ const HOTEL_FAMILY_CODES = new Set<number>([
 	FAMILY_HOTEL_SINGLE,
 	FAMILY_HOTEL_TWIN,
 	FAMILY_HOTEL_SUITE,
+]);
+
+// Binary `gate_object_family_restaurant_fast_food_state_handler` (1228:466d)
+// calls `maybe_dispatch_queued_route_after_wait` (1228:15a0) for sims with
+// state_code >= 0x40 AND sim+8 (encoded_route_target) >= 0x40 — same pattern
+// as office/hotel. The retail/restaurant/fast-food state-0x45 jump table at
+// 1228:4d37 maps rc=-1 AND rc=3 to 1228:4c9e, which writes sim+5 = 0x27
+// (PARKED). So on timeout, the commercial state-0x45 path becomes PARKED,
+// not NIGHT_B.
+const COMMERCIAL_FAMILY_CODES = new Set<number>([
+	FAMILY_RESTAURANT,
+	FAMILY_RETAIL,
+	FAMILY_FAST_FOOD,
+]);
+
+const COMMERCIAL_WAIT_TIMEOUT_TO_PARKED_STATES = new Set<number>([
+	STATE_DEPARTURE_TRANSIT,
 ]);
 
 function dispatchTimedOutOfficeQueueEntry(
@@ -120,6 +142,24 @@ function dispatchTimedOutHotelQueueEntry(
 	clearSimRoute(sim);
 }
 
+function dispatchTimedOutCommercialQueueEntry(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): void {
+	// Binary 1228:186c dispatch_sim_behavior prologue.
+	rebaseSimElapsedFromClock(sim, time);
+	advanceSimTripCounters(sim);
+	// Binary 1228:4c9e: state-0x45 rc=-1/rc=3 writer for restaurant/retail/
+	// fast-food — transitions to PARKED (0x27) and releases the venue slot.
+	if (COMMERCIAL_WAIT_TIMEOUT_TO_PARKED_STATES.has(sim.stateCode)) {
+		sim.stateCode = STATE_PARKED;
+		releaseServiceRequest(world, sim);
+	}
+	sim.destinationFloor = -1;
+	clearSimRoute(sim);
+}
+
 function dispatchQueuedRouteUntilRequest(
 	world: WorldState,
 	time: TimeState,
@@ -131,6 +171,8 @@ function dispatchQueuedRouteUntilRequest(
 			dispatchTimedOutOfficeQueueEntry(world, time, sim);
 		} else if (HOTEL_FAMILY_CODES.has(sim.familyCode)) {
 			dispatchTimedOutHotelQueueEntry(world, time, sim);
+		} else if (COMMERCIAL_FAMILY_CODES.has(sim.familyCode)) {
+			dispatchTimedOutCommercialQueueEntry(world, time, sim);
 		}
 		return;
 	}
@@ -161,6 +203,8 @@ function dispatchQueuedRouteUntilRequest(
 			dispatchTimedOutOfficeQueueEntry(world, time, poppedSim);
 		} else if (poppedSim && HOTEL_FAMILY_CODES.has(poppedSim.familyCode)) {
 			dispatchTimedOutHotelQueueEntry(world, time, poppedSim);
+		} else if (poppedSim && COMMERCIAL_FAMILY_CODES.has(poppedSim.familyCode)) {
+			dispatchTimedOutCommercialQueueEntry(world, time, poppedSim);
 		}
 		if (poppedRouteId === routeId) break;
 	}
@@ -184,6 +228,12 @@ export function maybeDispatchQueuedRouteAfterWait(
 		// The per-state dispatch result is decided after the queue pop.
 	} else if (HOTEL_FAMILY_CODES.has(sim.familyCode)) {
 		if (!HOTEL_WAIT_TIMEOUT_TO_NIGHT_B_STATES.has(sim.stateCode)) return;
+	} else if (COMMERCIAL_FAMILY_CODES.has(sim.familyCode)) {
+		// Binary gate_object_family_restaurant_fast_food_state_handler
+		// (1228:466d) reaches maybe_dispatch_queued_route_after_wait for
+		// state_code >= 0x40 (the in-transit aliases). state 0x45 is the
+		// fast-food / retail / restaurant DEPARTURE_TRANSIT.
+		if (!COMMERCIAL_WAIT_TIMEOUT_TO_PARKED_STATES.has(sim.stateCode)) return;
 	} else {
 		return;
 	}

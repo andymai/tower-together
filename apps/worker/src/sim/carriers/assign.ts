@@ -179,13 +179,17 @@ export function assignCarToFloorRequest(
 	if (!result.fullAssign) return;
 
 	const carIndex = result.carIndex;
-	for (const route of carrier.pendingRoutes) {
-		if (route.boarded) continue;
-		if (route.sourceFloor !== floor || route.directionFlag !== directionFlag)
-			continue;
-		if (route.assignedCarIndex >= 0) continue;
-		route.assignedCarIndex = carIndex;
-	}
+	// Binary 1098:0a4c body is straight-line — no iteration over a per-request
+	// "assigned_car" field (there is none; floor-call ownership lives only in
+	// `primary/secondary_route_status_by_floor`). TS used to seed the per-route
+	// `assignedCarIndex` here so boardWaitingRoutes could gate on it, but that
+	// cache goes stale after cancel-then-reassign (e.g., sky_office d3: a car
+	// leaves f12 → cancelStaleFloorAssignment clears secondary[2] → next
+	// assignCarToFloorRequest picks a new owner, yet pendingRoutes still point
+	// at the departed car). The per-route field is now populated lazily by
+	// `assignRequestToRuntimeRoute` at drain time (mirroring binary 1218:0d4e's
+	// store_request_in_active_route_slot), which is the only place the binary
+	// pairs a sim with a specific car.
 	const car = carrier.cars[carIndex] as CarrierCar;
 	table[slot] = carIndex + 1;
 	car.pendingAssignmentCount += 1;

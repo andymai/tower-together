@@ -258,9 +258,10 @@ export function processCommercialSim(
 			time,
 		);
 		if (routeResult === -1 || routeResult === 3) {
-			// Fail tail: park the sim, release any held service request.
+			// Binary 1228:4c9e: state-0x05/0x45 jump table routes rc=-1 and rc=3
+			// to the PARKED (0x27) writer, not NIGHT_B (0x26).
 			releaseServiceRequest(world, sim);
-			sim.stateCode = STATE_NIGHT_B;
+			sim.stateCode = STATE_PARKED;
 			return;
 		}
 		// Phase 1d-ii parity: resolve owns sim.selectedFloor/destinationFloor.
@@ -393,8 +394,9 @@ function handleCommercialDepartureTransit(
 		{ emitDistanceFeedback: false },
 	);
 	if (routeResult === -1) {
+		// Binary 1228:4c9e: state-0x45 rc=-1 writes PARKED (0x27), not NIGHT_B.
 		releaseServiceRequest(world, sim);
-		sim.stateCode = STATE_NIGHT_B;
+		sim.stateCode = STATE_PARKED;
 		return;
 	}
 	if (routeResult === 3) {
