@@ -55,6 +55,9 @@ Broad unit coverage for simulation commands, family behaviors, routing, carriers
 ### `carriers.test.ts`
 Regression coverage for carrier lifecycle quirks that are easier to pin with small unit tests than full trace fixtures.
 
+### `commands.test.ts`
+Unit tests for `handlePlaceTile` placement rules (currently: elevator shaft spacing).
+
 ### `trace.test.ts`
 Fixture-driven parity suite that builds towers from JSON specs and checks scalar fields, sim populations, sim states, RNG deltas, carriers, and cash against reference JSONL traces.
 

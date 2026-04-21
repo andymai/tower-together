@@ -253,6 +253,40 @@ function hasMisalignedAdjacentOverlay(
 	return false;
 }
 
+/**
+ * Minimum empty-tile gap required between two distinct elevator shafts
+ * (edge-to-edge). For two standard (width 4) shafts this works out to 8
+ * tiles left-edge-to-left-edge.
+ */
+const ELEVATOR_MIN_SHAFT_SPACING = 4;
+
+function carrierOverlayWidth(mode: 0 | 1 | 2): number {
+	if (mode === 0) return TILE_WIDTHS.elevatorExpress ?? 6;
+	if (mode === 2) return TILE_WIDTHS.elevatorService ?? 4;
+	return TILE_WIDTHS.elevator ?? 4;
+}
+
+function tooCloseToExistingShaft(
+	world: WorldState,
+	x: number,
+	width: number,
+): boolean {
+	const newRight = x + width - 1;
+	for (const carrier of world.carriers) {
+		if (carrier.column === x) continue;
+		const otherWidth = carrierOverlayWidth(carrier.carrierMode);
+		const otherRight = carrier.column + otherWidth - 1;
+		const gap =
+			carrier.column > newRight
+				? carrier.column - newRight - 1
+				: x > otherRight
+					? x - otherRight - 1
+					: -1;
+		if (gap < ELEVATOR_MIN_SHAFT_SPACING) return true;
+	}
+	return false;
+}
+
 function hasAdjacentElevatorModeConflict(
 	world: WorldState,
 	x: number,
@@ -737,6 +771,12 @@ export function handlePlaceTile(
 		const shaftCost = isNewShaft ? (TILE_COSTS[normalizedTileType] ?? 0) : 0;
 		if (!freeBuild && shaftCost > ledger.cashBalance) {
 			return { accepted: false, reason: "Insufficient funds" };
+		}
+		if (isNewShaft && tooCloseToExistingShaft(world, x, overlayWidth)) {
+			return {
+				accepted: false,
+				reason: `Elevator must be at least ${ELEVATOR_MIN_SHAFT_SPACING} tiles from another shaft`,
+			};
 		}
 		if (
 			(normalizedTileType === "elevator" ||
