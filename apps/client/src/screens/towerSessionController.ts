@@ -63,11 +63,13 @@ export interface TowerSessionState {
 	connectionStatus: ConnectionStatus;
 	starCount: number;
 	playerCount: number;
+	activeCount: number;
 	towerName: string;
 	sims: SimStateData[];
 	carriers: CarrierCarStateData[];
 	speedMultiplier: 1 | 3 | 10;
 	freeBuild: boolean;
+	paused: boolean;
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
@@ -77,11 +79,13 @@ export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	connectionStatus: "connecting",
 	starCount: 1,
 	playerCount: 0,
+	activeCount: 0,
 	towerName: "",
 	sims: [],
 	carriers: [],
 	speedMultiplier: 1,
 	freeBuild: false,
+	paused: false,
 	activePrompt: null,
 	inspectedCell: null,
 	sceneReady: false,
@@ -421,6 +425,7 @@ export class TowerSessionController {
 				this.patchState({
 					speedMultiplier: msg.speedMultiplier,
 					freeBuild: msg.freeBuild,
+					paused: msg.paused,
 				});
 				this.lockstep.updateSettings({
 					freeBuild: msg.freeBuild,
@@ -428,7 +433,10 @@ export class TowerSessionController {
 				});
 				break;
 			case "presence_update":
-				this.patchState({ playerCount: msg.playerCount });
+				this.patchState({
+					playerCount: msg.playerCount,
+					activeCount: msg.activeCount,
+				});
 				break;
 			case "economy_update":
 				this.onEconomy(msg.cash, msg.population);

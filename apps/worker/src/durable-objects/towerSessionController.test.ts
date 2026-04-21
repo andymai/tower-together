@@ -200,6 +200,7 @@ describe("TowerSessionController with mocked server", () => {
 			type: "session_settings",
 			speedMultiplier: 3,
 			freeBuild: true,
+			paused: false,
 		});
 		socket.emitMessage({
 			type: "prompt",
@@ -216,6 +217,53 @@ describe("TowerSessionController with mocked server", () => {
 		expect(states.at(-1)?.speedMultiplier).toBe(3);
 		expect(states.at(-1)?.freeBuild).toBe(true);
 		expect(states.at(-1)?.activePrompt).toBeNull();
+
+		controller.dispose();
+	});
+
+	it("propagates `paused` and `activeCount` from server messages into session state", () => {
+		const socket = new FakeSocket();
+		const scene = createFakeScene();
+		const states: TowerSessionState[] = [];
+		const controller = new TowerSessionController({
+			towerId: "tower-test",
+			playerId: "player-1",
+			displayName: "Tester",
+			socket,
+			getScene: () => scene,
+			addToast: () => {},
+			onStateChange: (state) => {
+				states.push(state);
+			},
+			onSimTime: () => {},
+			onEconomy: () => {},
+		});
+
+		controller.start();
+
+		socket.emitMessage({
+			type: "presence_update",
+			playerCount: 2,
+			activeCount: 1,
+		});
+		expect(states.at(-1)?.playerCount).toBe(2);
+		expect(states.at(-1)?.activeCount).toBe(1);
+
+		socket.emitMessage({
+			type: "session_settings",
+			speedMultiplier: 1,
+			freeBuild: false,
+			paused: true,
+		});
+		expect(states.at(-1)?.paused).toBe(true);
+
+		socket.emitMessage({
+			type: "session_settings",
+			speedMultiplier: 1,
+			freeBuild: false,
+			paused: false,
+		});
+		expect(states.at(-1)?.paused).toBe(false);
 
 		controller.dispose();
 	});

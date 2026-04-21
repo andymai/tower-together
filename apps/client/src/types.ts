@@ -149,7 +149,7 @@ export type ServerMessage =
 			serverTick: number;
 			batches: ResolvedInputBatch[];
 	  }
-	| { type: "presence_update"; playerCount: number }
+	| { type: "presence_update"; playerCount: number; activeCount: number }
 	| {
 			type: "checkpoint";
 			serverTick: number;
@@ -161,6 +161,7 @@ export type ServerMessage =
 			type: "session_settings";
 			speedMultiplier: 1 | 3 | 10;
 			freeBuild: boolean;
+			paused: boolean;
 	  }
 	| {
 			type: "economy_update";
@@ -219,4 +220,5 @@ export type ClientMessage =
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
 	| { type: "add_elevator_car"; x: number; y: number }
 	| { type: "remove_elevator_car"; x: number }
-	| { type: "set_free_build"; enabled: boolean };
+	| { type: "set_free_build"; enabled: boolean }
+	| { type: "set_active"; active: boolean };

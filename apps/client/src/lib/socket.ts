@@ -15,6 +15,8 @@ export class TowerSocket {
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private reconnectDelay = 1000;
 	private intentionalDisconnect = false;
+	private visibilityListener: (() => void) | null = null;
+	private lastReportedActive: boolean | null = null;
 
 	connect(towerId: string): void {
 		this.intentionalDisconnect = false;
@@ -27,6 +29,7 @@ export class TowerSocket {
 		this.intentionalDisconnect = true;
 		this.currentTowerId = null;
 		this.clearTimers();
+		this.clearVisibilityListener();
 		if (this.ws) {
 			this.ws.onclose = null;
 			this.ws.close();
@@ -92,6 +95,35 @@ export class TowerSocket {
 		}
 	}
 
+	private clearVisibilityListener() {
+		if (this.visibilityListener && typeof document !== "undefined") {
+			document.removeEventListener("visibilitychange", this.visibilityListener);
+		}
+		this.visibilityListener = null;
+		this.lastReportedActive = null;
+	}
+
+	private currentActive(): boolean {
+		if (typeof document === "undefined") return true;
+		return document.visibilityState !== "hidden";
+	}
+
+	private reportActive(active: boolean): void {
+		if (this.lastReportedActive === active) return;
+		this.lastReportedActive = active;
+		this.send({ type: "set_active", active });
+	}
+
+	private installVisibilityListener(): void {
+		if (typeof document === "undefined") return;
+		this.clearVisibilityListener();
+		const listener = () => {
+			this.reportActive(this.currentActive());
+		};
+		this.visibilityListener = listener;
+		document.addEventListener("visibilitychange", listener);
+	}
+
 	private scheduleReconnect() {
 		if (this.intentionalDisconnect || !this.currentTowerId) return;
 		this.reconnectTimer = setTimeout(() => {
@@ -126,6 +158,10 @@ export class TowerSocket {
 					this.ws.send(JSON.stringify({ type: "ping" }));
 				}
 			}, 20_000);
+			// Declare current active state and keep it in sync with tab visibility.
+			this.lastReportedActive = null;
+			this.reportActive(this.currentActive());
+			this.installVisibilityListener();
 		};
 
 		this.ws.onmessage = (event: MessageEvent) => {
@@ -143,6 +179,7 @@ export class TowerSocket {
 		this.ws.onclose = () => {
 			this.ws = null;
 			this.clearTimers();
+			this.clearVisibilityListener();
 			this.setStatus("disconnected");
 			this.scheduleReconnect();
 		};

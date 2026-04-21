@@ -8,6 +8,7 @@ export type SessionMessage = Extract<
 	| { type: "set_speed" }
 	| { type: "set_star_count" }
 	| { type: "set_free_build" }
+	| { type: "set_active" }
 	| { type: "query_cell" }
 >;
 
@@ -30,6 +31,7 @@ export function isSessionMessage(msg: ClientMessage): msg is SessionMessage {
 		msg.type === "set_speed" ||
 		msg.type === "set_star_count" ||
 		msg.type === "set_free_build" ||
+		msg.type === "set_active" ||
 		msg.type === "query_cell"
 	);
 }
@@ -59,6 +61,7 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 		case "set_speed":
 		case "set_star_count":
 		case "set_free_build":
+		case "set_active":
 		case "query_cell":
 			return null;
 	}

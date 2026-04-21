@@ -14,7 +14,7 @@ import {
 	shouldEmitCheckpoint,
 } from "./lockstep";
 import { TowerRoomRepository } from "./TowerRoomRepository";
-import { TowerRoomSessions } from "./TowerRoomSessions";
+import { findStaleSessions, TowerRoomSessions } from "./TowerRoomSessions";
 
 interface Env {
 	TOWER_ROOM: DurableObjectNamespace;
@@ -22,12 +22,17 @@ interface Env {
 
 export class TowerRoom extends DurableObject<Env> {
 	private static readonly CHECKPOINT_INTERVAL_TICKS = 500;
+	/** Ticks between idle-sweeps (at 50ms tick = 10s, at 3x tick ≈ 3.3s). */
+	private static readonly IDLE_SWEEP_EVERY_TICKS = 200;
+	/** Sockets silent for longer than this are considered dead. */
+	private static readonly IDLE_TIMEOUT_MS = 45_000;
 
 	private sim: TowerSim | null = null;
 	private tickTimer: ReturnType<typeof setInterval> | null = null;
 	private speedMultiplier: 1 | 3 | 10 = 1;
 	private freeBuild = false;
 	private isRunning = false;
+	private isPaused = false;
 	private readonly queuedInputs = new Map<number, QueuedInputBatch[]>();
 	private readonly repository: TowerRoomRepository;
 	private readonly sessions = new TowerRoomSessions();
@@ -125,6 +130,9 @@ export class TowerRoom extends DurableObject<Env> {
 	// ─── WebSocket message handling ──────────────────────────────────────────────
 
 	private handleMessage(ws: WebSocket, raw: string | ArrayBuffer): void {
+		// Any inbound traffic proves the socket is still alive.
+		this.sessions.touch(ws);
+
 		const msg = parseClientMessage(raw);
 		if (!msg) return;
 
@@ -155,10 +163,9 @@ export class TowerRoom extends DurableObject<Env> {
 				width: this.sim.width,
 				height: this.sim.height,
 			});
-			this.broadcast({
-				type: "presence_update",
-				playerCount: this.sessions.size,
-			});
+			this.broadcastPresence();
+			// New joiner counts as an active session, so make sure the sim is running.
+			this.resumeIfNeeded();
 			if (!this.isRunning) {
 				this.isRunning = true;
 				this.startTick();
@@ -171,14 +178,17 @@ export class TowerRoom extends DurableObject<Env> {
 			return;
 		}
 
+		if (isSessionMessage(msg) && msg.type === "set_active") {
+			const previous = this.sessions.setActive(ws, msg.active);
+			if (previous === null || previous === msg.active) return;
+			this.handleActiveCountChanged();
+			return;
+		}
+
 		if (isSessionMessage(msg) && msg.type === "set_speed") {
 			this.speedMultiplier = msg.multiplier;
-			if (this.isRunning) this.restartTick();
-			this.broadcast({
-				type: "session_settings",
-				speedMultiplier: this.speedMultiplier,
-				freeBuild: this.freeBuild,
-			});
+			if (this.isRunning && !this.isPaused) this.restartTick();
+			this.broadcastSessionSettings();
 			return;
 		}
 
@@ -192,11 +202,7 @@ export class TowerRoom extends DurableObject<Env> {
 		if (isSessionMessage(msg) && msg.type === "set_free_build") {
 			this.freeBuild = msg.enabled;
 			this.sim.freeBuild = msg.enabled;
-			this.broadcast({
-				type: "session_settings",
-				speedMultiplier: this.speedMultiplier,
-				freeBuild: this.freeBuild,
-			});
+			this.broadcastSessionSettings();
 			return;
 		}
 
@@ -255,13 +261,13 @@ export class TowerRoom extends DurableObject<Env> {
 	private handleClose(): void {
 		if (this.sessions.size === 0) {
 			this.isRunning = false;
+			this.isPaused = false;
 			this.stopTick();
 			this.persistSim();
 		} else {
-			this.broadcast({
-				type: "presence_update",
-				playerCount: this.sessions.size,
-			});
+			this.broadcastPresence();
+			// A departing active session can drop activeCount to 0 — re-evaluate pause.
+			this.handleActiveCountChanged();
 		}
 	}
 
@@ -303,6 +309,10 @@ export class TowerRoom extends DurableObject<Env> {
 		}
 		this.broadcastEffects(result);
 
+		if (result.simTime % TowerRoom.IDLE_SWEEP_EVERY_TICKS === 0) {
+			this.sweepIdleSessions();
+		}
+
 		if (
 			shouldEmitCheckpoint(result.simTime, TowerRoom.CHECKPOINT_INTERVAL_TICKS)
 		) {
@@ -314,10 +324,84 @@ export class TowerRoom extends DurableObject<Env> {
 		if (result.simTime % 30 === 0) this.persistSim();
 	}
 
+	// ─── Liveness / idle / pause ────────────────────────────────────────────────
+
+	private sweepIdleSessions(): void {
+		const stale = findStaleSessions(
+			this.sessions.records(),
+			Date.now(),
+			TowerRoom.IDLE_TIMEOUT_MS,
+		);
+		if (stale.length === 0) return;
+		for (const socket of stale) {
+			this.sessions.remove(socket);
+			try {
+				socket.close(1001, "idle timeout");
+			} catch {
+				// Already closed; the close/error handlers will no-op via remove().
+			}
+		}
+		// Closing sockets may mutate playerCount/activeCount, so re-broadcast.
+		if (this.sessions.size === 0) {
+			this.isRunning = false;
+			this.isPaused = false;
+			this.stopTick();
+			this.persistSim();
+			return;
+		}
+		this.broadcastPresence();
+		this.handleActiveCountChanged();
+	}
+
+	private handleActiveCountChanged(): void {
+		if (this.sessions.size === 0) return;
+		const activeCount = this.sessions.activeSize;
+		if (activeCount === 0 && !this.isPaused) {
+			this.isPaused = true;
+			this.stopTick();
+			this.broadcastSessionSettings();
+			this.broadcastPresence();
+			return;
+		}
+		if (activeCount > 0 && this.isPaused) {
+			this.isPaused = false;
+			if (this.isRunning) this.startTick();
+			this.broadcastSessionSettings();
+			this.broadcastPresence();
+			return;
+		}
+		this.broadcastPresence();
+	}
+
+	private resumeIfNeeded(): void {
+		if (!this.isPaused) return;
+		if (this.sessions.activeSize === 0) return;
+		this.isPaused = false;
+		if (this.isRunning) this.startTick();
+		this.broadcastSessionSettings();
+	}
+
 	// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 	private broadcast(msg: ServerMessage, exclude?: WebSocket): void {
 		this.sessions.broadcast(msg, exclude);
+	}
+
+	private broadcastPresence(): void {
+		this.broadcast({
+			type: "presence_update",
+			playerCount: this.sessions.size,
+			activeCount: this.sessions.activeSize,
+		});
+	}
+
+	private broadcastSessionSettings(): void {
+		this.broadcast({
+			type: "session_settings",
+			speedMultiplier: this.speedMultiplier,
+			freeBuild: this.freeBuild,
+			paused: this.isPaused,
+		});
 	}
 
 	private broadcastEffects(result: {
