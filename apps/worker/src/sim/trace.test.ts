@@ -309,15 +309,9 @@ const FIXTURE_NAMES = [
 	"sky_office",
 ];
 
-// Fixtures where transfer routing at a sky lobby drifts from the binary:
-// TS marks an extra office sim as moving at the daypart-0 income pulse (+$10k
-// at day-0 tick-0, compounding thereafter), stress aggregates read non-zero
-// while the binary's are still 0, and the per-family state histograms drift
-// late in the run. Family counts, carrier car positions, gates, stars and RNG
-// deltas still match, so those assertions are retained.
-const SKIP_CASH_CHECK = new Set(["sky_office"]);
-const SKIP_STRESS_CHECK = new Set(["sky_office"]);
-const SKIP_STATE_HISTOGRAM_CHECK = new Set(["sky_office"]);
+const SKIP_CASH_CHECK = new Set<string>();
+const SKIP_STRESS_CHECK = new Set<string>();
+const SKIP_STATE_HISTOGRAM_CHECK = new Set<string>();
 
 describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	const { spec, trace } = loadFixture(fixtureName);

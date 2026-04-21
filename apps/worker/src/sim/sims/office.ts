@@ -350,22 +350,6 @@ function handleOfficeMorningGate(
 		if (sampleRng(world) % 12 !== 0) return;
 	}
 
-	// 3-day cashflow
-	if (
-		facility.auxValueOrTimer !== time.dayCounter + 1 &&
-		time.dayCounter % 3 === 0
-	) {
-		facility.auxValueOrTimer = time.dayCounter + 1;
-		facility.occupiableFlag = 1;
-		resetFacilitySimTripCounters(world, sim);
-		addCashflowFromFamilyResource(
-			ledger,
-			"office",
-			facility.rentLevel,
-			facility.objectTypeCode,
-		);
-	}
-
 	if (
 		world.starCount > 2 &&
 		(sim.floorAnchor + sim.homeColumn) % 4 === 1 &&
@@ -388,8 +372,39 @@ function handleOfficeMorningGate(
 		time,
 	);
 	if (routeResult === -1) {
+		// Binary 1228:225f/2285/22ac: the office state-0x20 handler's rc=-1
+		// branch zeroes tripCount / elapsedTicks / accumulatedTicks before
+		// exiting. `resolve_sim_route_between_floors` on no-route fires the
+		// 300-tick penalty + advanceSimTripCounters inside, and the handler
+		// immediately wipes the side effects. Without this reset, stuck
+		// morning-gate sims accrue spurious stress.
+		sim.tripCount = 0;
+		sim.elapsedTicks = 0;
+		sim.accumulatedTicks = 0;
 		sim.stateCode = routeFailureStateForOffice(facility);
 		return;
+	}
+	// Binary 1228:213c/22de+2329 (cases 1/2/3) and 235a+23a5 (case 4): after
+	// a non-failure route result, call activate_office_cashflow (1180:0d2e)
+	// which pays rent when stayPhase (unitStatus) >= 0x10 and zeros it.
+	// The 3-day cycle gate is implicit in the stayPhase counter: rent zeroes
+	// it, and sync_stay_phase_if_all_siblings_ready brings it back to 0x10
+	// over the following days. The auxValueOrTimer + dayCounter%3 guard on
+	// the paired activateThreeDayCashflow (ledger.ts) still catches facilities
+	// that skipped rent here because their per-sim route failed earlier in
+	// the cycle.
+	if (
+		facility.auxValueOrTimer !== time.dayCounter + 1 &&
+		time.dayCounter % 3 === 0
+	) {
+		facility.auxValueOrTimer = time.dayCounter + 1;
+		facility.occupiableFlag = 1;
+		addCashflowFromFamilyResource(
+			ledger,
+			"office",
+			facility.rentLevel,
+			facility.objectTypeCode,
+		);
 	}
 	activateOfficeCashflow(world, facility, sim);
 	// Phase 1d-ii: resolve owns sim+7/sim+0x12. Handler sets state only.

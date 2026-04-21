@@ -260,6 +260,15 @@ export function doLedgerRollover(
  * occupiableFlag has been set (by the lazy per-sim activateRetailShop path).
  * Both share auxValueOrTimer with the per-sim handlers as a once-per-cycle
  * guard.
+ *
+ * Offices here only re-pay if they're currently operational (`occupiableFlag
+ * === 1`) AND have been rented at least once (`auxValueOrTimer !== 0`, flipped
+ * by a prior per-sim morning-gate dispatch). Never-rented offices (unreachable
+ * from the lobby, e.g. above a sky lobby without a transfer) stay at the
+ * initial `auxValueOrTimer === 0`, and stress-vacated offices get
+ * `occupiableFlag === 0` via `refreshOccupiedFlagAndTripCounters` branch C.
+ * Both skip here, matching the binary where office rent only credits through
+ * `activate_office_cashflow` (1180:0d2e) from the per-sim state-0x20 path.
  */
 export function activateThreeDayCashflow(
 	world: WorldState,
@@ -270,6 +279,8 @@ export function activateThreeDayCashflow(
 	for (const obj of Object.values(world.placedObjects)) {
 		if (obj.objectTypeCode === FAMILY_OFFICE) {
 			if (obj.auxValueOrTimer === guard) continue;
+			if (obj.auxValueOrTimer === 0) continue;
+			if (obj.occupiableFlag !== 1) continue;
 			obj.auxValueOrTimer = guard;
 			addCashflowFromFamilyResource(
 				ledger,
