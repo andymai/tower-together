@@ -73,7 +73,7 @@ function decrementOfficePresenceCounter(
  * `is_reopening==0` path called from the per-tick state-0x20 handler at
  * 1228:2329 / 1228:23a5. The cashflow side (`add_cashflow_from_family_resource`)
  * is owned in TS by the 3-day rollover guard in `handleOfficeMorningGate`,
- * so this routine only flips `unitStatus`/`occupiableFlag` and contributes
+ * so this routine only flips `unitStatus`/`dirtyFlag` and contributes
  * +6 to the primary family ledger total used by star advancement.
  */
 function activateOfficeCashflow(
@@ -83,7 +83,8 @@ function activateOfficeCashflow(
 ): void {
 	if (object.unitStatus <= UNIT_STATUS_OFFICE_OCCUPIED) return;
 	object.unitStatus = 0;
-	object.occupiableFlag = 1;
+	// Binary 1180:0d93: MOV byte ptr ES:[BX+0x13],1 (dirty flag set).
+	object.dirtyFlag = 1;
 	// Binary: add_to_primary_family_ledger_bucket(7, 6) — population
 	// contribution that feeds compute_tower_tier_from_ledger and gates
 	// star advancement (e.g. 1→2 at total >= 300).
@@ -348,7 +349,10 @@ function handleOfficeMorningGate(
 	facility: PlacedObjectRecord,
 ): void {
 	if (time.weekendFlag !== 0) return;
-	if (facility.occupiableFlag === 0) return;
+	// Binary 1228:1df3: CMP byte ptr ES:[BX+0x14],0x0 — reads the occupied
+	// flag (set only by the scoring sweep's first eval_level>0 pass). Sims
+	// whose home facility has never been scored must NOT sample RNG here.
+	if (facility.occupiedFlag === 0) return;
 
 	if (time.daypartIndex >= 3) return;
 	if (time.daypartIndex === 0) {
@@ -403,7 +407,8 @@ function handleOfficeMorningGate(
 		time.dayCounter % 3 === 0
 	) {
 		facility.auxValueOrTimer = time.dayCounter + 1;
-		facility.occupiableFlag = 1;
+		// Binary activate_office_cashflow 1180:0d93 sets +0x13 (dirty).
+		facility.dirtyFlag = 1;
 		addCashflowFromFamilyResource(
 			ledger,
 			"office",

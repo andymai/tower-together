@@ -166,7 +166,7 @@ export function recomputeObjectOperationalStatus(
 	if (
 		object.objectTypeCode === FAMILY_OFFICE &&
 		object.unitStatus > UNIT_STATUS_OFFICE_OCCUPIED &&
-		object.occupiableFlag !== 0
+		object.occupiedFlag !== 0
 	) {
 		object.evalLevel = 0xff;
 		object.evalScore = -1;
@@ -176,7 +176,7 @@ export function recomputeObjectOperationalStatus(
 	if (
 		object.objectTypeCode === FAMILY_CONDO &&
 		object.unitStatus > UNIT_STATUS_CONDO_OCCUPIED &&
-		object.occupiableFlag !== 0
+		object.occupiedFlag !== 0
 	) {
 		object.evalLevel = 0xff;
 		object.evalScore = -1;
@@ -237,17 +237,18 @@ export function recomputeObjectOperationalStatus(
 	];
 	object.evalScore = score;
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
-	// Binary recompute_object_operational_status tail:
-	//   if (occupiableFlag == 0 && evalLevel != 0) occupiableFlag = 1
+	// Binary recompute_object_operational_status tail (1138:093c CMP +0x14,
+	// 1138:09d6 MOV byte ptr ES:[BX+0x14],1):
+	//   if (occupiedFlag == 0 && evalLevel != 0) occupiedFlag = 1
 	// Hotels (families 3/4/5) gate the set on unitStatus <= 0x27 — above that
-	// band the room must stay non-occupiable until the dormant phase clears.
+	// band the room must stay unoccupied until the dormant phase clears.
 	// No call to refresh_occupied_flag_and_trip_counters here for any family.
-	if (object.occupiableFlag === 0 && object.evalLevel > 0) {
+	if (object.occupiedFlag === 0 && object.evalLevel > 0) {
 		if (
 			!HOTEL_FAMILIES.has(object.objectTypeCode) ||
 			object.unitStatus <= 0x27
 		) {
-			object.occupiableFlag = 1;
+			object.occupiedFlag = 1;
 		}
 	}
 }
@@ -258,12 +259,13 @@ export function refreshOccupiedFlagAndTripCounters(
 	object: PlacedObjectRecord,
 ): void {
 	// Binary refresh_occupied_flag_and_trip_counters @ 1138:0f79:
-	//   Branch A: evalLevel >= 1 (not 0xff) → occupiableFlag=1, reset trip counters
+	//   Branch A: evalLevel >= 1 (not 0xff) → occupiedFlag(+0x14)=1, reset trip counters
 	//   Branch B: evalLevel == 0 with A-rated sibling on same floor+family
-	//             → downgrade both to 1, occupiableFlag=1 both, reset trip counters
-	//   Branch C: evalLevel == 0 with no donor → occupiableFlag=0, NO reset
+	//             → downgrade both to 1, occupiedFlag=1 both, reset trip counters
+	//   Branch C: evalLevel == 0 with no donor → occupiedFlag=0, NO reset
+	// 1138:1072: MOV byte ptr ES:[BX+0x14],1; 1138:10ab: MOV byte ptr ES:[BX+0x14],0
 	if (object.evalLevel !== 0xff && object.evalLevel >= 1) {
-		object.occupiableFlag = 1;
+		object.occupiedFlag = 1;
 		resetFacilitySimTripCounters(world, sim);
 		return;
 	}
@@ -276,13 +278,13 @@ export function refreshOccupiedFlagAndTripCounters(
 			if (cy !== y) continue;
 			if (candidate.evalLevel !== 2) continue;
 			candidate.evalLevel = 1;
-			candidate.occupiableFlag = 1;
+			candidate.occupiedFlag = 1;
 			object.evalLevel = 1;
-			object.occupiableFlag = 1;
+			object.occupiedFlag = 1;
 			resetFacilitySimTripCounters(world, sim);
 			return;
 		}
-		object.occupiableFlag = 0;
+		object.occupiedFlag = 0;
 	}
 }
 

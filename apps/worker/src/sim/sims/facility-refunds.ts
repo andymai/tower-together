@@ -261,7 +261,11 @@ function deactivateRetailShop(
 	ledger: LedgerState,
 ): void {
 	record.availabilityState = VENUE_DORMANT;
-	object.occupiableFlag = 0;
+	// Binary deactivate_retail_shop_cashflow (1180:1255):
+	//   1180:1296: MOV byte ptr ES:[BX+0x13],1  (dirty)
+	//   1180:12a6: MOV byte ptr ES:[BX+0x14],0  (occupied cleared)
+	object.dirtyFlag = 1;
+	object.occupiedFlag = 0;
 	object.activationTickCount = 0;
 
 	removeCashflowFromFamilyResource(
@@ -291,7 +295,11 @@ export function refundUnhappyFacilities(
 				time.daypartIndex < 4
 					? UNIT_STATUS_CONDO_VACANT
 					: UNIT_STATUS_CONDO_VACANT_EVENING;
-			object.occupiableFlag = 0;
+			// Binary revert_condo_to_unsold (1180:1102):
+			//   1180:115b: MOV byte ptr ES:[BX+0x13],1  (dirty)
+			//   1180:116c: MOV byte ptr ES:[BX+0x14],0  (occupied cleared)
+			object.dirtyFlag = 1;
+			object.occupiedFlag = 0;
 			object.activationTickCount = 0;
 
 			const [x, y] = key.split(",").map(Number);

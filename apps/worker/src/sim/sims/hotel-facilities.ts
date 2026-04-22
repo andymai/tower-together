@@ -158,8 +158,9 @@ export function updateHotelOperationalAndOccupancy(
 		if (sim.baseOffset !== 0) continue;
 		// Binary update_hotel_operational_and_pairings pass 2: rooms with
 		// unitStatus >= 0x28 (dormant / post-checkout) keep their current
-		// occupiableFlag. Fresh rooms run through the donor/flag update path
-		// unconditionally — the refresh function handles the evalLevel branches.
+		// occupiedFlag (+0x14). Fresh rooms run through the donor/flag update
+		// path unconditionally — the refresh function handles the evalLevel
+		// branches.
 		if (object.unitStatus >= 0x28) continue;
 		refreshOccupiedFlagAndTripCounters(world, sim, object);
 	}

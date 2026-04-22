@@ -14,7 +14,7 @@ Family 7: real `refreshObjectFamilyOfficeStateHandler` (1228:1cb5) + `dispatchOb
 Family 9: real `refreshObjectFamilyCondoStateHandler` (1228:3548) + `dispatchObjectFamilyCondoStateHandler` (1228:3870).
 
 ### `retail.ts`
-Family 10: real `gateObjectFamilyRetailStateHandler` (1228:3ed9) + `dispatchObjectFamilyRetailStateHandler` (1228:40c0). The gate validates familyCode and delegates to the shared commercial processor; retail-specific quirks (DORMANT+occupiableFlag early exit) live inside `processCommercialSim`.
+Family 10: real `gateObjectFamilyRetailStateHandler` (1228:3ed9) + `dispatchObjectFamilyRetailStateHandler` (1228:40c0). The gate validates familyCode and delegates to the shared commercial processor; retail-specific quirks (DORMANT+occupiedFlag early exit, binary +0x14) live inside `processCommercialSim`.
 
 ### `restaurant.ts`
 Family 6/12: real `gateObjectFamilyRestaurantFastFoodStateHandler` (1228:466d) + `dispatchObjectFamilyRestaurantFastFoodStateHandler` (1228:4851). Same pattern as retail.

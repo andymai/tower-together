@@ -243,8 +243,25 @@ export interface PlacedObjectRecord {
 	auxValueOrTimer: number;
 	/** Index into WorldState.sidecars; −1 when no sidecar is attached. */
 	linkedRecordIndex: number;
-	/** Operational-evaluation latch: 1 at placement, cleared on deactivation. Gates morning dispatch. */
-	occupiableFlag: number;
+	/**
+	 * Binary PlacedObjectRecord +0x13 (byte): "dirty" / cashflow-needed flag.
+	 * Set to 1 by most activation paths (office/retail/condo/hotel
+	 * `activate_*_cashflow`, stay-phase advance/decrement/sync, service-request
+	 * allocate/release, parking/coverage recalc, placement init). Read by the
+	 * ledger rollover sweep to know which placed objects need a cashflow pass
+	 * in the current 3-day cycle. Independent of operational scoring.
+	 */
+	dirtyFlag: number;
+	/**
+	 * Binary PlacedObjectRecord +0x14 (byte): "occupied" / scored flag.
+	 * Set by the scoring sweep (`recompute_object_operational_status` at
+	 * 1138:09d6) once `evalLevel > 0`, and by placement init. Cleared by
+	 * `deactivate_*_cashflow` paths and `handle_extended_vacancy_expiry`.
+	 * Read by the office state-0x20 morning gate at 1228:1df3 and the retail
+	 * state-0x20 gate at 1228:4044 (both are RNG gates that skip the dispatch
+	 * unless the object has been scored).
+	 */
+	occupiedFlag: number;
 	/** Operational rating: 0 = bad/refund-eligible, 1 = ok, 2 = good. −1 until first scoring sweep. */
 	evalLevel: number;
 	/** Raw average stress score before threshold bucketing. -1 until first scoring sweep. */

@@ -110,7 +110,8 @@ export class TowerSim {
 		const evalLevelBefore = new Map<string, number>();
 		const evalScoreBefore = new Map<string, number>();
 		for (const [key, record] of Object.entries(this.world.placedObjects)) {
-			evalBefore.set(key, record.occupiableFlag);
+			// Display-facing scored bit: binary +0x14 (occupiedFlag).
+			evalBefore.set(key, record.occupiedFlag);
 			unitStatusBefore.set(key, record.unitStatus);
 			evalLevelBefore.set(key, record.evalLevel);
 			evalScoreBefore.set(key, record.evalScore);
@@ -134,7 +135,7 @@ export class TowerSim {
 			const prevEvalLevel = evalLevelBefore.get(key);
 			const prevEvalScore = evalScoreBefore.get(key);
 			if (
-				(prev !== undefined && prev !== record.occupiableFlag) ||
+				(prev !== undefined && prev !== record.occupiedFlag) ||
 				(prevUnitStatus !== undefined &&
 					prevUnitStatus !== record.unitStatus) ||
 				(prevEvalLevel !== undefined && prevEvalLevel !== record.evalLevel) ||
@@ -146,7 +147,7 @@ export class TowerSim {
 					y,
 					tileType: this.world.cells[key] ?? "",
 					isAnchor: true,
-					evalActiveFlag: record.occupiableFlag,
+					evalActiveFlag: record.occupiedFlag,
 					unitStatus: record.unitStatus,
 					evalLevel: record.evalLevel,
 					evalScore: record.evalScore,
@@ -435,7 +436,7 @@ export class TowerSim {
 				isAnchor,
 				...(record
 					? {
-							evalActiveFlag: record.occupiableFlag,
+							evalActiveFlag: record.occupiedFlag,
 							unitStatus: record.unitStatus,
 							evalLevel: record.evalLevel,
 							evalScore: record.evalScore,

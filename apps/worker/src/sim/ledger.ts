@@ -257,18 +257,19 @@ export function doLedgerRollover(
 /**
  * Mirrors binary `recompute_all_operational_status_and_cashflow` at the 3-day
  * checkpoint. Offices activate unconditionally; retail activates only once its
- * occupiableFlag has been set (by the lazy per-sim activateRetailShop path).
- * Both share auxValueOrTimer with the per-sim handlers as a once-per-cycle
- * guard.
+ * occupied flag (+0x14) has been set (by the scoring sweep's first
+ * eval_level>0 pass). Both share auxValueOrTimer with the per-sim handlers as
+ * a once-per-cycle guard.
  *
- * Offices here only re-pay if they're currently operational (`occupiableFlag
- * === 1`) AND have been rented at least once (`auxValueOrTimer !== 0`, flipped
- * by a prior per-sim morning-gate dispatch). Never-rented offices (unreachable
- * from the lobby, e.g. above a sky lobby without a transfer) stay at the
- * initial `auxValueOrTimer === 0`, and stress-vacated offices get
- * `occupiableFlag === 0` via `refreshOccupiedFlagAndTripCounters` branch C.
- * Both skip here, matching the binary where office rent only credits through
- * `activate_office_cashflow` (1180:0d2e) from the per-sim state-0x20 path.
+ * Offices here only re-pay if they're currently operational
+ * (`occupiedFlag === 1`, binary +0x14) AND have been rented at least once
+ * (`auxValueOrTimer !== 0`, flipped by a prior per-sim morning-gate dispatch).
+ * Never-rented offices (unreachable from the lobby, e.g. above a sky lobby
+ * without a transfer) stay at the initial `auxValueOrTimer === 0`, and
+ * stress-vacated offices get `occupiedFlag === 0` via
+ * `refreshOccupiedFlagAndTripCounters` branch C. Both skip here, matching the
+ * binary where office rent only credits through `activate_office_cashflow`
+ * (1180:0d2e) from the per-sim state-0x20 path.
  */
 export function activateThreeDayCashflow(
 	world: WorldState,
@@ -280,7 +281,7 @@ export function activateThreeDayCashflow(
 		if (obj.objectTypeCode === FAMILY_OFFICE) {
 			if (obj.auxValueOrTimer === guard) continue;
 			if (obj.auxValueOrTimer === 0) continue;
-			if (obj.occupiableFlag !== 1) continue;
+			if (obj.occupiedFlag !== 1) continue;
 			obj.auxValueOrTimer = guard;
 			addCashflowFromFamilyResource(
 				ledger,
@@ -292,7 +293,7 @@ export function activateThreeDayCashflow(
 		}
 		if (obj.objectTypeCode === FAMILY_RETAIL) {
 			if (obj.auxValueOrTimer === guard) continue;
-			if (obj.occupiableFlag !== 1) continue;
+			if (obj.occupiedFlag !== 1) continue;
 			// Binary activate_family_cashflow_if_operational (1138:0bad) gates
 			// family 10 on the linked CommercialVenueRecord.availability_state
 			// being >= 0 (signed). VENUE_DORMANT (0xff → -1) is excluded.

@@ -32,8 +32,8 @@ export {
 /**
  * 1228:3ed9 gate_object_family_retail_state_handler. Gates on
  * familyCode === FAMILY_RETAIL and delegates to the shared commercial
- * processor; retail-specific early exit (DORMANT+occupiableFlag) is
- * already encoded inside processCommercialSim.
+ * processor; retail-specific early exit (DORMANT+occupiedFlag, binary +0x14)
+ * is already encoded inside processCommercialSim.
  */
 export function gateObjectFamilyRetailStateHandler(
 	world: WorldState,

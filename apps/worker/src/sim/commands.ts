@@ -137,7 +137,12 @@ function makePlacedObject(
 		auxValueOrTimer: 0,
 		evalLevel: 0xff,
 		evalScore: -1,
-		occupiableFlag: 1,
+		// Binary placement (place_object_on_floor 1200:1ee3/1ef4,
+		// place_mergeable_span_object_on_floor 1200:2e81/2e92,
+		// expand_type21_object_layout 11f0:00fb/010c etc.) writes both +0x13
+		// and +0x14 = 1 on fresh placement.
+		dirtyFlag: 1,
+		occupiedFlag: 1,
 		activationTickCount: 0,
 		rentLevel: VARIANT_INIT_ONE_FAMILIES.has(familyCode) ? 1 : 4,
 		housekeepingClaimedFlag: 0,
@@ -499,7 +504,9 @@ function placeRecyclingCenterStack(
 				isAnchor: dx === 0,
 				...(dx === 0 && record
 					? {
-							evalActiveFlag: record.occupiableFlag,
+							// evalActiveFlag is the user-facing "scored/operational" bit:
+							// binary +0x14 (occupied).
+							evalActiveFlag: record.occupiedFlag,
 							unitStatus: record.unitStatus,
 						}
 					: {}),
@@ -680,7 +687,10 @@ function placeEntertainmentVenue(
 			auxValueOrTimer: 0,
 			evalLevel: 0xff,
 			evalScore: -1,
-			occupiableFlag: 1,
+			// split_entertainment_object_into_stairway_pair (1188:03b9/03ca,
+			// 054f/0560) sets both flags on placement.
+			dirtyFlag: 1,
+			occupiedFlag: 1,
 			activationTickCount: 0,
 			rentLevel: 4,
 			housekeepingClaimedFlag: 0,
@@ -703,7 +713,7 @@ function placeEntertainmentVenue(
 				isAnchor,
 				...(isAnchor && anchorRecord
 					? {
-							evalActiveFlag: anchorRecord.occupiableFlag,
+							evalActiveFlag: anchorRecord.occupiedFlag,
 							unitStatus: anchorRecord.unitStatus,
 						}
 					: {}),
@@ -1048,7 +1058,7 @@ export function handlePlaceTile(
 		isAnchor: dx === 0,
 		...(dx === 0 && record
 			? {
-					evalActiveFlag: record.occupiableFlag,
+					evalActiveFlag: record.occupiedFlag,
 					unitStatus: record.unitStatus,
 				}
 			: {}),

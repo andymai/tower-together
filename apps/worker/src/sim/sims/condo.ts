@@ -119,8 +119,9 @@ function handleCondoMorningGate(
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
+	// Binary 1228:375e: CMP byte ptr ES:[BX+0x14],0x0 — reads occupied flag.
 	// refresh_0x20: slot+0x14 != 0 AND daypart < 5 → dispatch.
-	if (object.occupiableFlag === 0) return;
+	if (object.occupiedFlag === 0) return;
 	if (time.daypartIndex >= 5) return;
 	dispatchCondoMorningGate(world, ledger, time, sim, object);
 }

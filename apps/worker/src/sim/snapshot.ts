@@ -242,6 +242,24 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		) {
 			legacyRecord.occupiableFlag = legacyRecord.evalActiveFlag;
 		}
+		if ("occupiableFlag" in legacyRecord) {
+			// Legacy snapshots used a single occupiableFlag that conflated
+			// binary +0x13 (dirty / cashflow) and +0x14 (occupied / scored).
+			// Default both to the legacy value so existing saves keep behavior.
+			if (!("dirtyFlag" in legacyRecord)) {
+				legacyRecord.dirtyFlag = legacyRecord.occupiableFlag;
+			}
+			if (!("occupiedFlag" in legacyRecord)) {
+				legacyRecord.occupiedFlag = legacyRecord.occupiableFlag;
+			}
+			delete legacyRecord.occupiableFlag;
+		}
+		if (!("dirtyFlag" in legacyRecord)) {
+			legacyRecord.dirtyFlag = 1;
+		}
+		if (!("occupiedFlag" in legacyRecord)) {
+			legacyRecord.occupiedFlag = 1;
+		}
 		if (!("evalLevel" in legacyRecord) && "pairingStatus" in legacyRecord) {
 			legacyRecord.evalLevel = legacyRecord.pairingStatus;
 		}

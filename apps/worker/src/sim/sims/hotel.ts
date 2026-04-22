@@ -207,7 +207,11 @@ export function checkoutHotelStay(
 	// to the sim being dispatched. Iterating siblings here clobbers any twin
 	// already mid-trip on the carrier (state 0x45 → 0x20 anomaly).
 	object.unitStatus = time.daypartIndex < 4 ? 0x28 : 0x30;
-	object.occupiableFlag = 0;
+	// Binary deactivate_family_hotel_unit_with_income (1180:0f24):
+	//   1180:0f7d: MOV byte ptr ES:[BX+0x13],1  (dirty)
+	//   1180:0f8e: MOV byte ptr ES:[BX+0x14],0  (occupied cleared)
+	object.dirtyFlag = 1;
+	object.occupiedFlag = 0;
 	object.activationTickCount = 0;
 }
 
@@ -232,7 +236,8 @@ function handleHotelMorningGate(
 	sim: SimRecord,
 	object: PlacedObjectRecord,
 ): void {
-	if (object.occupiableFlag === 0) return;
+	// Binary 1228:2c8c: CMP byte ptr ES:[BX+0x14],0x0 — reads occupied flag.
+	if (object.occupiedFlag === 0) return;
 	if (time.daypartIndex === 4) {
 		if (sampleRng(world) % 12 !== 0) return;
 		if (sim.familyCode === FAMILY_HOTEL_SUITE && world.starCount <= 2) {

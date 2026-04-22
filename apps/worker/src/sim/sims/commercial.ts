@@ -55,15 +55,16 @@ export function processCommercialSim(
 	}
 
 	// --- Morning activation gate ---
-	// Binary: gate_object_family_10_state_handler (retail, 1228:3ed9) and
-	// gate_object_family_6_0c_state_handler (restaurant / fast-food, 1228:466d).
-	// The two gates differ: retail has an early DORMANT+occupiableFlag exit
-	// *before* any RNG; restaurant/fast-food has no occupiableFlag check.
+	// Binary: gate_object_family_retail_state_handler (1228:3ed9) and
+	// gate_object_family_restaurant_fast_food_state_handler (1228:466d).
+	// The two gates differ: retail has an early DORMANT+occupiedFlag exit
+	// *before* any RNG; restaurant/fast-food has no occupied-flag check.
 	if (state === STATE_MORNING_GATE) {
 		if (sim.familyCode === FAMILY_RETAIL) {
 			// Binary 1228:4014/4044 retail gate: return early when the venue is
 			// dormant AND the object has not yet been marked operationally
-			// occupiable. Non-dormant venues always fall through to RNG gates.
+			// occupied (+0x14). Non-dormant venues always fall through to RNG
+			// gates. 1228:4044: CMP byte ptr ES:[BX+0x14],0x0.
 			if (object.linkedRecordIndex >= 0) {
 				const venue = world.sidecars[object.linkedRecordIndex] as
 					| CommercialVenueRecord
@@ -71,7 +72,7 @@ export function processCommercialSim(
 				if (
 					venue?.kind === "commercial_venue" &&
 					venue.availabilityState === VENUE_DORMANT &&
-					object.occupiableFlag === 0
+					object.occupiedFlag === 0
 				) {
 					return;
 				}
