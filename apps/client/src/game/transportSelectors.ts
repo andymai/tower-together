@@ -14,18 +14,18 @@ export function isQueuedSimLive(
 	return !entry?.route.boarded;
 }
 
-export function buildOccupancyByCarFromCarriers(
+export function fillOccupancyByCarFromCarriers(
 	carriers: readonly CarrierRecord[],
-): Map<string, number> {
-	const occupancyByCar = new Map<string, number>();
+	out: Map<number, number>,
+): void {
+	out.clear();
 	for (const carrier of carriers) {
 		for (const route of carrier.pendingRoutes) {
 			if (!route.boarded || route.assignedCarIndex < 0) continue;
-			const key = `${carrier.carrierId}:${route.assignedCarIndex}`;
-			occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
+			const key = carrier.carrierId * 1024 + route.assignedCarIndex;
+			out.set(key, (out.get(key) ?? 0) + 1);
 		}
 	}
-	return occupancyByCar;
 }
 
 export interface TransportMetrics {

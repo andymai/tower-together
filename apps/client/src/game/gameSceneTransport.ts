@@ -34,7 +34,7 @@ export function getPresentationTime(
 	return presentationClock.simTime + Math.min(1, elapsedMs / tickIntervalMs);
 }
 
-function getSnapshotProgress(
+export function getSnapshotProgress(
 	presentationClock: PresentationClock,
 	now = performance.now(),
 ): number {
@@ -43,39 +43,48 @@ function getSnapshotProgress(
 	return Math.min(1, elapsedMs / tickIntervalMs);
 }
 
-export function getDisplayedCars(
+// Packed key for (carrierId, carIndex). Car indexes are small (<1024); carrier
+// ids stay well within safe-integer range after multiplication.
+export function packCarKey(carrierId: number, carIndex: number): number {
+	return carrierId * 1024 + carIndex;
+}
+
+export function shouldInterpolateCars(
 	current: TimedSnapshot<CarrierCarStateData> | null,
 	previous: TimedSnapshot<CarrierCarStateData> | null,
 	presentationClock: PresentationClock,
-): CarrierCarStateData[] {
-	if (!current) return [];
+): boolean {
+	return Boolean(
+		current &&
+			previous &&
+			previous.simTime < current.simTime &&
+			presentationClock.simTime === current.simTime,
+	);
+}
 
-	if (
-		previous &&
-		previous.simTime < current.simTime &&
-		presentationClock.simTime === current.simTime
-	) {
-		const progress = getSnapshotProgress(presentationClock);
-		const previousByKey = new Map(
-			previous.items.map((car) => [`${car.carrierId}:${car.carIndex}`, car]),
-		);
-		return current.items.map((car) => {
-			const from = previousByKey.get(`${car.carrierId}:${car.carIndex}`);
-			if (!from) return car;
-			const fromDirSign = from.prevFloor > from.currentFloor ? 1 : -1;
-			const toDirSign = car.prevFloor > car.currentFloor ? 1 : -1;
-			const fromEffective =
-				from.currentFloor + (fromDirSign * from.settleCounter) / 6;
-			const toEffective =
-				car.currentFloor + (toDirSign * car.settleCounter) / 6;
-			return {
-				...car,
-				currentFloor: fromEffective + (toEffective - fromEffective) * progress,
-			};
-		});
+export function fillPrevCarIndex(
+	previous: TimedSnapshot<CarrierCarStateData> | null,
+	out: Map<number, CarrierCarStateData>,
+): void {
+	out.clear();
+	if (!previous) return;
+	for (const car of previous.items) {
+		out.set(packCarKey(car.carrierId, car.carIndex), car);
 	}
+}
 
-	return current.items;
+export function interpolatedFloor(
+	car: CarrierCarStateData,
+	from: CarrierCarStateData | undefined,
+	progress: number,
+): number {
+	if (!from) return car.currentFloor;
+	const fromDirSign = from.prevFloor > from.currentFloor ? 1 : -1;
+	const toDirSign = car.prevFloor > car.currentFloor ? 1 : -1;
+	const fromEffective =
+		from.currentFloor + (fromDirSign * from.settleCounter) / 6;
+	const toEffective = car.currentFloor + (toDirSign * car.settleCounter) / 6;
+	return fromEffective + (toEffective - fromEffective) * progress;
 }
 
 export function collectElevatorColumnsByFloor(
@@ -162,12 +171,18 @@ export function getQueuedSimQueueKey(
 	)}:${dir}`;
 }
 
-export function getCarBounds(car: CarrierCarStateData): {
+export interface CarBounds {
 	x: number;
 	y: number;
 	width: number;
 	height: number;
-} {
+}
+
+export function fillCarBounds(
+	car: CarrierCarStateData,
+	floor: number,
+	out: CarBounds,
+): void {
 	const isExpress = car.carrierMode === 0;
 	const shaftTypeKey = isExpress ? "elevatorExpress" : "elevator";
 	const shaftWidthCells = TILE_WIDTHS[shaftTypeKey] ?? 4;
@@ -176,10 +191,10 @@ export function getCarBounds(car: CarrierCarStateData): {
 		? shaftPixelWidth - 6
 		: Math.max(6, shaftPixelWidth - 6);
 	const height = Math.max(10, Math.floor(TILE_HEIGHT * 0.75));
-	const x = car.column * TILE_WIDTH + (shaftPixelWidth - width) / 2;
-	const y =
-		(GRID_HEIGHT - 1 - car.currentFloor + 0.5) * TILE_HEIGHT - height / 2;
-	return { x, y, width, height };
+	out.x = car.column * TILE_WIDTH + (shaftPixelWidth - width) / 2;
+	out.y = (GRID_HEIGHT - 1 - floor + 0.5) * TILE_HEIGHT - height / 2;
+	out.width = width;
+	out.height = height;
 }
 
 function pickElevatorColumn(

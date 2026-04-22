@@ -49,20 +49,25 @@ import {
 	type PlacementAnchor,
 } from "./gameScenePlacement";
 import {
+	type CarBounds,
 	collectElevatorColumnsByFloor,
-	getCarBounds,
-	getDisplayedCars,
+	fillCarBounds,
+	fillPrevCarIndex,
 	getPresentationTime,
 	getQueuedSimLayout,
 	getQueuedSimQueueKey,
+	getSnapshotProgress,
+	interpolatedFloor,
 	isSimAscending,
 	type PresentationClock,
+	packCarKey,
 	SIM_QUEUE_MAX_SIZE,
 	SIM_QUEUE_SPACING_CELLS,
+	shouldInterpolateCars,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
 import {
-	buildOccupancyByCarFromCarriers,
+	fillOccupancyByCarFromCarriers,
 	isQueuedSimLive,
 } from "./transportSelectors";
 
@@ -276,6 +281,18 @@ export class GameScene extends Scene {
 	private lastFloorLabelWidth = -1;
 	private simsDirty = true;
 	private lastSimWorldView = new Geom.Rectangle();
+
+	// Scratch buffers reused every frame to avoid GC pressure in the render
+	// loop. Never hold references across frames.
+	private occupancyByCar: Map<number, number> = new Map();
+	private prevCarByKey: Map<number, CarrierCarStateData> = new Map();
+	private carBoundsScratch: CarBounds = { x: 0, y: 0, width: 0, height: 0 };
+	private infestedKeysScratch: Set<string> = new Set();
+	private roomCountsScratch: Map<string, number> = new Map();
+	private readonly cockroachTextureKeys: readonly string[] = Array.from(
+		{ length: 4 },
+		(_, i) => `cockroach_${i}`,
+	);
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
@@ -2062,42 +2079,72 @@ export class GameScene extends Scene {
 
 	private drawCars(): void {
 		const liveCarriers = this.snapshotSource?.readLiveCarriers() ?? [];
-		const occupancyByCar = buildOccupancyByCarFromCarriers(liveCarriers);
+		const occupancyByCar = this.occupancyByCar;
+		fillOccupancyByCarFromCarriers(liveCarriers, occupancyByCar);
+
+		const current = this.currentCarrierSnapshot;
+		if (!current) {
+			for (let i = 0; i < this.carRects.length; i += 1) {
+				this.carRects[i]?.setVisible(false);
+				this.carLabels[i]?.setVisible(false);
+			}
+			return;
+		}
+
+		const interpolate = shouldInterpolateCars(
+			current,
+			this.previousCarrierSnapshot,
+			this.presentationClock,
+		);
+		const progress = interpolate
+			? getSnapshotProgress(this.presentationClock)
+			: 0;
+		const prevByKey = this.prevCarByKey;
+		if (interpolate) {
+			fillPrevCarIndex(this.previousCarrierSnapshot, prevByKey);
+		} else {
+			prevByKey.clear();
+		}
+
 		const worldView = this.cameras.main.worldView;
 		const visibleLeft = worldView.x - TILE_WIDTH;
 		const visibleRight = worldView.right + TILE_WIDTH;
 		const visibleTop = worldView.y - TILE_HEIGHT;
 		const visibleBottom = worldView.bottom + TILE_HEIGHT;
+		const bounds = this.carBoundsScratch;
 
 		let usedCount = 0;
-		for (const car of getDisplayedCars(
-			this.currentCarrierSnapshot,
-			this.previousCarrierSnapshot,
-			this.presentationClock,
-		)) {
-			const { x, y, width, height } = getCarBounds(car);
-			const right = x + width;
-			const bottom = y + height;
+		for (const car of current.items) {
+			const floor = interpolate
+				? interpolatedFloor(
+						car,
+						prevByKey.get(packCarKey(car.carrierId, car.carIndex)),
+						progress,
+					)
+				: car.currentFloor;
+			fillCarBounds(car, floor, bounds);
+			const right = bounds.x + bounds.width;
+			const bottom = bounds.y + bounds.height;
 			if (
 				right < visibleLeft ||
-				x > visibleRight ||
+				bounds.x > visibleRight ||
 				bottom < visibleTop ||
-				y > visibleBottom
+				bounds.y > visibleBottom
 			) {
 				continue;
 			}
 			const occupancy =
-				occupancyByCar.get(`${car.carrierId}:${car.carIndex}`) ?? 0;
+				occupancyByCar.get(packCarKey(car.carrierId, car.carIndex)) ?? 0;
 
 			// Each car (rect + label) gets a unique depth slice so cars never
 			// interleave with other cars' labels.
 			const depth = 3 + usedCount * 0.01;
 			this.drawCarOccupancyLabel(
 				usedCount,
-				x,
-				y,
-				width,
-				height,
+				bounds.x,
+				bounds.y,
+				bounds.width,
+				bounds.height,
 				occupancy,
 				depth,
 			);
@@ -2150,7 +2197,8 @@ export class GameScene extends Scene {
 		const cockroachW = TILE_WIDTH * 0.55;
 		const cockroachH = cockroachW * (8 / 10);
 
-		const infestedKeys = new Set<string>();
+		const infestedKeys = this.infestedKeysScratch;
+		infestedKeys.clear();
 		for (const [key, status] of this.unitStatusMap) {
 			if (
 				status >= HOTEL_INFESTED_STATUS_MIN &&
@@ -2160,11 +2208,19 @@ export class GameScene extends Scene {
 			}
 		}
 
-		this.cockroaches = this.cockroaches.filter((c) =>
-			infestedKeys.has(c.roomKey),
-		);
+		// In-place filter: keep only cockroaches whose room is still infested.
+		let write = 0;
+		for (let i = 0; i < this.cockroaches.length; i += 1) {
+			const c = this.cockroaches[i];
+			if (c && infestedKeys.has(c.roomKey)) {
+				if (write !== i) this.cockroaches[write] = c;
+				write += 1;
+			}
+		}
+		this.cockroaches.length = write;
 
-		const roomCounts = new Map<string, number>();
+		const roomCounts = this.roomCountsScratch;
+		roomCounts.clear();
 		for (const c of this.cockroaches) {
 			roomCounts.set(c.roomKey, (roomCounts.get(c.roomKey) ?? 0) + 1);
 		}
@@ -2267,7 +2323,9 @@ export class GameScene extends Scene {
 			const worldX = roomLeft + c.offsetX + cockroachW / 2;
 			const worldY = roomTop + c.offsetY + cockroachH / 2;
 
-			const textureKey = `cockroach_${c.frame}`;
+			const textureKey =
+				this.cockroachTextureKeys[c.frame] ?? this.cockroachTextureKeys[0];
+			if (textureKey === undefined) continue;
 			let sprite = this.cockroachSprites[usedCount];
 			if (!sprite) {
 				sprite = this.add.sprite(0, 0, textureKey);
