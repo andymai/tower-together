@@ -12,9 +12,16 @@
 import { carrierSpansFloor } from "../carriers";
 import { testCarrierTransferReachability } from "../reachability/mask-tests";
 import type { WorldState } from "../world";
-import { ROUTE_COST_INFINITE, STAIRS_ROUTE_EXTRA_COST } from "./constants";
+import {
+	DIRECT_ROUTE_BASE_COST,
+	DIRECT_ROUTE_FULL_QUEUE_COST,
+	QUEUE_FULL_COUNT,
+	ROUTE_COST_INFINITE,
+	TRANSFER_ROUTE_BASE_COST,
+	TRANSFER_ROUTE_FULL_QUEUE_COST,
+} from "./constants";
 
-function getFloorSlotStatus(
+function getFloorQueueCount(
 	carrier: WorldState["carriers"][number],
 	floor: number,
 	directionFlag: number,
@@ -24,7 +31,7 @@ function getFloorSlotStatus(
 	const queue = carrier.floorQueues[slot];
 	if (!queue) return 0;
 	const directionQueue = directionFlag === 1 ? queue.up : queue.down;
-	return directionQueue.size >= 40 ? 0x28 : 0;
+	return Math.min(directionQueue.size, QUEUE_FULL_COUNT);
 }
 
 /**
@@ -45,22 +52,25 @@ export function scoreCarrierDirectRoute(
 	if (!carrier) return ROUTE_COST_INFINITE;
 	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
 	if (!carrierSpansFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
-	const status = getFloorSlotStatus(
+	const qCount = getFloorQueueCount(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	// Binary 11b8:168e direct branch: mode==0 (express) zeros the hypot
-	// distance but still applies the queue-full penalty from the status byte.
-	// Without that penalty, a backed-up express queue at a lobby floor still
-	// scores lower than a free standard carrier with a small hypot offset,
-	// which sends OUTBOUND-from-anchor sims onto the wrong carrier (sky_office
-	// sim 11:137 routed to express at floor 11 when the binary chose main).
-	const distance =
-		carrier.carrierMode === 0
-			? 0
-			: Math.abs(carrier.column - targetHeightMetric) * 8;
-	return status === 0x28 ? 1000 + distance : distance + STAIRS_ROUTE_EXTRA_COST;
+	// 11b8:168e direct branch. mode==0 (express) ignores distance and adds the
+	// integer queue count directly: cost = qCount + 640. mode!=0 uses hypot
+	// distance plus a step-function penalty that replaces the base with 1000
+	// only when the queue is saturated (==40).
+	if (carrier.carrierMode === 0) {
+		return qCount + DIRECT_ROUTE_BASE_COST;
+	}
+	const distance = Math.abs(carrier.column - targetHeightMetric) * 8;
+	return (
+		distance +
+		(qCount === QUEUE_FULL_COUNT
+			? DIRECT_ROUTE_FULL_QUEUE_COST
+			: DIRECT_ROUTE_BASE_COST)
+	);
 }
 
 /**
@@ -88,14 +98,21 @@ export function scoreCarrierTransferRoute(
 	) {
 		return ROUTE_COST_INFINITE;
 	}
-	const status = getFloorSlotStatus(
+	const qCount = getFloorQueueCount(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	const distance =
-		carrier.carrierMode === 0
-			? 0
-			: Math.abs(carrier.column - targetHeightMetric) * 8;
-	return status === 0x28 ? 6000 + distance : distance + 3000;
+	// 11b8:168e transfer branch. Same shape as direct branch with base=3000,
+	// full-queue penalty=6000.
+	if (carrier.carrierMode === 0) {
+		return qCount + TRANSFER_ROUTE_BASE_COST;
+	}
+	const distance = Math.abs(carrier.column - targetHeightMetric) * 8;
+	return (
+		distance +
+		(qCount === QUEUE_FULL_COUNT
+			? TRANSFER_ROUTE_FULL_QUEUE_COST
+			: TRANSFER_ROUTE_BASE_COST)
+	);
 }
