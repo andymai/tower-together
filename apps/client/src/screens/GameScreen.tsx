@@ -8,7 +8,6 @@ import { getTileStarRequirement } from "../types";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameBuildPanel } from "./GameBuildPanel";
 import { GameDebugPanel } from "./GameDebugPanel";
-import { GameInspectPanel } from "./GameInspectPanel";
 import { GamePromptModal } from "./GamePromptModal";
 import { GameToasts } from "./GameToasts";
 import type { GameToolbarClockHandle } from "./GameToolbar";
@@ -240,9 +239,6 @@ export function GameScreen({
 							freeBuild={freeBuild}
 							onFreeBuildChange={setFreeBuild}
 						/>
-					)}
-					{import.meta.env.DEV && selectedTool === "inspect" && (
-						<GameInspectPanel sims={sims} />
 					)}
 				</div>
 			</div>

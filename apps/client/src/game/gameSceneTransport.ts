@@ -100,8 +100,10 @@ export function collectElevatorColumnsByFloor(
 }
 
 /** Sim sprite footprint expressed in grid cells (must match GameScene render). */
-const SIM_QUEUE_SPACING_CELLS = 0.8;
+export const SIM_QUEUE_SPACING_CELLS = 0.8;
 const SIM_QUEUE_START_GAP = 0.2;
+/** Upper bound on sims queued at a single elevator/floor/direction. */
+export const SIM_QUEUE_MAX_SIZE = 40;
 const ELEVATOR_STROKE_CELLS = 1;
 const QUEUE_START_OFFSET = 0.1 + ELEVATOR_STROKE_CELLS / 2;
 

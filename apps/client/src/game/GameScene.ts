@@ -51,6 +51,8 @@ import {
 	getQueuedSimQueueKey,
 	isSimAscending,
 	type PresentationClock,
+	SIM_QUEUE_MAX_SIZE,
+	SIM_QUEUE_SPACING_CELLS,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
 import { buildOccupancyByCar, isQueuedSim } from "./transportSelectors";
@@ -1901,23 +1903,27 @@ export class GameScene extends Scene {
 
 		const scale = SIM_QUEUE_TEXTURE_SCALE;
 
+		// Fixed bbox sized for the max possible queue so membership changes don't
+		// resize the RT. Anchored to the queueIndex=0 sim's position, which depends
+		// only on the queueKey's elevator column (stable across frames).
+		const fullSpanPx =
+			(SIM_QUEUE_MAX_SIZE - 1) * SIM_QUEUE_SPACING_CELLS * TILE_WIDTH;
+
 		for (const [queueKey, { ascending, sims }] of queues) {
 			if (sims.length === 0) continue;
 
-			let minLeft = Number.POSITIVE_INFINITY;
-			let maxRight = Number.NEGATIVE_INFINITY;
-			let minTop = Number.POSITIVE_INFINITY;
-			let maxBottom = Number.NEGATIVE_INFINITY;
-			for (const { px, py } of sims) {
-				if (px - simWidthPx / 2 < minLeft) minLeft = px - simWidthPx / 2;
-				if (px + simWidthPx / 2 > maxRight) maxRight = px + simWidthPx / 2;
-				if (py - simHeightPx < minTop) minTop = py - simHeightPx;
-				if (py > maxBottom) maxBottom = py;
-			}
-			const bboxX = Math.floor(minLeft);
-			const bboxY = Math.floor(minTop);
-			const bboxW = Math.max(1, Math.ceil(maxRight - bboxX));
-			const bboxH = Math.max(1, Math.ceil(maxBottom - bboxY));
+			const firstPx = (sims[0] as QueuedSimLayoutEntry).px;
+			const firstPy = (sims[0] as QueuedSimLayoutEntry).py;
+			const leftmost = ascending
+				? firstPx - fullSpanPx - simWidthPx / 2
+				: firstPx - simWidthPx / 2;
+			const rightmost = ascending
+				? firstPx + simWidthPx / 2
+				: firstPx + fullSpanPx + simWidthPx / 2;
+			const bboxX = Math.floor(leftmost);
+			const bboxY = Math.floor(firstPy - simHeightPx);
+			const bboxW = Math.max(1, Math.ceil(rightmost - bboxX));
+			const bboxH = Math.max(1, Math.ceil(firstPy - bboxY));
 
 			const existing = this.simQueueCache.get(queueKey);
 			if (
