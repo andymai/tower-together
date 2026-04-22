@@ -160,7 +160,17 @@ function runOfficeServiceEvaluation(
 
 // --- Per-state handlers (1228:1e45 etc.) ---
 
-/** 1228:1e45 office_refresh_0x00 — normal inbound commute gate (STATE_COMMUTE). */
+/** 1228:1e45 office_refresh_0x00 — STATE_COMMUTE handler.
+ *
+ * Binary state-0 dispatch issues an INBOUND (lobby → anchor) route via
+ * 1228:2644 with direction=1, but the workaround for baseOffset=1 keeps
+ * an OUTBOUND path here for post-lunch returns (treating state 0x00 via
+ * the 0x62 alias that reaches this refresh). The specific sky_office
+ * regression was the OUTBOUND path firing for baseOffset=0 at daypart 0
+ * (sim on floor 11 enqueuing src=11 → dst=10). Restrict the OUTBOUND
+ * shortcut to baseOffset=1 only; baseOffset=0 takes the INBOUND path,
+ * matching the binary's state-0 handler.
+ */
 function handleOfficeCommute(
 	world: WorldState,
 	_ledger: LedgerState,
@@ -178,10 +188,6 @@ function handleOfficeCommute(
 		if (time.daypartIndex < 3) return;
 		if (sampleRng(world) % 12 !== 0) return;
 	}
-	// Binary state 0x00 is an at-office outbound path for occupants 0 and 1.
-	// Occupant 1 reaches it after lunch-return arrival (0x62), then dispatches
-	// from the office floor down to the lobby; treating it as lobby->office
-	// boards the wrong carrier at dense_office d0t1203.
 	const isOutboundOfficePath = sim.baseOffset <= 1;
 	const sourceFloor = isOutboundOfficePath ? sim.floorAnchor : LOBBY_FLOOR;
 	const destinationFloor = isOutboundOfficePath ? LOBBY_FLOOR : sim.floorAnchor;
@@ -198,8 +204,6 @@ function handleOfficeCommute(
 		return;
 	}
 	decrementOfficePresenceCounter(facility, time);
-	// Phase 1d-ii: resolve owns sim+7 (selectedFloor) and sim+0x12
-	// (destinationFloor). Don't overwrite — that cancels per-leg progression.
 	if (routeResult === 3) {
 		advanceOfficePresenceCounter(facility);
 		sim.destinationFloor = -1;

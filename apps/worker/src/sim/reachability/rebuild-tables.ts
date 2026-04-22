@@ -7,7 +7,7 @@
 // per-carrier transfer-group cache, and the projected reachability masks
 // on each derived special-link record.
 
-import { carrierServesFloor } from "../carriers";
+import { carrierServesFloor, carrierSpansFloor } from "../carriers";
 import { FAMILY_PARKING } from "../resources";
 import {
 	GRID_HEIGHT,
@@ -68,32 +68,59 @@ export function rebuildRouteReachabilityTables(world: WorldState): void {
 export function rebuildTransferGroupCache(world: WorldState): void {
 	clearTransferGroupCache(world);
 
-	const candidates = Object.entries(world.placedObjects)
+	// Tile-level parking candidates (one per placed-object cell). Contiguous
+	// spans of parking tiles on the same floor are then coalesced into a
+	// single candidate so the carrier-mask picks up every carrier whose
+	// column lies within the span — matching the binary's facility-struct
+	// layout where a lobby is one multi-tile object, not N width-1 objects.
+	const tileCandidates = Object.entries(world.placedObjects)
 		.filter(([, object]) => object.objectTypeCode === FAMILY_PARKING)
 		.map(([key, object]) => {
 			const [x, y] = key.split(",").map(Number);
-			const floor = yToFloor(y);
+			return {
+				floor: yToFloor(y),
+				left: object.leftTileIndex,
+				right: object.rightTileIndex,
+				x,
+			};
+		})
+		.sort((a, b) =>
+			a.floor === b.floor ? a.left - b.left : a.floor - b.floor,
+		);
+
+	interface Span {
+		floor: number;
+		left: number;
+		right: number;
+	}
+	const spans: Span[] = [];
+	for (const tile of tileCandidates) {
+		const prev = spans[spans.length - 1];
+		if (prev && prev.floor === tile.floor && tile.left <= prev.right + 1) {
+			if (tile.right > prev.right) prev.right = tile.right;
+		} else {
+			spans.push({ floor: tile.floor, left: tile.left, right: tile.right });
+		}
+	}
+
+	const candidates = spans
+		.map((span) => {
 			let membershipMask = 0;
 			for (const carrier of world.carriers) {
 				if (carrier.carrierId >= 24) continue;
-				if (
-					carrier.column < object.leftTileIndex ||
-					carrier.column > object.rightTileIndex
-				) {
-					continue;
-				}
-				if (!carrierReachesTransferFloor(carrier, floor)) continue;
+				if (carrier.column < span.left || carrier.column > span.right) continue;
+				// Binary 11b8:049f gates carrier membership in a transfer-group
+				// entry on `served_floor_flags[tagged_floor] != 0` — the carrier
+				// must span the tagged floor. The prior `carrierReachesTransferFloor`
+				// helper allowed distance ≤6 (≤4 for service); that over-counted
+				// main-elevator membership in sky-lobby entries and produced
+				// spurious multi-carrier transfer routes for sky_office.
+				if (!carrierSpansFloor(carrier, span.floor)) continue;
 				membershipMask |= 1 << carrier.carrierId;
 			}
-			return {
-				floor,
-				x,
-				membershipMask,
-				object,
-			};
+			return { floor: span.floor, x: span.left, membershipMask };
 		})
-		.filter((candidate) => candidate.membershipMask !== 0)
-		.sort((a, b) => (a.floor === b.floor ? a.x - b.x : a.floor - b.floor));
+		.filter((candidate) => candidate.membershipMask !== 0);
 
 	// Append+collapse: append each candidate, then collapse into the
 	// immediately preceding entry if it has the same tagged floor and an
@@ -192,18 +219,4 @@ function rebuildSpecialLinkRecordReachability(
 		}
 		record.reachabilityMasksByFloor[floor] = projectedMask;
 	}
-}
-
-function carrierReachesTransferFloor(
-	carrier: WorldState["carriers"][number],
-	floor: number,
-): boolean {
-	if (floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor) {
-		return true;
-	}
-	const distance =
-		floor < carrier.bottomServedFloor
-			? carrier.bottomServedFloor - floor
-			: floor - carrier.topServedFloor;
-	return distance <= (carrier.carrierMode === 2 ? 4 : 6);
 }

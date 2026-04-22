@@ -9,7 +9,7 @@
 // transfer paths into one function. If so, merge these two; otherwise
 // keep them split and treat both as helpers of the binary entry.
 
-import { carrierServesFloor } from "../carriers";
+import { carrierSpansFloor } from "../carriers";
 import { testCarrierTransferReachability } from "../reachability/mask-tests";
 import type { WorldState } from "../world";
 import { ROUTE_COST_INFINITE, STAIRS_ROUTE_EXTRA_COST } from "./constants";
@@ -43,17 +43,21 @@ export function scoreCarrierDirectRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierServesFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!carrierServesFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierSpansFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
+	// Binary 11b8:168e direct branch: for carrier_mode==0 (express), the
+	// distance and queue-full reassignments are inside the `mode != 0` guard,
+	// so both paths fall through to `iVar2 + 0x280`. Mirror that by only
+	// applying the queue-full penalty on non-express carriers.
+	if (carrier.carrierMode === 0) {
+		return STAIRS_ROUTE_EXTRA_COST;
+	}
 	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	const distance =
-		carrier.carrierMode === 0
-			? 0
-			: Math.abs(carrier.column - targetHeightMetric) * 8;
+	const distance = Math.abs(carrier.column - targetHeightMetric) * 8;
 	return status === 0x28 ? 1000 + distance : distance + STAIRS_ROUTE_EXTRA_COST;
 }
 
@@ -76,7 +80,7 @@ export function scoreCarrierTransferRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierServesFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
 	if (
 		!testCarrierTransferReachability(world, carrierId, toFloor, preferLocalMode)
 	) {

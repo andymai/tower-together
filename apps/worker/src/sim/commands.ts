@@ -93,7 +93,7 @@ export type SimCommand =
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 
-const INFRASTRUCTURE_TILES = new Set(["floor", "lobby", "stairs"]);
+const INFRASTRUCTURE_TILES = new Set(["floor", "stairs"]);
 
 // Families whose rentLevel initialises to 1; all others initialise to 4 (no payout).
 const VARIANT_INIT_ONE_FAMILIES = new Set([3, 4, 5, 7, 9, FAMILY_RETAIL]);

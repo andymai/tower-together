@@ -17,7 +17,7 @@ export { shouldCarDepart } from "./depart";
 export { computeCarMotionMode } from "./motion";
 export { decrementCarPendingAssignmentCount } from "./pending";
 export { advanceCarPositionOneStep } from "./position";
-export { carrierServesFloor, floorToSlot } from "./slot";
+export { carrierServesFloor, carrierSpansFloor, floorToSlot } from "./slot";
 export {
 	findNearestWorkFloor,
 	recomputeCarTargetAndDirection,

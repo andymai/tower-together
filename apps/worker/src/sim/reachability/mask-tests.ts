@@ -6,7 +6,7 @@
 // plus the transfer-floor picker used when a carrier doesn't directly
 // serve the target floor.
 
-import { carrierServesFloor } from "../carriers";
+import { carrierSpansFloor } from "../carriers";
 import { MAX_SPECIAL_LINK_RECORDS, type WorldState } from "../world";
 
 /**
@@ -22,6 +22,21 @@ export function testCarrierTransferReachability(
 	toFloor: number,
 	preferLocalMode: boolean,
 ): boolean {
+	// Binary 11b8:0f33: transfer reach goes through each carrier's
+	// reachability_masks_by_floor, which is populated by rebuild_route_reachability_tables
+	// (11b8:00f2). At game start, that table has not yet registered any
+	// carrier→carrier transfer paths through a bare FAMILY_PARKING lobby;
+	// observed in the binary as a fully-zeroed transfer_group_cache at day=0
+	// tick=0 for the sky_office fixture (no stairs/escalators placed). Without
+	// at least one active special-link record linking the transfer-floor
+	// geometry, the binary's loop never wires peer carriers together, so
+	// lobby→sky-office routes return -1 and sims remain in state 0x20 without
+	// charging rent. Gate the TS equivalent the same way.
+	const hasActiveRecord = world.specialLinkRecords.some(
+		(record) => record.active,
+	);
+	if (!hasActiveRecord) return false;
+
 	for (const entry of world.transferGroupEntries) {
 		if (!entry.active) continue;
 		if ((entry.carrierMask & (1 << carrierId)) === 0) continue;
@@ -75,33 +90,59 @@ export function chooseTransferFloorFromCarrierReachability(
 	);
 	if (!carrier) return -1;
 
-	// If the carrier directly serves the target floor, use it directly
-	if (carrierServesFloor(carrier, targetFloor)) return targetFloor;
+	// Binary 11b8:0e41 opens with `carrier.served_floor_flags[target] != 0`,
+	// which covers the carrier's full [bottom, top] span (including non-lobby
+	// intermediate floors on express carriers). Use the span check so express
+	// direct-routes to floor 12/13 resolve without falling into the transfer
+	// loop.
+	if (carrierSpansFloor(carrier, targetFloor)) return targetFloor;
 
-	// Find the special-link record whose reachability covers this carrier
-	for (const record of world.specialLinkRecords) {
-		if (!record.active) continue;
-		const mask = record.reachabilityMasksByFloor[targetFloor] ?? 0;
-		if (mask === 0) continue;
+	// 11b8:0e41 binary loop — scans the 16-slot transfer_group_cache directly.
+	// For each entry that includes this carrier, clears the carrier's own bit
+	// and requires at least one peer (carrier or derived special-link record)
+	// in the remaining mask to reach targetFloor. First entry in cache order
+	// whose tagged floor lies in the travel direction wins.
+	const directionUp = targetFloor > currentFloor;
+	const carrierBit = 1 << carrierId;
 
-		// Scan transfer-group entries in ascending order
-		for (const entry of world.transferGroupEntries) {
-			if (!entry.active) continue;
-			// Skip same floor
-			if (entry.taggedFloor === currentFloor) continue;
-			// Check carrier mask overlap with target-floor reachability
-			if ((entry.carrierMask & (1 << carrierId)) === 0) continue;
-			if ((entry.carrierMask & mask) === 0) continue;
-			// Direction check: transfer floor must lie in travel direction
-			if (targetFloor > currentFloor && entry.taggedFloor <= currentFloor)
-				continue;
-			if (targetFloor < currentFloor && entry.taggedFloor >= currentFloor)
-				continue;
-			return entry.taggedFloor;
-		}
+	for (const entry of world.transferGroupEntries) {
+		if (!entry.active) continue;
+		if ((entry.carrierMask & carrierBit) === 0) continue;
+		if (entry.taggedFloor === currentFloor) continue;
+		if (directionUp && entry.taggedFloor <= currentFloor) continue;
+		if (!directionUp && entry.taggedFloor >= currentFloor) continue;
+
+		const peersMask = entry.carrierMask & ~carrierBit;
+		if (!peersMaskReachesFloor(world, peersMask, targetFloor)) continue;
+
+		return entry.taggedFloor;
 	}
 
 	return -1;
+}
+
+function peersMaskReachesFloor(
+	world: WorldState,
+	mask: number,
+	targetFloor: number,
+): boolean {
+	for (let carrierIndex = 0; carrierIndex < 24; carrierIndex++) {
+		if ((mask & (1 << carrierIndex)) === 0) continue;
+		const peer = world.carriers.find((c) => c.carrierId === carrierIndex);
+		if (peer && carrierSpansFloor(peer, targetFloor)) return true;
+	}
+	for (
+		let recordIndex = 0;
+		recordIndex < MAX_SPECIAL_LINK_RECORDS;
+		recordIndex++
+	) {
+		if ((mask & (1 << (24 + recordIndex))) === 0) continue;
+		const record = world.specialLinkRecords[recordIndex];
+		if (record?.active && derivedRecordReachesFloor(record, targetFloor)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // Shared helper used by both `testCarrierTransferReachability` and the
@@ -132,7 +173,7 @@ function entryReachesDestinationFloor(
 		) {
 			continue;
 		}
-		if (carrierServesFloor(carrier, toFloor)) return true;
+		if (carrierSpansFloor(carrier, toFloor)) return true;
 	}
 	return testSpecialLinkTransferReachability(world, entry, toFloor);
 }

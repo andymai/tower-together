@@ -7,8 +7,8 @@ import { gameScreenStyles as styles } from "./gameScreenStyles";
 function formatSimDate(day: number): string {
 	const day0 = Math.max(0, day - 1);
 	const year = Math.floor(day0 / 12) + 1;
-	const quarter = Math.floor((day0 % 12) / 4) + 1;
-	const dow = day0 % 4;
+	const quarter = Math.floor((day0 % 12) / 3) + 1;
+	const dow = day0 % 3;
 	const weekLabel = dow < 2 ? `WD${dow + 1}` : "WE";
 	return `Year ${year} Q${quarter} ${weekLabel}`;
 }

@@ -9,14 +9,6 @@ export function floorToSlot(carrier: CarrierRecord, floor: number): number {
 	if (floor < carrier.bottomServedFloor || floor > carrier.topServedFloor) {
 		return -1;
 	}
-	if (carrier.carrierMode === 0) {
-		// Underground floors (0–9) → slots 0–9 by relative offset.
-		const rel = floor - carrier.bottomServedFloor;
-		if (floor < 10 && rel >= 0 && rel < 10) return rel;
-		// Lobbies: floor IDs 10, 25, 40, 55, 70, 85, 100 → slots 10+
-		if (floor >= 10 && (floor - 10) % 15 === 0) return (floor - 10) / 15 + 10;
-		return -1;
-	}
 	return floor - carrier.bottomServedFloor;
 }
 
@@ -25,4 +17,19 @@ export function carrierServesFloor(
 	floor: number,
 ): boolean {
 	return floorToSlot(carrier, floor) >= 0;
+}
+
+/**
+ * Span membership predicate. Binary `served_floor_flags[f]` is set for every
+ * floor in [bottomServedFloor, topServedFloor] — including the intermediate
+ * non-lobby floors on an express carrier that has no queue slot. The direct
+ * and transfer route-gate tests use this span check (not the queue-slot
+ * check) so express routes still resolve for rider destinations between
+ * lobbies; queue-status reads continue to use `floorToSlot`.
+ */
+export function carrierSpansFloor(
+	carrier: CarrierRecord,
+	floor: number,
+): boolean {
+	return floor >= carrier.bottomServedFloor && floor <= carrier.topServedFloor;
 }

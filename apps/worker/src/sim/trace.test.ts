@@ -225,8 +225,12 @@ function placeTilesFromSpec(sim: TowerSim, spec: BuildSpec): void {
 	for (const floor of floors) {
 		const extent = spec.floor_extent[String(floor)];
 		const y = GROUND_Y - floor;
+		// Floors that are a non-zero multiple of 15 above ground are sky lobbies
+		// (mirroring the Python emulator's direct-write of tile 0x0b at those
+		// levels so FAMILY_PARKING transfer-group entries form at floor 25, 40, ...).
+		const tileType = floor > 0 && floor % 15 === 0 ? "lobby" : "floor";
 		for (let x = extent.left; x < extent.right; x++) {
-			sim.submitCommand({ type: "place_tile", x, y, tileType: "floor" });
+			sim.submitCommand({ type: "place_tile", x, y, tileType });
 		}
 	}
 

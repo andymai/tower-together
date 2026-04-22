@@ -175,9 +175,12 @@ export const LEGACY_VIP_TILE_TO_STANDARD: Record<string, string> = {
 
 export const LEGACY_TILE_ALIASES: Record<string, string> = {};
 
-export const TILE_TO_FAMILY_CODE: Record<string, number> = Object.fromEntries(
-	Object.entries(FAMILY_CODE_TO_TILE).map(([k, v]) => [v, Number(k)]),
-);
+export const TILE_TO_FAMILY_CODE: Record<string, number> = {
+	...Object.fromEntries(
+		Object.entries(FAMILY_CODE_TO_TILE).map(([k, v]) => [v, Number(k)]),
+	),
+	lobby: FAMILY_PARKING,
+};
 
 // ─── YEN #1001 — payout table ─────────────────────────────────────────────────
 // Income per checkout/activation event, indexed by variant tier (0=best, 3=worst).

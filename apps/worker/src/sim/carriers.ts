@@ -26,6 +26,7 @@ import {
 	assignCarToFloorRequest,
 	cancelStaleFloorAssignment,
 	carrierServesFloor as carrierServesFloorImpl,
+	carrierSpansFloor as carrierSpansFloorImpl,
 	clearFloorRequestsOnArrival,
 	computeCarMotionMode,
 	decrementCarPendingAssignmentCount,
@@ -78,6 +79,7 @@ export {
 
 export const floorToSlot = floorToSlotImpl;
 export const carrierServesFloor = carrierServesFloorImpl;
+export const carrierSpansFloor = carrierSpansFloorImpl;
 
 // Binary-alias re-exports for the queue ops — existing call sites use the
 // older TS names. `enqueueCarrierRoute` maps to
