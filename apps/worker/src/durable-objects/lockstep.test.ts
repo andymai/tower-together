@@ -95,7 +95,7 @@ describe("TowerLockstepSession integration", () => {
 			}> = [];
 			const ticks: Array<{
 				simTime: number;
-				cells: ReturnType<TowerSim["cellsToArray"]>;
+				cellPatches: ReturnType<TowerSim["cellsToArray"]>;
 			}> = [];
 			const session = new TowerLockstepSession({
 				playerId: "player-1",
@@ -103,7 +103,7 @@ describe("TowerLockstepSession integration", () => {
 					resets.push({ simTime: state.simTime, cells: state.cells });
 				},
 				onTick: (state) => {
-					ticks.push({ simTime: state.simTime, cells: state.cells });
+					ticks.push({ simTime: state.simTime, cellPatches: state.cellPatches });
 				},
 			});
 
@@ -125,7 +125,15 @@ describe("TowerLockstepSession integration", () => {
 
 			vi.advanceTimersByTime(50);
 
-			expect(ticks.at(-1)?.cells).not.toEqual(
+			expect(ticks.at(-1)?.cellPatches).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						x: 0,
+						y: GROUND_Y,
+					}),
+				]),
+			);
+			expect(ticks.at(-1)?.cellPatches).not.toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
 						x: 0,

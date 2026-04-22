@@ -39,7 +39,7 @@ type AuthoritativeFrame = {
 	batches: ResolvedInputBatch[];
 };
 
-type TickUpdate = RenderState & {
+type TickUpdate = Omit<RenderState, "cells"> & {
 	cellPatches: CellData[];
 	receivedAtMs: number;
 	tickIntervalMs: number;
@@ -273,7 +273,12 @@ export class TowerLockstepSession {
 			return;
 		}
 		this.onTick({
-			...this.captureState(),
+			simTime: this.sim.simTime,
+			cash: this.sim.cash,
+			population: this.sim.population,
+			starCount: this.sim.starCount,
+			sims: this.sim.simsToArray(),
+			carriers: this.sim.carriersToArray(),
 			cellPatches,
 			receivedAtMs: performance.now(),
 			tickIntervalMs: BASE_TICK_INTERVAL_MS / this.settings.speedMultiplier,

@@ -94,11 +94,17 @@ function objectKey(sim: SimRecord): string {
 	return `${sim.homeColumn},${y}`;
 }
 
+const simOwnerCache = new WeakMap<SimRecord, PlacedObjectRecord>();
+
 export function findObjectForSim(
 	world: WorldState,
 	sim: SimRecord,
 ): PlacedObjectRecord | undefined {
-	return world.placedObjects[objectKey(sim)];
+	const cached = simOwnerCache.get(sim);
+	if (cached) return cached;
+	const owner = world.placedObjects[objectKey(sim)];
+	if (owner) simOwnerCache.set(sim, owner);
+	return owner;
 }
 
 export function findSiblingSims(
@@ -290,14 +296,15 @@ export function cleanupSimsForRemovedTile(
 	const floorAnchor = yToFloor(y);
 	const removedIds = new Set<string>();
 
-	for (const sim of world.sims) {
+	world.sims = world.sims.filter((sim) => {
 		if (sim.homeColumn !== anchorX || sim.floorAnchor !== floorAnchor) {
-			continue;
+			return true;
 		}
 		clearSimRoute(sim);
 		sim.destinationFloor = -1;
 		removedIds.add(simKey(sim));
-	}
+		return false;
+	});
 
 	if (removedIds.size === 0) return;
 
