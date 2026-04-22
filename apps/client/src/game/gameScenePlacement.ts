@@ -19,12 +19,41 @@ export interface HoverBounds {
 	height: number;
 }
 
+export function isElevatorTileType(tool: string): boolean {
+	return (
+		tool === "elevator" ||
+		tool === "elevatorExpress" ||
+		tool === "elevatorService"
+	);
+}
+
+/** Max contiguous shaft floors for non-express elevator types. */
+export const ELEVATOR_MAX_SHAFT_FLOORS = 31;
+
+function contiguousShaftExtent(
+	x: number,
+	y: number,
+	tileType: string,
+	overlays: Map<string, string>,
+): { topY: number; bottomY: number } {
+	let topY = y;
+	let bottomY = y;
+	while (topY > 0 && overlays.get(`${x},${topY - 1}`) === tileType) topY -= 1;
+	while (
+		bottomY < GRID_HEIGHT - 1 &&
+		overlays.get(`${x},${bottomY + 1}`) === tileType
+	)
+		bottomY += 1;
+	return { topY, bottomY };
+}
+
 export function computeShiftFill(
 	clickX: number,
 	clickY: number,
 	selectedTool: string,
 	lastPlacedAnchor: PlacementAnchor | null,
 	grid: Map<string, string>,
+	overlays: Map<string, string> = new Map(),
 ): Array<{ x: number; y: number }> {
 	if (!lastPlacedAnchor || selectedTool === "empty") return [];
 	const { x: lastX, y: lastY, tileType: lastType } = lastPlacedAnchor;
@@ -32,15 +61,52 @@ export function computeShiftFill(
 
 	const tileWidth = TILE_WIDTHS[selectedTool] ?? 1;
 	const lastTileWidth = TILE_WIDTHS[lastType] ?? 1;
+	// Elevator shafts are columnar; pin shift-fill to the anchor column so any
+	// off-axis hover still produces a clean vertical span.
+	const effectiveClickX = isElevatorTileType(selectedTool) ? lastX : clickX;
 	const yMin = Math.min(lastY, clickY);
 	const yMax = Math.max(lastY, clickY);
+
+	if (isElevatorTileType(selectedTool)) {
+		const results: Array<{ x: number; y: number }> = [];
+		if (lastX < 0 || lastX + tileWidth - 1 >= GRID_WIDTH) return results;
+
+		// Express shafts have no length limit; standard/service cap the total
+		// contiguous shaft at ELEVATOR_MAX_SHAFT_FLOORS floors.
+		let clampedYMin = Math.max(0, yMin);
+		let clampedYMax = Math.min(GRID_HEIGHT - 1, yMax);
+		if (selectedTool !== "elevatorExpress") {
+			const { topY, bottomY } = contiguousShaftExtent(
+				lastX,
+				lastY,
+				selectedTool,
+				overlays,
+			);
+			const existingCount = bottomY - topY + 1;
+			const remaining = Math.max(0, ELEVATOR_MAX_SHAFT_FLOORS - existingCount);
+			if (clampedYMin < topY) {
+				clampedYMin = Math.max(clampedYMin, topY - remaining);
+			}
+			if (clampedYMax > bottomY) {
+				clampedYMax = Math.min(clampedYMax, bottomY + remaining);
+			}
+		}
+
+		for (let y = clampedYMax; y >= clampedYMin; y--) {
+			if (y === lastY) continue;
+			if (overlays.get(`${lastX},${y}`) === selectedTool) continue;
+			results.push({ x: lastX, y });
+		}
+		return results;
+	}
+
 	// Shared tentative set so earlier rows provide support for later ones.
 	const tentative = new Set<string>();
 	const results: Array<{ x: number; y: number }> = [];
 
 	// Iterate bottom-to-top (high y first) so each placed row supports the one above.
-	if (lastX < clickX) {
-		const fillEnd = clickX;
+	if (lastX < effectiveClickX) {
+		const fillEnd = effectiveClickX;
 		for (let y = yMax; y >= yMin; y--) {
 			const fillStart = y === lastY ? lastX + lastTileWidth : lastX;
 			if (fillStart > fillEnd) continue;
@@ -56,8 +122,8 @@ export function computeShiftFill(
 				),
 			);
 		}
-	} else if (lastX > clickX) {
-		const fillStart = clickX;
+	} else if (lastX > effectiveClickX) {
+		const fillStart = effectiveClickX;
 		for (let y = yMax; y >= yMin; y--) {
 			const fillEnd = y === lastY ? lastX - 1 : lastX + lastTileWidth - 1;
 			if (fillStart > fillEnd) continue;

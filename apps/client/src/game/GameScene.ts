@@ -46,6 +46,7 @@ import {
 	anchorX,
 	computeShiftFill,
 	getHoverBounds,
+	isElevatorTileType,
 	type PlacementAnchor,
 } from "./gameScenePlacement";
 import {
@@ -468,6 +469,7 @@ export class GameScene extends Scene {
 			this.selectedTool,
 			this.lastPlacedAnchor,
 			this.grid,
+			this.overlayGrid,
 		);
 	}
 
@@ -2398,6 +2400,23 @@ export class GameScene extends Scene {
 
 		g.fillStyle(COLOR_HOVER, 0.12);
 		g.lineStyle(1, COLOR_HOVER, 0.75);
+
+		if (isElevatorTileType(this.selectedTool) && this.lastPlacedAnchor) {
+			const last = this.lastPlacedAnchor;
+			let yMin = last.y;
+			let yMax = last.y;
+			for (const { y } of fills) {
+				if (y < yMin) yMin = y;
+				if (y > yMax) yMax = y;
+			}
+			const px = last.x * TILE_WIDTH;
+			const py = yMin * TILE_HEIGHT;
+			const spanHeight = (yMax - yMin + 1) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
+			g.fillRect(px, py, pw, spanHeight);
+			g.strokeRect(px, py, pw, spanHeight);
+			return;
+		}
+
 		for (const { x, y } of fills) {
 			const px = x * TILE_WIDTH;
 			const py = y * TILE_HEIGHT;
