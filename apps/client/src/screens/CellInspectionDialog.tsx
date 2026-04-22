@@ -7,13 +7,24 @@ import {
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { CellInfoData } from "./gameScreenTypes";
 
-const RENT_LEVEL_LABELS = ["High", "Medium", "Low", "Minimal"];
+// Rent per checkout/activation event, indexed by rent level (0=highest → 3=lowest).
+// Mirrors YEN_1001 in apps/worker/src/sim/resources.ts.
+const RENT_AMOUNTS_BY_FAMILY: Record<number, number[]> = {
+	3: [3000, 2000, 1500, 500],
+	4: [4500, 3000, 2000, 800],
+	5: [9000, 6000, 4000, 1500],
+	7: [15000, 10000, 5000, 2000],
+	9: [200000, 150000, 100000, 40000],
+	10: [20000, 15000, 10000, 4000],
+};
 const CARRIER_MODE_LABELS: Record<number, string> = {
 	0: "Express",
 	1: "Standard",
 	2: "Service",
 };
-const RENT_ADJUSTABLE_FAMILIES = new Set([3, 4, 5, 7, 10]);
+const RENT_ADJUSTABLE_FAMILIES = new Set(
+	Object.keys(RENT_AMOUNTS_BY_FAMILY).map(Number),
+);
 const FAMILY_LABELS: Record<number, string> = {
 	3: "Hotel (Single)",
 	4: "Hotel (Twin)",
@@ -146,12 +157,18 @@ export function CellInspectionDialog({
 						inspectedCell.objectInfo.objectTypeCode,
 					) && (
 						<div style={styles.inspectSection}>
-							<div style={styles.inspectLabel}>Rent Level</div>
+							<div style={styles.inspectLabel}>
+								{inspectedCell.objectInfo.objectTypeCode === 9
+									? "Sale Price"
+									: "Rent"}
+							</div>
 							<div style={styles.rentButtons}>
-								{RENT_LEVEL_LABELS.map((label, index) => (
+								{RENT_AMOUNTS_BY_FAMILY[
+									inspectedCell.objectInfo.objectTypeCode
+								]?.map((amount, index) => (
 									<button
 										type="button"
-										key={label}
+										key={amount}
 										style={{
 											...styles.rentButton,
 											...(inspectedCell.objectInfo?.rentLevel === index
@@ -168,7 +185,7 @@ export function CellInspectionDialog({
 											}));
 										}}
 									>
-										{label}
+										${amount.toLocaleString()}
 									</button>
 								))}
 							</div>
