@@ -72,7 +72,14 @@
 		{ "type": "office", "floor": 18, "left": 119 },
 		{ "type": "office", "floor": 18, "left": 128 },
 		{ "type": "office", "floor": 18, "left": 137 },
-		{ "type": "elevator", "bottom": 0, "top": 15, "left": 100, "cars": 4 },
+		{ "type": "elevator", "bottom": 0, "top": 14, "left": 100, "cars": 4 },
+		{
+			"type": "expressElevator",
+			"bottom": 0,
+			"top": 15,
+			"left": 100,
+			"cars": 4
+		},
 		{ "type": "elevator", "bottom": 15, "top": 18, "left": 170, "cars": 2 }
 	]
 }

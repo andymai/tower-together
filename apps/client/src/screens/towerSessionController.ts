@@ -58,7 +58,7 @@ export interface TowerSessionScene {
 	) => void;
 	computeShiftFill: (x: number, y: number) => Array<{ x: number; y: number }>;
 	setLastPlaced: (x: number, y: number, tileType: string) => void;
-	hasElevatorOverlayAt: (x: number, y: number) => boolean;
+	hasElevatorOverlayAt: (x: number, y: number, tileType?: string) => boolean;
 }
 
 export interface TowerSessionSocket {
@@ -274,8 +274,10 @@ export class TowerSessionController {
 				this.getScene()?.setLastPlaced(last.x, last.y, tileType);
 			}
 		} else if (
-			tileType === "elevator" &&
-			this.getScene()?.hasElevatorOverlayAt(x, y)
+			(tileType === "elevator" ||
+				tileType === "elevatorExpress" ||
+				tileType === "elevatorService") &&
+			this.getScene()?.hasElevatorOverlayAt(x, y, tileType)
 		) {
 			inputs.push({ type: "add_elevator_car", x, y });
 		} else if (tileType === "recyclingCenter") {

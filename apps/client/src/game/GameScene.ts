@@ -450,9 +450,15 @@ export class GameScene extends Scene {
 		return `${tileType}:${isAnchor}:${dirty}:${banner}:${badge}`;
 	}
 
-	/** Check whether the cell at (x, y) has an elevator overlay. */
-	hasElevatorOverlayAt(x: number, y: number): boolean {
-		return this.overlayGrid.get(`${x},${y}`) === "elevator";
+	/** Check whether the cell at (x, y) has an elevator-family overlay. */
+	hasElevatorOverlayAt(x: number, y: number, tileType?: string): boolean {
+		const overlay = this.overlayGrid.get(`${x},${y}`);
+		if (tileType !== undefined) return overlay === tileType;
+		return (
+			overlay === "elevator" ||
+			overlay === "elevatorExpress" ||
+			overlay === "elevatorService"
+		);
 	}
 
 	/** Compute shift-fill positions between lastPlacedAnchor and (clickX, clickY).
