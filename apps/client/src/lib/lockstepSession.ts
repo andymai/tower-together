@@ -82,6 +82,8 @@ export class TowerLockstepSession {
 	private readonly authoritativeFrames = new Map<number, AuthoritativeFrame>();
 	private readonly pendingLocalBatches = new Map<number, PendingLocalBatch>();
 	private pendingBySimIdCache: Map<string, SimPendingRoute> | null = null;
+	private flushHandle: ReturnType<typeof setTimeout> | null = null;
+	private flushNeedsTimerRestart = false;
 
 	constructor({ playerId, onReset, onTick }: TowerLockstepSessionOptions) {
 		this.playerId = playerId;
@@ -107,6 +109,10 @@ export class TowerLockstepSession {
 		if (this.timer !== null) {
 			clearInterval(this.timer);
 			this.timer = null;
+		}
+		if (this.flushHandle !== null) {
+			clearTimeout(this.flushHandle);
+			this.flushHandle = null;
 		}
 	}
 
@@ -137,8 +143,8 @@ export class TowerLockstepSession {
 				this.pendingLocalBatches.delete(clientSeq);
 			}
 		}
-		this.replayTo(Math.max(this.predictedTick, this.baseTick));
-		this.restartTimer();
+		this.flushNeedsTimerRestart = true;
+		this.scheduleFlush();
 	}
 
 	applyAuthoritativeBatch(frame: AuthoritativeFrame): void {
@@ -151,7 +157,34 @@ export class TowerLockstepSession {
 				this.pendingLocalBatches.delete(batch.clientSeq);
 			}
 		}
-		this.replayTo(Math.max(this.predictedTick, frame.serverTick));
+		this.scheduleFlush();
+	}
+
+	private scheduleFlush(): void {
+		if (this.flushHandle !== null) {
+			return;
+		}
+		this.flushHandle = setTimeout(() => {
+			this.flushHandle = null;
+			this.flushPendingFrames();
+		}, 0);
+	}
+
+	private flushPendingFrames(): void {
+		if (!this.baseSnapshot) {
+			return;
+		}
+		let target = Math.max(this.predictedTick, this.baseTick);
+		for (const tick of this.authoritativeFrames.keys()) {
+			if (tick > target) {
+				target = tick;
+			}
+		}
+		this.replayTo(target);
+		if (this.flushNeedsTimerRestart) {
+			this.flushNeedsTimerRestart = false;
+			this.restartTimer();
+		}
 	}
 
 	queueLocalBatch(clientSeq: number, inputs: SimCommand[]): string | null {
