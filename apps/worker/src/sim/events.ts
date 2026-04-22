@@ -70,41 +70,11 @@ function hasEmergencyResponseCoverage(world: WorldState): boolean {
 	return world.gateFlags.recyclingCenterCount > 0;
 }
 
-function objectNewsCode(objectTypeCode: number): string | null {
-	switch (objectTypeCode) {
-		case 3:
-		case 4:
-		case 5:
-			return "0x629";
-		case 6:
-			return sampleNewsVariant(["0x568", "0x569"]);
-		case 7:
-			return "0x5a8";
-		case 9:
-			return sampleNewsRng(10) === 0 ? "0x628" : "0x629";
-		case 10:
-		case 12:
-			return sampleNewsVariant(["0x569", "0x668"]);
-		case 18:
-		case 29:
-			return "0xb28";
-		case 24:
-			return sampleNewsVariant(["0x6a8", "0x6a9"]);
-		default:
-			return null;
-	}
-}
-
-let newsRngSource: WorldState | null = null;
-function sampleNewsRng(modulo: number): number {
-	if (!newsRngSource) return 0;
-	return sampleRng(newsRngSource) % modulo;
-}
-
-function sampleNewsVariant(codes: string[]): string {
-	const index = sampleNewsRng(codes.length);
-	return codes[index] ?? codes[0] ?? "news";
-}
+// Random-news event: in the binary this drives audio playback only. The
+// classifier result feeds play_classified_news_sound (11d0:042c), which loads a
+// wave resource by ID and plays it via WAVMIX16.waveOutWrite. There is no
+// visual popup on this path. The worker does not model audio; the client will
+// own playback once the audio subsystem lands.
 
 /** Delete all objects covering a given floor/tile (same teardown as demolition). */
 function deleteObjectCoveringFloorTile(
@@ -572,10 +542,11 @@ export function tickVipSpecialVisitor(
 	// metro stack, so this sweep is inert — metroPlaced never gets set.
 }
 
-// TODO: Spec documents viewport-sampling with 6 buckets, per-family eligibility
-// gates, and classifier return codes. Current implementation approximates by
-// picking a random placed object. See EVENTS.md "Random News Events" for the
-// full viewport-sampling algorithm to implement when the clone has a viewport.
+// Random-news event: audio-only in the binary (play_classified_news_sound @
+// 11d0:042c → WAVMIX16.waveOutWrite). No visual popup. The worker keeps the
+// RNG-consuming gates so the shared RNG stream stays in sync with the binary,
+// but emits nothing. When the client audio subsystem lands, it will own
+// playback of the classifier's selected wave ID.
 export function triggerRandomNewsEvent(
 	world: WorldState,
 	time: TimeState,
@@ -586,25 +557,9 @@ export function triggerRandomNewsEvent(
 	if (time.daypartIndex >= 6) return;
 	if ((es.gameStateFlags & 9) !== 0) return;
 	if (sampleRng(world) % 16 !== 0) return;
-
-	const candidates = Object.values(world.placedObjects);
-	newsRngSource = world;
-	try {
-		if (candidates.length === 0) {
-			world.pendingNotifications.push({
-				kind: "news",
-				message: sampleNewsVariant(["0x2712", "0x271b", "0x271c"]),
-			});
-			return;
-		}
-		const object = candidates[sampleRng(world) % candidates.length];
-		if (!object) return;
-		const code = objectNewsCode(object.objectTypeCode);
-		if (!code) return;
-		world.pendingNotifications.push({ kind: "news", message: code });
-	} finally {
-		newsRngSource = null;
-	}
+	// TODO(client-audio): viewport-sample 6 buckets, classify the sampled slot
+	// per EVENTS.md "Random News Events", and play the resulting wave resource.
+	// Until then the gate fires but no sound/notification is emitted.
 }
 
 // ─── Daily event checkpoint dispatcher ───────────────────────────────────────

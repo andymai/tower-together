@@ -601,7 +601,6 @@ export type SimNotification = {
 		| "end_of_day"
 		| "route_failure"
 		| "event"
-		| "news"
 		| "star_advanced";
 	message?: string;
 };

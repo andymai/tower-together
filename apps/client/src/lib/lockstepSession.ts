@@ -268,7 +268,7 @@ export class TowerLockstepSession {
 		if (!this.baseSnapshot) {
 			return;
 		}
-		const sim = TowerSim.fromSnapshot(this.baseSnapshot);
+		const sim = TowerSim.fromSnapshot(cloneSnapshot(this.baseSnapshot));
 		sim.freeBuild = this.settings.freeBuild;
 		for (let tick = this.baseTick + 1; tick <= targetTick; tick += 1) {
 			this.applyInputsForTick(
