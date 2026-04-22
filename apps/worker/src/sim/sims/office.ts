@@ -188,15 +188,16 @@ function handleOfficeCommute(
 		if (time.daypartIndex < 3) return;
 		if (sampleRng(world) % 12 !== 0) return;
 	}
-	const isOutboundOfficePath = sim.baseOffset <= 1;
-	const sourceFloor = isOutboundOfficePath ? sim.floorAnchor : LOBBY_FLOOR;
-	const destinationFloor = isOutboundOfficePath ? LOBBY_FLOOR : sim.floorAnchor;
+	// Binary 1228:1e45 / 1228:266b: state-0 dispatch calls 1218:0000 with
+	// source=floor_anchor, target=LOBBY (hardcoded 10) — i.e. OUTBOUND.
+	// Confirmed via dynamic trace of dense_office tick=150 sim=150 fA=13
+	// (state_before=0x00 family=7 source_floor=13 target_floor=10).
 	const routeResult = resolveSimRouteBetweenFloors(
 		world,
 		sim,
-		sourceFloor,
-		destinationFloor,
-		destinationFloor > sourceFloor ? 1 : 0,
+		sim.floorAnchor,
+		LOBBY_FLOOR,
+		LOBBY_FLOOR > sim.floorAnchor ? 1 : 0,
 		time,
 	);
 	if (routeResult === -1) {

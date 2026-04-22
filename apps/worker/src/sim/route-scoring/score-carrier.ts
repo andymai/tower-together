@@ -45,19 +45,21 @@ export function scoreCarrierDirectRoute(
 	if (!carrier) return ROUTE_COST_INFINITE;
 	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
 	if (!carrierSpansFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
-	// Binary 11b8:168e direct branch: for carrier_mode==0 (express), the
-	// distance and queue-full reassignments are inside the `mode != 0` guard,
-	// so both paths fall through to `iVar2 + 0x280`. Mirror that by only
-	// applying the queue-full penalty on non-express carriers.
-	if (carrier.carrierMode === 0) {
-		return STAIRS_ROUTE_EXTRA_COST;
-	}
 	const status = getFloorSlotStatus(
 		carrier,
 		fromFloor,
 		toFloor > fromFloor ? 1 : 0,
 	);
-	const distance = Math.abs(carrier.column - targetHeightMetric) * 8;
+	// Binary 11b8:168e direct branch: mode==0 (express) zeros the hypot
+	// distance but still applies the queue-full penalty from the status byte.
+	// Without that penalty, a backed-up express queue at a lobby floor still
+	// scores lower than a free standard carrier with a small hypot offset,
+	// which sends OUTBOUND-from-anchor sims onto the wrong carrier (sky_office
+	// sim 11:137 routed to express at floor 11 when the binary chose main).
+	const distance =
+		carrier.carrierMode === 0
+			? 0
+			: Math.abs(carrier.column - targetHeightMetric) * 8;
 	return status === 0x28 ? 1000 + distance : distance + STAIRS_ROUTE_EXTRA_COST;
 }
 
