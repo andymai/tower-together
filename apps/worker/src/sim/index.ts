@@ -92,7 +92,10 @@ export class TowerSim {
 	}
 
 	static fromSnapshot(snap: SimSnapshot): TowerSim {
-		const hydrated = hydrateSnapshot(snap);
+		// structuredClone so subsequent step() mutations don't bleed back into
+		// the caller's snapshot — caused client replays to diverge when
+		// replayTo re-used the same baseSnapshot across calls.
+		const hydrated = hydrateSnapshot(structuredClone(snap));
 		return new TowerSim(hydrated.time, hydrated.world, hydrated.ledger);
 	}
 

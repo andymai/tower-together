@@ -196,14 +196,12 @@ Important checkpoints:
 - `32`: daily recycling center reset
 - `80`: conditional progress notification
 - `120`: conditional progress notification
-- `160`: morning notification
 - `240`: facility-ledger rebuild and bomb/fire trigger checks
 - `1000`: entertainment half-runtime activation pass 1
 - `1200`: hotel sale reset, entertainment phase change, evaluation midday return
 - `1400`: entertainment half-runtime activation pass 2
 - `1500`: entertainment phase advance pass 1
 - `1600`: midday sweep, request flush, stay-phase advance, support/recycling reset, progress-override clear
-- `1700`: afternoon notification
 - `1800`: no-op
 - `1900`: entertainment phase advance pass 2
 - `2000`: linked-facility advance, recycling tier-2 check, periodic event trigger
@@ -212,7 +210,6 @@ Important checkpoints:
 - `2400`: no-op
 - `2500`: runtime refresh/reset sweep
 - `2533`: ledger rollover, cashflow activation, periodic expenses
-- `2550`: end-of-day notification
 - `2566`: final recycling adequacy check
 
 ## Composite Checkpoint Order
@@ -243,10 +240,6 @@ are listed inline; multi-step checkpoints are expanded below.
 ### 80, 120 — Conditional Progress Notification
 
 1. if progress-override gate bit is set, fire notification (no state change)
-
-### 160 — Morning Notification
-
-1. fire morning notification popup (no state change)
 
 ### 240 — Facility Ledger Rebuild
 
@@ -309,10 +302,6 @@ are listed inline; multi-step checkpoints are expanded below.
 8. **recycling center reset**: `update_recycling_center_state(0)`. Guarded by `star_count > 2`. If `g_recycling_center_count == 0` → fire popup `3`, clear `g_recycling_adequate_flag`, do not sweep objects. Otherwise compute `required_tier = compute_recycling_required_tier()`, clamp the applied tier to `0`, clear `g_recycling_adequate_flag`, and sweep live recycling center objects (types `0x14`/`0x15`): write `stay_phase = 0` and `dirty = 1`, except that objects already at `stay_phase == 5` are left unchanged
 9. **clear progress override**: clear `facility_progress_override` gate bit
 
-### 1700 — Afternoon Notification
-
-1. fire afternoon notification popup (no state change)
-
 ### 1800 — No-Op
 
 ### 1900 — Entertainment Phase Advance Pass 2
@@ -374,10 +363,6 @@ the first rollover/expense pass therefore occurs when `day_counter == 3`.
    - `mode_and_span & 1` is the stairs cost bit: `0` means Escalator branch, `1` means Stairs branch with the routing-cost surcharge
 4. rebuild all entity tile spans (same as checkpoint 2500 step 1)
 5. reset sim state (same as checkpoint 2500 step 2)
-
-### 2550 — End-of-Day Notification
-
-1. fire end-of-day notification popup (no state change)
 
 ### 2566 — Final Recycling Adequacy Check
 

@@ -595,13 +595,7 @@ export interface WorldState {
 }
 
 export type SimNotification = {
-	kind:
-		| "morning"
-		| "afternoon"
-		| "end_of_day"
-		| "route_failure"
-		| "event"
-		| "star_advanced";
+	kind: "route_failure" | "event" | "star_advanced";
 	message?: string;
 };
 

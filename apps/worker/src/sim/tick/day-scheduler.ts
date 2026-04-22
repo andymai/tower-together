@@ -139,10 +139,6 @@ function checkpointMidday(_s: SimState): void {
 	advanceObjectStayPhaseTiers(_s.world);
 }
 
-function checkpointAfternoonNotification(_s: SimState): void {
-	_s.world.pendingNotifications.push({ kind: "afternoon" });
-}
-
 function checkpointNoop(_s: SimState): void {
 	// Intentional no-op (previously mislabeled in the spec)
 }
@@ -201,7 +197,6 @@ function checkpointLedgerRollover(s: SimState): void {
 
 function checkpointEndOfDay(_s: SimState): void {
 	flushCarriersEndOfDay(_s.world);
-	_s.world.pendingNotifications.push({ kind: "end_of_day" });
 }
 
 function checkpointRecyclingFinal(_s: SimState): void {
@@ -219,7 +214,6 @@ const CHECKPOINTS: Array<[number, (s: SimState) => void]> = [
 	[0x578, checkpointEntertainmentHalf2],
 	[0x5dc, checkpointEntertainmentPhase1],
 	[0x640, checkpointMidday],
-	[0x6a4, checkpointAfternoonNotification],
 	[0x708, checkpointNoop],
 	[0x76c, checkpointEntertainmentPhase2],
 	[0x7d0, checkpointLateFacility],
