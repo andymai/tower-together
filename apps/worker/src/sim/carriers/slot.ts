@@ -12,6 +12,20 @@ export function floorToSlot(carrier: CarrierRecord, floor: number): number {
 	return floor - carrier.bottomServedFloor;
 }
 
+/**
+ * Binary 10a8:17ee express branch. Only the "express queue slot" floors —
+ * basement/ground (binary floors 1..10) and sky-lobby floors at
+ * (floor-10) % 15 == 14 (binary 24, 39, 54, ... = logical 14, 29, 44, ...).
+ * Any other floor on a mode-0 carrier cannot host a call or enqueue.
+ * Used by the scorer and enqueue paths to gate floor acceptance without
+ * changing `floorToSlot`'s linear slot arithmetic (which the per-car
+ * destination-count and route-status tables rely on).
+ */
+export function isExpressStopFloor(floor: number): boolean {
+	if (floor <= 10) return floor >= 1;
+	return (floor - 10) % 15 === 14;
+}
+
 export function carrierServesFloor(
 	carrier: CarrierRecord,
 	floor: number,

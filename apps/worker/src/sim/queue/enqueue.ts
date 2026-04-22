@@ -7,7 +7,7 @@
 // and `clear_floor_requests_on_arrival` zeroes the route-status byte.
 
 import { assignCarToFloorRequest } from "../carriers/assign";
-import { floorToSlot } from "../carriers/slot";
+import { floorToSlot, isExpressStopFloor } from "../carriers/slot";
 import { syncAssignmentStatus } from "../carriers/sync";
 import type { CarrierFloorQueue, CarrierRecord } from "../world";
 import type { RouteRequestRing } from "./route-record";
@@ -61,6 +61,15 @@ export function enqueueRequestIntoRouteQueue(
 		);
 	}
 	if (dup) return true;
+	// Binary 1218:1002: enqueue's body is gated on floor_to_carrier_slot_index
+	// returning a valid slot — express (mode=0) at intermediate (non-lobby)
+	// floors silently no-ops while `resolve_sim_route_between_floors` still
+	// returns 2 and writes sim+8. Mirror that here so the sim lands in a
+	// logical-only "queued on express" state without actually occupying a
+	// ring or triggering assign_car_to_floor_request.
+	if (carrier.carrierMode === 0 && !isExpressStopFloor(sourceFloor)) {
+		return true;
+	}
 	const floorQueue = getQueueState(carrier, sourceFloor);
 	if (!floorQueue) return false;
 	const directionQueue = getDirectionQueue(floorQueue, directionFlag);
