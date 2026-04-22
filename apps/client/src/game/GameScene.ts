@@ -129,6 +129,7 @@ const NUMBER_TEXTURE_RESOLUTION = Math.max(
 	Math.round(window.devicePixelRatio * 4),
 );
 const STATIC_ROW_TEXTURE_SCALE = 8;
+const STATIC_ROW_CULL_PAD_TILES = 4;
 const SIM_QUEUE_TEXTURE_SCALE = 8;
 // Sim figure SVG aspect matches its 6×20 viewBox.
 const SIM_FIGURE_WIDTH_PX = 0.75 * TILE_WIDTH;
@@ -729,6 +730,39 @@ export class GameScene extends Scene {
 		this.drawSimsIfNeeded();
 		this.drawCars();
 		this.updateCockroaches(delta);
+		this.cullStaticRowChunks();
+	}
+
+	private cullStaticRowChunks(): void {
+		const worldView = this.cameras.main.worldView;
+		const padX = TILE_WIDTH * STATIC_ROW_CULL_PAD_TILES;
+		const padY = TILE_HEIGHT * STATIC_ROW_CULL_PAD_TILES;
+		const left = worldView.x - padX;
+		const right = worldView.right + padX;
+		const top = worldView.y - padY;
+		const bottom = worldView.bottom + padY;
+		for (let y = 0; y < this.staticRowChunks.length; y += 1) {
+			const rowTop = y * TILE_HEIGHT;
+			const rowBottom = rowTop + TILE_HEIGHT;
+			const rowVisible = rowBottom >= top && rowTop <= bottom;
+			const chunks = this.staticRowChunks[y];
+			if (!chunks) continue;
+			for (const chunk of chunks) {
+				const visible =
+					rowVisible && chunk.x + chunk.width >= left && chunk.x <= right;
+				if (chunk.image.visible !== visible) chunk.image.setVisible(visible);
+			}
+		}
+
+		// Floor labels are scrollFactor(0, 1) — pinned horizontally, scroll
+		// vertically. Only cull against y; x is always on-screen.
+		for (let i = 0; i < this.floorLabels.length; i += 1) {
+			const label = this.floorLabels[i];
+			if (!label) continue;
+			const labelY = i * TILE_HEIGHT + TILE_HEIGHT / 2;
+			const visible = labelY >= top && labelY <= bottom;
+			if (label.visible !== visible) label.setVisible(visible);
+		}
 	}
 
 	private setupFloorLabels(): void {
@@ -2015,11 +2049,40 @@ export class GameScene extends Scene {
 			}
 		}
 
+		const worldView = this.cameras.main.worldView;
+		const padX = TILE_WIDTH;
+		const padY = TILE_HEIGHT;
+		const viewLeft = worldView.x - padX;
+		const viewRight = worldView.right + padX;
+		const viewTop = worldView.y - padY;
+		const viewBottom = worldView.bottom + padY;
+
+		let usedCount = 0;
+
 		for (const c of this.cockroaches) {
 			const tileType = this.grid.get(c.roomKey);
 			const roomTileWidth = TILE_WIDTHS[tileType ?? ""] ?? 1;
 			const roomWidthPx = roomTileWidth * TILE_WIDTH - STATIC_TILE_GAP_X;
 			const maxOffsetX = Math.max(0, roomWidthPx - cockroachW);
+
+			// Fast-path off-screen cockroaches: their room's world-position
+			// bounds are tighter than their per-cockroach bounds, so if the
+			// whole room is off-screen we can skip physics and rendering.
+			const separator = c.roomKey.indexOf(",");
+			const gx = Number(c.roomKey.slice(0, separator));
+			const gy = Number(c.roomKey.slice(separator + 1));
+			const roomLeft = gx * TILE_WIDTH;
+			const roomTop = gy * TILE_HEIGHT;
+			const roomRight = roomLeft + roomWidthPx;
+			const roomBottom = roomTop + TILE_HEIGHT;
+			if (
+				roomRight < viewLeft ||
+				roomLeft > viewRight ||
+				roomBottom < viewTop ||
+				roomTop > viewBottom
+			) {
+				continue;
+			}
 
 			c.dirChangeTimer -= delta;
 			if (c.dirChangeTimer <= 0) {
@@ -2052,24 +2115,9 @@ export class GameScene extends Scene {
 				c.frameTimer += COCKROACH_FRAME_MS;
 				c.frame = (c.frame + 1) % COCKROACH_FRAMES;
 			}
-		}
 
-		const worldView = this.cameras.main.worldView;
-		let usedCount = 0;
-
-		for (const c of this.cockroaches) {
-			const [gx, gy] = c.roomKey.split(",").map(Number);
-			const worldX = gx * TILE_WIDTH + c.offsetX + cockroachW / 2;
-			const worldY = gy * TILE_HEIGHT + c.offsetY + cockroachH / 2;
-
-			if (
-				worldX + cockroachW < worldView.x ||
-				worldX - cockroachW > worldView.right ||
-				worldY + cockroachH < worldView.y ||
-				worldY - cockroachH > worldView.bottom
-			) {
-				continue;
-			}
+			const worldX = roomLeft + c.offsetX + cockroachW / 2;
+			const worldY = roomTop + c.offsetY + cockroachH / 2;
 
 			const textureKey = `cockroach_${c.frame}`;
 			let sprite = this.cockroachSprites[usedCount];
@@ -2078,14 +2126,13 @@ export class GameScene extends Scene {
 				sprite.setOrigin(0.5, 0.5);
 				sprite.setDepth(DYNAMIC_ENTITY_DEPTH + 0.1);
 				sprite.texture.setFilter(Textures.FilterMode.LINEAR);
+				sprite.setDisplaySize(cockroachW, cockroachH);
 				this.cockroachSprites.push(sprite);
 			} else if (sprite.texture.key !== textureKey) {
 				sprite.setTexture(textureKey);
-				sprite.texture.setFilter(Textures.FilterMode.LINEAR);
 			}
 			sprite.setVisible(true);
 			sprite.setPosition(worldX, worldY);
-			sprite.setDisplaySize(cockroachW, cockroachH);
 			sprite.setRotation(Math.atan2(c.velY, c.velX));
 			usedCount += 1;
 		}
