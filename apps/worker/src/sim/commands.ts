@@ -261,6 +261,11 @@ function hasMisalignedAdjacentOverlay(
 const ELEVATOR_STANDARD_MIN_GAP = 4;
 const ELEVATOR_EXPRESS_MIN_GAP = 8;
 
+/** Max contiguous floors a standard or service shaft may span. Express unlimited. */
+const ELEVATOR_NONEXPRESS_MAX_FLOORS = 31;
+/** Max total elevator shafts per tower. */
+const ELEVATOR_MAX_SHAFTS = 24;
+
 function shaftMinGap(mode: 0 | 1 | 2): number {
 	return mode === 0 ? ELEVATOR_EXPRESS_MIN_GAP : ELEVATOR_STANDARD_MIN_GAP;
 }
@@ -787,6 +792,32 @@ export function handlePlaceTile(
 		const shaftCost = isNewShaft ? (TILE_COSTS[normalizedTileType] ?? 0) : 0;
 		if (!freeBuild && shaftCost > ledger.cashBalance) {
 			return { accepted: false, reason: "Insufficient funds" };
+		}
+		if (isNewShaft && world.carriers.length >= ELEVATOR_MAX_SHAFTS) {
+			return {
+				accepted: false,
+				reason: `Maximum ${ELEVATOR_MAX_SHAFTS} elevator shafts per tower`,
+			};
+		}
+		if (normalizedTileType !== "elevatorExpress") {
+			let topY = y;
+			let bottomY = y;
+			while (
+				topY > 0 &&
+				world.overlays[`${x},${topY - 1}`] === normalizedTileType
+			)
+				topY -= 1;
+			while (
+				bottomY < world.height - 1 &&
+				world.overlays[`${x},${bottomY + 1}`] === normalizedTileType
+			)
+				bottomY += 1;
+			if (bottomY - topY + 1 > ELEVATOR_NONEXPRESS_MAX_FLOORS) {
+				return {
+					accepted: false,
+					reason: `${normalizedTileType === "elevatorService" ? "Service" : "Standard"} shaft may span at most ${ELEVATOR_NONEXPRESS_MAX_FLOORS} floors`,
+				};
+			}
 		}
 		const newShaftMode = overlayTypeToMode(normalizedTileType);
 		if (
