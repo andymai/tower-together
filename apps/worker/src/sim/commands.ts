@@ -39,6 +39,7 @@ import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
 	GRID_WIDTH,
+	GROUND_Y,
 	isValidLobbyY,
 	type MedicalCenterRecord,
 	type PlacedObjectRecord,
@@ -963,9 +964,10 @@ export function handlePlaceTile(
 		}
 	}
 
-	// All non-lobby tiles need support from the adjacent row
-	// (below for above-ground tiles; above for underground floors).
-	if (normalizedTileType !== "lobby") {
+	// Tiles need support from the adjacent row (below for above-ground; above
+	// for underground). Only the ground-floor lobby is exempt — sky lobbies
+	// still require support like any other tile.
+	if (!(normalizedTileType === "lobby" && y === GROUND_Y)) {
 		const supportY = y >= UNDERGROUND_Y ? y - 1 : y + 1;
 		for (let dx = 0; dx < tileWidth; dx++) {
 			const supportKey = `${x + dx},${supportY}`;
