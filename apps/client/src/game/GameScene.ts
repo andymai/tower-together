@@ -2147,7 +2147,8 @@ export class GameScene extends Scene {
 		if (!g) return;
 		g.clear();
 		if (!this.hoveredCell) return;
-		if (this.selectedTool === "inspect") return;
+		if (this.selectedTool === "inspect" || this.selectedTool === "empty")
+			return;
 
 		if (
 			this.isShiftHeld &&
@@ -2227,8 +2228,13 @@ export class GameScene extends Scene {
 	private updateCanvasCursor(): void {
 		const canvas = this.sys.game?.canvas;
 		if (!canvas) return;
-		canvas.style.cursor =
-			this.selectedTool === "inspect" ? "zoom-in" : "default";
+		if (this.selectedTool === "inspect") {
+			canvas.style.cursor = "zoom-in";
+		} else if (this.selectedTool === "empty") {
+			canvas.style.cursor = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M4 4 L16 16 M16 4 L4 16" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M4 4 L16 16 M16 4 L4 16" stroke="%23e53935" stroke-width="2" stroke-linecap="round"/></svg>') 10 10, not-allowed`;
+		} else {
+			canvas.style.cursor = "default";
+		}
 	}
 
 	private setupInput(): void {
