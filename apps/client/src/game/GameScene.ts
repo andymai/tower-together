@@ -444,33 +444,33 @@ export class GameScene extends Scene {
 		sims: SimStateData[] = [],
 		carriers: CarrierCarStateData[] = [],
 	): void {
-		this.grid.clear();
-		this.anchorSet.clear();
-		this.overlayGrid.clear();
-		this.resetRowKeyIndexes();
-		this.evalActiveFlagMap.clear();
-		this.unitStatusMap.clear();
-		this.evalLevelMap.clear();
-		this.evalScoreMap.clear();
+		const expectedGrid = new Map<string, string>();
+		const expectedOverlay = new Map<string, string>();
+		const expectedAnchors = new Set<string>();
+		const expectedEvalActiveFlag = new Map<string, number>();
+		const expectedUnitStatus = new Map<string, number>();
+		const expectedEvalLevel = new Map<string, number>();
+		const expectedEvalScore = new Map<string, number>();
+		const expectedY = new Map<string, number>();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
+			expectedY.set(key, cell.y);
 			if (cell.isOverlay) {
-				if (cell.tileType !== "empty") {
-					this.addOverlayKey(key, cell.y, cell.tileType);
-				}
+				if (cell.tileType !== "empty") expectedOverlay.set(key, cell.tileType);
 			} else if (cell.tileType !== "empty") {
-				this.grid.set(key, cell.tileType);
-				if (cell.isAnchor) this.addAnchorKey(key, cell.y);
+				expectedGrid.set(key, cell.tileType);
+				if (cell.isAnchor) expectedAnchors.add(key);
 				if (cell.evalActiveFlag !== undefined)
-					this.evalActiveFlagMap.set(key, cell.evalActiveFlag);
+					expectedEvalActiveFlag.set(key, cell.evalActiveFlag);
 				if (cell.unitStatus !== undefined)
-					this.unitStatusMap.set(key, cell.unitStatus);
+					expectedUnitStatus.set(key, cell.unitStatus);
 				if (cell.evalLevel !== undefined)
-					this.evalLevelMap.set(key, cell.evalLevel);
+					expectedEvalLevel.set(key, cell.evalLevel);
 				if (cell.evalScore !== undefined)
-					this.evalScoreMap.set(key, cell.evalScore);
+					expectedEvalScore.set(key, cell.evalScore);
 			}
 		}
+
 		this.previousSimSnapshot = null;
 		this.currentSimSnapshot = { simTime, items: sims };
 		this.previousCarrierSnapshot = null;
@@ -481,7 +481,118 @@ export class GameScene extends Scene {
 			receivedAtMs: performance.now(),
 			tickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
 		};
-		if (this.sceneCreated) this.drawAllCells();
+
+		const yOf = (key: string): number => {
+			const cached = expectedY.get(key);
+			if (cached !== undefined) return cached;
+			return Number(key.slice(key.indexOf(",") + 1));
+		};
+
+		if (!this.sceneCreated) {
+			this.grid.clear();
+			this.overlayGrid.clear();
+			this.anchorSet.clear();
+			this.evalActiveFlagMap.clear();
+			this.unitStatusMap.clear();
+			this.evalLevelMap.clear();
+			this.evalScoreMap.clear();
+			this.resetRowKeyIndexes();
+			for (const [key, type] of expectedGrid) this.grid.set(key, type);
+			for (const [key, type] of expectedOverlay)
+				this.addOverlayKey(key, yOf(key), type);
+			for (const key of expectedAnchors) this.addAnchorKey(key, yOf(key));
+			for (const [key, value] of expectedEvalActiveFlag)
+				this.evalActiveFlagMap.set(key, value);
+			for (const [key, value] of expectedUnitStatus)
+				this.unitStatusMap.set(key, value);
+			for (const [key, value] of expectedEvalLevel)
+				this.evalLevelMap.set(key, value);
+			for (const [key, value] of expectedEvalScore)
+				this.evalScoreMap.set(key, value);
+			return;
+		}
+
+		const dirtyRows = new Set<number>();
+		let overlayChanged = false;
+
+		for (const [key, type] of expectedOverlay) {
+			if (this.overlayGrid.get(key) !== type) {
+				this.addOverlayKey(key, yOf(key), type);
+				this.markDirtyRows(dirtyRows, yOf(key));
+				overlayChanged = true;
+			}
+		}
+		for (const key of [...this.overlayGrid.keys()]) {
+			if (!expectedOverlay.has(key)) {
+				const y = yOf(key);
+				this.removeOverlayKey(key, y);
+				this.markDirtyRows(dirtyRows, y);
+				overlayChanged = true;
+			}
+		}
+
+		const gridKeys = new Set<string>();
+		for (const k of this.grid.keys()) gridKeys.add(k);
+		for (const k of expectedGrid.keys()) gridKeys.add(k);
+		for (const k of this.anchorSet) gridKeys.add(k);
+		for (const k of expectedAnchors) gridKeys.add(k);
+		for (const k of this.evalActiveFlagMap.keys()) gridKeys.add(k);
+		for (const k of expectedEvalActiveFlag.keys()) gridKeys.add(k);
+		for (const k of this.unitStatusMap.keys()) gridKeys.add(k);
+		for (const k of expectedUnitStatus.keys()) gridKeys.add(k);
+		for (const k of this.evalLevelMap.keys()) gridKeys.add(k);
+		for (const k of expectedEvalLevel.keys()) gridKeys.add(k);
+		for (const k of this.evalScoreMap.keys()) gridKeys.add(k);
+		for (const k of expectedEvalScore.keys()) gridKeys.add(k);
+
+		for (const key of gridKeys) {
+			const y = yOf(key);
+			const prevSig = this.computeCellVisualSig(key);
+			const expectedType = expectedGrid.get(key);
+			if (expectedType === undefined) {
+				this.grid.delete(key);
+				this.removeAnchorKey(key, y);
+				this.evalActiveFlagMap.delete(key);
+				this.unitStatusMap.delete(key);
+				this.evalLevelMap.delete(key);
+				this.evalScoreMap.delete(key);
+			} else {
+				if (this.grid.get(key) !== expectedType)
+					this.grid.set(key, expectedType);
+				const shouldAnchor = expectedAnchors.has(key);
+				if (this.anchorSet.has(key) !== shouldAnchor) {
+					if (shouldAnchor) this.addAnchorKey(key, y);
+					else this.removeAnchorKey(key, y);
+				}
+				const evalFlag = expectedEvalActiveFlag.get(key);
+				if (evalFlag === undefined) this.evalActiveFlagMap.delete(key);
+				else if (this.evalActiveFlagMap.get(key) !== evalFlag)
+					this.evalActiveFlagMap.set(key, evalFlag);
+				const unitStatus = expectedUnitStatus.get(key);
+				if (unitStatus === undefined) this.unitStatusMap.delete(key);
+				else if (this.unitStatusMap.get(key) !== unitStatus)
+					this.unitStatusMap.set(key, unitStatus);
+				const evalLevel = expectedEvalLevel.get(key);
+				if (evalLevel === undefined) this.evalLevelMap.delete(key);
+				else if (this.evalLevelMap.get(key) !== evalLevel)
+					this.evalLevelMap.set(key, evalLevel);
+				const evalScore = expectedEvalScore.get(key);
+				if (evalScore === undefined) this.evalScoreMap.delete(key);
+				else if (this.evalScoreMap.get(key) !== evalScore)
+					this.evalScoreMap.set(key, evalScore);
+			}
+			const newSig = this.computeCellVisualSig(key);
+			if (newSig !== prevSig) this.markDirtyRows(dirtyRows, y);
+		}
+
+		if (dirtyRows.size > 0) {
+			this.redrawStaticRows(dirtyRows);
+			this.drawStaticOverlays();
+			this.drawDynamicOverlays();
+		} else if (overlayChanged) {
+			this.drawStaticOverlays();
+			this.drawDynamicOverlays();
+		}
 	}
 
 	applyPatch(
