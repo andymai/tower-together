@@ -103,7 +103,10 @@ describe("TowerLockstepSession integration", () => {
 					resets.push({ simTime: state.simTime, cells: state.cells });
 				},
 				onTick: (state) => {
-					ticks.push({ simTime: state.simTime, cellPatches: state.cellPatches });
+					ticks.push({
+						simTime: state.simTime,
+						cellPatches: state.cellPatches,
+					});
 				},
 			});
 

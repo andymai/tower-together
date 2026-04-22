@@ -1,4 +1,5 @@
-import type { CarrierCarStateData, SimStateData } from "../types";
+import type { SimRecord } from "../../../worker/src/sim/index";
+import type { CarrierCarStateData } from "../types";
 import { GRID_HEIGHT, TILE_WIDTHS } from "../types";
 import {
 	FAMILY_POPULATION,
@@ -107,7 +108,7 @@ export const SIM_QUEUE_MAX_SIZE = 40;
 const ELEVATOR_STROKE_CELLS = 1;
 const QUEUE_START_OFFSET = 0.1 + ELEVATOR_STROKE_CELLS / 2;
 
-export function isSimAscending(sim: SimStateData): boolean {
+export function isSimAscending(sim: SimRecord): boolean {
 	if (sim.destinationFloor >= 0) {
 		return sim.destinationFloor > sim.selectedFloor;
 	}
@@ -117,7 +118,7 @@ export function isSimAscending(sim: SimStateData): boolean {
 }
 
 export function getQueuedSimLayout(
-	sim: SimStateData,
+	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
 	queueIndex: number,
 ): QueuedSimLayout {
@@ -151,7 +152,7 @@ export function getQueuedSimLayout(
 }
 
 export function getQueuedSimQueueKey(
-	sim: SimStateData,
+	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
 ): string {
 	const dir = isSimAscending(sim) ? "u" : "d";
@@ -182,7 +183,7 @@ export function getCarBounds(car: CarrierCarStateData): {
 }
 
 function pickElevatorColumn(
-	sim: SimStateData,
+	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
 ): number {
 	const columns = elevatorColumnsByFloor.get(sim.floorAnchor);

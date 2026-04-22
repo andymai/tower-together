@@ -63,6 +63,7 @@ class FakeSocket implements TowerSessionSocket {
 
 function createFakeScene(): TowerSessionScene {
 	return {
+		setSnapshotSource: vi.fn(),
 		applyInitState: vi.fn(),
 		applyPatch: vi.fn(),
 		applySims: vi.fn(),

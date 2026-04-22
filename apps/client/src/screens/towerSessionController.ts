@@ -1,5 +1,9 @@
 import type { SimCommand } from "../../../worker/src/sim/commands";
-import { TowerLockstepSession } from "../lib/lockstepSession";
+import type { CarrierRecord, SimRecord } from "../../../worker/src/sim/index";
+import {
+	type PendingBySimId,
+	TowerLockstepSession,
+} from "../lib/lockstepSession";
 import { setTowerToolbarCache } from "../lib/storage";
 import type {
 	CarrierCarStateData,
@@ -11,6 +15,13 @@ import type {
 import type { ActivePrompt, CellInfoData } from "./gameScreenTypes";
 
 export interface TowerSessionScene {
+	setSnapshotSource: (source: {
+		readSims: () => readonly SimRecord[];
+		readCarriers: () => CarrierCarStateData[];
+		readLiveCarriers: () => readonly CarrierRecord[];
+		readPendingBySimId: () => PendingBySimId;
+		materializeSim: (sim: SimRecord) => SimStateData | null;
+	}) => void;
 	applyInitState: (
 		cells: Array<{
 			x: number;
@@ -24,8 +35,6 @@ export interface TowerSessionScene {
 			evalScore?: number;
 		}>,
 		simTime: number,
-		sims?: SimStateData[],
-		carriers?: CarrierCarStateData[],
 	) => void;
 	applyPatch: (
 		cells: Array<{
@@ -40,8 +49,8 @@ export interface TowerSessionScene {
 			evalScore?: number;
 		}>,
 	) => void;
-	applySims: (simTime: number, sims: SimStateData[]) => void;
-	applyCarriers: (simTime: number, carriers: CarrierCarStateData[]) => void;
+	applySims: (simTime: number) => void;
+	applyCarriers: (simTime: number) => void;
 	setPresentationClock: (
 		simTime: number,
 		receivedAtMs: number,
@@ -151,19 +160,19 @@ export class TowerSessionController {
 				this.onEconomy(state.cash, state.population);
 				this.patchState({
 					starCount: state.starCount,
-					sims: state.sims,
-					carriers: state.carriers,
+					sims: this.lockstep.simsSnapshot(),
+					carriers: this.lockstep.carriersSnapshot(),
 				});
-				this.getScene()?.applyInitState(
-					state.cells,
-					state.simTime,
-					state.sims,
-					state.carriers,
-				);
-				this.getScene()?.setPresentationClock(
-					state.simTime,
-					timing.receivedAtMs,
-				);
+				const scene = this.getScene();
+				scene?.setSnapshotSource({
+					readSims: () => this.lockstep.peekSims(),
+					readCarriers: () => this.lockstep.carriersSnapshot(),
+					readLiveCarriers: () => this.lockstep.peekCarriers(),
+					readPendingBySimId: () => this.lockstep.peekPendingBySimId(),
+					materializeSim: (sim) => this.lockstep.materializeSim(sim),
+				});
+				scene?.applyInitState(state.cells, state.simTime);
+				scene?.setPresentationClock(state.simTime, timing.receivedAtMs);
 				// Wait for Phaser to paint the frame before removing the loading overlay.
 				requestAnimationFrame(() => {
 					requestAnimationFrame(() => {
@@ -181,8 +190,8 @@ export class TowerSessionController {
 				}
 				if (now - this.lastSlowUpdateMs >= 500) {
 					patch.starCount = state.starCount;
-					patch.sims = state.sims;
-					patch.carriers = state.carriers;
+					patch.sims = this.lockstep.simsSnapshot();
+					patch.carriers = this.lockstep.carriersSnapshot();
 					this.lastSlowUpdateMs = now;
 				}
 				if (Object.keys(patch).length > 0) {
@@ -191,8 +200,8 @@ export class TowerSessionController {
 				if (state.cellPatches.length > 0) {
 					this.getScene()?.applyPatch(state.cellPatches);
 				}
-				this.getScene()?.applySims(state.simTime, state.sims);
-				this.getScene()?.applyCarriers(state.simTime, state.carriers);
+				this.getScene()?.applySims(state.simTime);
+				this.getScene()?.applyCarriers(state.simTime);
 				this.getScene()?.setPresentationClock(
 					state.simTime,
 					state.receivedAtMs,

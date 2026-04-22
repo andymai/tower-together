@@ -23,10 +23,16 @@ import {
 } from "./snapshot";
 import { serviceIdleTasks } from "./tick/service-idle-tasks";
 import type { TimeState } from "./time";
-import type { WorldState } from "./world";
+import type { CarrierRecord, SimRecord, WorldState } from "./world";
 
 export type { SimStateRecord } from "./sims";
+export { simKey } from "./sims";
 export type { SimSnapshot } from "./snapshot";
+export type {
+	CarrierPendingRoute,
+	CarrierRecord,
+	SimRecord,
+} from "./world";
 export type { CellPatch, CommandResult };
 
 export interface CarrierCarStateRecord {
@@ -437,6 +443,14 @@ export class TowerSim {
 
 	simsToArray() {
 		return createSimStateRecords(this.world);
+	}
+
+	get liveSims(): readonly SimRecord[] {
+		return this.world.sims;
+	}
+
+	get liveCarriers(): readonly CarrierRecord[] {
+		return this.world.carriers;
 	}
 
 	carriersToArray(): CarrierCarStateRecord[] {

@@ -1,11 +1,28 @@
 import type { SimCommand } from "../../../worker/src/sim/commands";
-import { type SimSnapshot, TowerSim } from "../../../worker/src/sim/index";
+import {
+	type CarrierPendingRoute,
+	type CarrierRecord,
+	type SimRecord,
+	type SimSnapshot,
+	simKey,
+	TowerSim,
+} from "../../../worker/src/sim/index";
 import type {
 	CarrierCarStateData,
 	CellData,
 	ResolvedInputBatch,
 	SimStateData,
 } from "../types";
+
+export type SimPendingRoute = {
+	carrier: CarrierRecord;
+	route: CarrierPendingRoute;
+};
+export type PendingBySimId = ReadonlyMap<string, SimPendingRoute>;
+
+const EMPTY_SIMS: readonly SimRecord[] = [];
+const EMPTY_CARRIERS: readonly CarrierRecord[] = [];
+const EMPTY_PENDING: PendingBySimId = new Map();
 
 const BASE_TICK_INTERVAL_MS = 50;
 
@@ -19,8 +36,6 @@ type RenderState = {
 	population: number;
 	starCount: number;
 	cells: CellData[];
-	sims: SimStateData[];
-	carriers: CarrierCarStateData[];
 };
 
 type SessionSettings = {
@@ -66,6 +81,7 @@ export class TowerLockstepSession {
 	};
 	private readonly authoritativeFrames = new Map<number, AuthoritativeFrame>();
 	private readonly pendingLocalBatches = new Map<number, PendingLocalBatch>();
+	private pendingBySimIdCache: Map<string, SimPendingRoute> | null = null;
 
 	constructor({ playerId, onReset, onTick }: TowerLockstepSessionOptions) {
 		this.playerId = playerId;
@@ -82,6 +98,7 @@ export class TowerLockstepSession {
 		this.pendingLocalBatches.clear();
 		this.sim = TowerSim.fromSnapshot(cloneSnapshot(this.baseSnapshot));
 		this.sim.freeBuild = settings.freeBuild;
+		this.pendingBySimIdCache = null;
 		this.emitReset();
 		this.restartTimer();
 	}
@@ -210,6 +227,7 @@ export class TowerLockstepSession {
 		);
 		const stepResult = this.sim.step();
 		cellPatches.push(...stepResult.cellPatches);
+		this.pendingBySimIdCache = null;
 		this.emitTick(cellPatches);
 	}
 
@@ -236,6 +254,7 @@ export class TowerLockstepSession {
 		}
 		this.sim = sim;
 		this.predictedTick = Math.max(targetTick, this.baseTick);
+		this.pendingBySimIdCache = null;
 		this.emitReset();
 	}
 
@@ -277,8 +296,6 @@ export class TowerLockstepSession {
 			cash: this.sim.cash,
 			population: this.sim.population,
 			starCount: this.sim.starCount,
-			sims: this.sim.simsToArray(),
-			carriers: this.sim.carriersToArray(),
 			cellPatches,
 			receivedAtMs: performance.now(),
 			tickIntervalMs: BASE_TICK_INTERVAL_MS / this.settings.speedMultiplier,
@@ -295,8 +312,43 @@ export class TowerLockstepSession {
 			population: this.sim.population,
 			starCount: this.sim.starCount,
 			cells: this.sim.cellsToArray(),
-			sims: this.sim.simsToArray(),
-			carriers: this.sim.carriersToArray(),
 		};
+	}
+
+	simsSnapshot(): SimStateData[] {
+		return this.sim?.simsToArray() ?? [];
+	}
+
+	carriersSnapshot(): CarrierCarStateData[] {
+		return this.sim?.carriersToArray() ?? [];
+	}
+
+	peekSims(): readonly SimRecord[] {
+		return this.sim?.liveSims ?? EMPTY_SIMS;
+	}
+
+	peekCarriers(): readonly CarrierRecord[] {
+		return this.sim?.liveCarriers ?? EMPTY_CARRIERS;
+	}
+
+	materializeSim(sim: SimRecord): SimStateData | null {
+		if (!this.sim) return null;
+		const id = simKey(sim);
+		const records = this.sim.simsToArray();
+		return records.find((record) => record.id === id) ?? null;
+	}
+
+	peekPendingBySimId(): PendingBySimId {
+		if (!this.sim) return EMPTY_PENDING;
+		if (!this.pendingBySimIdCache) {
+			const map = new Map<string, SimPendingRoute>();
+			for (const carrier of this.sim.liveCarriers) {
+				for (const route of carrier.pendingRoutes) {
+					map.set(route.simId, { carrier, route });
+				}
+			}
+			this.pendingBySimIdCache = map;
+		}
+		return this.pendingBySimIdCache;
 	}
 }

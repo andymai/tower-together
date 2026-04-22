@@ -8,6 +8,12 @@ import {
 	Scene,
 	Textures,
 } from "phaser";
+import {
+	type CarrierRecord,
+	type SimRecord,
+	simKey,
+} from "../../../worker/src/sim/index";
+import type { PendingBySimId } from "../lib/lockstepSession";
 import { getTowerView, setTowerView } from "../lib/storage";
 import {
 	type CarrierCarStateData,
@@ -55,11 +61,22 @@ import {
 	SIM_QUEUE_SPACING_CELLS,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
-import { buildOccupancyByCar, isQueuedSim } from "./transportSelectors";
+import {
+	buildOccupancyByCarFromCarriers,
+	isQueuedSimLive,
+} from "./transportSelectors";
 
 export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
 export type QueuedSimInspectHandler = (sim: SimStateData) => void;
+
+export type SnapshotSource = {
+	readSims: () => readonly SimRecord[];
+	readCarriers: () => CarrierCarStateData[];
+	readLiveCarriers: () => readonly CarrierRecord[];
+	readPendingBySimId: () => PendingBySimId;
+	materializeSim: (sim: SimRecord) => SimStateData | null;
+};
 
 function hashSimVariant(id: string, modulus: number): number {
 	let h = 0;
@@ -67,6 +84,14 @@ function hashSimVariant(id: string, modulus: number): number {
 		h = (h * 31 + id.charCodeAt(i)) | 0;
 	}
 	return Math.abs(h) % modulus;
+}
+
+const EMPTY_PENDING: PendingBySimId = new Map();
+
+function stressLevelFor(sim: SimRecord): "low" | "medium" | "high" {
+	if (sim.elapsedTicks >= 120) return "high";
+	if (sim.elapsedTicks >= 80) return "medium";
+	return "low";
 }
 
 type RoomTextureConfig = {
@@ -266,12 +291,11 @@ export class GameScene extends Scene {
 		{ length: GRID_HEIGHT },
 		() => new Set<string>(),
 	);
-	private previousSimSnapshot: TimedSnapshot<SimStateData> | null = null;
-	private currentSimSnapshot: TimedSnapshot<SimStateData> | null = null;
 	private previousCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
 		null;
 	private currentCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
 		null;
+	private snapshotSource: SnapshotSource | null = null;
 	private presentationClock: PresentationClock = {
 		simTime: 0,
 		receivedAtMs: 0,
@@ -284,7 +308,7 @@ export class GameScene extends Scene {
 		right: number;
 		top: number;
 		bottom: number;
-		sim: SimStateData;
+		simRecord: SimRecord;
 	}> = [];
 	private selectedTool: string = "floor";
 	private onCellClick: CellClickHandler | null = null;
@@ -430,6 +454,10 @@ export class GameScene extends Scene {
 		);
 	}
 
+	setSnapshotSource(source: SnapshotSource): void {
+		this.snapshotSource = source;
+	}
+
 	applyInitState(
 		cells: Array<{
 			x: number;
@@ -443,9 +471,8 @@ export class GameScene extends Scene {
 			evalScore?: number;
 		}>,
 		simTime: number,
-		sims: SimStateData[] = [],
-		carriers: CarrierCarStateData[] = [],
 	): void {
+		const carriers = this.snapshotSource?.readCarriers() ?? [];
 		const expectedGrid = new Map<string, string>();
 		const expectedOverlay = new Map<string, string>();
 		const expectedAnchors = new Set<string>();
@@ -473,8 +500,6 @@ export class GameScene extends Scene {
 			}
 		}
 
-		this.previousSimSnapshot = null;
-		this.currentSimSnapshot = { simTime, items: sims };
 		this.previousCarrierSnapshot = null;
 		this.currentCarrierSnapshot = { simTime, items: carriers };
 		this.simsDirty = true;
@@ -686,15 +711,16 @@ export class GameScene extends Scene {
 		}
 	}
 
-	applySims(simTime: number, sims: SimStateData[]): void {
-		this.previousSimSnapshot = this.currentSimSnapshot;
-		this.currentSimSnapshot = { simTime, items: sims };
+	applySims(_simTime: number): void {
 		this.simsDirty = true;
 	}
 
-	applyCarriers(simTime: number, carriers: CarrierCarStateData[]): void {
+	applyCarriers(simTime: number): void {
 		this.previousCarrierSnapshot = this.currentCarrierSnapshot;
-		this.currentCarrierSnapshot = { simTime, items: carriers };
+		this.currentCarrierSnapshot = {
+			simTime,
+			items: this.snapshotSource?.readCarriers() ?? [],
+		};
 	}
 
 	setPresentationClock(
@@ -1804,8 +1830,8 @@ export class GameScene extends Scene {
 		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
 			this.overlayGrid,
 		);
-		const simSnapshot = this.currentSimSnapshot ??
-			this.previousSimSnapshot ?? { simTime: 0, items: [] };
+		const sims = this.snapshotSource?.readSims() ?? [];
+		const pending = this.snapshotSource?.readPendingBySimId() ?? EMPTY_PENDING;
 		const hasTexture =
 			this.roomTexturesLoaded && this.textures.exists("sim_figure_low-0");
 		// Aspect matches the SVG viewBox (6×20) so the figure isn't stretched.
@@ -1813,52 +1839,58 @@ export class GameScene extends Scene {
 		const simHeightPx = simWidthPx * (20 / 6);
 
 		type QueuedSimLayoutEntry = {
-			sim: SimStateData;
+			simRecord: SimRecord;
+			id: string;
+			stressLevel: "low" | "medium" | "high";
 			px: number;
 			py: number;
 			textureKey: string;
 		};
 
+		type QueuedEntry = { simRecord: SimRecord; id: string };
+
 		// Group queued sims by queueKey, sorted by id for stable layout (so the
 		// cache hash only changes when queue membership or variants actually change,
 		// not when the snapshot happens to reorder).
-		const byQueueKey = new Map<string, SimStateData[]>();
-		for (const sim of simSnapshot.items) {
-			if (!isQueuedSim(sim)) continue;
-			const key = getQueuedSimQueueKey(sim, elevatorColumnsByFloor);
+		const byQueueKey = new Map<string, QueuedEntry[]>();
+		for (const simRecord of sims) {
+			const id = simKey(simRecord);
+			if (!isQueuedSimLive(simRecord, pending, id)) continue;
+			const key = getQueuedSimQueueKey(simRecord, elevatorColumnsByFloor);
 			const arr = byQueueKey.get(key);
-			if (arr) arr.push(sim);
-			else byQueueKey.set(key, [sim]);
+			if (arr) arr.push({ simRecord, id });
+			else byQueueKey.set(key, [{ simRecord, id }]);
 		}
 
 		const queues = new Map<
 			string,
 			{ ascending: boolean; sims: QueuedSimLayoutEntry[] }
 		>();
-		for (const [queueKey, sims] of byQueueKey) {
-			sims.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-			const ascending = isSimAscending(sims[0] as SimStateData);
+		for (const [queueKey, entries] of byQueueKey) {
+			entries.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+			const ascending = isSimAscending((entries[0] as QueuedEntry).simRecord);
 			const list: QueuedSimLayoutEntry[] = [];
-			for (let queueIndex = 0; queueIndex < sims.length; queueIndex += 1) {
-				const sim = sims[queueIndex] as SimStateData;
+			for (let queueIndex = 0; queueIndex < entries.length; queueIndex += 1) {
+				const { simRecord, id } = entries[queueIndex] as QueuedEntry;
 				const { gridX, gridY } = getQueuedSimLayout(
-					sim,
+					simRecord,
 					elevatorColumnsByFloor,
 					queueIndex,
 				);
 				const px = gridX * TILE_WIDTH;
 				const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
+				const stressLevel = stressLevelFor(simRecord);
 				const textureKey =
-					sim.stressLevel === "low"
-						? `sim_figure_low-${hashSimVariant(sim.id, 4)}`
-						: `sim_figure_${sim.stressLevel}`;
-				list.push({ sim, px, py, textureKey });
+					stressLevel === "low"
+						? `sim_figure_low-${hashSimVariant(id, 4)}`
+						: `sim_figure_${stressLevel}`;
+				list.push({ simRecord, id, stressLevel, px, py, textureKey });
 				this.queuedSimHitboxes.push({
 					left: px - simWidthPx / 2,
 					right: px + simWidthPx / 2,
 					top: py - simHeightPx,
 					bottom: py,
-					sim,
+					simRecord,
 				});
 			}
 			queues.set(queueKey, { ascending, sims: list });
@@ -1867,7 +1899,7 @@ export class GameScene extends Scene {
 		if (!hasTexture) {
 			// Pre-load fallback: rectangles via the graphics object, no caching.
 			for (const { sims } of queues.values()) {
-				for (const { sim, px, py } of sims) {
+				for (const { stressLevel, px, py } of sims) {
 					const left = px - simWidthPx / 2;
 					const top = py - simHeightPx;
 					if (
@@ -1878,7 +1910,7 @@ export class GameScene extends Scene {
 					) {
 						continue;
 					}
-					const color = ENTITY_STRESS_COLORS[sim.stressLevel] ?? 0x111111;
+					const color = ENTITY_STRESS_COLORS[stressLevel] ?? 0x111111;
 					g.fillStyle(color, 1);
 					g.fillRect(left, top, simWidthPx, simHeightPx);
 				}
@@ -1940,8 +1972,8 @@ export class GameScene extends Scene {
 			}
 
 			const hashParts: string[] = [];
-			for (const { sim, textureKey } of sims) {
-				hashParts.push(`${sim.id}|${textureKey}`);
+			for (const { id, textureKey } of sims) {
+				hashParts.push(`${id}|${textureKey}`);
 			}
 			const hash = `${ascending ? "u" : "d"}|${bboxW}x${bboxH}@${bboxX},${bboxY}|${hashParts.join(";")}`;
 
@@ -2029,9 +2061,8 @@ export class GameScene extends Scene {
 	}
 
 	private drawCars(): void {
-		const simSnapshot = this.currentSimSnapshot ??
-			this.previousSimSnapshot ?? { simTime: 0, items: [] };
-		const occupancyByCar = buildOccupancyByCar(simSnapshot.items);
+		const liveCarriers = this.snapshotSource?.readLiveCarriers() ?? [];
+		const occupancyByCar = buildOccupancyByCarFromCarriers(liveCarriers);
 		const worldView = this.cameras.main.worldView;
 		const visibleLeft = worldView.x - TILE_WIDTH;
 		const visibleRight = worldView.right + TILE_WIDTH;
@@ -2331,12 +2362,13 @@ export class GameScene extends Scene {
 		for (let i = this.queuedSimHitboxes.length - 1; i >= 0; i -= 1) {
 			const hitbox = this.queuedSimHitboxes[i];
 			if (
+				hitbox &&
 				worldX >= hitbox.left &&
 				worldX <= hitbox.right &&
 				worldY >= hitbox.top &&
 				worldY <= hitbox.bottom
 			) {
-				return hitbox.sim;
+				return this.snapshotSource?.materializeSim(hitbox.simRecord) ?? null;
 			}
 		}
 		return null;

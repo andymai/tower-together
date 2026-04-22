@@ -1,6 +1,32 @@
+import type { CarrierRecord, SimRecord } from "../../../worker/src/sim/index";
+import type { PendingBySimId } from "../lib/lockstepSession";
 import type { CarrierCarStateData, SimStateData } from "../types";
 
 export const ELEVATOR_QUEUE_STATES = new Set([0x04, 0x05]);
+
+export function isQueuedSimLive(
+	sim: SimRecord,
+	pending: PendingBySimId,
+	simId: string,
+): boolean {
+	if (sim.route.mode !== "carrier") return false;
+	const entry = pending.get(simId);
+	return !entry?.route.boarded;
+}
+
+export function buildOccupancyByCarFromCarriers(
+	carriers: readonly CarrierRecord[],
+): Map<string, number> {
+	const occupancyByCar = new Map<string, number>();
+	for (const carrier of carriers) {
+		for (const route of carrier.pendingRoutes) {
+			if (!route.boarded || route.assignedCarIndex < 0) continue;
+			const key = `${carrier.carrierId}:${route.assignedCarIndex}`;
+			occupancyByCar.set(key, (occupancyByCar.get(key) ?? 0) + 1);
+		}
+	}
+	return occupancyByCar;
+}
 
 export interface TransportMetrics {
 	totalPopulation: number;
