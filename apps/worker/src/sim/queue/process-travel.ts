@@ -326,6 +326,12 @@ function boardWaitingRoutes(
 		route.boarded = true;
 		slot.boarded = true;
 		car.assignedCount += 1;
+		if ((globalThis as { __probeRoute?: boolean }).__probeRoute === true) {
+			// eslint-disable-next-line no-console
+			console.log(
+				`[board] carrier=${carrier.carrierId} col=${carrier.column} car=${carIndex} simId=${route.simId} src=${route.sourceFloor} dst=${route.destinationFloor}`,
+			);
+		}
 		// Binary: 1218:0d4e assign_request_to_runtime_route invokes
 		// accumulate_elapsed_delay_into_current_sim at boarding time.
 		applyBoardingStressUpdate(

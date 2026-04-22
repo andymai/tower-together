@@ -202,6 +202,17 @@ export const gameScreenStyles = {
 		color: "#aab8c2",
 		fontVariantNumeric: "tabular-nums",
 	},
+	devBadge: {
+		padding: "1px 6px",
+		borderRadius: 3,
+		border: "1px solid #f59e0b",
+		background: "rgba(245, 158, 11, 0.15)",
+		color: "#f59e0b",
+		fontSize: 10,
+		fontWeight: 700,
+		letterSpacing: "0.08em",
+		textTransform: "uppercase",
+	},
 	speedButtons: {
 		display: "flex",
 		gap: 4,

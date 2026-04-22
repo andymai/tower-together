@@ -33,6 +33,15 @@ export function selectBestRouteCandidate(
 ): RouteCandidate | null {
 	if (fromFloor === toFloor) return null;
 
+	const __probe =
+		(globalThis as { __probeRoute?: boolean }).__probeRoute === true;
+	if (__probe) {
+		// eslint-disable-next-line no-console
+		console.log(
+			`[route] from=${fromFloor} to=${toFloor} preferLocal=${preferLocalMode} thm=${targetHeightMetric}`,
+		);
+	}
+
 	const delta = Math.abs(fromFloor - toFloor);
 	let bestSegment: RouteCandidate | null = null;
 	let bestCarrier: RouteCandidate | null = null;
@@ -129,6 +138,12 @@ export function selectBestRouteCandidate(
 			toFloor,
 			targetHeightMetric,
 		);
+		if (__probe) {
+			// eslint-disable-next-line no-console
+			console.log(
+				`[route]   carrier ${carrier.carrierId} col=${carrier.column} mode=${carrier.carrierMode} bot=${carrier.bottomServedFloor} top=${carrier.topServedFloor} directCost=${directCost}`,
+			);
+		}
 		if (directCost < ROUTE_COST_INFINITE) {
 			bestCarrier = tryCandidate(
 				bestCarrier,
@@ -146,6 +161,12 @@ export function selectBestRouteCandidate(
 			preferLocalMode,
 			targetHeightMetric,
 		);
+		if (__probe) {
+			// eslint-disable-next-line no-console
+			console.log(
+				`[route]   carrier ${carrier.carrierId} col=${carrier.column} transferCost=${transferCost}`,
+			);
+		}
 		if (transferCost < ROUTE_COST_INFINITE) {
 			bestCarrier = tryCandidate(
 				bestCarrier,
@@ -160,9 +181,24 @@ export function selectBestRouteCandidate(
 	if (bestSegment && bestCarrier) {
 		// The binary scans direct local links before carriers and keeps the
 		// existing candidate on equal cost, so stairs/escalators win ties.
-		return bestSegment.cost <= bestCarrier.cost ? bestSegment : bestCarrier;
+		const chosen =
+			bestSegment.cost <= bestCarrier.cost ? bestSegment : bestCarrier;
+		if (__probe) {
+			// eslint-disable-next-line no-console
+			console.log(
+				`[route] CHOSEN ${chosen.kind} id=${chosen.id} cost=${chosen.cost} (seg=${bestSegment.cost} car=${bestCarrier.cost})`,
+			);
+		}
+		return chosen;
 	}
-	return bestSegment ?? bestCarrier;
+	const chosen = bestSegment ?? bestCarrier;
+	if (__probe && chosen) {
+		// eslint-disable-next-line no-console
+		console.log(
+			`[route] CHOSEN ${chosen.kind} id=${chosen.id} cost=${chosen.cost}`,
+		);
+	}
+	return chosen;
 }
 
 function getDerivedRecordEntryFloors(

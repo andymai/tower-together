@@ -4,8 +4,6 @@ import { gameScreenStyles as styles } from "./gameScreenStyles";
 
 interface Props {
 	metrics: TransportMetrics;
-	speedMultiplier: 1 | 3 | 10;
-	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
 	starCount: number;
 	onStarCountChange: (starCount: 1 | 2 | 3 | 4 | 5 | 6) => void;
 	freeBuild: boolean;
@@ -14,8 +12,6 @@ interface Props {
 
 export const GameDebugPanel = memo(function GameDebugPanel({
 	metrics,
-	speedMultiplier,
-	onSpeedChange,
 	starCount,
 	onStarCountChange,
 	freeBuild,
@@ -24,26 +20,6 @@ export const GameDebugPanel = memo(function GameDebugPanel({
 	return (
 		<div style={styles.debugPanel}>
 			<div style={styles.debugTitle}>Debug</div>
-			<div style={styles.debugRow}>
-				<span>Speed</span>
-				<span style={styles.speedButtons}>
-					{([1, 3, 10] as const).map((multiplier) => (
-						<button
-							key={multiplier}
-							type="button"
-							style={{
-								...styles.speedButton,
-								...(speedMultiplier === multiplier
-									? styles.speedButtonActive
-									: {}),
-							}}
-							onClick={() => onSpeedChange(multiplier)}
-						>
-							{multiplier}x
-						</button>
-					))}
-				</span>
-			</div>
 			<div style={styles.debugRow}>
 				<span>Stars</span>
 				<span style={styles.speedButtons}>

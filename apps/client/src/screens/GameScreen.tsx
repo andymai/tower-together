@@ -200,6 +200,8 @@ export function GameScreen({
 				starCount={starCount}
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
+				speedMultiplier={speedMultiplier}
+				onSpeedChange={setSpeedMultiplier}
 				onAliasInputChange={handleAliasInputChange}
 				onRenameStart={handleRenameStart}
 				onRenameCancel={handleRenameCancel}
@@ -232,8 +234,6 @@ export function GameScreen({
 					{import.meta.env.DEV && (
 						<GameDebugPanel
 							metrics={buildTransportMetrics(sims, carriers)}
-							speedMultiplier={speedMultiplier}
-							onSpeedChange={setSpeedMultiplier}
 							starCount={starCount}
 							onStarCountChange={setStarCount}
 							freeBuild={freeBuild}

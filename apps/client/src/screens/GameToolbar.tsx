@@ -88,6 +88,8 @@ interface Props {
 	starCount: number;
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
+	speedMultiplier: 1 | 3 | 10;
+	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
 	onAliasInputChange: (value: string) => void;
 	onRenameStart: () => void;
 	onRenameCancel: () => void;
@@ -108,6 +110,8 @@ export const GameToolbar = memo(
 			starCount,
 			playerCount,
 			connectionStatus,
+			speedMultiplier,
+			onSpeedChange,
 			onAliasInputChange,
 			onRenameStart,
 			onRenameCancel,
@@ -212,6 +216,28 @@ export const GameToolbar = memo(
 				</div>
 
 				<div style={styles.toolbarRight}>
+					{import.meta.env.DEV && (
+						<>
+							<span style={styles.devBadge}>DEV</span>
+							<span style={styles.speedButtons}>
+								{([1, 3, 10] as const).map((multiplier) => (
+									<button
+										key={multiplier}
+										type="button"
+										style={{
+											...styles.speedButton,
+											...(speedMultiplier === multiplier
+												? styles.speedButtonActive
+												: {}),
+										}}
+										onClick={() => onSpeedChange(multiplier)}
+									>
+										{multiplier}x
+									</button>
+								))}
+							</span>
+						</>
+					)}
 					<span style={styles.cashCluster}>
 						<span ref={cashSpanRef} style={styles.cashDisplay} />
 						<span ref={popSpanRef} style={styles.populationDisplay} />
