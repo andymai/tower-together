@@ -2,6 +2,7 @@ import type { SimCommand } from "../../worker/src/sim/commands";
 import type { SimSnapshot } from "../../worker/src/sim/index";
 import {
 	getTileStarRequirement as getWorkerTileStarRequirement,
+	CARRIER_CAR_CONSTRUCTION_COST as WORKER_CARRIER_CAR_CONSTRUCTION_COST,
 	STARTING_CASH as WORKER_STARTING_CASH,
 	TILE_COSTS as WORKER_TILE_COSTS,
 	TILE_STAR_REQUIREMENTS as WORKER_TILE_STAR_REQUIREMENTS,
@@ -67,6 +68,8 @@ export const TILE_WIDTHS: Record<string, number> = WORKER_TILE_WIDTHS;
 
 /** Construction cost in dollars. */
 export const TILE_COSTS: Record<string, number> = WORKER_TILE_COSTS;
+export const CARRIER_CAR_CONSTRUCTION_COST: Record<number, number> =
+	WORKER_CARRIER_CAR_CONSTRUCTION_COST;
 export const TILE_STAR_REQUIREMENTS: Record<string, number> =
 	WORKER_TILE_STAR_REQUIREMENTS;
 export const STARTING_CASH = WORKER_STARTING_CASH;

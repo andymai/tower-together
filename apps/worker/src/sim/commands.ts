@@ -6,6 +6,7 @@ import {
 } from "./reachability/rebuild-tables";
 import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-records";
 import {
+	CARRIER_CAR_CONSTRUCTION_COST,
 	FAMILY_CINEMA,
 	FAMILY_CINEMA_LOWER,
 	FAMILY_CINEMA_STAIRS_LOWER,
@@ -1249,6 +1250,8 @@ export function handleAddElevatorCar(
 	x: number,
 	y: number,
 	world: WorldState,
+	ledger: LedgerState,
+	freeBuild: boolean,
 ): CommandResult {
 	const carrier = world.carriers.find((c) => c.column === x);
 	if (!carrier) {
@@ -1258,6 +1261,11 @@ export function handleAddElevatorCar(
 	if (activeCars >= 8) {
 		return { accepted: false, reason: "Maximum 8 cars per shaft" };
 	}
+	const cost = CARRIER_CAR_CONSTRUCTION_COST[carrier.carrierMode] ?? 0;
+	if (!freeBuild && cost > ledger.cashBalance) {
+		return { accepted: false, reason: "Insufficient funds" };
+	}
+	if (!freeBuild) ledger.cashBalance -= cost;
 	// Binary writes bottom_served_floor to every car's home_floor byte at
 	// shaft placement; the click coordinate is unused.
 	void y;

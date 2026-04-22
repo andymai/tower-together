@@ -8,7 +8,7 @@ interface Props {
 
 export function GamePromptModal({ prompt, onRespond }: Props) {
 	return (
-		<div style={styles.modalOverlay}>
+		<div style={{ ...styles.modalOverlay, zIndex: 300 }}>
 			<div style={styles.modal}>
 				<div style={styles.modalIcon}>
 					{prompt.promptKind === "bomb_ransom" ? "💣" : "🔥"}

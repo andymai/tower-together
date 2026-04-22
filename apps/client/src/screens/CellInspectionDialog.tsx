@@ -1,4 +1,5 @@
 import {
+	CARRIER_CAR_CONSTRUCTION_COST,
 	type CarrierCarStateData,
 	GRID_HEIGHT,
 	type SimStateData,
@@ -372,15 +373,21 @@ export function CellInspectionDialog({
 												onInspectCell(ci.column, inspectedCell.y);
 											}}
 										>
-											+ Add Car
+											+ Add Car ($
+											{(
+												CARRIER_CAR_CONSTRUCTION_COST[ci.carrierMode] ?? 0
+											).toLocaleString()}
+											)
 										</button>
 										<button
 											type="button"
 											style={{
 												...styles.carButton,
-												...(ci.carCount <= 1 ? styles.carButtonDisabled : {}),
+												...(activeCars.length <= 1
+													? styles.carButtonDisabled
+													: {}),
 											}}
-											disabled={ci.carCount <= 1}
+											disabled={activeCars.length <= 1}
 											onClick={() => {
 												onRemoveElevatorCar(ci.column);
 												onInspectCell(ci.column, inspectedCell.y);
@@ -479,8 +486,11 @@ export function CellInspectionDialog({
 							0,
 						);
 						const avgStress =
-							facilitySims.reduce((s, e) => s + e.elapsedTicks, 0) /
-							facilitySims.length;
+							facilitySims.reduce(
+								(s, e) =>
+									s + (e.tripCount > 0 ? e.accumulatedTicks / e.tripCount : 0),
+								0,
+							) / facilitySims.length;
 						return (
 							<div style={styles.inspectSection}>
 								<div style={styles.inspectLabel}>

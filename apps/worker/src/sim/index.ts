@@ -209,7 +209,13 @@ export class TowerSim {
 					this.time,
 				);
 			case "add_elevator_car":
-				return handleAddElevatorCar(cmd.x, cmd.y, this.world);
+				return handleAddElevatorCar(
+					cmd.x,
+					cmd.y,
+					this.world,
+					this.ledger,
+					this.freeBuild,
+				);
 			case "remove_elevator_car":
 				return handleRemoveElevatorCar(cmd.x, this.world);
 			case "set_elevator_dwell_delay":

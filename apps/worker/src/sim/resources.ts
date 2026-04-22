@@ -67,6 +67,13 @@ export const TILE_COSTS: Record<string, number> = {
 	medical: 500_000,
 };
 
+/** One-time cost to add an extra car to a carrier, indexed by carrier mode. */
+export const CARRIER_CAR_CONSTRUCTION_COST: Record<number, number> = {
+	0: 150_000,
+	1: 80_000,
+	2: 50_000,
+};
+
 /**
  * Minimum star rating required before the binary exposes a build-menu entry.
  * Tiles omitted from this table are treated as always available.
