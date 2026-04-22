@@ -57,7 +57,8 @@ export type TileType =
 	| "recyclingCenterLower"
 	| "parking"
 	| "metro"
-	| "housekeeping";
+	| "housekeeping"
+	| "security";
 
 export type SelectedTool = TileType | "inspect";
 

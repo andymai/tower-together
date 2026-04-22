@@ -18,6 +18,7 @@ export const TILE_LABELS: Partial<Record<string, string>> = {
 	recyclingCenterLower: "r",
 	metro: "U",
 	housekeeping: "H",
+	security: "S",
 };
 
 export const TILE_LABEL_COLORS: Partial<Record<string, string>> = {
@@ -34,6 +35,7 @@ export const TILE_LABEL_COLORS: Partial<Record<string, string>> = {
 	recyclingCenterLower: "#1f3945",
 	metro: "#124040",
 	housekeeping: "#3a2050",
+	security: "#ffffff",
 };
 
 export const TILE_COLORS: Record<string, number> = {
@@ -54,6 +56,7 @@ export const TILE_COLORS: Record<string, number> = {
 	parking: 0x707080,
 	metro: 0x60c0c0,
 	housekeeping: 0xd0b0e0,
+	security: 0x3050a0,
 	elevator: 0xb0a070,
 	escalator: 0xa0b070,
 };

@@ -16,6 +16,7 @@ import {
 	Pizza,
 	Recycle,
 	Search,
+	Shield,
 	ShoppingBag,
 	Sparkles,
 	Square,
@@ -168,6 +169,13 @@ const CATEGORIES: ToolEntry[][] = [
 		},
 	],
 	[
+		{
+			id: "security",
+			label: "Security",
+			color: "#3050a0",
+			cost: TILE_COSTS.security,
+			Icon: Shield,
+		},
 		{
 			id: "recyclingCenter",
 			label: "Recycling",
