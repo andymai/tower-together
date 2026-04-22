@@ -11,9 +11,6 @@ The simulation emits:
 
 Notifications are emitted at:
 
-- morning
-- afternoon
-- end of day
 - notable event triggers
 - some facility-state transitions
 
@@ -29,27 +26,18 @@ Exact UI presentation is implementation-defined. Timing relative to simulation s
 
 Notification IDs are logical popup codes loaded through the game's resource system.
 
-Known notification popup IDs:
+Known visual popup / prompt IDs (bitmap / dialog resources):
 
-- news / preview-strip family: `0x568`, `0x569`, `0x5a8`, `0x628`, `0x629`, `0x668`, `0x6a8`, `0x6a9`, `0xb28`
-  - `0x568`: restaurant preview strip
-  - `0x569`: restaurant range popup
-  - `0x5a8`: office preview strip
-  - `0x628` / `0x629`: condo preview/range popup
-  - `0x668`: retail-shop preview strip
-  - `0x6a8` / `0x6a9`: parking-space preview/range popup
-  - `0xb28`: party-hall preview strip
-- general event popup family:
-  - `0x2712`, `0x271b`, `0x271c`: general tower / empty-sample news variants
-  - `0x271d`: family-`3/4/5` checkout-sale newspaper popup
-  - `0x2713`: bomb ransom prompt
-  - `0x2714`: bomb detonation result
-  - `0x2716`: fire-rescue prompt family
-  - `0x2718`: star-rating / Tower award popup
-  - `0x2719`: ongoing fire notification
-  - `0x271a`: VIP special-visitor activation popup
-  - `0x271e`: bomb/fire active-status reminder
-  - `0x271f`: bomb ransom paid result
+- `0x2713`: bomb ransom prompt
+- `0x2714`: bomb detonation result
+- `0x2716`: fire-rescue prompt family
+- `0x2718`: star-rating / Tower award popup
+- `0x2719`: ongoing fire notification
+- `0x271a`: VIP special-visitor activation popup
+- `0x271e`: bomb/fire active-status reminder
+- `0x271f`: bomb ransom paid result
+
+The `0x568` / `0x569` / `0x5a8` / `0x628` / `0x629` / `0x668` / `0x6a8` / `0x6a9` / `0xb28` / `0x2712` / `0x271b` / `0x271c` / `0x271d` IDs are **wave resource IDs**, not visual popups — they are played through WAVMIX16 with no on-screen output. See [SOUND.md](SOUND.md).
 
 Clean-room rule:
 

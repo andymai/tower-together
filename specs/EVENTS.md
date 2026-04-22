@@ -89,85 +89,11 @@ Behavior:
 
 This event is cosmetic / display-state only. It does not feed the star gate or route logic.
 
-## Checkout Newspaper Popup
+## Audio-only event paths
 
-Family-`3/4/5` sale / checkout completions drive a separate newspaper-style popup path from the per-tick viewport-sampled news system.
+Two event-adjacent systems produce no simulation-visible output — they only play wave clips via WAVMIX16. They consume RNG (the random-news gate runs `% 16` every eligible tick) so the clone must still evaluate them to keep the shared RNG stream aligned, but emits nothing else.
 
-Producer (`deactivate_family_345_unit_with_income`):
+- **Random news sounds** (per-tick viewport-sampled wave selection)
+- **Checkout newspaper sound** (family-`3/4/5` sale latch)
 
-- increments the cumulative `family345_sale_count`
-- if `family345_sale_count < 20`: sets `newspaper_trigger = 1` exactly on even counts, else `0`
-- if `family345_sale_count >= 20`: sets `newspaper_trigger = 1` exactly on counts divisible by `8`, else `0`
-
-Consumer (`update_cash_display_and_maybe_show_newspaper_popup`):
-
-- runs from the shared cash-display refresh helper used by income, refunds, and construction-cost updates
-- if `cash_report_dirty_flag != 0` and `newspaper_trigger != 0`: emits popup `0x271d` with style `(2,3)` before redrawing the cash panel
-- after polling, forces `newspaper_trigger = 1` again; later non-milestone family-`3/4/5` transactions are what clear it back to `0`
-
-This is not a queued event type. It is a single flag recomputed by each family-`3/4/5` checkout/sale and then polled opportunistically by the next cash-display refresh.
-
-## Random News Events
-
-After the early daily checkpoint and before late-day periods, the simulation can emit random news popups by sampling the currently visible map. This system is separate from the family-`3/4/5` newspaper popup above.
-
-Trigger path:
-
-- runs only while notifications are enabled and `(game_state_flags & 0x09) == 0` (the same bomb/fire suppression bits used elsewhere in the event system)
-- first RNG gate: `random() % 16 == 0`
-- second RNG roll: `random() % 6`, selecting one of six viewport buckets
-- bucket-to-viewport coordinates:
-  - `0`: `x = visible_width / 4`, `y = (visible_height - 1) / 2`
-  - `1`: `x = visible_width / 2`, `y = (visible_height - 1) / 2`
-  - `2`: `x = visible_width - visible_width / 4`, `y = (visible_height - 1) / 2`
-  - `3`: `x = visible_width / 4`, `y = (visible_height - 1) - (visible_height - 1) / 4`
-  - `4`: `x = visible_width / 2`, `y = (visible_height - 1) - (visible_height - 1) / 4`
-  - `5`: `x = visible_width - visible_width / 4`, `y = (visible_height - 1) - (visible_height - 1) / 4`
-- the sampled viewport row is converted back to an absolute floor index before classification
-
-Classifier return codes:
-
-- `-2`: suppress the event entirely
-- `-1`: empty tile above ground; eligible for the general-tower fallback news path
-- positive values: family / subject codes consumed by the popup mapper
-
-Empty-tile handling:
-
-- if the sampled occupancy slot is empty and the absolute floor index is below `10`, classification returns `-2` and the event is suppressed
-- if the slot is empty on floor `10` or above, classification returns `-1`, which the random-news caller turns into the general tower news fallback
-
-Facility eligibility rules:
-
-- hotel families `3/4/5`: state byte `< 0x10` and `(state_byte & 0x07) != 0`
-- condo family `9`: state byte `< 0x10` and `(state_byte & 0x07) != 0`
-- office family `7`: state byte `< 0x08` and `(state_byte & 0x07) != 0`
-- restaurant / fast-food / retail families `6`, `0x0c`, `0x10`: linked `CommercialVenueRecord.state` must be neither `-1` nor `3`, and `CommercialVenueRecord.activity_byte` must be nonzero
-- parking ramp family `0x0b`: state byte must be `> 1`
-- single-screen entertainment families `0x1d/0x1e`: linked entertainment `link_phase_state` must be `> 1`
-- paired entertainment families `0x12/0x13/0x22/0x23`: linked entertainment `link_phase_state` must equal `3`; on success the classifier returns `0x2329 + family_selector_or_single_link_flag`
-- all other families, and all inactive / not-ready records, return `-2`
-
-Popup mapping for positive classifier codes:
-
-- `3`, `4`, `5` -> popup `0x629`
-- `6` -> popup `0x568` or `0x569` with equal probability
-- `7` -> popup `0x5a8`
-- `9` -> popup `0x628` on `1/10`, else `0x629`
-- `0x0b` -> popup `0x6a8` or `0x6a9` with equal probability
-- `0x0c`, `0x10` -> popup `0x569` or `0x668` with equal probability
-- `0x1d`, `0x1e` -> popup `0x0b28`
-
-General-tower fallback for classifier result `-1`:
-
-- random news reaches the popup mapper through a one-argument far-call shim, so the helper treats `-1` as enabled there
-- if the periodic-maintenance gate is set, emit `0x2712`
-- otherwise:
-  - if `(day_counter / 3) % 4 == 2` and `pre_day_4() != 0`, emit `0x271c`
-  - if `(day_counter / 3) % 4 == 3` and `pre_day_4() == 0`, emit `0x271b`
-  - all other cases suppress the event
-
-Paired-entertainment note:
-
-- the paired-link classifier path returns `0x2329 + family_selector_or_single_link_flag`
-- the downstream popup switch does not recognize that range, and no bitmap resources in the `0x2329..0x2335` range were recovered from the extracted manifest
-- inference: ready paired entertainment samples do not produce a visible news popup in practice, despite reaching a distinct classifier branch
+Both are documented in full in [SOUND.md](SOUND.md), including the viewport bucket math, classifier rules, and wave-ID mappings. When parity matters, compare classifier outcomes and wave-ID selection, not PCM output.
