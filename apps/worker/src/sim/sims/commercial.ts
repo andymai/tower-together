@@ -144,11 +144,14 @@ export function processCommercialSim(
 		// here: at MORNING_GATE we run try_consume but defer the
 		// currentPopulation increment to the arrival site
 		// (handleCommercialMorningTransit / handleCommercialSimArrival).
+		// The phaseA/phaseB seed grow (binary `clamp_object_type_limit`) is
+		// NOT called here — it fires only on the successful departure path
+		// (state→0x27 PARKED via rc=3 in DEPARTURE / DEPARTURE_TRANSIT /
+		// carrier arrival). See those sites below.
 		record.remainingCapacity -= 1;
 		record.lastAcquireTick = time.dayTick;
 		record.todayVisitCount += 1;
 		record.visitCount += 1;
-		incrementVenueSeed(record, sim.familyCode, sim, world, time);
 
 		// Route to home floor. Binary state-0x20 dispatch (1228:41cb) calls
 		// try_consume first, then resolve_sim_route_between_floors, then
@@ -263,6 +266,17 @@ export function processCommercialSim(
 			// to the PARKED (0x27) writer, not NIGHT_B (0x26).
 			releaseServiceRequest(world, sim);
 			sim.stateCode = STATE_PARKED;
+			// Binary `clamp_object_type_limit` fires after `[BX+5]=0x27` on the
+			// rc=3 (successful arrival at lobby) path only — see 1228:4cbf →
+			// 1228:4d24. rc=-1 (route fail) sets PARKED but does NOT call clamp.
+			if (routeResult === 3 && object.linkedRecordIndex >= 0) {
+				const venue = world.sidecars[object.linkedRecordIndex] as
+					| CommercialVenueRecord
+					| undefined;
+				if (venue?.kind === "commercial_venue") {
+					incrementVenueSeed(venue, sim.familyCode, sim, world, time);
+				}
+			}
 			return;
 		}
 		// Phase 1d-ii parity: resolve owns sim.selectedFloor/destinationFloor.
@@ -406,6 +420,17 @@ function handleCommercialDepartureTransit(
 		sim.selectedFloor = LOBBY_FLOOR;
 		sim.stateCode = STATE_PARKED;
 		releaseServiceRequest(world, sim);
+		// Binary `clamp_object_type_limit` fires after the rc=3 state→0x27
+		// transition (1228:4cbf → 1228:4d24).
+		const object = findObjectForSim(world, sim);
+		if (object && object.linkedRecordIndex >= 0) {
+			const venue = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (venue?.kind === "commercial_venue") {
+				incrementVenueSeed(venue, sim.familyCode, sim, world, _time);
+			}
+		}
 	}
 	// rc=0/1/2: stay in STATE_DEPARTURE_TRANSIT; next stride re-resolves.
 }
@@ -480,6 +505,18 @@ export function handleCommercialSimArrival(
 		sim.stateCode = STATE_PARKED;
 		sim.selectedFloor = LOBBY_FLOOR;
 		releaseServiceRequest(world, sim);
+		// Binary `clamp_object_type_limit` fires after the state→0x27 write on
+		// the carrier-arrival rc=3 path (dispatch_sim_behavior 1228:1ba6 case
+		// 6/10/12).
+		const object = findObjectForSim(world, sim);
+		if (object && object.linkedRecordIndex >= 0) {
+			const venue = world.sidecars[object.linkedRecordIndex] as
+				| CommercialVenueRecord
+				| undefined;
+			if (venue?.kind === "commercial_venue") {
+				incrementVenueSeed(venue, sim.familyCode, sim, world, time);
+			}
+		}
 		return;
 	}
 
