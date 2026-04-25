@@ -981,17 +981,10 @@ export function handlePlaceTile(
 			normalizedTileType === "stairs" ? "Stairs" : "Escalators";
 		for (let dx = 0; dx < overlayWidth; dx++) {
 			const key = `${x + dx},${y}`;
-			const upperKey = `${x + dx},${y - 1}`;
 			if (!world.cells[key] && !world.cellToAnchor[key]) {
 				return {
 					accepted: false,
 					reason: `${baseRequiredLabel} require a base tile`,
-				};
-			}
-			if (!world.cells[upperKey] && !world.cellToAnchor[upperKey]) {
-				return {
-					accepted: false,
-					reason: `${baseRequiredLabel} require a base tile on the floor above`,
 				};
 			}
 			if (world.overlays[key] || world.overlayToAnchor[key]) {

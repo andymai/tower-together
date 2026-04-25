@@ -81,6 +81,25 @@ export function rebuildSpecialLinkRouteRecords(world: WorldState): void {
 		};
 	}
 
+	// Refresh floorWalkabilityFlags from the just-rebuilt specialLinks so the
+	// span scan below sees up-to-date walkability. Without this, the scan reads
+	// flags left over from a prior segment set: the server's incremental rebuild
+	// path produces records derived from N-1 flags, while a fresh hydrate
+	// derives them from the snapshot's current flags — same overlays, different
+	// records, breaking the lockstep round-trip.
+	world.floorWalkabilityFlags = new Array(GRID_HEIGHT).fill(0);
+	for (const segment of world.specialLinks) {
+		if (!segment.active) continue;
+		const bit = (segment.flags & 1) !== 0 ? 2 : 1;
+		const span = segment.flags >> 1;
+		const top = segment.entryFloor + span - 1;
+		for (let floor = segment.entryFloor; floor <= top; floor++) {
+			if (floor >= 0 && floor < GRID_HEIGHT) {
+				world.floorWalkabilityFlags[floor] |= bit;
+			}
+		}
+	}
+
 	for (const [recordIndex, center] of DERIVED_RECORD_CENTERS.entries()) {
 		if (recordIndex >= MAX_SPECIAL_LINK_RECORDS) break;
 		const lowerFloor = scanSpecialLinkSpanBound(world, center, 0);
