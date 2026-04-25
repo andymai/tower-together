@@ -52,6 +52,7 @@ export function GameScreen({
 	} | null>(null);
 	const sceneRef = useRef<GameScene | null>(null);
 	const clockRef = useRef<GameToolbarClockHandle | null>(null);
+	const lastCashRef = useRef<number | null>(null);
 
 	const addToast = useCallback(
 		(message: string, variant: "error" | "info" = "error") => {
@@ -103,8 +104,12 @@ export function GameScreen({
 		sceneRef,
 		addToast,
 		onSimTime: (simTime) => clockRef.current?.update(simTime),
-		onEconomy: (cash, population) =>
-			clockRef.current?.updateEconomy(cash, population),
+		onEconomy: (cash, population) => {
+			clockRef.current?.updateEconomy(cash, population);
+			const prev = lastCashRef.current;
+			if (prev !== null && cash > prev) sceneRef.current?.playKaching();
+			lastCashRef.current = cash;
+		},
 	});
 
 	const handleCellClick = useCallback(

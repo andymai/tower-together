@@ -9,7 +9,17 @@
 // split into five segments). Ambience tracks loop via HTMLAudio gated on the
 // in-game hour, and the rooster fires once when the day clock crosses 6 AM.
 
-export type SoundFamily = "food" | "office" | "crowd" | "transport";
+export type SoundFamily =
+	| "food"
+	| "office"
+	| "crowd"
+	| "transport"
+	| "lodging"
+	| "retail"
+	| "medical"
+	| "housekeeping"
+	| "security"
+	| "parking";
 
 const TILE_TO_FAMILY: Partial<Record<string, SoundFamily>> = {
 	restaurant: "food",
@@ -22,7 +32,27 @@ const TILE_TO_FAMILY: Partial<Record<string, SoundFamily>> = {
 	elevatorExpress: "transport",
 	elevatorService: "transport",
 	escalator: "transport",
+	metro: "transport",
+	hotelSingle: "lodging",
+	hotelTwin: "lodging",
+	hotelSuite: "lodging",
+	condo: "lodging",
+	retail: "retail",
+	medical: "medical",
+	housekeeping: "housekeeping",
+	recyclingCenter: "housekeeping",
+	security: "security",
+	parking: "parking",
 };
+
+// Hotel housekeeping is only audible during the cleaning shift (11 AM – 3 PM).
+const HOUSEKEEPING_HOUR_START = 11;
+const HOUSEKEEPING_HOUR_END = 15;
+
+export interface TransportDirections {
+	up: boolean;
+	down: boolean;
+}
 
 interface Sample {
 	id: string;
@@ -36,12 +66,25 @@ const CROWD_SAMPLES: Sample[] = Array.from(
 	(_, i) => ({ id: `crowd-${i}`, src: `/sounds/crowd-${i}.mp3` }),
 );
 
+const KACHING_ID = "kaching";
+
 const SAMPLES: Sample[] = [
 	...CROWD_SAMPLES,
 	{ id: "dishes", src: "/sounds/dishes.mp3" },
-	{ id: "elevator", src: "/sounds/elevator.mp3" },
+	{ id: "elevator-down", src: "/sounds/elevator-down.mp3" },
+	{ id: "elevator-up", src: "/sounds/elevator-up.mp3" },
 	{ id: "fax", src: "/sounds/fax.mp3" },
 	{ id: "telephone", src: "/sounds/telephone.mp3" },
+	{ id: "telephone2", src: "/sounds/telephone2.mp3" },
+	{ id: "hospital-monitor", src: "/sounds/hospital-monitor.mp3" },
+	{ id: "mop", src: "/sounds/mop.mp3" },
+	{ id: "vacuum", src: "/sounds/vacuum.mp3" },
+	{ id: "radio", src: "/sounds/radio.mp3" },
+	{ id: "radio2", src: "/sounds/radio2.mp3" },
+	{ id: "retail-door-open", src: "/sounds/retail-door-open.mp3" },
+	{ id: "shower", src: "/sounds/shower.mp3" },
+	{ id: "tires", src: "/sounds/tires.mp3" },
+	{ id: KACHING_ID, src: "/sounds/kaching.mp3" },
 ];
 
 const SAMPLE_INDEX: Map<string, Sample> = new Map(
@@ -50,12 +93,19 @@ const SAMPLE_INDEX: Map<string, Sample> = new Map(
 
 const FAMILY_SAMPLE_IDS: Record<SoundFamily, string[]> = {
 	food: ["dishes"],
-	office: ["fax", "telephone"],
+	office: ["fax", "telephone", "telephone2"],
 	crowd: CROWD_SAMPLES.map((s) => s.id),
-	transport: ["elevator"],
+	transport: ["elevator-down", "elevator-up"],
+	lodging: ["shower"],
+	retail: ["retail-door-open"],
+	medical: ["hospital-monitor"],
+	housekeeping: ["mop", "vacuum"],
+	security: ["radio", "radio2"],
+	parking: ["tires"],
 };
 
 const MORNING_AMBIENCE_SRC = "/sounds/morning-ambience.mp3";
+const AFTERNOON_AMBIENCE_SRC = "/sounds/afternoon-ambience.mp3";
 const NIGHT_AMBIENCE_SRC = "/sounds/night-ambience.mp3";
 const ROOSTER_SRC = "/sounds/rooster.mp3";
 
@@ -102,7 +152,10 @@ export class SoundManager {
 	private currentSource: AudioBufferSourceNode | null = null;
 	private lastSampleId: string | null = null;
 	private nextEffectAtMs: number = 0;
+	private currentHour: number | null = null;
+	private kachingPending = false;
 	private morningAmbience: HTMLAudioElement;
+	private afternoonAmbience: HTMLAudioElement;
 	private nightAmbience: HTMLAudioElement;
 	private rooster: HTMLAudioElement;
 	private prevHour: number | null = null;
@@ -110,6 +163,7 @@ export class SoundManager {
 
 	constructor() {
 		this.morningAmbience = makeLoop(MORNING_AMBIENCE_SRC, AMBIENCE_VOLUME);
+		this.afternoonAmbience = makeLoop(AFTERNOON_AMBIENCE_SRC, AMBIENCE_VOLUME);
 		this.nightAmbience = makeLoop(NIGHT_AMBIENCE_SRC, AMBIENCE_VOLUME);
 		this.rooster = new Audio(ROOSTER_SRC);
 		this.rooster.volume = ROOSTER_VOLUME;
@@ -121,6 +175,7 @@ export class SoundManager {
 		this.currentSource?.stop();
 		this.currentSource = null;
 		this.morningAmbience.pause();
+		this.afternoonAmbience.pause();
 		this.nightAmbience.pause();
 		this.rooster.pause();
 		this.ctx?.close().catch(() => {});
@@ -138,11 +193,14 @@ export class SoundManager {
 
 	updateAmbience(hour: number): void {
 		if (this.destroyed) return;
+		this.currentHour = hour;
 		const cyclic = ((hour % 24) + 24) % 24;
 		const inMorning = cyclic >= 6 && cyclic < 12;
+		const inAfternoon = cyclic >= 12 && cyclic < 20;
 		const inNight = hour >= 20 && hour < DAYBREAK_HOUR;
 
 		this.setLoopPlaying(this.morningAmbience, inMorning);
+		this.setLoopPlaying(this.afternoonAmbience, inAfternoon);
 		this.setLoopPlaying(this.nightAmbience, inNight);
 
 		const prev = this.prevHour;
@@ -160,16 +218,49 @@ export class SoundManager {
 		this.prevHour = hour;
 	}
 
-	updateEffects(familyCounts: ReadonlyMap<SoundFamily, number>): void {
+	/**
+	 * Queue the kaching effect to fire as the next sample. Income events call
+	 * this; the next `updateEffects` tick plays kaching immediately, bypassing
+	 * the count-scaled cooldown and visible-family weighting.
+	 */
+	triggerCash(): void {
+		if (this.destroyed) return;
+		this.kachingPending = true;
+	}
+
+	updateEffects(
+		familyCounts: ReadonlyMap<SoundFamily, number>,
+		transport: TransportDirections = { up: false, down: false },
+	): void {
 		if (this.destroyed) return;
 		if (this.currentSource) return;
 		const ctx = this.ensureContext();
 		if (!ctx || ctx.state !== "running") return;
+
+		if (this.kachingPending) {
+			const sample = SAMPLE_INDEX.get(KACHING_ID);
+			if (sample) {
+				this.kachingPending = false;
+				this.playSample(sample, ctx, 1);
+				return;
+			}
+		}
+
 		if (performance.now() < this.nextEffectAtMs) return;
 
+		const housekeepingActive = this.isHousekeepingActive();
+		const transportActive = transport.up || transport.down;
+		const familyAllowed = (family: SoundFamily): boolean => {
+			if (family === "housekeeping") return housekeepingActive;
+			if (family === "transport") return transportActive;
+			return true;
+		};
+
 		let totalCount = 0;
-		for (const count of familyCounts.values()) {
-			if (count > 0) totalCount += count;
+		for (const [family, count] of familyCounts) {
+			if (count <= 0) continue;
+			if (!familyAllowed(family)) continue;
+			totalCount += count;
 		}
 		if (totalCount === 0) return;
 
@@ -178,6 +269,7 @@ export class SoundManager {
 		let chosenFamily: SoundFamily | null = null;
 		for (const [family, count] of familyCounts) {
 			if (count <= 0) continue;
+			if (!familyAllowed(family)) continue;
 			acc += count;
 			if (target < acc) {
 				chosenFamily = family;
@@ -186,7 +278,10 @@ export class SoundManager {
 		}
 		if (!chosenFamily) return;
 
-		const ids = FAMILY_SAMPLE_IDS[chosenFamily];
+		const ids =
+			chosenFamily === "transport"
+				? this.transportSampleIds(transport)
+				: FAMILY_SAMPLE_IDS[chosenFamily];
 		const samples: Sample[] = [];
 		for (const id of ids) {
 			const sample = SAMPLE_INDEX.get(id);
@@ -198,6 +293,20 @@ export class SoundManager {
 		const choice = pool[Math.floor(Math.random() * pool.length)];
 		if (!choice) return;
 		this.playSample(choice, ctx, totalCount);
+	}
+
+	private transportSampleIds(transport: TransportDirections): string[] {
+		const ids: string[] = [];
+		if (transport.up) ids.push("elevator-up");
+		if (transport.down) ids.push("elevator-down");
+		return ids;
+	}
+
+	private isHousekeepingActive(): boolean {
+		const hour = this.currentHour;
+		if (hour === null) return false;
+		const cyclic = ((hour % 24) + 24) % 24;
+		return cyclic >= HOUSEKEEPING_HOUR_START && cyclic < HOUSEKEEPING_HOUR_END;
 	}
 
 	private playSample(

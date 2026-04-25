@@ -68,7 +68,12 @@ import {
 	shouldInterpolateCars,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
-import { type SoundFamily, SoundManager, tileFamily } from "./sound";
+import {
+	type SoundFamily,
+	SoundManager,
+	type TransportDirections,
+	tileFamily,
+} from "./sound";
 import {
 	fillOccupancyByCarFromCarriers,
 	isQueuedSimLive,
@@ -915,6 +920,11 @@ export class GameScene extends Scene {
 		this.sceneCreated = true;
 	}
 
+	/** Schedule kaching as the next sound effect (call on cash income). */
+	playKaching(): void {
+		this.soundManager?.triggerCash();
+	}
+
 	update(_time: number, delta: number): void {
 		const cam = this.cameras.main;
 		const PAN_SPEED = 6 / cam.zoom;
@@ -950,7 +960,39 @@ export class GameScene extends Scene {
 			DAY_TICK_MAX;
 		const hour = GameScene.dayTickToHour(dayTick);
 		sound.updateAmbience(hour);
-		sound.updateEffects(this.computeVisibleFamilies());
+		sound.updateEffects(
+			this.computeVisibleFamilies(),
+			this.computeVisibleTransportDirections(),
+		);
+	}
+
+	private computeVisibleTransportDirections(): TransportDirections {
+		const snapshot = this.currentCarrierSnapshot;
+		if (!snapshot) return { up: false, down: false };
+		const view = this.cameras.main.worldView;
+		const left = view.x - TILE_WIDTH;
+		const right = view.right + TILE_WIDTH;
+		const top = view.y - TILE_HEIGHT;
+		const bottom = view.bottom + TILE_HEIGHT;
+		const bounds = this.carBoundsScratch;
+		let up = false;
+		let down = false;
+		for (const car of snapshot.items) {
+			if (car.currentFloor === car.targetFloor) continue;
+			fillCarBounds(car, car.currentFloor, bounds);
+			if (
+				bounds.x + bounds.width < left ||
+				bounds.x > right ||
+				bounds.y + bounds.height < top ||
+				bounds.y > bottom
+			) {
+				continue;
+			}
+			if (car.targetFloor > car.currentFloor) up = true;
+			else down = true;
+			if (up && down) break;
+		}
+		return { up, down };
 	}
 
 	private computeVisibleFamilies(): ReadonlyMap<SoundFamily, number> {
