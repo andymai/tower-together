@@ -123,13 +123,9 @@ describe("underground placement restrictions", () => {
 			"hotelSuite",
 			"office",
 			"condo",
-			"restaurant",
-			"fastFood",
-			"retail",
-			"cinema",
-			"partyHall",
 			"housekeeping",
 			"security",
+			"lobby",
 		];
 		for (const tileType of blocked) {
 			const r = placeAt(sim, 100, UNDERGROUND_Y, tileType);

@@ -137,7 +137,6 @@ export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
  */
 export const UNDERGROUND_ALLOWED_TILES = new Set([
 	"floor",
-	"lobby",
 	"stairs",
 	"escalator",
 	"elevator",
@@ -149,6 +148,11 @@ export const UNDERGROUND_ALLOWED_TILES = new Set([
 	"recyclingCenter",
 	"recyclingCenterUpper",
 	"recyclingCenterLower",
+	"restaurant",
+	"fastFood",
+	"retail",
+	"cinema",
+	"partyHall",
 ]);
 
 // ─── Family codes (object-type codes from the spec) ─────────────────────────
