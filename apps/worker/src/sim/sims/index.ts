@@ -73,7 +73,11 @@ import {
 	STATE_VENUE_TRIP_TRANSIT,
 } from "./states";
 
-export { rebuildParkingDemandLog, tryAssignParkingService } from "./parking";
+export {
+	rebuildParkingCoverage,
+	rebuildParkingDemandLog,
+	tryAssignParkingService,
+} from "./parking";
 export {
 	cleanupSimsForRemovedTile,
 	clearSimRoute,

@@ -4,6 +4,7 @@ import {
 	BedDouble,
 	Briefcase,
 	Car,
+	CarFront,
 	ChevronsUpDown,
 	Crown,
 	DoorOpen,
@@ -189,6 +190,13 @@ const CATEGORIES: ToolEntry[][] = [
 			color: "#8fa0b0",
 			cost: TILE_COSTS.parking,
 			Icon: Car,
+		},
+		{
+			id: "parkingRamp",
+			label: "Parking Ramp",
+			color: "#5a6878",
+			cost: TILE_COSTS.parkingRamp,
+			Icon: CarFront,
 		},
 		{
 			id: "metro",

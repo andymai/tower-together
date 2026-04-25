@@ -20,7 +20,7 @@ Back-compat facade. The binary's per-sim stress accessors (11e0:*) moved to `sim
 Operational scoring, nearby-noise checks, distance feedback, occupied flag refreshes, and wire-facing sim state projection records.
 
 ### `parking.ts`
-Parking demand log rebuild and assignment of parking-service requests to eligible hotel and office sims.
+Parking coverage propagation from ramps, demand log rebuild, and assignment of parking-service requests to eligible hotel and office sims.
 
 ### `facility-refunds.ts`
 Commercial venue day-cycle reset/close handling (with per-family closure income accrual), retail activation/deactivation, and unhappy condo/retail facility refunds.

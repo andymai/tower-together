@@ -33,6 +33,7 @@ import {
 } from "./resources";
 import {
 	cleanupSimsForRemovedTile,
+	rebuildParkingCoverage,
 	rebuildParkingDemandLog,
 	rebuildRuntimeSims,
 } from "./sims";
@@ -66,6 +67,7 @@ export type CellPatch = {
 	unitStatus?: number;
 	evalLevel?: number;
 	evalScore?: number;
+	coverageFlag?: number;
 };
 
 export interface CommandResult {
@@ -377,6 +379,30 @@ function hasAdjacentElevatorModeConflict(
  * Run all post-build / post-demolish global rebuilds.
  * Order matters: carriers → special_links → walkability → transfer_cache.
  */
+/**
+ * Append a CellPatch for every parking-space anchor with its current
+ * coverageFlag. Used after place/remove of a parkingRamp or parking tile so
+ * the client can refresh distant parking visuals whose coverage changed.
+ */
+function appendParkingCoveragePatches(
+	world: WorldState,
+	patch: CellPatch[],
+): void {
+	for (const [key, obj] of Object.entries(world.placedObjects)) {
+		if (obj.objectTypeCode !== TILE_TO_FAMILY_CODE.parking) continue;
+		const [x, y] = key.split(",").map(Number);
+		const sidecar = world.sidecars[obj.linkedRecordIndex];
+		if (sidecar?.kind !== "service_request") continue;
+		patch.push({
+			x,
+			y,
+			tileType: "parking",
+			isAnchor: true,
+			coverageFlag: sidecar.coverageFlag ?? 0,
+		});
+	}
+}
+
 export function runGlobalRebuilds(
 	world: WorldState,
 	ledger: LedgerState,
@@ -397,6 +423,7 @@ export function runGlobalRebuilds(
 
 	rebuildFacilityLedger(ledger, world);
 	rebuildRuntimeSims(world);
+	rebuildParkingCoverage(world);
 	rebuildParkingDemandLog(world);
 	rebuildCarrierList(world);
 	rebuildSpecialLinkRouteRecords(world);
@@ -1034,6 +1061,28 @@ export function handlePlaceTile(
 		}
 	}
 
+	// Parking ramps live underground and stack downward: the topmost ramp sits
+	// at the row just below the ground floor (y === UNDERGROUND_Y), and each
+	// ramp below must hang off the ramp one row above it.
+	if (normalizedTileType === "parkingRamp") {
+		if (y < UNDERGROUND_Y) {
+			return {
+				accepted: false,
+				reason: "Parking ramps may only be placed underground",
+			};
+		}
+		const isTopOfStack = y === UNDERGROUND_Y;
+		const rampAboveKey = `${x},${y - 1}`;
+		const hasRampAbove = world.cells[rampAboveKey] === "parkingRamp";
+		if (!isTopOfStack && !hasRampAbove) {
+			return {
+				accepted: false,
+				reason:
+					"Parking ramp must hang from the row above (top of stack at floor B1)",
+			};
+		}
+	}
+
 	// Recycling-center stacks must overlap an existing 0x14/0x15 stack within
 	// the recovered search band (anchor-2 .. anchor+1).
 	const familyCode = TILE_TO_FAMILY_CODE[normalizedTileType] ?? 0;
@@ -1109,6 +1158,13 @@ export function handlePlaceTile(
 	fillRowGaps(y, world, patch);
 
 	runGlobalRebuilds(world, ledger);
+
+	if (
+		normalizedTileType === "parking" ||
+		normalizedTileType === "parkingRamp"
+	) {
+		appendParkingCoveragePatches(world, patch);
+	}
 
 	return { accepted: true, patch, economyChanged: cost > 0 };
 }
@@ -1243,6 +1299,10 @@ export function handleRemoveTile(
 	}
 
 	runGlobalRebuilds(world, ledger);
+
+	if (tileType === "parking" || tileType === "parkingRamp") {
+		appendParkingCoveragePatches(world, patch);
+	}
 
 	return { accepted: true, patch };
 }

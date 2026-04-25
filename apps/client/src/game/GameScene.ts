@@ -251,12 +251,17 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 		],
 		heightTiles: 2,
 	},
-	parking: { files: ["parking.svg"] },
+	parking: { files: ["parking.svg", "parkingFull.svg"] },
+	parkingRamp: { files: ["parkingRamp.svg"] },
 	security: { files: ["security.svg"] },
 	metro: { files: ["metro.svg"] },
 	housekeeping: { files: ["housekeeping.svg"] },
 	medical: { files: ["medical.svg"] },
 };
+
+/** Tile types whose textures depend on a non-coverage state flag. Mapped
+ *  cell key → noAccess SVG file when coverageFlag === 0. */
+const PARKING_NO_ACCESS_FILE = "parkingNoAccess.svg";
 
 export class GameScene extends Scene {
 	private static readonly UNDERGROUND_TEXTURE_KEY = "underground";
@@ -287,6 +292,7 @@ export class GameScene extends Scene {
 	private unitStatusMap: Map<string, number> = new Map();
 	private evalLevelMap: Map<string, number> = new Map();
 	private evalScoreMap: Map<string, number> = new Map();
+	private coverageFlagMap: Map<string, number> = new Map();
 	private usedOverlaySpriteCount = 0;
 	private lastFloorLabelZoom = Number.NaN;
 	private lastFloorLabelWidth = -1;
@@ -444,6 +450,9 @@ export class GameScene extends Scene {
 			banner = evalFlag === 0 ? 1 : 0;
 		}
 
+		const coverage =
+			tileType === "parking" ? (this.coverageFlagMap.get(key) ?? 0) : 0;
+
 		let badge = "";
 		if (import.meta.env.DEV) {
 			const level = this.evalLevelMap.get(key);
@@ -457,7 +466,7 @@ export class GameScene extends Scene {
 				badge = `${level}:${score}`;
 			}
 		}
-		return `${tileType}:${isAnchor}:${dirty}:${banner}:${badge}`;
+		return `${tileType}:${isAnchor}:${dirty}:${banner}:${coverage}:${badge}`;
 	}
 
 	/** Check whether the cell at (x, y) has an elevator-family overlay. */
@@ -529,6 +538,7 @@ export class GameScene extends Scene {
 			unitStatus?: number;
 			evalLevel?: number;
 			evalScore?: number;
+			coverageFlag?: number;
 		}>,
 		simTime: number,
 	): void {
@@ -540,6 +550,7 @@ export class GameScene extends Scene {
 		const expectedUnitStatus = new Map<string, number>();
 		const expectedEvalLevel = new Map<string, number>();
 		const expectedEvalScore = new Map<string, number>();
+		const expectedCoverageFlag = new Map<string, number>();
 		const expectedY = new Map<string, number>();
 		for (const cell of cells) {
 			const key = `${cell.x},${cell.y}`;
@@ -557,6 +568,8 @@ export class GameScene extends Scene {
 					expectedEvalLevel.set(key, cell.evalLevel);
 				if (cell.evalScore !== undefined)
 					expectedEvalScore.set(key, cell.evalScore);
+				if (cell.coverageFlag !== undefined)
+					expectedCoverageFlag.set(key, cell.coverageFlag);
 			}
 		}
 
@@ -583,6 +596,7 @@ export class GameScene extends Scene {
 			this.unitStatusMap.clear();
 			this.evalLevelMap.clear();
 			this.evalScoreMap.clear();
+			this.coverageFlagMap.clear();
 			this.resetRowKeyIndexes();
 			for (const [key, type] of expectedGrid) this.grid.set(key, type);
 			for (const [key, type] of expectedOverlay)
@@ -596,6 +610,8 @@ export class GameScene extends Scene {
 				this.evalLevelMap.set(key, value);
 			for (const [key, value] of expectedEvalScore)
 				this.evalScoreMap.set(key, value);
+			for (const [key, value] of expectedCoverageFlag)
+				this.coverageFlagMap.set(key, value);
 			return;
 		}
 
@@ -631,6 +647,8 @@ export class GameScene extends Scene {
 		for (const k of expectedEvalLevel.keys()) gridKeys.add(k);
 		for (const k of this.evalScoreMap.keys()) gridKeys.add(k);
 		for (const k of expectedEvalScore.keys()) gridKeys.add(k);
+		for (const k of this.coverageFlagMap.keys()) gridKeys.add(k);
+		for (const k of expectedCoverageFlag.keys()) gridKeys.add(k);
 
 		for (const key of gridKeys) {
 			const y = yOf(key);
@@ -643,6 +661,7 @@ export class GameScene extends Scene {
 				this.unitStatusMap.delete(key);
 				this.evalLevelMap.delete(key);
 				this.evalScoreMap.delete(key);
+				this.coverageFlagMap.delete(key);
 			} else {
 				if (this.grid.get(key) !== expectedType)
 					this.grid.set(key, expectedType);
@@ -667,6 +686,10 @@ export class GameScene extends Scene {
 				if (evalScore === undefined) this.evalScoreMap.delete(key);
 				else if (this.evalScoreMap.get(key) !== evalScore)
 					this.evalScoreMap.set(key, evalScore);
+				const coverageFlag = expectedCoverageFlag.get(key);
+				if (coverageFlag === undefined) this.coverageFlagMap.delete(key);
+				else if (this.coverageFlagMap.get(key) !== coverageFlag)
+					this.coverageFlagMap.set(key, coverageFlag);
 			}
 			const newSig = this.computeCellVisualSig(key);
 			if (newSig !== prevSig) this.markDirtyRows(dirtyRows, y);
@@ -693,6 +716,7 @@ export class GameScene extends Scene {
 			unitStatus?: number;
 			evalLevel?: number;
 			evalScore?: number;
+			coverageFlag?: number;
 		}>,
 	): void {
 		let needsRedraw = false;
@@ -724,7 +748,8 @@ export class GameScene extends Scene {
 					this.evalActiveFlagMap.has(key) ||
 					this.unitStatusMap.has(key) ||
 					this.evalLevelMap.has(key) ||
-					this.evalScoreMap.has(key);
+					this.evalScoreMap.has(key) ||
+					this.coverageFlagMap.has(key);
 				if (hadContent) {
 					this.grid.delete(key);
 					this.removeAnchorKey(key, cell.y);
@@ -732,6 +757,7 @@ export class GameScene extends Scene {
 					this.unitStatusMap.delete(key);
 					this.evalLevelMap.delete(key);
 					this.evalScoreMap.delete(key);
+					this.coverageFlagMap.delete(key);
 				}
 			} else {
 				if (this.grid.get(key) !== cell.tileType) {
@@ -755,6 +781,9 @@ export class GameScene extends Scene {
 				}
 				if (cell.evalScore !== undefined) {
 					this.evalScoreMap.set(key, cell.evalScore);
+				}
+				if (cell.coverageFlag !== undefined) {
+					this.coverageFlagMap.set(key, cell.coverageFlag);
 				}
 			}
 			const newSig = this.computeCellVisualSig(key);
@@ -818,6 +847,13 @@ export class GameScene extends Scene {
 		this.load.svg("room_lobby", "/rooms/lobby.svg", {
 			width: (2 * TILE_HEIGHT - STATIC_TILE_GAP_X) * s,
 			height: (TILE_HEIGHT - STATIC_TILE_GAP_Y) * s,
+		});
+		const parkingW =
+			((TILE_WIDTHS.parking ?? 1) * TILE_WIDTH - STATIC_TILE_GAP_X) * s;
+		const parkingH = (TILE_HEIGHT - STATIC_TILE_GAP_Y) * s;
+		this.load.svg("room_parking_noAccess", `/rooms/${PARKING_NO_ACCESS_FILE}`, {
+			width: parkingW,
+			height: parkingH,
 		});
 		const bridgeH = (TILE_HEIGHT + TILE_HEIGHT / 3) * s;
 		for (const bridge of ["stairs", "escalator"]) {
@@ -1463,6 +1499,10 @@ export class GameScene extends Scene {
 	): string | null {
 		const config = ROOM_TEXTURES[tileType];
 		if (!config) return null;
+		if (tileType === "parking") {
+			const coverage = this.coverageFlagMap.get(`${x},${y}`) ?? 0;
+			if (coverage === 0) return "room_parking_noAccess";
+		}
 		const idx = this.getRoomVariantIndex(tileType, x, y);
 		if (dirty && config.dirtyFiles && idx < config.dirtyFiles.length) {
 			return `room_${tileType}_dirty_${idx}`;

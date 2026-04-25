@@ -32,6 +32,7 @@ export const TILE_WIDTHS: Record<string, number> = {
 	recyclingCenterUpper: 25, // family 0x14 upper slice
 	recyclingCenterLower: 25, // family 0x15 lower slice
 	parking: 4, // family 0x18
+	parkingRamp: 15, // family 0x2c
 	security: 16, // family 0x0e
 	metro: 4, // family 0x1f (3-floor stack in binary; TS stub)
 	housekeeping: 15, // family 0x0f
@@ -61,6 +62,7 @@ export const TILE_COSTS: Record<string, number> = {
 	recyclingCenterUpper: 500_000,
 	recyclingCenterLower: 0,
 	parking: 5_000,
+	parkingRamp: 50_000,
 	security: 100_000,
 	metro: 1_000_000,
 	housekeeping: 50_000,
@@ -113,6 +115,7 @@ export const TILE_STAR_REQUIREMENTS: Record<string, number> = {
 	partyHall: 3,
 	cinema: 3,
 	parking: 3,
+	parkingRamp: 3,
 	recyclingCenter: 3,
 	recyclingCenterUpper: 3,
 	recyclingCenterLower: 3,
@@ -144,6 +147,7 @@ export const FAMILY_CINEMA_LOWER = 19;
 export const FAMILY_RECYCLING_CENTER_UPPER = 20;
 export const FAMILY_RECYCLING_CENTER_LOWER = 21;
 export const FAMILY_PARKING = 24;
+export const FAMILY_PARKING_RAMP = 44; // 0x2c
 export const FAMILY_PARTY_HALL = 29;
 export const FAMILY_PARTY_HALL_LOWER = 30;
 export const FAMILY_CINEMA_STAIRS_UPPER = 34;
@@ -176,6 +180,7 @@ export const FAMILY_CODE_TO_TILE: Record<number, string> = {
 	[FAMILY_RECYCLING_CENTER_UPPER]: "recyclingCenterUpper",
 	[FAMILY_RECYCLING_CENTER_LOWER]: "recyclingCenterLower",
 	[FAMILY_PARKING]: "parking",
+	[FAMILY_PARKING_RAMP]: "parkingRamp",
 	[FAMILY_PARTY_HALL]: "partyHall",
 	[FAMILY_HOUSEKEEPING]: "housekeeping",
 	[FAMILY_MEDICAL]: "medical",

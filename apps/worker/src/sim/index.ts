@@ -429,6 +429,13 @@ export class TowerSim {
 			const [x, y] = key.split(",").map(Number);
 			const isAnchor = !this.world.cellToAnchor[key];
 			const record = isAnchor ? this.world.placedObjects[key] : undefined;
+			let coverageFlag: number | undefined;
+			if (record && tileType === "parking" && record.linkedRecordIndex >= 0) {
+				const sidecar = this.world.sidecars[record.linkedRecordIndex];
+				if (sidecar?.kind === "service_request") {
+					coverageFlag = sidecar.coverageFlag ?? 0;
+				}
+			}
 			result.push({
 				x,
 				y,
@@ -442,6 +449,7 @@ export class TowerSim {
 							evalScore: record.evalScore,
 						}
 					: {}),
+				...(coverageFlag !== undefined ? { coverageFlag } : {}),
 			});
 		}
 		for (const [key, tileType] of Object.entries(this.world.overlays)) {

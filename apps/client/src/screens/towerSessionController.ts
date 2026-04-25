@@ -57,6 +57,7 @@ export interface TowerSessionScene {
 			unitStatus?: number;
 			evalLevel?: number;
 			evalScore?: number;
+			coverageFlag?: number;
 		}>,
 		simTime: number,
 	) => void;
@@ -71,6 +72,7 @@ export interface TowerSessionScene {
 			unitStatus?: number;
 			evalLevel?: number;
 			evalScore?: number;
+			coverageFlag?: number;
 		}>,
 	) => void;
 	applySims: (simTime: number) => void;

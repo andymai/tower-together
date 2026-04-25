@@ -56,6 +56,7 @@ export type TileType =
 	| "recyclingCenterUpper"
 	| "recyclingCenterLower"
 	| "parking"
+	| "parkingRamp"
 	| "metro"
 	| "housekeeping"
 	| "security";
@@ -86,6 +87,7 @@ export type CellData = {
 	isOverlay?: boolean;
 	evalActiveFlag?: number;
 	unitStatus?: number;
+	coverageFlag?: number;
 };
 
 export type SimStateData = {

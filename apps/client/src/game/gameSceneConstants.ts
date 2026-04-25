@@ -54,6 +54,7 @@ export const TILE_COLORS: Record<string, number> = {
 	recyclingCenterUpper: 0xc04040,
 	recyclingCenterLower: 0x8cb0c0,
 	parking: 0x707080,
+	parkingRamp: 0x5a6878,
 	metro: 0x60c0c0,
 	housekeeping: 0xd0b0e0,
 	security: 0x3050a0,
