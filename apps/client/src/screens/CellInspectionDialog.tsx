@@ -200,6 +200,16 @@ export function CellInspectionDialog({
 							(c) => c.carrierId === carrierId && c.active,
 						);
 						const { servedFloors, stopFloorEnabled, carInfos } = ci;
+						// Express elevators only stop at basement/ground (floors 1–10)
+						// and sky lobbies (floor-10) % 15 == 14 — hide other floors.
+						const displayFloors =
+							ci.carrierMode === 0
+								? servedFloors
+										.map((floor, fwdIdx) => ({ floor, fwdIdx }))
+										.filter(
+											({ floor }) => floor <= 10 || (floor - 10) % 15 === 14,
+										)
+								: servedFloors.map((floor, fwdIdx) => ({ floor, fwdIdx }));
 
 						return (
 							<>
@@ -256,8 +266,7 @@ export function CellInspectionDialog({
 											))}
 										</div>
 										{/* Floor rows — top to bottom */}
-										{[...servedFloors].reverse().map((floor, revIdx) => {
-											const fwdIdx = servedFloors.length - 1 - revIdx;
+										{[...displayFloors].reverse().map(({ floor, fwdIdx }) => {
 											const isStop = stopFloorEnabled[fwdIdx] ?? true;
 											return (
 												<div

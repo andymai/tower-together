@@ -108,6 +108,50 @@ function placeStairs(sim: TowerSim, x: number, floor: number) {
 	});
 }
 
+describe("underground placement restrictions", () => {
+	const UNDERGROUND_Y = 110;
+
+	function placeAt(sim: TowerSim, x: number, y: number, tileType: string) {
+		return sim.submitCommand({ type: "place_tile", x, y, tileType });
+	}
+
+	it("rejects rooms underground", () => {
+		const sim = makeSimWithLobbyStrip();
+		const blocked = [
+			"hotelSingle",
+			"hotelTwin",
+			"hotelSuite",
+			"office",
+			"condo",
+			"restaurant",
+			"fastFood",
+			"retail",
+			"cinema",
+			"partyHall",
+			"housekeeping",
+			"security",
+		];
+		for (const tileType of blocked) {
+			const r = placeAt(sim, 100, UNDERGROUND_Y, tileType);
+			expect(r.accepted).toBe(false);
+			expect(r.reason).toMatch(/underground/i);
+		}
+	});
+
+	it("allows infrastructure and parking/recycling underground", () => {
+		const sim = makeSimWithLobbyStrip();
+		// Floor underground (hangs from ground lobby above).
+		expect(placeAt(sim, 100, UNDERGROUND_Y, "floor").accepted).toBe(true);
+		// Parking underground.
+		expect(placeAt(sim, 120, UNDERGROUND_Y, "parking").accepted).toBe(true);
+		// Elevator overlay extending into underground.
+		expect(placeAt(sim, 140, UNDERGROUND_Y - 1, "elevator").accepted).toBe(
+			true,
+		);
+		expect(placeAt(sim, 140, UNDERGROUND_Y, "elevator").accepted).toBe(true);
+	});
+});
+
 describe("stairs alignment", () => {
 	it("allows stacking stairs at the same column on consecutive floors", () => {
 		const sim = makeSimWithLobbyStrip();

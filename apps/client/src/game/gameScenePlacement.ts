@@ -2,6 +2,7 @@ import {
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	TILE_WIDTHS,
+	UNDERGROUND_ALLOWED_TILES,
 	UNDERGROUND_FLOORS,
 	UNDERGROUND_Y,
 } from "../types";
@@ -176,6 +177,14 @@ export function getHoverBounds(
 ): HoverBounds | null {
 	if (y < 0 || y >= GRID_HEIGHT) return null;
 	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return null;
+	if (
+		selectedTool !== "empty" &&
+		selectedTool !== "inspect" &&
+		y >= UNDERGROUND_Y &&
+		!UNDERGROUND_ALLOWED_TILES.has(selectedTool)
+	) {
+		return null;
+	}
 
 	const width = selectedTool !== "empty" ? (TILE_WIDTHS[selectedTool] ?? 1) : 1;
 	const x = anchorX(cursorX, selectedTool);
@@ -267,6 +276,9 @@ function cellsAvailable(
 	)
 		return false;
 	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return false;
+	if (y >= UNDERGROUND_Y && !UNDERGROUND_ALLOWED_TILES.has(selectedTool)) {
+		return false;
+	}
 
 	const needsSupport = !(selectedTool === "lobby" && isGroundFloor(y));
 	const canReplaceFloor = selectedTool !== "floor";

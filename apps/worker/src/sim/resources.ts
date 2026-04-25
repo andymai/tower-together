@@ -129,6 +129,28 @@ export function getTileStarRequirement(tileType: string): number {
 
 export const VALID_TILE_TYPES = new Set(Object.keys(TILE_WIDTHS));
 
+/**
+ * Tiles that may be placed at or below the underground row. Everything else is
+ * rejected by `handlePlaceTile` when `y >= UNDERGROUND_Y`. Mirrors the original
+ * SimTower's build-menu restrictions: only support/transport, lobby (ground
+ * only via `isValidLobbyY`), parking and recycling go underground.
+ */
+export const UNDERGROUND_ALLOWED_TILES = new Set([
+	"floor",
+	"lobby",
+	"stairs",
+	"escalator",
+	"elevator",
+	"elevatorExpress",
+	"elevatorService",
+	"parking",
+	"parkingRamp",
+	"metro",
+	"recyclingCenter",
+	"recyclingCenterUpper",
+	"recyclingCenterLower",
+]);
+
 // ─── Family codes (object-type codes from the spec) ─────────────────────────
 
 export const FAMILY_ELEVATOR = 1;

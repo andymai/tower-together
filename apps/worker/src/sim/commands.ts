@@ -29,6 +29,7 @@ import {
 	TILE_COSTS,
 	TILE_TO_FAMILY_CODE,
 	TILE_WIDTHS,
+	UNDERGROUND_ALLOWED_TILES,
 	VALID_TILE_TYPES,
 } from "./resources";
 import {
@@ -806,6 +807,15 @@ export function handlePlaceTile(
 	}
 	if (x < 0 || x >= world.width || y < 0 || y >= world.height) {
 		return { accepted: false, reason: "Out of bounds" };
+	}
+	if (
+		y >= UNDERGROUND_Y &&
+		!UNDERGROUND_ALLOWED_TILES.has(normalizedTileType)
+	) {
+		return {
+			accepted: false,
+			reason: "This tile cannot be placed underground",
+		};
 	}
 
 	if (normalizedTileType === "cinema" || normalizedTileType === "partyHall") {

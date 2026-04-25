@@ -7,6 +7,7 @@ import {
 	TILE_COSTS as WORKER_TILE_COSTS,
 	TILE_STAR_REQUIREMENTS as WORKER_TILE_STAR_REQUIREMENTS,
 	TILE_WIDTHS as WORKER_TILE_WIDTHS,
+	UNDERGROUND_ALLOWED_TILES as WORKER_UNDERGROUND_ALLOWED_TILES,
 } from "../../worker/src/sim/resources";
 import {
 	GRID_HEIGHT,
@@ -67,6 +68,10 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 /** Width in grid cells for each placeable tile type. */
 export const TILE_WIDTHS: Record<string, number> = WORKER_TILE_WIDTHS;
+
+/** Tiles allowed at or below `UNDERGROUND_Y`. */
+export const UNDERGROUND_ALLOWED_TILES: Set<string> =
+	WORKER_UNDERGROUND_ALLOWED_TILES;
 
 /** Construction cost in dollars. */
 export const TILE_COSTS: Record<string, number> = WORKER_TILE_COSTS;
