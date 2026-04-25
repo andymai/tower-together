@@ -63,28 +63,28 @@ interface Sample {
 const CROWD_SEGMENT_COUNT = 5;
 const CROWD_SAMPLES: Sample[] = Array.from(
 	{ length: CROWD_SEGMENT_COUNT },
-	(_, i) => ({ id: `crowd-${i}`, src: `/sounds/crowd-${i}.mp3` }),
+	(_, i) => ({ id: `crowd-${i}`, src: `/sounds/crowd-${i}.webm` }),
 );
 
 const KACHING_ID = "kaching";
 
 const SAMPLES: Sample[] = [
 	...CROWD_SAMPLES,
-	{ id: "dishes", src: "/sounds/dishes.mp3" },
-	{ id: "elevator-down", src: "/sounds/elevator-down.mp3" },
-	{ id: "elevator-up", src: "/sounds/elevator-up.mp3" },
-	{ id: "fax", src: "/sounds/fax.mp3" },
-	{ id: "telephone", src: "/sounds/telephone.mp3" },
-	{ id: "telephone2", src: "/sounds/telephone2.mp3" },
-	{ id: "hospital-monitor", src: "/sounds/hospital-monitor.mp3" },
-	{ id: "mop", src: "/sounds/mop.mp3" },
-	{ id: "vacuum", src: "/sounds/vacuum.mp3" },
-	{ id: "radio", src: "/sounds/radio.mp3" },
-	{ id: "radio2", src: "/sounds/radio2.mp3" },
-	{ id: "retail-door-open", src: "/sounds/retail-door-open.mp3" },
-	{ id: "shower", src: "/sounds/shower.mp3" },
-	{ id: "tires", src: "/sounds/tires.mp3" },
-	{ id: KACHING_ID, src: "/sounds/kaching.mp3" },
+	{ id: "dishes", src: "/sounds/dishes.webm" },
+	{ id: "elevator-down", src: "/sounds/elevator-down.webm" },
+	{ id: "elevator-up", src: "/sounds/elevator-up.webm" },
+	{ id: "fax", src: "/sounds/fax.webm" },
+	{ id: "telephone", src: "/sounds/telephone.webm" },
+	{ id: "telephone2", src: "/sounds/telephone2.webm" },
+	{ id: "hospital-monitor", src: "/sounds/hospital-monitor.webm" },
+	{ id: "mop", src: "/sounds/mop.webm" },
+	{ id: "vacuum", src: "/sounds/vacuum.webm" },
+	{ id: "radio", src: "/sounds/radio.webm" },
+	{ id: "radio2", src: "/sounds/radio2.webm" },
+	{ id: "retail-door-open", src: "/sounds/retail-door-open.webm" },
+	{ id: "shower", src: "/sounds/shower.webm" },
+	{ id: "tires", src: "/sounds/tires.webm" },
+	{ id: KACHING_ID, src: "/sounds/kaching.webm" },
 ];
 
 const SAMPLE_INDEX: Map<string, Sample> = new Map(
@@ -104,10 +104,10 @@ const FAMILY_SAMPLE_IDS: Record<SoundFamily, string[]> = {
 	parking: ["tires"],
 };
 
-const MORNING_AMBIENCE_SRC = "/sounds/morning-ambience.mp3";
-const AFTERNOON_AMBIENCE_SRC = "/sounds/afternoon-ambience.mp3";
-const NIGHT_AMBIENCE_SRC = "/sounds/night-ambience.mp3";
-const ROOSTER_SRC = "/sounds/rooster.mp3";
+const MORNING_AMBIENCE_SRC = "/sounds/morning-ambience.webm";
+const AFTERNOON_AMBIENCE_SRC = "/sounds/afternoon-ambience.webm";
+const NIGHT_AMBIENCE_SRC = "/sounds/night-ambience.webm";
+const ROOSTER_SRC = "/sounds/rooster.webm";
 
 const EFFECT_VOLUME = 0.55;
 const AMBIENCE_VOLUME = 0.25;
