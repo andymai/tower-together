@@ -22,21 +22,12 @@ export function testCarrierTransferReachability(
 	toFloor: number,
 	preferLocalMode: boolean,
 ): boolean {
-	// Binary 11b8:0f33: transfer reach goes through each carrier's
-	// reachability_masks_by_floor, which is populated by rebuild_route_reachability_tables
-	// (11b8:00f2). At game start, that table has not yet registered any
-	// carrier→carrier transfer paths through a bare lobby;
-	// observed in the binary as a fully-zeroed transfer_group_cache at day=0
-	// tick=0 for the sky_office fixture (no stairs/escalators placed). Without
-	// at least one active stairs/escalator record linking the transfer-floor
-	// geometry, the binary's loop never wires peer carriers together, so
-	// lobby→sky-office routes return -1 and sims remain in state 0x20 without
-	// charging rent. Gate the TS equivalent the same way.
-	const hasActiveRecord = world.specialLinkRecords.some(
-		(record) => record.active,
-	);
-	if (!hasActiveRecord) return false;
-
+	// Binary 11b8:0f33: walks the 16-entry transfer_group_cache. Each entry's
+	// membership mask is tested for the input carrier's bit, that bit is
+	// cleared, and the remainder is AND'd against the carrier's per-floor
+	// reachability mask for `toFloor`. No pre-loop gate on special_link_records
+	// exists in the binary — peer-carrier reachability through a shared
+	// lobby/sky-lobby tile is sufficient.
 	for (const entry of world.transferGroupEntries) {
 		if (!entry.active) continue;
 		if ((entry.carrierMask & (1 << carrierId)) === 0) continue;
