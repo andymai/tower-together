@@ -868,7 +868,8 @@ export class GameScene extends Scene {
 		} else {
 			this.cameras.main.centerOn(
 				totalWidth / 2,
-				(UNDERGROUND_Y - 8) * TILE_HEIGHT,
+				(UNDERGROUND_Y - 8) * TILE_HEIGHT +
+					0.2 * (this.scale.height / initialZoom),
 			);
 		}
 
