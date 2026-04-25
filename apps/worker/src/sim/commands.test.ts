@@ -153,6 +153,7 @@ describe("stairs alignment", () => {
 		const sim = makeSimWithLobbyStrip();
 		buildFloors(sim, 1, 90, 180);
 		buildFloors(sim, 2, 90, 180);
+		buildFloors(sim, 3, 90, 180);
 		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
 		expect(placeStairs(sim, 100, 1).accepted).toBe(true);
 		expect(placeStairs(sim, 100, 2).accepted).toBe(true);
@@ -161,6 +162,7 @@ describe("stairs alignment", () => {
 	it("allows stairs that do not horizontally overlap", () => {
 		const sim = makeSimWithLobbyStrip();
 		buildFloors(sim, 1, 90, 180);
+		buildFloors(sim, 2, 90, 180);
 		// Stairs width=8 → cols [100..107] and [108..115] do not overlap.
 		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
 		expect(placeStairs(sim, 108, 1).accepted).toBe(true);
@@ -169,10 +171,19 @@ describe("stairs alignment", () => {
 	it("rejects stairs that horizontally overlap an unaligned neighbor", () => {
 		const sim = makeSimWithLobbyStrip();
 		buildFloors(sim, 1, 90, 180);
+		buildFloors(sim, 2, 90, 180);
 		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
 		// cols [104..111] overlap [100..107] but anchor x=104 ≠ 100.
 		const rejection = placeStairs(sim, 104, 1);
 		expect(rejection.accepted).toBe(false);
 		expect(rejection.reason).toMatch(/align/);
+	});
+
+	it("rejects stairs when no base tile exists on the floor above", () => {
+		const sim = makeSimWithLobbyStrip();
+		// Lobby strip exists on floor 0 but no floor 1 above.
+		const rejection = placeStairs(sim, 100, 0);
+		expect(rejection.accepted).toBe(false);
+		expect(rejection.reason).toMatch(/floor above/);
 	});
 });
