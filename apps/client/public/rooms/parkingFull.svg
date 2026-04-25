@@ -37,10 +37,24 @@
   <rect x="52" y="12" width="16" height="8" fill="#d8c040" rx="1"/>
   <path d="M 56 16 L 62 16 L 62 14 L 66 17 L 62 20 L 62 18 L 56 18 Z" fill="#202020"/>
 
-  <!-- Painted space number on back wall -->
-  <rect x="38" y="40" width="2" height="10" fill="#e0e0d0"/>
-  <rect x="42" y="40" width="4" height="10" fill="#e0e0d0"/>
-  <rect x="42" y="40" width="4" height="2" fill="#e0e0d0"/>
-  <rect x="42" y="44" width="4" height="2" fill="#e0e0d0"/>
-  <rect x="42" y="48" width="4" height="2" fill="#e0e0d0"/>
+  <!-- Car (centered in single parking space) -->
+  <!-- Car body -->
+  <rect x="12" y="54" width="56" height="16" fill="#a03838" rx="3"/>
+  <!-- Car top / cabin -->
+  <rect x="22" y="46" width="36" height="12" fill="#882828" rx="3"/>
+  <!-- Windshield (front) -->
+  <rect x="24" y="48" width="12" height="8" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <!-- Windshield (rear) -->
+  <rect x="44" y="48" width="12" height="8" fill="#8aa8c0" opacity="0.9" rx="1"/>
+  <!-- Headlight -->
+  <rect x="12" y="58" width="4" height="4" fill="#f0e090" rx="1"/>
+  <!-- Taillight -->
+  <rect x="64" y="58" width="4" height="4" fill="#d04040" rx="1"/>
+  <!-- Door line -->
+  <line x1="40" y1="58" x2="40" y2="68" stroke="#6a1818" stroke-width="0.5"/>
+  <!-- Wheels -->
+  <circle cx="22" cy="70" r="4" fill="#202020"/>
+  <circle cx="22" cy="70" r="2" fill="#606060"/>
+  <circle cx="58" cy="70" r="4" fill="#202020"/>
+  <circle cx="58" cy="70" r="2" fill="#606060"/>
 </svg>

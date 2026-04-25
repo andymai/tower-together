@@ -43,4 +43,8 @@
   <rect x="42" y="40" width="4" height="2" fill="#e0e0d0"/>
   <rect x="42" y="44" width="4" height="2" fill="#e0e0d0"/>
   <rect x="42" y="48" width="4" height="2" fill="#e0e0d0"/>
+
+  <!-- Red X overlay - "no access" -->
+  <line x1="6" y1="6" x2="74" y2="74" stroke="#d01818" stroke-width="8" stroke-linecap="round"/>
+  <line x1="74" y1="6" x2="6" y2="74" stroke="#d01818" stroke-width="8" stroke-linecap="round"/>
 </svg>
