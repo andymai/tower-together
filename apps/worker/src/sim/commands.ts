@@ -235,6 +235,34 @@ function elevatorModeForOverlay(
 	return null;
 }
 
+/**
+ * Stairs may not horizontally overlap each other unless they share the
+ * exact same anchor column (i.e. they're stacked floor-to-floor). Returns
+ * true if any existing stair overlay shares column range with the proposed
+ * placement at a different x.
+ */
+function hasOverlappingMisalignedStairs(
+	world: WorldState,
+	x: number,
+	y: number,
+	width: number,
+): boolean {
+	const newRight = x + width - 1;
+	const otherWidth = TILE_WIDTHS.stairs ?? width;
+	for (const [key, type] of Object.entries(world.overlays)) {
+		if (type !== "stairs") continue;
+		const [oxStr, oyStr] = key.split(",");
+		const ox = Number(oxStr);
+		const oy = Number(oyStr);
+		if (ox === x && oy === y) continue;
+		if (ox === x) continue;
+		const otherRight = ox + otherWidth - 1;
+		if (otherRight < x || ox > newRight) continue;
+		return true;
+	}
+	return false;
+}
+
 function hasMisalignedAdjacentOverlay(
 	world: WorldState,
 	x: number,
@@ -925,6 +953,16 @@ export function handlePlaceTile(
 			if (world.overlays[key] || world.overlayToAnchor[key]) {
 				return { accepted: false, reason: "Cell already has an overlay" };
 			}
+		}
+		if (
+			normalizedTileType === "stairs" &&
+			hasOverlappingMisalignedStairs(world, x, y, overlayWidth)
+		) {
+			return {
+				accepted: false,
+				reason:
+					"Stairs must align with existing stairs in the same column or not overlap them",
+			};
 		}
 		world.overlays[`${x},${y}`] = normalizedTileType;
 		for (let dx = 1; dx < overlayWidth; dx++) {

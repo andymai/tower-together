@@ -82,3 +82,57 @@ describe("elevator shaft spacing", () => {
 		);
 	});
 });
+
+function buildFloors(sim: TowerSim, floor: number, from: number, to: number) {
+	for (let x = from; x <= to; x++) {
+		const result = sim.submitCommand({
+			type: "place_tile",
+			x,
+			y: GROUND_Y - floor,
+			tileType: "floor",
+		});
+		if (!result.accepted) {
+			throw new Error(
+				`floor placement at x=${x},floor=${floor} failed: ${result.reason}`,
+			);
+		}
+	}
+}
+
+function placeStairs(sim: TowerSim, x: number, floor: number) {
+	return sim.submitCommand({
+		type: "place_tile",
+		x,
+		y: GROUND_Y - floor,
+		tileType: "stairs",
+	});
+}
+
+describe("stairs alignment", () => {
+	it("allows stacking stairs at the same column on consecutive floors", () => {
+		const sim = makeSimWithLobbyStrip();
+		buildFloors(sim, 1, 90, 180);
+		buildFloors(sim, 2, 90, 180);
+		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
+		expect(placeStairs(sim, 100, 1).accepted).toBe(true);
+		expect(placeStairs(sim, 100, 2).accepted).toBe(true);
+	});
+
+	it("allows stairs that do not horizontally overlap", () => {
+		const sim = makeSimWithLobbyStrip();
+		buildFloors(sim, 1, 90, 180);
+		// Stairs width=8 → cols [100..107] and [108..115] do not overlap.
+		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
+		expect(placeStairs(sim, 108, 1).accepted).toBe(true);
+	});
+
+	it("rejects stairs that horizontally overlap an unaligned neighbor", () => {
+		const sim = makeSimWithLobbyStrip();
+		buildFloors(sim, 1, 90, 180);
+		expect(placeStairs(sim, 100, 0).accepted).toBe(true);
+		// cols [104..111] overlap [100..107] but anchor x=104 ≠ 100.
+		const rejection = placeStairs(sim, 104, 1);
+		expect(rejection.accepted).toBe(false);
+		expect(rejection.reason).toMatch(/align/);
+	});
+});
