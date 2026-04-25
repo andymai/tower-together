@@ -7,6 +7,7 @@ import {
 import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-records";
 import {
 	CARRIER_CAR_CONSTRUCTION_COST,
+	CARRIER_EXTEND_FLOOR_COST,
 	FAMILY_CINEMA,
 	FAMILY_CINEMA_LOWER,
 	FAMILY_CINEMA_STAIRS_LOWER,
@@ -797,11 +798,15 @@ export function handlePlaceTile(
 				return { accepted: false, reason: "Cell already has an overlay" };
 			}
 		}
-		// Shaft creation charge: only the first segment on a column pays;
-		// later floors extending the shaft are free, matching binary
-		// place_carrier_shaft semantics.
+		// Shaft creation charges the base tile cost on the first segment
+		// at a column. Later floors extending an existing shaft charge
+		// a per-floor extension cost (binary: `charge_floor_range_construction_cost`
+		// at 1180:02e5, called from `FUN_10a8_0819`/`FUN_10a8_0b87`).
 		const isNewShaft = !world.carriers.some((c) => c.column === x);
-		const shaftCost = isNewShaft ? (TILE_COSTS[normalizedTileType] ?? 0) : 0;
+		const shaftMode = overlayTypeToMode(normalizedTileType);
+		const shaftCost = isNewShaft
+			? (TILE_COSTS[normalizedTileType] ?? 0)
+			: (CARRIER_EXTEND_FLOOR_COST[shaftMode] ?? 0);
 		if (!freeBuild && shaftCost > ledger.cashBalance) {
 			return { accepted: false, reason: "Insufficient funds" };
 		}
@@ -831,10 +836,9 @@ export function handlePlaceTile(
 				};
 			}
 		}
-		const newShaftMode = overlayTypeToMode(normalizedTileType);
 		if (
 			isNewShaft &&
-			tooCloseToExistingShaft(world, x, overlayWidth, newShaftMode)
+			tooCloseToExistingShaft(world, x, overlayWidth, shaftMode)
 		) {
 			return {
 				accepted: false,

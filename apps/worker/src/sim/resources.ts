@@ -75,6 +75,20 @@ export const CARRIER_CAR_CONSTRUCTION_COST: Record<number, number> = {
 };
 
 /**
+ * Per-floor cost charged when extending an existing carrier shaft up or
+ * down by one floor. Binary path: `FUN_10a8_0819` (extend_up) /
+ * `FUN_10a8_0b87` (extend_down) → `charge_floor_range_construction_cost`
+ * (1180:02e5), which sums `width * tile_rate` per newly-served floor.
+ * Observed delta in the mixed_elevator_delayed trace: $15,000 for a
+ * 3-floor extension of a standard (width=4) shaft → $5,000/floor.
+ */
+export const CARRIER_EXTEND_FLOOR_COST: Record<number, number> = {
+	0: 7_500, // express (width 6)
+	1: 5_000, // standard (width 4)
+	2: 5_000, // service (width 4)
+};
+
+/**
  * Minimum star rating required before the binary exposes a build-menu entry.
  * Tiles omitted from this table are treated as always available.
  */
