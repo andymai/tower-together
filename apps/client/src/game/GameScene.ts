@@ -954,6 +954,29 @@ export class GameScene extends Scene {
 	}
 
 	private computeVisibleFamilies(): ReadonlyMap<SoundFamily, number> {
+		const view = this.cameras.main.worldView;
+		const startY = Math.max(0, Math.floor(view.y / TILE_HEIGHT));
+		const endY = Math.min(
+			GRID_HEIGHT - 1,
+			Math.floor(view.bottom / TILE_HEIGHT),
+		);
+		// Try the center third first; fall back to the full view if empty.
+		const thirdW = view.width / 3;
+		const centerLeft = view.x + thirdW;
+		const centerRight = view.right - thirdW;
+		this.fillVisibleFamilies(centerLeft, centerRight, startY, endY);
+		if (this.visibleFamiliesScratch.size === 0) {
+			this.fillVisibleFamilies(view.x, view.right, startY, endY);
+		}
+		return this.visibleFamiliesScratch;
+	}
+
+	private fillVisibleFamilies(
+		left: number,
+		right: number,
+		startY: number,
+		endY: number,
+	): void {
 		this.visibleFamiliesScratch.clear();
 		const bump = (family: SoundFamily) => {
 			this.visibleFamiliesScratch.set(
@@ -961,14 +984,6 @@ export class GameScene extends Scene {
 				(this.visibleFamiliesScratch.get(family) ?? 0) + 1,
 			);
 		};
-		const view = this.cameras.main.worldView;
-		const left = view.x;
-		const right = view.right;
-		const startY = Math.max(0, Math.floor(view.y / TILE_HEIGHT));
-		const endY = Math.min(
-			GRID_HEIGHT - 1,
-			Math.floor(view.bottom / TILE_HEIGHT),
-		);
 		for (let y = startY; y <= endY; y += 1) {
 			const anchorRow = this.anchorKeysByRow[y];
 			if (anchorRow) {
@@ -998,7 +1013,6 @@ export class GameScene extends Scene {
 				}
 			}
 		}
-		return this.visibleFamiliesScratch;
 	}
 
 	private cullStaticRowChunks(): void {
