@@ -112,7 +112,7 @@ const ROOSTER_SRC = "/sounds/rooster.webm";
 const EFFECT_VOLUME = 0.55;
 const AMBIENCE_VOLUME = 0.25;
 const ROOSTER_VOLUME = 0.7;
-const EFFECT_FADE_SECONDS = 0.2;
+const EFFECT_FADE_SECONDS = 0.4;
 
 // Cooldown between effect starts, measured from the start of the previous
 // sample's fade-out so consecutive samples crossfade. Scales by total visible
