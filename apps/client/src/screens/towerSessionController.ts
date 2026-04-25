@@ -12,7 +12,31 @@ import type {
 	ServerMessage,
 	SimStateData,
 } from "../types";
+import { TILE_WIDTHS } from "../types";
 import type { ActivePrompt, CellInfoData } from "./gameScreenTypes";
+
+const TWO_FLOOR_TILES = new Set(["cinema", "partyHall", "recyclingCenter"]);
+const OVERLAY_TILES = new Set([
+	"elevator",
+	"elevatorExpress",
+	"elevatorService",
+	"stairs",
+	"escalator",
+]);
+
+function getRoomFootprint(
+	x: number,
+	y: number,
+	tileType: string,
+): Array<{ x: number; y: number }> {
+	const tileWidth = TILE_WIDTHS[tileType] ?? 1;
+	const cells: Array<{ x: number; y: number }> = [];
+	for (let dx = 0; dx < tileWidth; dx++) {
+		cells.push({ x: x + dx, y });
+		if (TWO_FLOOR_TILES.has(tileType)) cells.push({ x: x + dx, y: y - 1 });
+	}
+	return cells;
+}
 
 export interface TowerSessionScene {
 	setSnapshotSource: (source: {
@@ -265,17 +289,23 @@ export class TowerSessionController {
 			inputs.push({ type: "remove_tile", x, y });
 		} else if (shift) {
 			const fills = this.getScene()?.computeShiftFill(x, y) ?? [];
-			for (const pos of fills) {
-				inputs.push({
-					type: "place_tile",
-					x: pos.x,
-					y: pos.y,
-					tileType,
-				});
-			}
 			if (fills.length > 0) {
+				for (const pos of fills) {
+					inputs.push({
+						type: "place_tile",
+						x: pos.x,
+						y: pos.y,
+						tileType,
+					});
+				}
 				const last = fills[fills.length - 1];
 				this.getScene()?.setLastPlaced(last.x, last.y, tileType);
+			} else if (!OVERLAY_TILES.has(tileType)) {
+				for (const cell of getRoomFootprint(x, y, tileType)) {
+					inputs.push({ type: "remove_tile", x: cell.x, y: cell.y });
+				}
+				inputs.push({ type: "place_tile", x, y, tileType });
+				this.getScene()?.setLastPlaced(x, y, tileType);
 			}
 		} else if (
 			(tileType === "elevator" ||
