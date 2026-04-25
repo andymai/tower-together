@@ -10,6 +10,7 @@
 // keep them split and treat both as helpers of the binary entry.
 
 import { carrierSpansFloor } from "../carriers";
+import { isExpressStopFloor } from "../carriers/slot";
 import { testCarrierTransferReachability } from "../reachability/mask-tests";
 import type { WorldState } from "../world";
 import {
@@ -20,6 +21,30 @@ import {
 	TRANSFER_ROUTE_BASE_COST,
 	TRANSFER_ROUTE_FULL_QUEUE_COST,
 } from "./constants";
+
+/**
+ * Binary `score_carrier_transfer_route` (11b8:168e) gates eligibility on
+ * `served_floor_flags[floor] != 0`. The emulator's `build_carrier` writes
+ * narrow per-floor flags for mode-0 (express) shafts — only lobby+basement
+ * floors and sky-lobby stops (24, 39, 54, …) — while standard/service
+ * carriers cover the full [bottom, top] span.
+ *
+ * The TS CarrierRecord only has an aggregate `servedFloorFlags` slot array,
+ * so compose the gate from `carrierSpansFloor` + `isExpressStopFloor`.
+ */
+function carrierEligibleFloor(
+	carrier: WorldState["carriers"][number],
+	floor: number,
+): boolean {
+	if (!carrierSpansFloor(carrier, floor)) return false;
+	if (carrier.carrierMode === 0) {
+		// Express: floors 1..10 (basement/ground) and sky-lobby stops only.
+		// isExpressStopFloor takes EXE floor units (floor+10 convention);
+		// here `floor` is logical so shift.
+		return isExpressStopFloor(floor + 10);
+	}
+	return true;
+}
 
 function getFloorQueueCount(
 	carrier: WorldState["carriers"][number],
@@ -50,8 +75,8 @@ export function scoreCarrierDirectRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!carrierSpansFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
 	const qCount = getFloorQueueCount(
 		carrier,
 		fromFloor,
@@ -92,7 +117,7 @@ export function scoreCarrierTransferRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierSpansFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
 	if (
 		!testCarrierTransferReachability(world, carrierId, toFloor, preferLocalMode)
 	) {

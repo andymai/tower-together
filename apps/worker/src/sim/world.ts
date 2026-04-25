@@ -28,9 +28,23 @@ export function isValidLobbyY(y: number): boolean {
 /** Sample a 15-bit LCG value from the world RNG and advance its state.
  * 32-bit LCG: state = state * 0x15a4e35 + 1 (mod 2^32).
  * Returns upper 15 bits: (state >>> 16) & 0x7fff. */
+// DEBUG SHIM toggle for RNG call tracing (flipped on from test harness around
+// the tick we want to inspect). Keep this alongside the sampler so toggling it
+// at a single site is safe.
+export const __RNG_TRACE = { on: false };
+
 export function sampleRng(world: WorldState): number {
 	world.rngState = (Math.imul(world.rngState, 0x15a4e35) + 1) | 0;
 	world.rngCallCount += 1;
+	if (__RNG_TRACE.on) {
+		const stack = new Error().stack ?? "";
+		const lines = stack
+			.split("\n")
+			.slice(2, 8)
+			.map((l) => l.trim())
+			.join(" | ");
+		console.log(`[RNG ${world.rngCallCount}] ${lines}`);
+	}
 	return (world.rngState >>> 16) & 0x7fff;
 }
 

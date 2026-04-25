@@ -1276,10 +1276,15 @@ export function handleAddElevatorCar(
 		return { accepted: false, reason: "Insufficient funds" };
 	}
 	if (!freeBuild) ledger.cashBalance -= cost;
-	// Binary writes bottom_served_floor to every car's home_floor byte at
-	// shaft placement; the click coordinate is unused.
-	void y;
-	const homeFloor = carrier.bottomServedFloor;
+	// Binary add-car branch (place_carrier_shaft at an existing column)
+	// stores `param_3` — the click's floor — at each car's home_floor byte
+	// (carrier +0xBA..0xC1). Use the same convention so per-car home
+	// tracking matches the emulator's build_carrier output.
+	const clicked = yToFloor(y);
+	const homeFloor = Math.max(
+		carrier.bottomServedFloor,
+		Math.min(carrier.topServedFloor, clicked),
+	);
 	// Activate first inactive car
 	for (const car of carrier.cars) {
 		if (!car.active) {

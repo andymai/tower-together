@@ -145,15 +145,21 @@ export function findBestAvailableCarForFloor(
 		}
 		return { carIndex: bestIdleHomeIndex, fullAssign: true };
 	}
-	if (bestIdleHomeIndex >= 0)
-		return { carIndex: bestIdleHomeIndex, fullAssign: true };
 	if (bestMovingIndex >= 0)
 		return { carIndex: bestMovingIndex, fullAssign: true };
 
-	// Binary quirk: degenerate fallback writes car index 0 and returns
-	// fullAssign=true when no forward/wrap/idle candidates exist — the tracked
-	// best idle-home is NOT used here (that tracking is only consulted in the
-	// combined-both branch above). Do NOT "fix" this.
+	// Binary quirk (1098:10d0): degenerate fallback writes car index 0 and
+	// returns fullAssign=true whenever there is NO forward and NO wrap
+	// candidate — **even when** an idle-home candidate is tracked. The
+	// binary's tail at 1098:1057 / 1098:108e only consults the idle-home
+	// cost when paired with a moving candidate (threshold compare against
+	// forward or wrap). Standalone idle-home is never used; the tail falls
+	// through to 1098:10d0 which hardcodes index 0. Observed at
+	// dense_office tick 1975: all 8 cars are idle-home for a direction-0
+	// pickup at floor 18, wrap branch never fires (car.dir was opposite
+	// but idle-home short-circuited the loop via JMP 0feb before reaching
+	// 0fee), so forward=wrap=9999 and the scorer returns 0 — picking car 0
+	// instead of the obvious car 6 at distance 1. Mirror the quirk.
 	return { carIndex: 0, fullAssign: true };
 }
 

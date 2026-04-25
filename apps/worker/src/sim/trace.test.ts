@@ -140,6 +140,24 @@ function loadFixture(name: string): { spec: BuildSpec; trace: TraceEntry[] } {
 	return { spec, trace };
 }
 
+function withoutTime(entry: TraceEntry): Omit<TraceEntry, "day" | "tick"> {
+	const { day: _day, tick: _tick, ...rest } = entry;
+	return rest;
+}
+
+function dropTerminalDuplicateDump(trace: TraceEntry[]): TraceEntry[] {
+	if (trace.length < 2) return trace;
+	const prev = trace[trace.length - 2];
+	const last = trace[trace.length - 1];
+	if (JSON.stringify(withoutTime(prev)) !== JSON.stringify(withoutTime(last))) {
+		return trace;
+	}
+	// The emulator trace writer appends one final dump after the run loop.
+	// Most fixtures duplicate the same tick; build_sky_office labels that
+	// terminal duplicate as the next tick even though no simulation state ran.
+	return trace.slice(0, -1);
+}
+
 function traceTickToTotalTicks(day: number, tick: number): number {
 	// Day 0 starts at dayTick=2533, runs through 2599→0→...→2299.
 	// Day D (D>=1) starts at dayTick=2300, runs 2600 ticks to next 2300.
@@ -172,11 +190,38 @@ function placeFacilityList(sim: TowerSim, facilities: FacilitySpec[]): void {
 				});
 			}
 			const numCars = fac.cars ?? 1;
-			for (let i = 1; i < numCars; i++) {
+			// Mirror simtower/emulator.py `build_carrier` add-car placement:
+			// standard/service carriers get extras at evenly-spaced home
+			// floors across [bottom, top]; express (mode 0) cycles through
+			// the binary's valid stops (floors 1..10 and sky-lobby stops at
+			// (floor-10)%15==14, i.e. 24, 39, 54, …).
+			const isExpress = fac.type === "elevatorExpress";
+			let homeFloors: number[];
+			if (isExpress) {
+				const validStops = [bottom];
+				for (let f = bottom + 1; f <= top; f++) {
+					const exe = f + 10;
+					if (exe >= 11 && (exe - 10) % 15 === 14) validStops.push(f);
+				}
+				homeFloors = Array.from(
+					{ length: numCars - 1 },
+					(_, i) => validStops[(i + 1) % validStops.length],
+				);
+			} else {
+				const span = top - bottom;
+				homeFloors = Array.from(
+					{ length: numCars - 1 },
+					(_, i) =>
+						numCars <= 1
+							? bottom
+							: bottom + Math.floor((span * (i + 1)) / (numCars - 1)),
+				);
+			}
+			for (const homeFloor of homeFloors) {
 				sim.submitCommand({
 					type: "add_elevator_car",
 					x: fac.left,
-					y: GROUND_Y - bottom,
+					y: GROUND_Y - homeFloor,
 				});
 			}
 			continue;
@@ -260,24 +305,25 @@ function prepareFromTrace(spec: BuildSpec, trace: TraceEntry[]): TowerSim {
 		snap.world.rngState = computeRngState(1, trace[0].rng_calls);
 	}
 	snap.world.eventState.disableNewsEvents = true;
-	// `add_elevator_car` leaves every car parked at bottomServedFloor. The
-	// Python emulator spaces cars evenly across the span initially but all
-	// cars fall back to the bottom-served floor once their post-arrival dwell
-	// expires. Mirror that by patching currentFloor/targetFloor/prevFloor to
-	// the evenly-spaced home while leaving homeFloor at bottomServedFloor.
-	for (const fac of spec.facilities) {
-		const numCars = fac.cars ?? 1;
-		if (numCars <= 1) continue;
-		const carrier = snap.world.carriers.find((c) => c.column === fac.left);
-		if (!carrier || carrier.cars.length < numCars) continue;
-		const bottom = carrier.bottomServedFloor;
-		const span = carrier.topServedFloor - bottom;
-		for (let c = 1; c < numCars; c++) {
-			const distributed = bottom + Math.floor((span * c) / (numCars - 1));
-			const car = carrier.cars[c];
-			car.currentFloor = distributed;
-			car.targetFloor = distributed;
-			car.prevFloor = distributed;
+	// Seed each car's currentFloor / targetFloor / prevFloor from the
+	// baseline dump. The emulator's `build_carrier` drives the binary's
+	// own placement + add-car path, which for express carriers only
+	// accepts floors 1..10 and sky-lobby stops (24, 39, 54, ...). Deriving
+	// home positions from a simple even-spread across [bottom, top] would
+	// place cars on non-stop floors the binary never allows, so use the
+	// fixture's actual baseline instead.
+	const baselineCarriers = trace[0].carriers ?? [];
+	for (const refCarrier of baselineCarriers) {
+		const carrier = snap.world.carriers.find(
+			(c) => c.column === refCarrier.column,
+		);
+		if (!carrier) continue;
+		for (let c = 0; c < refCarrier.cars.length && c < carrier.cars.length; c++) {
+			const refCar = refCarrier.cars[c];
+			const ourCar = carrier.cars[c];
+			ourCar.currentFloor = refCar.currentFloor;
+			ourCar.targetFloor = refCar.targetFloor;
+			ourCar.prevFloor = refCar.prevFloor ?? refCar.currentFloor;
 		}
 	}
 	return TowerSim.fromSnapshot(snap);
@@ -318,7 +364,8 @@ const SKIP_STRESS_CHECK = new Set<string>();
 const SKIP_STATE_HISTOGRAM_CHECK = new Set<string>();
 
 describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
-	const { spec, trace } = loadFixture(fixtureName);
+	const { spec, trace: rawTrace } = loadFixture(fixtureName);
+	const trace = dropTerminalDuplicateDump(rawTrace);
 
 	// Entry 0 is the day -1 / tick 2533 baseline; simulation entries start at index 1.
 	const simEntries = trace.slice(1);
