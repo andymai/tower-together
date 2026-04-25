@@ -2450,11 +2450,34 @@ export class GameScene extends Scene {
 			return;
 		}
 
+		const byY = new Map<number, number[]>();
 		for (const { x, y } of fills) {
-			const px = x * TILE_WIDTH;
-			const py = y * TILE_HEIGHT;
-			g.fillRect(px, py, pw, ph);
-			g.strokeRect(px, py, pw, ph);
+			const xs = byY.get(y) ?? [];
+			xs.push(x);
+			byY.set(y, xs);
+		}
+		for (const [y, xs] of byY) {
+			xs.sort((a, b) => a - b);
+			let runStart = xs[0];
+			let runEnd = xs[0];
+			const flush = () => {
+				const px = runStart * TILE_WIDTH;
+				const py = y * TILE_HEIGHT;
+				const runWidth =
+					(runEnd - runStart + tileWidth) * TILE_WIDTH - STATIC_TILE_GAP_X;
+				g.fillRect(px, py, runWidth, ph);
+				g.strokeRect(px, py, runWidth, ph);
+			};
+			for (let i = 1; i < xs.length; i++) {
+				if (xs[i] === runEnd + tileWidth) {
+					runEnd = xs[i];
+				} else {
+					flush();
+					runStart = xs[i];
+					runEnd = xs[i];
+				}
+			}
+			flush();
 		}
 	}
 
