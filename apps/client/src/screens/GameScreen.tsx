@@ -22,6 +22,7 @@ interface Props {
 	displayName: string;
 	socket: TowerSocket;
 	towerId: string;
+	initialTool?: SelectedTool;
 	onLeave: () => void;
 }
 
@@ -32,9 +33,12 @@ export function GameScreen({
 	displayName,
 	socket,
 	towerId,
+	initialTool,
 	onLeave,
 }: Props) {
-	const [selectedTool, setSelectedTool] = useState<SelectedTool>("inspect");
+	const [selectedTool, setSelectedTool] = useState<SelectedTool>(
+		initialTool ?? "inspect",
+	);
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [aliasInput, setAliasInput] = useState("");
 	const [aliasError, setAliasError] = useState("");

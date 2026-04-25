@@ -4,10 +4,16 @@ import { addRecentTower, clearPlayer, getRecentTowers } from "../lib/storage";
 interface Props {
 	displayName: string;
 	onJoinTower: (towerId: string) => void;
+	onCreateTower: (towerId: string) => void;
 	onLogout: () => void;
 }
 
-export function LobbyScreen({ displayName, onJoinTower, onLogout }: Props) {
+export function LobbyScreen({
+	displayName,
+	onJoinTower,
+	onCreateTower,
+	onLogout,
+}: Props) {
 	const [joinId, setJoinId] = useState("");
 	const [joinError, setJoinError] = useState("");
 	const [isCreating, setIsCreating] = useState(false);
@@ -23,7 +29,7 @@ export function LobbyScreen({ displayName, onJoinTower, onLogout }: Props) {
 			if (!res.ok) throw new Error(`Server error: ${res.status}`);
 			const data = (await res.json()) as { towerId: string };
 			addRecentTower(data.towerId);
-			onJoinTower(data.towerId);
+			onCreateTower(data.towerId);
 		} catch (e) {
 			setCreateError(e instanceof Error ? e.message : "Failed to create tower");
 		} finally {

@@ -4,6 +4,7 @@ import { getDisplayName, getPlayerId } from "./lib/storage";
 import { GameScreen } from "./screens/GameScreen";
 import { GuestScreen } from "./screens/GuestScreen";
 import { LobbyScreen } from "./screens/LobbyScreen";
+import type { SelectedTool } from "./types";
 
 type Screen = "guest" | "lobby" | "game";
 type HistoryMode = "none" | "push" | "replace";
@@ -49,11 +50,19 @@ export function App() {
 	const [playerId, setPlayerId] = useState<string>("");
 	const [displayName, setDisplayName] = useState<string>("");
 	const [towerId, setTowerId] = useState<string>("");
+	const [initialTool, setInitialTool] = useState<SelectedTool | undefined>(
+		undefined,
+	);
 
 	const enterTower = useCallback(
-		(nextTowerId: string, historyMode: HistoryMode = "none") => {
+		(
+			nextTowerId: string,
+			historyMode: HistoryMode = "none",
+			nextInitialTool?: SelectedTool,
+		) => {
 			socket.connect(nextTowerId);
 			setTowerId(nextTowerId);
+			setInitialTool(nextInitialTool);
 			setScreen("game");
 			updateHistory(`/${nextTowerId}`, historyMode);
 		},
@@ -136,6 +145,10 @@ export function App() {
 		enterTower(id, "push");
 	}
 
+	function handleCreateTower(id: string) {
+		enterTower(id, "push", "lobby");
+	}
+
 	function handleLeaveGame() {
 		moveToLobby("push");
 	}
@@ -154,6 +167,7 @@ export function App() {
 				<LobbyScreen
 					displayName={displayName}
 					onJoinTower={handleJoinTower}
+					onCreateTower={handleCreateTower}
 					onLogout={handleLogout}
 				/>
 			);
@@ -164,6 +178,7 @@ export function App() {
 					displayName={displayName}
 					socket={socket}
 					towerId={towerId}
+					initialTool={initialTool}
 					onLeave={handleLeaveGame}
 				/>
 			);

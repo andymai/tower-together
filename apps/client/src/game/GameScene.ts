@@ -858,7 +858,7 @@ export class GameScene extends Scene {
 		// Restore the previously-saved zoom and scroll for this tower.
 		const savedView = getTowerView(this.towerId);
 		const initialZoom = PhaserMath.Clamp(
-			savedView.zoom ?? this.scale.width / totalWidth,
+			savedView.zoom ?? (this.scale.width / totalWidth) * 3,
 			MIN_ZOOM,
 			MAX_ZOOM,
 		);
