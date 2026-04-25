@@ -112,13 +112,14 @@ const ROOSTER_SRC = "/sounds/rooster.webm";
 const EFFECT_VOLUME = 0.55;
 const AMBIENCE_VOLUME = 0.25;
 const ROOSTER_VOLUME = 0.7;
-const EFFECT_FADE_SECONDS = 0.08;
+const EFFECT_FADE_SECONDS = 0.2;
 
-// Cooldown between effects, scaled by total visible tile count. With one
-// audible tile the next sample fires ~6s after the previous ends; the gap
-// shrinks as 1/count so a dense floor sounds near-continuous.
+// Cooldown between effect starts, measured from the start of the previous
+// sample's fade-out so consecutive samples crossfade. Scales by total visible
+// tile count: a near-empty view leaves ~6s of silence between samples; a
+// dense floor lets the next sample begin as the previous fades out.
 const EFFECT_BASE_GAP_MS = 6000;
-const EFFECT_MIN_GAP_MS = 100;
+const EFFECT_MIN_GAP_MS = 0;
 
 // Daybreak hour in the GameScene's 7AM-anchored hour scale: 30 == 6 AM.
 const DAYBREAK_HOUR = 30;
@@ -149,7 +150,7 @@ export class SoundManager {
 	private ctx: AudioContext | null = null;
 	private buffers: Map<string, AudioBuffer> = new Map();
 	private bufferLoads: Map<string, Promise<void>> = new Map();
-	private currentSource: AudioBufferSourceNode | null = null;
+	private activeSources: Set<AudioBufferSourceNode> = new Set();
 	private lastSampleId: string | null = null;
 	private nextEffectAtMs: number = 0;
 	private currentHour: number | null = null;
@@ -172,8 +173,14 @@ export class SoundManager {
 
 	destroy(): void {
 		this.destroyed = true;
-		this.currentSource?.stop();
-		this.currentSource = null;
+		for (const source of this.activeSources) {
+			try {
+				source.stop();
+			} catch {
+				// already stopped
+			}
+		}
+		this.activeSources.clear();
 		this.morningAmbience.pause();
 		this.afternoonAmbience.pause();
 		this.nightAmbience.pause();
@@ -233,7 +240,6 @@ export class SoundManager {
 		transport: TransportDirections = { up: false, down: false },
 	): void {
 		if (this.destroyed) return;
-		if (this.currentSource) return;
 		const ctx = this.ensureContext();
 		if (!ctx || ctx.state !== "running") return;
 
@@ -255,12 +261,16 @@ export class SoundManager {
 			if (family === "transport") return transportActive;
 			return true;
 		};
+		// Elevator dings are the most diegetic transport cue, so weight the
+		// transport family heavily versus other facilities.
+		const familyWeight = (family: SoundFamily): number =>
+			family === "transport" ? 10 : 1;
 
 		let totalCount = 0;
 		for (const [family, count] of familyCounts) {
 			if (count <= 0) continue;
 			if (!familyAllowed(family)) continue;
-			totalCount += count;
+			totalCount += count * familyWeight(family);
 		}
 		if (totalCount === 0) return;
 
@@ -270,7 +280,7 @@ export class SoundManager {
 		for (const [family, count] of familyCounts) {
 			if (count <= 0) continue;
 			if (!familyAllowed(family)) continue;
-			acc += count;
+			acc += count * familyWeight(family);
 			if (target < acc) {
 				chosenFamily = family;
 				break;
@@ -337,11 +347,14 @@ export class SoundManager {
 
 		source.start(start);
 		const gapMs = Math.max(EFFECT_MIN_GAP_MS, EFFECT_BASE_GAP_MS / totalCount);
+		// Schedule the next sample to begin as this one starts fading out, so
+		// consecutive effects crossfade. Sparse views still see silence because
+		// gapMs grows large when totalCount is small.
+		this.nextEffectAtMs =
+			performance.now() + Math.max(0, duration - fade) * 1000 + gapMs;
+		this.activeSources.add(source);
 		source.onended = () => {
-			if (this.currentSource === source) {
-				this.currentSource = null;
-				this.nextEffectAtMs = performance.now() + gapMs;
-			}
+			this.activeSources.delete(source);
 			try {
 				source.disconnect();
 				gainNode.disconnect();
@@ -349,7 +362,6 @@ export class SoundManager {
 				// already disconnected
 			}
 		};
-		this.currentSource = source;
 		this.lastSampleId = sample.id;
 	}
 
