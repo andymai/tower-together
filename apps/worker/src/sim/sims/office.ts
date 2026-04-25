@@ -863,14 +863,39 @@ export function handleOfficeSimArrival(
 		return;
 	}
 
+	// Carrier dropped the sim at a transfer point (e.g. sky lobby) on the way
+	// to the anchor / lobby. Binary 1228:213c (and the analogous handlers for
+	// other transit aliases) re-resolves the next leg from the arrival floor.
+	// Skip distance feedback — the base state already applied it on trip start.
 	if (
-		sim.stateCode === STATE_DEPARTURE_TRANSIT ||
 		sim.stateCode === STATE_MORNING_TRANSIT ||
 		sim.stateCode === STATE_AT_WORK_TRANSIT ||
 		sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
-		sim.stateCode === STATE_DWELL_RETURN_TRANSIT
+		sim.stateCode === STATE_DWELL_RETURN_TRANSIT ||
+		sim.stateCode === STATE_DEPARTURE_TRANSIT
 	) {
-		failOfficeRoute(world, sim, STATE_NIGHT_B);
+		const targetFloor =
+			sim.stateCode === STATE_MORNING_TRANSIT ||
+			sim.stateCode === STATE_AT_WORK_TRANSIT ||
+			sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
+			sim.stateCode === STATE_DWELL_RETURN_TRANSIT
+				? sim.floorAnchor
+				: LOBBY_FLOOR;
+		sim.selectedFloor = arrivalFloor;
+		const routeResult = resolveSimRouteBetweenFloors(
+			world,
+			sim,
+			arrivalFloor,
+			targetFloor,
+			targetFloor > arrivalFloor ? 1 : 0,
+			time,
+			{ emitDistanceFeedback: false },
+		);
+		if (routeResult === -1) {
+			failOfficeRoute(world, sim, STATE_NIGHT_B);
+		}
+		// rc 0/1/2: stay in transit; next leg's arrival re-enters here.
+		// rc 3 can't happen — arrivalFloor != target by precondition.
 		return;
 	}
 

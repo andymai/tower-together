@@ -20,7 +20,10 @@ export const GROUND_Y = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS; // Y=109: ground l
 /** True iff the given Y is a valid lobby row (ground or every 15 floors above). */
 export function isValidLobbyY(y: number): boolean {
 	const floorsAboveGround = GROUND_Y - y;
-	return floorsAboveGround >= 0 && floorsAboveGround % 15 === 0;
+	return (
+		floorsAboveGround >= 0 &&
+		(floorsAboveGround === 0 || floorsAboveGround % 15 === 14)
+	);
 }
 
 // ─── PRNG ────────────────────────────────────────────────────────────────────

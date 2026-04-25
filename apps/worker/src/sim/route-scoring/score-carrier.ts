@@ -38,10 +38,11 @@ function carrierEligibleFloor(
 ): boolean {
 	if (!carrierSpansFloor(carrier, floor)) return false;
 	if (carrier.carrierMode === 0) {
-		// Express: floors 1..10 (basement/ground) and sky-lobby stops only.
-		// isExpressStopFloor takes EXE floor units (floor+10 convention);
-		// here `floor` is logical so shift.
-		return isExpressStopFloor(floor + 10);
+		// Express: only stops at internal/binary floors 1..10 (basement/ground)
+		// and sky-lobby floors at (floor-10)%15==14 (24, 39, 54, ...). The
+		// `floor` parameter here is in internal numbering — same convention
+		// `isExpressStopFloor` expects — no shift.
+		return isExpressStopFloor(floor);
 	}
 	return true;
 }

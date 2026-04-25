@@ -21,7 +21,7 @@
 		"18": { "left": 80, "right": 200 }
 	},
 	"facilities": [
-		{ "type": "lobby", "floor": 15, "left": 80, "right": 200 },
+		{ "type": "lobby", "floor": 14, "left": 80, "right": 200 },
 		{ "type": "office", "floor": 1, "left": 110 },
 		{ "type": "office", "floor": 1, "left": 119 },
 		{ "type": "office", "floor": 1, "left": 128 },
@@ -72,14 +72,14 @@
 		{ "type": "office", "floor": 18, "left": 119 },
 		{ "type": "office", "floor": 18, "left": 128 },
 		{ "type": "office", "floor": 18, "left": 137 },
-		{ "type": "elevator", "bottom": 0, "top": 14, "left": 100, "cars": 4 },
+		{ "type": "elevator", "bottom": 0, "top": 13, "left": 100, "cars": 4 },
 		{
 			"type": "elevatorExpress",
 			"bottom": 0,
-			"top": 15,
+			"top": 14,
 			"left": 150,
 			"cars": 4
 		},
-		{ "type": "elevator", "bottom": 15, "top": 18, "left": 170, "cars": 2 }
+		{ "type": "elevator", "bottom": 14, "top": 18, "left": 170, "cars": 2 }
 	]
 }
