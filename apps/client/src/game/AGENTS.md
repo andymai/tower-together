@@ -8,4 +8,5 @@ Phaser 3 game rendering layer.
 - **gameScenePlacement.ts** — Placement preview and shift-fill helpers for the selected tool.
 - **gameSceneTransport.ts** — Snapshot timing, car interpolation, and queue positioning helpers.
 - **clouds.ts** — Drifting cloud sprite pool in the sky band above the tower.
+- **sound.ts** — `SoundManager` for viewport-driven facility sound effects, time-of-day looping ambience, and the daybreak rooster cue.
 - **transportSelectors.ts** — Transport selectors/counters shared between the React HUD and Phaser scene.

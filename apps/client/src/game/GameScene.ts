@@ -68,6 +68,7 @@ import {
 	shouldInterpolateCars,
 	type TimedSnapshot,
 } from "./gameSceneTransport";
+import { type SoundFamily, SoundManager, tileFamily } from "./sound";
 import {
 	fillOccupancyByCarFromCarriers,
 	isQueuedSimLive,
@@ -267,6 +268,9 @@ export class GameScene extends Scene {
 
 	private hoverGraphics!: GameObjects.Graphics;
 	private cloudManager!: CloudManager;
+	private soundManager: SoundManager | null = null;
+	private lastSoundUpdateMs = 0;
+	private visibleFamiliesScratch: Set<SoundFamily> = new Set();
 	private floorLabelBg!: GameObjects.Rectangle;
 	private floorLabels: GameObjects.Image[] = [];
 	private carLabels: GameObjects.Image[] = [];
@@ -899,6 +903,15 @@ export class GameScene extends Scene {
 		this.setupInput();
 		this.setupFloorLabels();
 		this.updateFloorLabels();
+		this.soundManager = new SoundManager();
+		this.events.once("shutdown", () => {
+			this.soundManager?.destroy();
+			this.soundManager = null;
+		});
+		this.events.once("destroy", () => {
+			this.soundManager?.destroy();
+			this.soundManager = null;
+		});
 		this.sceneCreated = true;
 	}
 
@@ -922,6 +935,64 @@ export class GameScene extends Scene {
 		this.drawCars();
 		this.updateCockroaches(delta);
 		this.cullStaticRowChunks();
+		this.updateSounds();
+	}
+
+	private updateSounds(): void {
+		const sound = this.soundManager;
+		if (!sound) return;
+		const now = performance.now();
+		if (now - this.lastSoundUpdateMs < 250) return;
+		this.lastSoundUpdateMs = now;
+		const presentationTime = getPresentationTime(this.presentationClock);
+		const dayTick =
+			((Math.floor(presentationTime) % DAY_TICK_MAX) + DAY_TICK_MAX) %
+			DAY_TICK_MAX;
+		const hour = GameScene.dayTickToHour(dayTick);
+		sound.updateAmbience(hour);
+		sound.updateEffects(this.computeVisibleFamilies());
+	}
+
+	private computeVisibleFamilies(): ReadonlySet<SoundFamily> {
+		this.visibleFamiliesScratch.clear();
+		const view = this.cameras.main.worldView;
+		const left = view.x;
+		const right = view.right;
+		const startY = Math.max(0, Math.floor(view.y / TILE_HEIGHT));
+		const endY = Math.min(
+			GRID_HEIGHT - 1,
+			Math.floor(view.bottom / TILE_HEIGHT),
+		);
+		for (let y = startY; y <= endY; y += 1) {
+			const anchorRow = this.anchorKeysByRow[y];
+			if (anchorRow) {
+				for (const key of anchorRow) {
+					const tileType = this.grid.get(key);
+					if (!tileType) continue;
+					const family = tileFamily(tileType);
+					if (!family) continue;
+					const cx = Number(key.slice(0, key.indexOf(",")));
+					const tx = cx * TILE_WIDTH;
+					const tw = (TILE_WIDTHS[tileType] ?? 1) * TILE_WIDTH;
+					if (tx + tw < left || tx > right) continue;
+					this.visibleFamiliesScratch.add(family);
+				}
+			}
+			const overlayRow = this.overlayKeysByRow[y];
+			if (overlayRow) {
+				for (const key of overlayRow) {
+					const tileType = this.overlayGrid.get(key);
+					if (!tileType) continue;
+					const family = tileFamily(tileType);
+					if (!family) continue;
+					const cx = Number(key.slice(0, key.indexOf(",")));
+					const tx = cx * TILE_WIDTH;
+					if (tx + TILE_WIDTH < left || tx > right) continue;
+					this.visibleFamiliesScratch.add(family);
+				}
+			}
+		}
+		return this.visibleFamiliesScratch;
 	}
 
 	private cullStaticRowChunks(): void {
