@@ -41,6 +41,11 @@ export function GameScreen({
 	const [aliasSaving, setAliasSaving] = useState(false);
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [inspectedSim, setInspectedSim] = useState<SimStateData | null>(null);
+	const [pendingShaftErase, setPendingShaftErase] = useState<{
+		x: number;
+		topY: number;
+		bottomY: number;
+	} | null>(null);
 	const sceneRef = useRef<GameScene | null>(null);
 	const clockRef = useRef<GameToolbarClockHandle | null>(null);
 
@@ -78,6 +83,7 @@ export function GameScreen({
 		setRentLevel,
 		addElevatorCar,
 		removeElevatorCar,
+		removeElevatorShaft,
 		setElevatorDwellDelay,
 		setElevatorWaitingCarResponse,
 		setElevatorHomeFloor,
@@ -103,10 +109,35 @@ export function GameScreen({
 				inspectCell(x, y);
 				return;
 			}
+			if (selectedTool === "empty") {
+				const shaft = sceneRef.current?.getElevatorShaftAt(x, y);
+				if (shaft && y !== shaft.topY && y !== shaft.bottomY) {
+					setPendingShaftErase({
+						x,
+						topY: shaft.topY,
+						bottomY: shaft.bottomY,
+					});
+					return;
+				}
+			}
 			sendTileCommand(x, y, selectedTool, shift);
 		},
 		[selectedTool, sendTileCommand, inspectCell],
 	);
+
+	const handleConfirmShaftErase = useCallback(() => {
+		if (!pendingShaftErase) return;
+		removeElevatorShaft(
+			pendingShaftErase.x,
+			pendingShaftErase.topY,
+			pendingShaftErase.bottomY,
+		);
+		setPendingShaftErase(null);
+	}, [pendingShaftErase, removeElevatorShaft]);
+
+	const handleCancelShaftErase = useCallback(() => {
+		setPendingShaftErase(null);
+	}, []);
 
 	const handleQueuedSimInspect = useCallback(
 		(sim: SimStateData) => {
@@ -245,6 +276,34 @@ export function GameScreen({
 
 			{activePrompt && (
 				<GamePromptModal prompt={activePrompt} onRespond={respondToPrompt} />
+			)}
+
+			{pendingShaftErase && (
+				<div style={{ ...styles.modalOverlay, zIndex: 300 }}>
+					<div style={styles.modal}>
+						<div style={styles.modalTitle}>Delete elevator shaft?</div>
+						<div style={styles.modalMessage}>
+							Erasing a middle floor will remove the entire shaft from floor{" "}
+							{pendingShaftErase.topY} to {pendingShaftErase.bottomY}.
+						</div>
+						<div style={styles.modalButtons}>
+							<button
+								type="button"
+								style={styles.modalAccept}
+								onClick={handleConfirmShaftErase}
+							>
+								Delete shaft
+							</button>
+							<button
+								type="button"
+								style={styles.modalDecline}
+								onClick={handleCancelShaftErase}
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 
 			<CellInspectionDialog

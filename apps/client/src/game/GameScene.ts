@@ -45,6 +45,7 @@ import {
 import {
 	anchorX,
 	computeShiftFill,
+	contiguousShaftExtent,
 	getHoverBounds,
 	isElevatorTileType,
 	type PlacementAnchor,
@@ -459,6 +460,31 @@ export class GameScene extends Scene {
 			overlay === "elevatorExpress" ||
 			overlay === "elevatorService"
 		);
+	}
+
+	/**
+	 * If (x, y) sits on an elevator-shaft overlay, return the contiguous run's
+	 * top/bottom rows (inclusive) and the overlay type. Returns null otherwise.
+	 */
+	getElevatorShaftAt(
+		x: number,
+		y: number,
+	): { topY: number; bottomY: number; tileType: string } | null {
+		const overlay = this.overlayGrid.get(`${x},${y}`);
+		if (
+			overlay !== "elevator" &&
+			overlay !== "elevatorExpress" &&
+			overlay !== "elevatorService"
+		) {
+			return null;
+		}
+		const { topY, bottomY } = contiguousShaftExtent(
+			x,
+			y,
+			overlay,
+			this.overlayGrid,
+		);
+		return { topY, bottomY, tileType: overlay };
 	}
 
 	/** Compute shift-fill positions between lastPlacedAnchor and (clickX, clickY).

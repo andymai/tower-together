@@ -59,6 +59,10 @@ export interface TowerSessionScene {
 	computeShiftFill: (x: number, y: number) => Array<{ x: number; y: number }>;
 	setLastPlaced: (x: number, y: number, tileType: string) => void;
 	hasElevatorOverlayAt: (x: number, y: number, tileType?: string) => boolean;
+	getElevatorShaftAt: (
+		x: number,
+		y: number,
+	) => { topY: number; bottomY: number; tileType: string } | null;
 }
 
 export interface TowerSessionSocket {
@@ -291,6 +295,14 @@ export class TowerSessionController {
 		} else {
 			inputs.push({ type: "place_tile", x, y, tileType });
 			this.getScene()?.setLastPlaced(x, y, tileType);
+		}
+		this.sendInputBatch(inputs);
+	}
+
+	removeElevatorShaft(x: number, topY: number, bottomY: number): void {
+		const inputs: SimCommand[] = [];
+		for (let y = topY; y <= bottomY; y++) {
+			inputs.push({ type: "remove_tile", x, y });
 		}
 		this.sendInputBatch(inputs);
 	}

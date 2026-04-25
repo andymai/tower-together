@@ -30,7 +30,7 @@ export function isElevatorTileType(tool: string): boolean {
 /** Max contiguous shaft floors for non-express elevator types. */
 export const ELEVATOR_MAX_SHAFT_FLOORS = 31;
 
-function contiguousShaftExtent(
+export function contiguousShaftExtent(
 	x: number,
 	y: number,
 	tileType: string,

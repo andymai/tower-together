@@ -72,6 +72,7 @@ function createFakeScene(): TowerSessionScene {
 		computeShiftFill: vi.fn(() => []),
 		setLastPlaced: vi.fn(),
 		hasElevatorOverlayAt: vi.fn(() => false),
+		getElevatorShaftAt: vi.fn(() => null),
 	};
 }
 
