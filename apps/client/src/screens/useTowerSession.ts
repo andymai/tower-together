@@ -35,6 +35,7 @@ interface UseTowerSessionResult {
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
+	lobbyExists: boolean;
 	setInspectedCell: Dispatch<SetStateAction<CellInfoData | null>>;
 	sendTileCommand: (
 		x: number,

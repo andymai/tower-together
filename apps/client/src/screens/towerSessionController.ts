@@ -110,6 +110,7 @@ export interface TowerSessionState {
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
+	lobbyExists: boolean;
 }
 
 export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
@@ -126,6 +127,7 @@ export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	activePrompt: null,
 	inspectedCell: null,
 	sceneReady: false,
+	lobbyExists: false,
 };
 
 interface TowerSessionControllerOptions {
@@ -190,6 +192,7 @@ export class TowerSessionController {
 					starCount: state.starCount,
 					sims: this.lockstep.simsSnapshot(),
 					carriers: this.lockstep.carriersSnapshot(),
+					lobbyExists: state.cells.some((cell) => cell.tileType === "lobby"),
 				});
 				const scene = this.getScene();
 				scene?.setSnapshotSource({
@@ -221,6 +224,12 @@ export class TowerSessionController {
 					patch.sims = this.lockstep.simsSnapshot();
 					patch.carriers = this.lockstep.carriersSnapshot();
 					this.lastSlowUpdateMs = now;
+				}
+				if (
+					!this.state.lobbyExists &&
+					state.cellPatches.some((cell) => cell.tileType === "lobby")
+				) {
+					patch.lobbyExists = true;
 				}
 				if (Object.keys(patch).length > 0) {
 					this.patchState(patch);

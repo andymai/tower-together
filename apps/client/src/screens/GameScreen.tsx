@@ -94,6 +94,7 @@ export function GameScreen({
 		toggleElevatorFloorStop,
 		reconnect,
 		sceneReady,
+		lobbyExists,
 	} = useTowerSession({
 		towerId,
 		playerId,
@@ -259,6 +260,21 @@ export function GameScreen({
 					selectedTool={selectedTool}
 					sceneRef={sceneRef}
 				/>
+				{sceneReady && initialTool === "lobby" && !lobbyExists && (
+					<div style={styles.tutorialOverlay}>
+						<div style={styles.tutorialBanner}>
+							<div style={styles.tutorialTitle}>Welcome to your tower</div>
+							<div style={styles.tutorialMessage}>
+								Click the highlighted ground floor below to build your first
+								Lobby.
+							</div>
+							<div style={styles.tutorialHint}>
+								Tip: Hold Shift while clicking to batch-build a row of tiles.
+							</div>
+						</div>
+						<div style={styles.tutorialArrow}>▼</div>
+					</div>
+				)}
 				<div style={styles.rightPanelStack}>
 					<GameBuildPanel
 						starCount={starCount}
