@@ -216,28 +216,24 @@ export const GameToolbar = memo(
 				</div>
 
 				<div style={styles.toolbarRight}>
-					{import.meta.env.DEV && (
-						<>
-							<span style={styles.devBadge}>DEV</span>
-							<span style={styles.speedButtons}>
-								{([1, 3, 10] as const).map((multiplier) => (
-									<button
-										key={multiplier}
-										type="button"
-										style={{
-											...styles.speedButton,
-											...(speedMultiplier === multiplier
-												? styles.speedButtonActive
-												: {}),
-										}}
-										onClick={() => onSpeedChange(multiplier)}
-									>
-										{multiplier}x
-									</button>
-								))}
-							</span>
-						</>
-					)}
+					{import.meta.env.DEV && <span style={styles.devBadge}>DEV</span>}
+					<span style={styles.speedButtons}>
+						{([1, 3, 10] as const).map((multiplier) => (
+							<button
+								key={multiplier}
+								type="button"
+								style={{
+									...styles.speedButton,
+									...(speedMultiplier === multiplier
+										? styles.speedButtonActive
+										: {}),
+								}}
+								onClick={() => onSpeedChange(multiplier)}
+							>
+								{multiplier}x
+							</button>
+						))}
+					</span>
 					<span style={styles.cashCluster}>
 						<span ref={cashSpanRef} style={styles.cashDisplay} />
 						<span ref={popSpanRef} style={styles.populationDisplay} />
