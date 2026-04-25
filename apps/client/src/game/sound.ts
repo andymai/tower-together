@@ -1,9 +1,13 @@
 // Audio system: viewport-driven facility sound effects + time-of-day ambience.
 //
 // Effects are sampled from the families currently visible in the camera's
-// world view; the next sample is chosen when the previous one ends, never
-// repeating the same file twice in a row. Ambience tracks loop and are gated
-// on the in-game hour. The rooster fires once when the day clock crosses 6 AM.
+// world view, weighted by per-family tile count, never repeating the same
+// sample twice in a row. The cooldown between effects shrinks as the visible
+// tile count grows: a near-empty view is sparse, a dense floor is busy.
+// Effects play through Web Audio so each one-shot gets a brief fade in/out
+// and can carve sub-clip segments out of a longer source (the crowd loop is
+// split into five segments). Ambience tracks loop via HTMLAudio gated on the
+// in-game hour, and the rooster fires once when the day clock crosses 6 AM.
 
 export type SoundFamily = "food" | "office" | "crowd" | "transport";
 
@@ -20,11 +24,35 @@ const TILE_TO_FAMILY: Partial<Record<string, SoundFamily>> = {
 	escalator: "transport",
 };
 
-const FAMILY_SOUNDS: Record<SoundFamily, string[]> = {
-	food: ["/sounds/dishes.mp3"],
-	office: ["/sounds/fax.mp3", "/sounds/telephone.mp3"],
-	crowd: ["/sounds/crowd.mp3"],
-	transport: ["/sounds/elevator.mp3"],
+interface Sample {
+	id: string;
+	src: string;
+}
+
+// crowd.mp3 was pre-split offline into five short clips.
+const CROWD_SEGMENT_COUNT = 5;
+const CROWD_SAMPLES: Sample[] = Array.from(
+	{ length: CROWD_SEGMENT_COUNT },
+	(_, i) => ({ id: `crowd-${i}`, src: `/sounds/crowd-${i}.mp3` }),
+);
+
+const SAMPLES: Sample[] = [
+	...CROWD_SAMPLES,
+	{ id: "dishes", src: "/sounds/dishes.mp3" },
+	{ id: "elevator", src: "/sounds/elevator.mp3" },
+	{ id: "fax", src: "/sounds/fax.mp3" },
+	{ id: "telephone", src: "/sounds/telephone.mp3" },
+];
+
+const SAMPLE_INDEX: Map<string, Sample> = new Map(
+	SAMPLES.map((s) => [s.id, s]),
+);
+
+const FAMILY_SAMPLE_IDS: Record<SoundFamily, string[]> = {
+	food: ["dishes"],
+	office: ["fax", "telephone"],
+	crowd: CROWD_SAMPLES.map((s) => s.id),
+	transport: ["elevator"],
 };
 
 const MORNING_AMBIENCE_SRC = "/sounds/morning-ambience.mp3";
@@ -34,6 +62,13 @@ const ROOSTER_SRC = "/sounds/rooster.mp3";
 const EFFECT_VOLUME = 0.55;
 const AMBIENCE_VOLUME = 0.25;
 const ROOSTER_VOLUME = 0.7;
+const EFFECT_FADE_SECONDS = 0.08;
+
+// Cooldown between effects, scaled by total visible tile count. With one
+// audible tile the next sample fires ~6s after the previous ends; the gap
+// shrinks as 1/count so a dense floor sounds near-continuous.
+const EFFECT_BASE_GAP_MS = 6000;
+const EFFECT_MIN_GAP_MS = 100;
 
 // Daybreak hour in the GameScene's 7AM-anchored hour scale: 30 == 6 AM.
 const DAYBREAK_HOUR = 30;
@@ -50,9 +85,23 @@ function makeLoop(src: string, volume: number): HTMLAudioElement {
 	return audio;
 }
 
+type AudioContextCtor = typeof AudioContext;
+
+function getAudioContextCtor(): AudioContextCtor | null {
+	const w = window as unknown as {
+		AudioContext?: AudioContextCtor;
+		webkitAudioContext?: AudioContextCtor;
+	};
+	return w.AudioContext ?? w.webkitAudioContext ?? null;
+}
+
 export class SoundManager {
-	private currentEffect: HTMLAudioElement | null = null;
-	private lastEffectSrc: string | null = null;
+	private ctx: AudioContext | null = null;
+	private buffers: Map<string, AudioBuffer> = new Map();
+	private bufferLoads: Map<string, Promise<void>> = new Map();
+	private currentSource: AudioBufferSourceNode | null = null;
+	private lastSampleId: string | null = null;
+	private nextEffectAtMs: number = 0;
 	private morningAmbience: HTMLAudioElement;
 	private nightAmbience: HTMLAudioElement;
 	private rooster: HTMLAudioElement;
@@ -69,11 +118,22 @@ export class SoundManager {
 
 	destroy(): void {
 		this.destroyed = true;
-		this.currentEffect?.pause();
-		this.currentEffect = null;
+		this.currentSource?.stop();
+		this.currentSource = null;
 		this.morningAmbience.pause();
 		this.nightAmbience.pause();
 		this.rooster.pause();
+		this.ctx?.close().catch(() => {});
+		this.ctx = null;
+	}
+
+	/** Resume the audio context after a user gesture (Chrome autoplay policy). */
+	unlock(): void {
+		if (this.destroyed) return;
+		const ctx = this.ensureContext();
+		if (ctx && ctx.state === "suspended") {
+			void ctx.resume().catch(() => {});
+		}
 	}
 
 	updateAmbience(hour: number): void {
@@ -86,8 +146,8 @@ export class SoundManager {
 		this.setLoopPlaying(this.nightAmbience, inNight);
 
 		const prev = this.prevHour;
-		// Detect forward crossing of 6 AM in the [0, 31) hour scale. Wrap from
-		// ~31 back near 7 (start of the next sim day) is not a daybreak event.
+		// Detect forward crossing of 6 AM in the [0, 31) hour scale. The wrap
+		// from ~31 back near 7 (start of the next sim day) is not a daybreak.
 		if (
 			prev !== null &&
 			prev < DAYBREAK_HOUR &&
@@ -100,31 +160,114 @@ export class SoundManager {
 		this.prevHour = hour;
 	}
 
-	updateEffects(visibleFamilies: ReadonlySet<SoundFamily>): void {
+	updateEffects(familyCounts: ReadonlyMap<SoundFamily, number>): void {
 		if (this.destroyed) return;
-		if (this.currentEffect && !this.currentEffect.ended) return;
+		if (this.currentSource) return;
+		const ctx = this.ensureContext();
+		if (!ctx || ctx.state !== "running") return;
+		if (performance.now() < this.nextEffectAtMs) return;
 
-		const candidates: string[] = [];
-		for (const family of visibleFamilies) {
-			for (const src of FAMILY_SOUNDS[family]) candidates.push(src);
+		let totalCount = 0;
+		for (const count of familyCounts.values()) {
+			if (count > 0) totalCount += count;
 		}
-		if (candidates.length === 0) {
-			this.currentEffect = null;
-			return;
+		if (totalCount === 0) return;
+
+		const target = Math.random() * totalCount;
+		let acc = 0;
+		let chosenFamily: SoundFamily | null = null;
+		for (const [family, count] of familyCounts) {
+			if (count <= 0) continue;
+			acc += count;
+			if (target < acc) {
+				chosenFamily = family;
+				break;
+			}
 		}
-		const filtered = candidates.filter((src) => src !== this.lastEffectSrc);
-		const pool = filtered.length > 0 ? filtered : candidates;
+		if (!chosenFamily) return;
+
+		const ids = FAMILY_SAMPLE_IDS[chosenFamily];
+		const samples: Sample[] = [];
+		for (const id of ids) {
+			const sample = SAMPLE_INDEX.get(id);
+			if (sample) samples.push(sample);
+		}
+		if (samples.length === 0) return;
+		const filtered = samples.filter((s) => s.id !== this.lastSampleId);
+		const pool = filtered.length > 0 ? filtered : samples;
 		const choice = pool[Math.floor(Math.random() * pool.length)];
 		if (!choice) return;
-		this.lastEffectSrc = choice;
-		const audio = new Audio(choice);
-		audio.volume = EFFECT_VOLUME;
-		this.currentEffect = audio;
-		void audio.play().catch(() => {
-			// Autoplay blocked or load failed — drop the slot so the next tick
-			// can retry once the audio context is unlocked by a user gesture.
-			if (this.currentEffect === audio) this.currentEffect = null;
-		});
+		this.playSample(choice, ctx, totalCount);
+	}
+
+	private playSample(
+		sample: Sample,
+		ctx: AudioContext,
+		totalCount: number,
+	): void {
+		const buffer = this.buffers.get(sample.src);
+		if (!buffer) {
+			void this.loadBuffer(sample.src, ctx);
+			return;
+		}
+		const duration = buffer.duration;
+		if (duration <= 0) return;
+
+		const source = ctx.createBufferSource();
+		source.buffer = buffer;
+		const gainNode = ctx.createGain();
+		source.connect(gainNode).connect(ctx.destination);
+
+		const fade = Math.min(EFFECT_FADE_SECONDS, duration / 2);
+		const start = ctx.currentTime;
+		const fadeOutAt = start + duration - fade;
+		gainNode.gain.setValueAtTime(0, start);
+		gainNode.gain.linearRampToValueAtTime(EFFECT_VOLUME, start + fade);
+		gainNode.gain.setValueAtTime(EFFECT_VOLUME, fadeOutAt);
+		gainNode.gain.linearRampToValueAtTime(0, fadeOutAt + fade);
+
+		source.start(start);
+		const gapMs = Math.max(EFFECT_MIN_GAP_MS, EFFECT_BASE_GAP_MS / totalCount);
+		source.onended = () => {
+			if (this.currentSource === source) {
+				this.currentSource = null;
+				this.nextEffectAtMs = performance.now() + gapMs;
+			}
+			try {
+				source.disconnect();
+				gainNode.disconnect();
+			} catch {
+				// already disconnected
+			}
+		};
+		this.currentSource = source;
+		this.lastSampleId = sample.id;
+	}
+
+	private ensureContext(): AudioContext | null {
+		if (this.ctx) return this.ctx;
+		const Ctor = getAudioContextCtor();
+		if (!Ctor) return null;
+		this.ctx = new Ctor();
+		for (const sample of SAMPLES) void this.loadBuffer(sample.src, this.ctx);
+		return this.ctx;
+	}
+
+	private loadBuffer(src: string, ctx: AudioContext): Promise<void> {
+		const existing = this.bufferLoads.get(src);
+		if (existing) return existing;
+		const promise = (async () => {
+			try {
+				const response = await fetch(src);
+				const data = await response.arrayBuffer();
+				const buffer = await ctx.decodeAudioData(data);
+				if (!this.destroyed) this.buffers.set(src, buffer);
+			} catch {
+				this.bufferLoads.delete(src);
+			}
+		})();
+		this.bufferLoads.set(src, promise);
+		return promise;
 	}
 
 	private setLoopPlaying(audio: HTMLAudioElement, shouldPlay: boolean): void {

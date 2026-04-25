@@ -270,7 +270,7 @@ export class GameScene extends Scene {
 	private cloudManager!: CloudManager;
 	private soundManager: SoundManager | null = null;
 	private lastSoundUpdateMs = 0;
-	private visibleFamiliesScratch: Set<SoundFamily> = new Set();
+	private visibleFamiliesScratch: Map<SoundFamily, number> = new Map();
 	private floorLabelBg!: GameObjects.Rectangle;
 	private floorLabels: GameObjects.Image[] = [];
 	private carLabels: GameObjects.Image[] = [];
@@ -953,8 +953,14 @@ export class GameScene extends Scene {
 		sound.updateEffects(this.computeVisibleFamilies());
 	}
 
-	private computeVisibleFamilies(): ReadonlySet<SoundFamily> {
+	private computeVisibleFamilies(): ReadonlyMap<SoundFamily, number> {
 		this.visibleFamiliesScratch.clear();
+		const bump = (family: SoundFamily) => {
+			this.visibleFamiliesScratch.set(
+				family,
+				(this.visibleFamiliesScratch.get(family) ?? 0) + 1,
+			);
+		};
 		const view = this.cameras.main.worldView;
 		const left = view.x;
 		const right = view.right;
@@ -975,7 +981,7 @@ export class GameScene extends Scene {
 					const tx = cx * TILE_WIDTH;
 					const tw = (TILE_WIDTHS[tileType] ?? 1) * TILE_WIDTH;
 					if (tx + tw < left || tx > right) continue;
-					this.visibleFamiliesScratch.add(family);
+					bump(family);
 				}
 			}
 			const overlayRow = this.overlayKeysByRow[y];
@@ -988,7 +994,7 @@ export class GameScene extends Scene {
 					const cx = Number(key.slice(0, key.indexOf(",")));
 					const tx = cx * TILE_WIDTH;
 					if (tx + TILE_WIDTH < left || tx > right) continue;
-					this.visibleFamiliesScratch.add(family);
+					bump(family);
 				}
 			}
 		}
@@ -2592,6 +2598,9 @@ export class GameScene extends Scene {
 
 	private setupInput(): void {
 		const cam = this.cameras.main;
+
+		this.input.on("pointerdown", () => this.soundManager?.unlock());
+		this.input.keyboard?.on("keydown", () => this.soundManager?.unlock());
 
 		this.input.on("pointermove", (pointer: Input.Pointer) => {
 			const cell = this.worldToCell(pointer.worldX, pointer.worldY);
