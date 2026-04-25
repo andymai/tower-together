@@ -3,6 +3,7 @@ import {
 	GRID_WIDTH,
 	TILE_WIDTHS,
 	UNDERGROUND_FLOORS,
+	UNDERGROUND_Y,
 } from "../types";
 import { TILE_HEIGHT, TILE_WIDTH } from "./gameSceneConstants";
 
@@ -104,10 +105,17 @@ export function computeShiftFill(
 	const tentative = new Set<string>();
 	const results: Array<{ x: number; y: number }> = [];
 
-	// Iterate bottom-to-top (high y first) so each placed row supports the one above.
+	// Above-ground: iterate bottom-to-top (high y first) since support comes
+	// from below. Underground: iterate top-to-bottom since support hangs from
+	// above. Pick by anchor row so the row adjacent to the anchor is placed
+	// first and feeds support into the rest.
+	const undergroundFill = lastY >= UNDERGROUND_Y;
+	const yStart = undergroundFill ? yMin : yMax;
+	const yEnd = undergroundFill ? yMax : yMin;
+	const yStep = undergroundFill ? 1 : -1;
 	if (lastX < effectiveClickX) {
 		const fillEnd = effectiveClickX;
-		for (let y = yMax; y >= yMin; y--) {
+		for (let y = yStart; undergroundFill ? y <= yEnd : y >= yEnd; y += yStep) {
 			const fillStart = y === lastY ? lastX + lastTileWidth : lastX;
 			if (fillStart > fillEnd) continue;
 			results.push(
@@ -124,7 +132,7 @@ export function computeShiftFill(
 		}
 	} else if (lastX > effectiveClickX) {
 		const fillStart = effectiveClickX;
-		for (let y = yMax; y >= yMin; y--) {
+		for (let y = yStart; undergroundFill ? y <= yEnd : y >= yEnd; y += yStep) {
 			const fillEnd = y === lastY ? lastX - 1 : lastX + lastTileWidth - 1;
 			if (fillStart > fillEnd) continue;
 			results.push(
@@ -141,7 +149,7 @@ export function computeShiftFill(
 		}
 	} else {
 		// Same X column — pure vertical fill.
-		for (let y = yMax; y >= yMin; y--) {
+		for (let y = yStart; undergroundFill ? y <= yEnd : y >= yEnd; y += yStep) {
 			if (y === lastY) continue;
 			if (cellsAvailable(lastX, y, tileWidth, tentative, selectedTool, grid)) {
 				results.push({ x: lastX, y });
@@ -274,10 +282,14 @@ function cellsAvailable(
 		}
 
 		if (needsSupport) {
-			const belowKey = `${x + dx},${y + 1}`;
+			// Above-ground tiles rest on the row below; underground tiles hang
+			// from the row above (mirrors the server check in commands.ts).
+			const supportY = y >= UNDERGROUND_Y ? y - 1 : y + 1;
+			const supportKey = `${x + dx},${supportY}`;
 			if (
-				y + 1 >= GRID_HEIGHT ||
-				(!grid.has(belowKey) && !tentative.has(belowKey))
+				supportY < 0 ||
+				supportY >= GRID_HEIGHT ||
+				(!grid.has(supportKey) && !tentative.has(supportKey))
 			) {
 				return false;
 			}
@@ -288,7 +300,10 @@ function cellsAvailable(
 
 function isValidLobbyRow(y: number): boolean {
 	const floorsAboveGround = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y;
-	return floorsAboveGround >= 0 && floorsAboveGround % 15 === 0;
+	return (
+		floorsAboveGround >= 0 &&
+		(floorsAboveGround === 0 || floorsAboveGround % 15 === 14)
+	);
 }
 
 function isGroundFloor(y: number): boolean {
