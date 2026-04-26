@@ -228,7 +228,12 @@ export type ServerMessage =
 
 export type ClientMessage =
 	| { type: "join_tower"; playerId: string; displayName: string }
-	| { type: "input_batch"; clientSeq: number; inputs: SimCommand[] }
+	| {
+			type: "input_batch";
+			clientSeq: number;
+			targetTick: number;
+			inputs: SimCommand[];
+	  }
 	| { type: "ping" }
 	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
 	| { type: "set_star_count"; starCount: 1 | 2 | 3 | 4 | 5 | 6 }

@@ -9,6 +9,7 @@ import { getTileStarRequirement, STARTING_CASH } from "../sim/resources";
 import { createInitialSnapshot } from "../sim/snapshot";
 import type { ResolvedInputBatch, ServerMessage } from "../types";
 import {
+	getInputDelayTicks,
 	type QueuedInputBatch,
 	resolveQueuedInputBatches,
 	shouldEmitCheckpoint,
@@ -226,7 +227,7 @@ export class TowerRoom extends DurableObject<Env> {
 			if (!playerId || msg.inputs.length === 0) {
 				return;
 			}
-			const targetTick = this.sim.simTime + 1;
+			const targetTick = Math.max(this.sim.simTime + 1, msg.targetTick);
 			const queue = this.queuedInputs.get(targetTick);
 			const queuedBatch = {
 				playerId,
@@ -245,7 +246,8 @@ export class TowerRoom extends DurableObject<Env> {
 		if (!command) return;
 		const playerId = this.sessions.getPlayerId(ws);
 		if (!playerId) return;
-		const targetTick = this.sim.simTime + 1;
+		const targetTick =
+			this.sim.simTime + getInputDelayTicks(this.speedMultiplier);
 		const queue = this.queuedInputs.get(targetTick);
 		const queuedBatch = {
 			playerId,

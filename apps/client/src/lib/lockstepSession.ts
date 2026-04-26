@@ -1,3 +1,4 @@
+import { getInputDelayTicks } from "../../../worker/src/durable-objects/lockstep";
 import type { SimCommand } from "../../../worker/src/sim/commands";
 import {
 	type CarrierPendingRoute,
@@ -13,6 +14,10 @@ import type {
 	ResolvedInputBatch,
 	SimStateData,
 } from "../types";
+
+export type QueueLocalBatchResult =
+	| { ok: true; targetTick: number }
+	| { ok: false; reason: string };
 
 export type SimPendingRoute = {
 	carrier: CarrierRecord;
@@ -187,13 +192,17 @@ export class TowerLockstepSession {
 		}
 	}
 
-	queueLocalBatch(clientSeq: number, inputs: SimCommand[]): string | null {
+	queueLocalBatch(
+		clientSeq: number,
+		inputs: SimCommand[],
+	): QueueLocalBatchResult {
 		if (inputs.length === 0 || !this.sim) {
-			return null;
+			return { ok: false, reason: "Empty batch" };
 		}
 		const preview = TowerSim.fromSnapshot(this.sim.saveState());
 		preview.freeBuild = this.settings.freeBuild;
-		const targetTick = this.predictedTick + 1;
+		const targetTick =
+			this.predictedTick + getInputDelayTicks(this.settings.speedMultiplier);
 		const queuedForTick = [...this.pendingLocalBatches.values()]
 			.filter((batch) => batch.predictedTick === targetTick)
 			.sort((left, right) => left.clientSeq - right.clientSeq);
@@ -205,7 +214,7 @@ export class TowerLockstepSession {
 		for (const command of inputs) {
 			const result = preview.submitCommand(command);
 			if (!result.accepted) {
-				return result.reason ?? "Command rejected";
+				return { ok: false, reason: result.reason ?? "Command rejected" };
 			}
 		}
 		this.pendingLocalBatches.set(clientSeq, {
@@ -213,7 +222,7 @@ export class TowerLockstepSession {
 			inputs,
 			predictedTick: targetTick,
 		});
-		return null;
+		return { ok: true, targetTick };
 	}
 
 	setStarCount(starCount: 1 | 2 | 3 | 4 | 5 | 6): void {

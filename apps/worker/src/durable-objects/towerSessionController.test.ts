@@ -138,14 +138,15 @@ describe("TowerSessionController with mocked server", () => {
 			expect(socket.sent.at(-1)).toEqual({
 				type: "input_batch",
 				clientSeq: 1,
+				targetTick: 5,
 				inputs: [{ type: "remove_tile", x: 0, y: GROUND_Y }],
 			});
 
-			vi.advanceTimersByTime(50);
+			vi.advanceTimersByTime(250);
 
 			socket.emitMessage({
 				type: "authoritative_batch",
-				serverTick: 1,
+				serverTick: 5,
 				batches: [
 					{
 						playerId: "player-1",
@@ -157,7 +158,7 @@ describe("TowerSessionController with mocked server", () => {
 			});
 
 			expect(toasts).toContain("Server rejected removal");
-			expect(lastSimTime).toBe(1);
+			expect(lastSimTime).toBe(5);
 			expect(states.at(-1)?.connectionStatus).toBe("connected");
 			expect(states.at(-1)?.towerName).toBe("Tower Test");
 			expect(states.at(-1)?.speedMultiplier).toBe(1);

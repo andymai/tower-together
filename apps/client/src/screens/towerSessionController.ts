@@ -436,14 +436,15 @@ export class TowerSessionController {
 		}
 		this.clientSeq += 1;
 		const clientSeq = this.clientSeq;
-		const reason = this.lockstep.queueLocalBatch(clientSeq, inputs);
-		if (reason) {
-			this.addToast(reason);
+		const result = this.lockstep.queueLocalBatch(clientSeq, inputs);
+		if (!result.ok) {
+			this.addToast(result.reason);
 			return;
 		}
 		this.socket.send({
 			type: "input_batch",
 			clientSeq,
+			targetTick: result.targetTick,
 			inputs,
 		});
 	}

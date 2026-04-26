@@ -124,9 +124,9 @@ describe("TowerLockstepSession integration", () => {
 						y: GROUND_Y,
 					},
 				]),
-			).toBeNull();
+			).toEqual({ ok: true, targetTick: 5 });
 
-			vi.advanceTimersByTime(50);
+			vi.advanceTimersByTime(250);
 
 			expect(ticks.at(-1)?.cellPatches).toEqual(
 				expect.arrayContaining([
@@ -147,7 +147,7 @@ describe("TowerLockstepSession integration", () => {
 			);
 
 			session.applyAuthoritativeBatch({
-				serverTick: 1,
+				serverTick: 5,
 				batches: [
 					{
 						playerId: "player-1",
@@ -157,8 +157,9 @@ describe("TowerLockstepSession integration", () => {
 					},
 				],
 			});
+			vi.runOnlyPendingTimers();
 
-			expect(resets.at(-1)?.simTime).toBe(1);
+			expect(resets.at(-1)?.simTime).toBe(5);
 			expect(resets.at(-1)?.cells).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
