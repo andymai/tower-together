@@ -7,6 +7,7 @@
 // serve the target floor.
 
 import { carrierSpansFloor } from "../carriers";
+import { isExpressStopFloor } from "../carriers/slot";
 import { MAX_SPECIAL_LINK_RECORDS, type WorldState } from "../world";
 
 /**
@@ -112,6 +113,15 @@ export function chooseTransferFloorFromCarrierReachability(
 	return -1;
 }
 
+function carrierStopsAtFloor(
+	carrier: WorldState["carriers"][number],
+	floor: number,
+): boolean {
+	if (!carrierSpansFloor(carrier, floor)) return false;
+	if (carrier.carrierMode === 0) return isExpressStopFloor(floor);
+	return true;
+}
+
 function peersMaskReachesFloor(
 	world: WorldState,
 	mask: number,
@@ -120,7 +130,7 @@ function peersMaskReachesFloor(
 	for (let carrierIndex = 0; carrierIndex < 24; carrierIndex++) {
 		if ((mask & (1 << carrierIndex)) === 0) continue;
 		const peer = world.carriers.find((c) => c.carrierId === carrierIndex);
-		if (peer && carrierSpansFloor(peer, targetFloor)) return true;
+		if (peer && carrierStopsAtFloor(peer, targetFloor)) return true;
 	}
 	for (
 		let recordIndex = 0;
@@ -164,7 +174,7 @@ function entryReachesDestinationFloor(
 		) {
 			continue;
 		}
-		if (carrierSpansFloor(carrier, toFloor)) return true;
+		if (carrierStopsAtFloor(carrier, toFloor)) return true;
 	}
 	return testSpecialLinkTransferReachability(world, entry, toFloor);
 }

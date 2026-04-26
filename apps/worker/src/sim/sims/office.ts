@@ -827,8 +827,9 @@ export function handleOfficeSimArrival(
 	// Both aliases advance trip counters at arrival via the resolve same-floor
 	// branch (1218:0046, is_passenger_route=1).
 	if (
-		sim.stateCode === STATE_ACTIVE_TRANSIT ||
-		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
+		(sim.stateCode === STATE_ACTIVE_TRANSIT ||
+			sim.stateCode === STATE_VENUE_TRIP_TRANSIT) &&
+		(sim.destinationFloor < 0 || arrivalFloor === sim.destinationFloor)
 	) {
 		advanceIfNeeded();
 		sim.selectedFloor = arrivalFloor;
@@ -873,7 +874,9 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
 		sim.stateCode === STATE_DWELL_RETURN_TRANSIT ||
 		sim.stateCode === STATE_DEPARTURE_TRANSIT ||
-		sim.stateCode === STATE_COMMUTE_TRANSIT
+		sim.stateCode === STATE_COMMUTE_TRANSIT ||
+		sim.stateCode === STATE_ACTIVE_TRANSIT ||
+		sim.stateCode === STATE_VENUE_TRIP_TRANSIT
 	) {
 		const targetFloor =
 			sim.stateCode === STATE_MORNING_TRANSIT ||
@@ -881,7 +884,10 @@ export function handleOfficeSimArrival(
 			sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
 			sim.stateCode === STATE_DWELL_RETURN_TRANSIT
 				? sim.floorAnchor
-				: LOBBY_FLOOR;
+				: sim.stateCode === STATE_ACTIVE_TRANSIT ||
+						sim.stateCode === STATE_VENUE_TRIP_TRANSIT
+					? sim.destinationFloor
+					: LOBBY_FLOOR;
 		sim.selectedFloor = arrivalFloor;
 		const routeResult = resolveSimRouteBetweenFloors(
 			world,

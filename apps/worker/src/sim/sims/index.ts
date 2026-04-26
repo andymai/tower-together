@@ -16,7 +16,6 @@ import {
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
-import { selectBestRouteCandidate } from "../route-scoring/select-candidate";
 import { handleCommercialSimArrival, processCommercialSim } from "./commercial";
 import { handleCondoSimArrival, processCondoSim } from "./condo";
 
@@ -60,6 +59,7 @@ import {
 	COMMERCIAL_VENUE_DWELL_TICKS,
 	ENTITY_REFRESH_STRIDE,
 	INVALID_FLOOR,
+	LOBBY_FLOOR,
 	STATE_ACTIVE_TRANSIT,
 	STATE_AT_WORK_TRANSIT,
 	STATE_COMMUTE,
@@ -125,24 +125,6 @@ import {
 	type WorldState,
 	yToFloor,
 } from "../world";
-
-function hasViableRouteBetweenFloors(
-	world: WorldState,
-	fromFloor: number,
-	toFloor: number,
-	targetHeightMetric = 0,
-): boolean {
-	return (
-		fromFloor === toFloor ||
-		selectBestRouteCandidate(
-			world,
-			fromFloor,
-			toFloor,
-			true,
-			targetHeightMetric,
-		) !== null
-	);
-}
 
 export function releaseServiceRequest(
 	_world: WorldState,
@@ -279,7 +261,7 @@ export function releaseOfficeVenueSlot(
 
 function pickAvailableVenue(
 	world: WorldState,
-	fromFloor: number,
+	_fromFloor: number,
 	allowedFamilies: Set<number>,
 ): VenueSelection | null {
 	// Binary select_random_commercial_venue_record_from_bucket (11b0:1361):
@@ -317,21 +299,12 @@ function pickAvailableVenue(
 		return null;
 	}
 	// Binary `select_random_commercial_venue_record_from_bucket` (11b0:1361)
-	// does NOT filter on capacity at pick time; capacity is enforced later by
-	// `acquire_commercial_venue_slot` (11b0:0d92) at arrival. Filtering here
-	// triggered the `route_sim_to_commercial_venue` lobby fallback too often,
-	// inflating floor-down enqueues (build_dense_office day=0 tick=459).
-	if (
-		!hasViableRouteBetweenFloors(
-			world,
-			fromFloor,
-			picked.floor,
-			Math.floor(picked.heightMetric),
-		)
-	) {
-		return null;
-	}
-
+	// does NOT filter on capacity or route viability at pick time. Both are
+	// enforced later: capacity by `acquire_commercial_venue_slot` (11b0:0d92)
+	// at arrival, and route viability by `resolve_sim_route_between_floors`
+	// (which fires the 300-tick failure delay + advance_sim_trip_counters on
+	// rc=-1). The caller's resolve call therefore needs to run for unreachable
+	// venues so those side effects fire.
 	return picked;
 }
 
@@ -477,7 +450,26 @@ export function dispatchCommercialVenueVisit(
 			dirFlag,
 			time,
 		);
-		if (routeResult === -1 || routeResult === 0) {
+		if (routeResult === -1) {
+			// Binary `route_sim_to_commercial_venue` (1238:0000) hides the resolve
+			// failure when called from state 0x01: writes sim+5=tripState (0x41),
+			// sim+6=0xff sentinel, sim+7=origin, sim+8=0xff and returns success
+			// to the caller. The resolve has already cleared the route and
+			// applied the 300-tick failure delay + trip-counter advance. On the
+			// next-stride state-0x41 alias re-entry, the binary skips selection
+			// and `get_current_commercial_venue_destination_floor` reads the
+			// 0xff sentinel and returns floor 10 (lobby) — so the recovery
+			// resolve targets the lobby. We model that by writing the lobby
+			// destination directly here, so the standard transit handler at
+			// the next stride simply re-resolves anchor → lobby and assigns a
+			// carrier route without re-running the venue dispatch (which would
+			// fail again and incorrectly stack another 300-tick delay).
+			sim.stateCode = options.tripState ?? STATE_VENUE_TRIP;
+			sim.selectedFloor = sim.floorAnchor;
+			sim.destinationFloor = LOBBY_FLOOR;
+			return true;
+		}
+		if (routeResult === 0) {
 			if (options.unavailableState !== undefined) {
 				sim.stateCode = options.unavailableState;
 			}
