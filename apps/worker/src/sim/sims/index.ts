@@ -803,11 +803,13 @@ export function reconcileSimTransport(
 		// re-attempt next stride. The binary mirrors this by NOT re-dispatching
 		// the same arrival — `dispatch_destination_queue_entries` (1218:0883)
 		// fires the family handler exactly once per arrival. Mirror that here:
-		// if the sim's route was already cleared (mode=idle) it means the
-		// inline dispatch in `dispatchDestinationQueueEntries` already ran, so
-		// the legacy completion-sweep re-fire would be a duplicate trip-counter
-		// advance via the resolve same-floor branch.
-		if (sim.route.mode === "idle") continue;
+		// skip the re-fire if the sim's route was already cleared (mode=idle)
+		// OR if the inline handler re-enqueued the sim onto a new carrier for
+		// the next transfer leg (mode=carrier). Re-firing in the carrier-mode
+		// case would teleport the sim to its FINAL destination, bypassing the
+		// next leg entirely (e.g., sky-office sims arriving at the sky lobby
+		// would skip the local elevator transfer).
+		if (sim.route.mode === "idle" || sim.route.mode === "carrier") continue;
 		dispatchSimArrival(world, ledger, time, sim, sim.destinationFloor);
 	}
 }
