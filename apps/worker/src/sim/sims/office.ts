@@ -834,7 +834,7 @@ export function handleOfficeSimArrival(
 		if (venue) {
 			// Office worker arriving at a fast-food venue: pass the venue
 			// owner's family (FAMILY_FAST_FOOD) so the type/variant gate fires
-			// (sim.familyCode = FAMILY_OFFICE differs) and todayVisitCount is
+			// (sim.familyCode = FAMILY_OFFICE differs) and acquireCount is
 			// bumped on success — mirroring binary 11b0:0f3a–0f55.
 			const result = tryAcquireOfficeVenueSlot(
 				venue,

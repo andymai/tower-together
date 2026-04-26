@@ -135,15 +135,16 @@ export function processCommercialSim(
 		}
 
 		// Binary `try_consume_commercial_venue_capacity` (11b0:1150) decrements
-		// record+6 (remainingCapacity), increments record+7 (visitCount), and
-		// increments record+0x10 (todayVisitCount). It does NOT touch record+9
-		// (currentPopulation) — that field is incremented only by
-		// `acquire_commercial_venue_slot` (11b0:0d92), which the binary calls
-		// at the per-stride state-0x20/0x60 handler ONLY when route_result == 3
-		// (i.e. the sim has actually arrived at the venue floor). Mirror that
-		// here: at MORNING_GATE we run try_consume but defer the
-		// currentPopulation increment to the arrival site
-		// (handleCommercialMorningTransit / handleCommercialSimArrival).
+		// record+6 (remainingCapacity), increments record+7 (todayVisitCount,
+		// staff-emit count), and increments record+0x10 (acquireCount). It
+		// does NOT touch record+9 (currentPopulation) — that field is
+		// incremented only by `acquire_commercial_venue_slot` (11b0:0d92),
+		// which the binary calls at the per-stride state-0x20/0x60 handler
+		// ONLY when route_result == 3 (i.e. the sim has actually arrived at
+		// the venue floor). Mirror that here: at MORNING_GATE we run
+		// try_consume but defer the currentPopulation increment to the
+		// arrival site (handleCommercialMorningTransit /
+		// handleCommercialSimArrival).
 		// The phaseA/phaseB seed grow (binary `clamp_object_type_limit`) is
 		// NOT called here — it fires only on the successful departure path
 		// (state→0x27 PARKED via rc=3 in DEPARTURE / DEPARTURE_TRANSIT /
@@ -151,6 +152,7 @@ export function processCommercialSim(
 		record.remainingCapacity -= 1;
 		record.lastAcquireTick = time.dayTick;
 		record.todayVisitCount += 1;
+		record.acquireCount += 1;
 		record.visitCount += 1;
 
 		// Route to home floor. Binary state-0x20 dispatch (1228:41cb) calls
@@ -179,6 +181,8 @@ export function processCommercialSim(
 				sim.elapsedTicks = 0;
 				sim.accumulatedTicks = 0;
 				record.remainingCapacity += 1;
+				record.todayVisitCount -= 1;
+				record.acquireCount -= 1;
 				record.visitCount -= 1;
 			} else {
 				sim.stateCode = STATE_PARKED;
@@ -205,7 +209,7 @@ export function processCommercialSim(
 			sim.selectedFloor = sim.floorAnchor;
 			// Owner sim arriving at their own venue: pass sim.familyCode as the
 			// venue owner family so the type/variant gate suppresses the
-			// todayVisitCount bump (binary 11b0:0f3a–0f55: same family ⇒ skip).
+			// acquireCount bump (binary 11b0:0f3a–0f55: same family ⇒ skip).
 			// The owner's visit was already counted by
 			// try_consume_commercial_venue_capacity at MORNING_GATE above.
 			const acquireResult = tryAcquireOfficeVenueSlot(
@@ -381,7 +385,7 @@ function handleCommercialMorningTransit(
 		}
 		// Owner sim arriving at their own venue via MORNING_TRANSIT: pass
 		// sim.familyCode as the venue owner family so the type/variant gate
-		// suppresses the todayVisitCount bump (already counted at MORNING_GATE).
+		// suppresses the acquireCount bump (already counted at MORNING_GATE).
 		const acquireResult = tryAcquireOfficeVenueSlot(
 			venue,
 			sim,
@@ -497,7 +501,7 @@ export function handleCommercialSimArrival(
 		}
 		// Owner sim arriving at their own venue via carrier (handleCommercialSimArrival):
 		// pass sim.familyCode as the venue owner family so the type/variant gate
-		// suppresses the todayVisitCount bump (already counted at MORNING_GATE).
+		// suppresses the acquireCount bump (already counted at MORNING_GATE).
 		const acquireResult = tryAcquireOfficeVenueSlot(
 			venue,
 			sim,

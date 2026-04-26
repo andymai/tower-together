@@ -358,8 +358,28 @@ export interface CommercialVenueRecord {
 	ownerSubtypeIndex: number;
 	capacity: number;
 	visitCount: number;
+	/**
+	 * Today's STAFF-EMIT count (binary record+0x7). Written ONLY by
+	 * `try_consume_commercial_venue_capacity` (11b0:11c3 `INC byte +0x7`),
+	 * capped against `remainingCapacity` (binary +0x6). Rolled at daily
+	 * reseed: `yesterdayVisitCount = todayVisitCount; todayVisitCount = 0`.
+	 * `yesterdayVisitCount` (binary +0x8) feeds the population/star ledger
+	 * via `add_to_primary_family_ledger_bucket`. NOT used by closure
+	 * cashflow — that path reads `acquireCount` (binary +0x10).
+	 */
 	todayVisitCount: number;
 	yesterdayVisitCount: number;
+	/**
+	 * Visitor acquisition count (binary record+0x10, word). Incremented by
+	 * BOTH `try_consume_commercial_venue_capacity` (11b0:11cd
+	 * `INC word +0x10`) at MORNING_GATE AND
+	 * `acquire_commercial_venue_slot` (11b0:0ee3 `INC word +0x10`) on the
+	 * arrival success path when the visitor's type/variant differs from
+	 * the venue owner's. NOT capped by `remainingCapacity`. Reset to 0 at
+	 * daily reseed. Read by `seed_facility_runtime_link_state` →
+	 * `derive_commercial_venue_state_code` for closure cashflow bands.
+	 */
+	acquireCount: number;
 	availabilityState: number;
 	/**
 	 * Number of sims currently inside the venue (binary offset +0x09,

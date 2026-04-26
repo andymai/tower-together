@@ -351,6 +351,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			sidecar.phaseASeed ??= 0;
 			sidecar.phaseBSeed ??= 0;
 			sidecar.overrideSeed ??= 0;
+			sidecar.acquireCount ??= 0;
 			continue;
 		}
 		if (sidecar.kind === "medical_center") {

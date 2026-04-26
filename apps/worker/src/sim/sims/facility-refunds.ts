@@ -122,6 +122,7 @@ export function rebuildCommercialVenueRuntime(
 		record.yesterdayVisitCount = record.todayVisitCount;
 		addToPrimaryFamilyLedger(world, code, record.yesterdayVisitCount);
 		record.todayVisitCount = 0;
+		record.acquireCount = 0;
 		record.currentPopulation = 0;
 		record.visitCount = 0;
 
@@ -164,6 +165,7 @@ export function rebuildRestaurantFacilityRecords(
 		record.eligibilityThreshold = -(cap + 1);
 		record.yesterdayVisitCount = record.todayVisitCount;
 		record.todayVisitCount = 0;
+		record.acquireCount = 0;
 		record.currentPopulation = 0;
 		record.visitCount = 0;
 		writeSeedForSlot(record, slot, 0);
@@ -205,14 +207,13 @@ export function closeCommercialVenuesByFamily(
 		if (payouts) {
 			// Binary `derive_commercial_venue_state_code` (11b0:1731) is called
 			// from `seed_facility_runtime_link_state` with `record+0x10`
-			// (todayVisitCount), NOT `record+7` (visitCount/lifetime). The
-			// previous TS implementation read `visitCount` because the legacy
-			// `reserveVenue` helper bumped both counters in lockstep. With
-			// pick-time bumps moved to `tryAcquireOfficeVenueSlot` (which only
-			// touches `todayVisitCount`, matching binary 11b0:0d92), read the
-			// correct field here so closure cash bands are computed against the
-			// day's accumulated visits.
-			const visits = record.todayVisitCount;
+			// (acquireCount, the visitor-acquisition word incremented by both
+			// try_consume_commercial_venue_capacity at MORNING_GATE AND
+			// acquire_commercial_venue_slot on visitor arrivals). Read
+			// `acquireCount` here (NOT `todayVisitCount`, which is the
+			// staff-emit byte at +0x7 that feeds the population/star ledger
+			// instead) so closure cash bands match the binary's input.
+			const visits = record.acquireCount;
 			let band = 0;
 			for (const threshold of COMMERCIAL_CLOSURE_BANDS) {
 				if (visits >= threshold) band += 1;

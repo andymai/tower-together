@@ -198,16 +198,17 @@ export const VENUE_SLOT_UNAVAILABLE = -1;
  * commercial.ts:135 for venue owners' own arrivals) so visiting workers
  * see the same threshold the binary's elevator-arrival handler does.
  *
- * Per binary, on the success path `record[+0x10]` (todayVisitCount) is
+ * Per binary, on the success path `record[+0x10]` (acquireCount) is
  * also incremented when the visitor's type/variant differs from the
  * venue owner's. For office workers visiting fast-food the gate fires
  * (office=family 7, fast-food=family 12); for a venue owner sim
  * arriving at their own venue the gate suppresses the bump (same family).
  * Pass `venueOwnerFamily` so the helper can apply the gate correctly.
  *
- * Note: the binary does NOT touch `record[+7]` (visitCount/lifetime) at
- * acquire time — that counter is only bumped by
- * `try_consume_commercial_venue_capacity` (11b0:1150) at MORNING_GATE.
+ * Note: the binary does NOT touch `record[+7]` (todayVisitCount,
+ * staff-emit count) at acquire time — that counter is only bumped by
+ * `try_consume_commercial_venue_capacity` (11b0:1150) at MORNING_GATE
+ * and is what feeds the population/star ledger after the daily roll.
  */
 export function tryAcquireOfficeVenueSlot(
 	venue: CommercialVenueRecord,
@@ -236,11 +237,14 @@ export function tryAcquireOfficeVenueSlot(
 	}
 	venue.currentPopulation += 1;
 	if (sim.familyCode !== venueOwnerFamily) {
-		// Binary 11b0:0f3a–0f55: bump record+0x10 (todayVisitCount) only when
+		// Binary 11b0:0f3a–0f55: bump record+0x10 (acquireCount) only when
 		// the visitor's type/variant differ from the venue owner's. This is
 		// the gate that prevents the venue's own owner sim (arriving at their
-		// home venue via MORNING_GATE) from double-counting today's visits.
-		venue.todayVisitCount += 1;
+		// home venue via MORNING_GATE) from double-counting today's visitor
+		// acquisitions. acquireCount feeds closure cashflow bands, NOT the
+		// population/star ledger — that path reads `todayVisitCount`
+		// (staff-emit count, binary +0x7) after the daily roll.
+		venue.acquireCount += 1;
 	}
 	sim.lastDemandTick = time.dayTick;
 	return VENUE_SLOT_ACQUIRED;
@@ -515,7 +519,7 @@ export function dispatchCommercialVenueVisit(
 	// Same-floor branch: binary `route_sim_to_commercial_venue` (1238:0000)
 	// state-0x01 same-floor path takes resolve rc=3 and immediately calls
 	// `acquire_commercial_venue_slot` (11b0:0d92). Mirror that here so the
-	// pick-time bump of `todayVisitCount` is gated on capacity (currentPopulation
+	// pick-time bump of `acquireCount` is gated on capacity (currentPopulation
 	// > 39 → SLOT_FULL → no bump) and on the visitor-vs-owner type gate.
 	if (options.advanceBeforeSameFloorDwell) {
 		// Binary: resolve_sim_route(floor→floor) returns 3 → advanceSimTripCounters

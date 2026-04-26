@@ -183,6 +183,7 @@ function allocSidecar(
 			visitCount: 0,
 			todayVisitCount: 0,
 			yesterdayVisitCount: 0,
+			acquireCount: 0,
 			// Retail starts dormant (unrented); restaurant/fast-food start active
 			availabilityState: tileType === "retail" ? VENUE_DORMANT : VENUE_PARTIAL,
 			currentPopulation: 0,
