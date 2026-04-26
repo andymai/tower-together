@@ -35,18 +35,37 @@ export function computeTowerTierFromLedger(world: WorldState): number {
 }
 
 /**
- * Mirrors binary `add_to_primary_family_ledger_bucket` (1068:07f7). The
- * binary also routes the delta into a per-family slot lookup, but only the
- * primary running total is observable in the trace; we track only the total
- * here. Family code is accepted to match the binary signature and to make
- * the call sites self-documenting.
+ * Mirrors binary `add_to_primary_family_ledger_bucket` (1068:07f7).
+ * Binary 1068:0812-082b: bucket[family] += amount AND total += amount, with
+ * the total update unconditional. We mirror both so the running total stays
+ * consistent with the per-family bucket sums and so
+ * `clearPrimaryFamilyLedgerBucket` can later subtract the right amount.
  */
 export function addToPrimaryFamilyLedger(
 	world: WorldState,
-	_familyCode: number,
+	familyCode: number,
 	amount: number,
 ): void {
+	world.perFamilyLedgerBuckets[familyCode] =
+		(world.perFamilyLedgerBuckets[familyCode] ?? 0) + amount;
 	world.primaryFamilyLedgerTotal += amount;
+}
+
+/**
+ * Mirrors binary `clear_primary_family_ledger_bucket` (1068:07b3) at
+ * 1068:07d3-07e2: subtract the bucket's current value from the running total,
+ * then zero the bucket. Used by daily reseed paths (e.g.
+ * `rebuild_linked_facility_records` for non-restaurant commercial families)
+ * so that re-adding the new yesterday-visit-count yields a NET delta of
+ * `(newVisits - oldVisits)` on the total.
+ */
+export function clearPrimaryFamilyLedgerBucket(
+	world: WorldState,
+	familyCode: number,
+): void {
+	const current = world.perFamilyLedgerBuckets[familyCode] ?? 0;
+	world.primaryFamilyLedgerTotal -= current;
+	world.perFamilyLedgerBuckets[familyCode] = 0;
 }
 
 export function checkStarAdvancementConditions(

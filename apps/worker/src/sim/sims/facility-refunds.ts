@@ -4,6 +4,10 @@ import {
 	removeCashflowFromFamilyResource,
 } from "../ledger";
 import {
+	addToPrimaryFamilyLedger,
+	clearPrimaryFamilyLedgerBucket,
+} from "../progression";
+import {
 	COMMERCIAL_CAPACITY_CAPS,
 	COMMERCIAL_CLOSURE_BANDS,
 	COMMERCIAL_CLOSURE_PAYOUTS,
@@ -81,6 +85,13 @@ export function rebuildCommercialVenueRuntime(
 	time: TimeState,
 ): void {
 	const slot = selectFacilityProgressSlot(world, time);
+	// Binary `rebuild_linked_facility_records` (11b0:0184) opens by clearing
+	// the per-family ledger buckets for non-restaurant commercial families
+	// before iterating records and re-adding each record's yesterday-visit-
+	// count. The clear-then-add yields a NET delta of (new - old) on the
+	// running total, matching the binary's daily population accounting.
+	clearPrimaryFamilyLedgerBucket(world, FAMILY_FAST_FOOD);
+	clearPrimaryFamilyLedgerBucket(world, FAMILY_RETAIL);
 	for (const obj of Object.values(world.placedObjects)) {
 		const code = obj.objectTypeCode;
 		if (code !== FAMILY_FAST_FOOD && code !== FAMILY_RETAIL) continue;
@@ -104,7 +115,12 @@ export function rebuildCommercialVenueRuntime(
 		record.eligibilityThreshold = -(cap + 1);
 
 		// Roll visit counters (binary: record[8] = record[7], then clear).
+		// Binary recompute_facility_runtime_state @ 11b0:0461 calls
+		// add_to_primary_family_ledger_bucket(family_code, record[+8]) AFTER
+		// the roll, so yesterday's daily visit count contributes to the
+		// running primary-family-ledger total used by star advancement.
 		record.yesterdayVisitCount = record.todayVisitCount;
+		addToPrimaryFamilyLedger(world, code, record.yesterdayVisitCount);
 		record.todayVisitCount = 0;
 		record.currentPopulation = 0;
 		record.visitCount = 0;
@@ -152,22 +168,6 @@ export function rebuildRestaurantFacilityRecords(
 		record.visitCount = 0;
 		writeSeedForSlot(record, slot, 0);
 	}
-}
-
-export function resetCommercialVenueCycle(
-	world: WorldState,
-	_ledger: LedgerState,
-): void {
-	for (const record of world.sidecars) {
-		if (record.kind !== "commercial_venue") continue;
-		record.yesterdayVisitCount = record.todayVisitCount;
-		record.todayVisitCount = 0;
-		if (record.availabilityState !== VENUE_DORMANT) {
-			record.availabilityState = VENUE_PARTIAL;
-		}
-	}
-	// Note: retail shops activate lazily on first worker MORNING_GATE
-	// dispatch (in commercial.ts), matching the binary — not eagerly here.
 }
 
 export function closeCommercialVenues(world: WorldState): void {

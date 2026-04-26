@@ -50,7 +50,6 @@ import {
 	rebuildCommercialVenueRuntime,
 	rebuildRestaurantFacilityRecords,
 	refundUnhappyFacilities,
-	resetCommercialVenueCycle,
 	resetSimRuntimeState,
 	resetSimTripCounters,
 	spreadCockroachInfestation,
@@ -97,7 +96,11 @@ function checkpointFacilityLedgerRebuild(s: SimState): void {
 }
 
 function checkpointEntertainmentHalf1(_s: SimState): void {
-	resetCommercialVenueCycle(_s.world, _s.ledger);
+	// Binary 0x3e8 dispatches activate_entertainment_link_half_runtime_phase
+	// only — it touches g_entertainment_link_table and sim-table state but
+	// not g_commercial_venue_record_table. Earlier TS rolled fast-food/retail
+	// today→yesterday here, which clobbered the day's accumulated visit
+	// counts before the dayTick=240 ledger contribution could read them.
 	activateEntertainmentUpperHalf(_s.world);
 }
 
@@ -108,7 +111,7 @@ function checkpointHotelSaleReset(_s: SimState): void {
 }
 
 function checkpointEntertainmentHalf2(_s: SimState): void {
-	resetCommercialVenueCycle(_s.world, _s.ledger);
+	// Binary 0x578: entertainment-only — see checkpointEntertainmentHalf1.
 	activateEntertainmentLowerHalf(_s.world);
 }
 
@@ -128,8 +131,9 @@ function checkpointMidday(_s: SimState): void {
 	spreadCockroachInfestation(_s.world, _s.time);
 	// 2. Recompute hotel status + handle vacancy expiry + refresh occupancy
 	updateHotelOperationalAndOccupancy(_s.world, _s.time);
-	// 3. Normal midday tasks
-	resetCommercialVenueCycle(_s.world, _s.ledger);
+	// 3. Normal midday tasks (binary 0x640 commercial work is restricted to
+	//    rebuild_type6_facility_records above; fast-food/retail counters
+	//    stay untouched until dayTick=240's rebuild_linked_facility_records).
 	advancePartyHallPhaseAndAccrue(_s.world, _s.ledger, _s.time.dayCounter);
 	updateRecyclingCenterState(_s.world, _s.ledger, 0);
 	// 4. advance_object_stay_phase_tiers @ 1230:0b5f — raises unit_status bands

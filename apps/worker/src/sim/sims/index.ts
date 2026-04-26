@@ -26,7 +26,6 @@ export {
 	rebuildCommercialVenueRuntime,
 	rebuildRestaurantFacilityRecords,
 	refundUnhappyFacilities,
-	resetCommercialVenueCycle,
 } from "./facility-refunds";
 
 import { handleHotelSimArrival, processHotelSim } from "./hotel";

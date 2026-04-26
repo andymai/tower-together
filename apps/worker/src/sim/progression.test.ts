@@ -25,6 +25,7 @@ function makeWorld(): WorldState {
 		lobbyHeight: 1,
 		starCount: 1,
 		primaryFamilyLedgerTotal: 0,
+		perFamilyLedgerBuckets: {},
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
