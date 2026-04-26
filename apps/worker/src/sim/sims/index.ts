@@ -16,6 +16,7 @@ import {
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
+import { isSimInTransit } from "../sim-access/state-bits";
 import { handleCommercialSimArrival, processCommercialSim } from "./commercial";
 import { handleCondoSimArrival, processCondoSim } from "./condo";
 
@@ -549,7 +550,18 @@ export function advanceSimRefreshStride(
 		// resource type 0xff05 id 1000 word 0), it dispatches to the family-7
 		// state-0x60 handler at 1228:193d which writes sim[+5] = 0x26 (NIGHT_B).
 		// Phase 5b: delegated to families/maybe-dispatch-after-wait.ts.
+		// Capture the binary's gate (state_code & 0x40 && sim+8 >= 0x40, the
+		// carrier-queued alias) BEFORE invoking the helper: on timeout
+		// `dispatchTimedOutOfficeQueueEntry` rewrites the state and clears the
+		// route, so a post-helper check would let the per-state handler run
+		// this stride and double-sample RNG. Binary 1228:1d59-1d6e takes a
+		// hard either/or — when the helper runs, per-state dispatch is skipped.
+		const wasQueuedCarrierAlias =
+			isSimInTransit(sim.stateCode) && sim.route.mode === "carrier";
 		maybeDispatchQueuedRouteAfterWait(world, ledger, time, sim);
+		if (wasQueuedCarrierAlias) {
+			continue;
+		}
 		// Binary: sims with carrier route (sim+8 >= 0x40) are gated by
 		// maybe_dispatch_queued_route_after_wait above; the family state handler
 		// is NOT re-invoked. Sims with segment route (sim+8 < 0x40) DO go through
