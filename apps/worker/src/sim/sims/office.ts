@@ -872,7 +872,8 @@ export function handleOfficeSimArrival(
 		sim.stateCode === STATE_AT_WORK_TRANSIT ||
 		sim.stateCode === STATE_VENUE_HOME_TRANSIT ||
 		sim.stateCode === STATE_DWELL_RETURN_TRANSIT ||
-		sim.stateCode === STATE_DEPARTURE_TRANSIT
+		sim.stateCode === STATE_DEPARTURE_TRANSIT ||
+		sim.stateCode === STATE_COMMUTE_TRANSIT
 	) {
 		const targetFloor =
 			sim.stateCode === STATE_MORNING_TRANSIT ||
