@@ -228,6 +228,32 @@ export const TILE_TO_FAMILY_CODE: Record<string, number> = {
 	lobby: FAMILY_PARKING,
 };
 
+// ─── Cinema movie titles ─────────────────────────────────────────────────────
+// Resource RT_TYPE_32518 (name 0x81a4, file offset 0xb9a00): 15 Pascal strings.
+// Index 14 ("Under the Apple Tree") is unreachable: placement seeds with
+// rand()%14 (0..13) and the picker formulas wrap inside [0..6] and [7..13].
+// See specs/facility/ENTERTAINMENT.md → Movie Identity.
+
+export const MOVIE_TITLES: readonly string[] = [
+	"Revenge of the Big Spider",
+	"Northwest Romance",
+	"Samurai Cop",
+	"Big Wave",
+	"Farewell to Morocco",
+	"Fear of Shark Teeth",
+	"Western Sheriff",
+	"Dino Wars",
+	"The Making of a Star",
+	"Love in N.Y.",
+	"Waikiki Moon",
+	"My Man of War",
+	"Christmas for Both of Us",
+	"Casual Friends",
+];
+
+export const CINEMA_NEW_MOVIE_COST = 300_000;
+export const CINEMA_CLASSIC_MOVIE_COST = 150_000;
+
 // ─── YEN #1001 — payout table ─────────────────────────────────────────────────
 // Income per checkout/activation event, indexed by variant tier (0=best, 3=worst).
 

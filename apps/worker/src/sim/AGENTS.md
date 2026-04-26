@@ -38,7 +38,7 @@ Three-ledger economy: cash balance, population/income/expense ledgers, expense s
 Re-export shim: `SimState` bundle, `runCheckpoints()`, and `runSimulationDayScheduler()` now live in `tick/day-scheduler.ts`.
 
 ### `commands.ts`
-`handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds. Also: elevator config commands — `handleSetElevatorDwellDelay`, `handleSetElevatorWaitingCarResponse`, `handleSetElevatorHomeFloor`, `handleToggleElevatorFloorStop`.
+`handlePlaceTile()` / `handleRemoveTile()` — validation (including star-tier build unlocks), mutation, sidecar management, global rebuilds. Also: elevator config commands — `handleSetElevatorDwellDelay`, `handleSetElevatorWaitingCarResponse`, `handleSetElevatorHomeFloor`, `handleToggleElevatorFloorStop` — and `handleSetCinemaMoviePool` (cycles cinema selector within classic/new pool, charges $150k/$300k, resets `linkAgeCounter`).
 
 ### `ring-buffer.ts`
 Legacy generic `RingBuffer<T>`. Kept for backwards compat with old snapshot payloads; carrier floor queues now use `queue/route-record.RouteRequestRing` (fixed size 40, wraps silently on 41st enqueue).

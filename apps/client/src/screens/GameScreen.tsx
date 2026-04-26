@@ -93,6 +93,7 @@ export function GameScreen({
 		setElevatorWaitingCarResponse,
 		setElevatorHomeFloor,
 		toggleElevatorFloorStop,
+		setCinemaMoviePool,
 		reconnect,
 		sceneReady,
 		lobbyExists,
@@ -343,6 +344,7 @@ export function GameScreen({
 				onSetElevatorWaitingCarResponse={setElevatorWaitingCarResponse}
 				onSetElevatorHomeFloor={setElevatorHomeFloor}
 				onToggleElevatorFloorStop={toggleElevatorFloorStop}
+				onSetCinemaMoviePool={setCinemaMoviePool}
 				onInspectCell={handleCellInspect}
 				onPatchInspectedCell={handlePatchInspectedCell}
 			/>

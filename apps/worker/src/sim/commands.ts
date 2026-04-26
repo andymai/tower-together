@@ -8,6 +8,8 @@ import { rebuildSpecialLinkRouteRecords } from "./reachability/special-link-reco
 import {
 	CARRIER_CAR_CONSTRUCTION_COST,
 	CARRIER_EXTEND_FLOOR_COST,
+	CINEMA_CLASSIC_MOVIE_COST,
+	CINEMA_NEW_MOVIE_COST,
 	FAMILY_CINEMA,
 	FAMILY_CINEMA_LOWER,
 	FAMILY_CINEMA_STAIRS_LOWER,
@@ -93,7 +95,13 @@ export type SimCommand =
 			carIndex: number;
 			floor: number;
 	  }
-	| { type: "toggle_elevator_floor_stop"; x: number; floor: number };
+	| { type: "toggle_elevator_floor_stop"; x: number; floor: number }
+	| {
+			type: "set_cinema_movie_pool";
+			x: number;
+			y: number;
+			pool: "classic" | "new";
+	  };
 
 // ─── Infrastructure tiles (no PlacedObjectRecord) ─────────────────────────────
 
@@ -1364,6 +1372,59 @@ export function handleSetRentLevel(
 	// Immediate recompute keeps the inspected facility in sync with the command.
 	void time;
 	return { accepted: true, patch: [] };
+}
+
+// ─── Cinema movie pool ───────────────────────────────────────────────────────
+
+const CINEMA_FAMILY_CODES = new Set([
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+]);
+
+/**
+ * Cycle the cinema's movie selector within the chosen pool and charge the
+ * player. Mirrors `MOVIETITLEDIALOGFILTER` WM_COMMAND case 1 (new) / case 3
+ * (classic) at 0x1108:45C1: classic = `(cur+1)%7`, new = `((cur+1)%7)+7`,
+ * both reset `link_age_counter` so the next 240 rebuild reseeds budgets from
+ * age tier 0.
+ */
+export function handleSetCinemaMoviePool(
+	x: number,
+	y: number,
+	pool: "classic" | "new",
+	world: WorldState,
+	ledger: LedgerState,
+	freeBuild: boolean,
+): CommandResult {
+	const anchorKey = world.cellToAnchor[`${x},${y}`] ?? `${x},${y}`;
+	const record = world.placedObjects[anchorKey];
+	if (!record || !CINEMA_FAMILY_CODES.has(record.objectTypeCode)) {
+		return { accepted: false, reason: "Not a cinema" };
+	}
+	const sidecar = world.sidecars[record.linkedRecordIndex];
+	if (!sidecar || sidecar.kind !== "entertainment_link") {
+		return { accepted: false, reason: "Cinema sidecar missing" };
+	}
+	if (sidecar.familySelectorOrSingleLinkFlag === 0xff) {
+		return { accepted: false, reason: "Not a cinema" };
+	}
+
+	const cost =
+		pool === "classic" ? CINEMA_CLASSIC_MOVIE_COST : CINEMA_NEW_MOVIE_COST;
+	if (!freeBuild && ledger.cashBalance < cost) {
+		return { accepted: false, reason: "Insufficient funds" };
+	}
+
+	const cur = sidecar.familySelectorOrSingleLinkFlag;
+	const next = pool === "classic" ? (cur + 1) % 7 : ((cur + 1) % 7) + 7;
+	sidecar.familySelectorOrSingleLinkFlag = next;
+	sidecar.linkAgeCounter = 0;
+
+	if (!freeBuild) ledger.cashBalance -= cost;
+
+	return { accepted: true, patch: [], economyChanged: !freeBuild };
 }
 
 // ─── Elevator car management ─────────────────────────────────────────────────

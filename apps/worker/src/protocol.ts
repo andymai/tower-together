@@ -55,6 +55,13 @@ export function toSimCommand(msg: ClientMessage): SimCommand | null {
 			return { type: "add_elevator_car", x: msg.x, y: msg.y };
 		case "remove_elevator_car":
 			return { type: "remove_elevator_car", x: msg.x };
+		case "set_cinema_movie_pool":
+			return {
+				type: "set_cinema_movie_pool",
+				x: msg.x,
+				y: msg.y,
+				pool: msg.pool,
+			};
 		case "input_batch":
 		case "join_tower":
 		case "ping":

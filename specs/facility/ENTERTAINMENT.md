@@ -233,3 +233,55 @@ The gate handler (`0x12285231`) applies a daypart gate for states < `0x40`: sims
 - Party hall: `lower_floor_index` (reverse)
 
 This is the floor used as the routing destination for commercial venue service acquisition.
+
+## Movie Identity (Cinema Selector)
+
+The `venue_selector` byte is the cinema's currently-showing movie. Values 0..13 select one of 14 reachable movie titles; the binary's `RT_TYPE_32518` (custom resource type, name `0x81a4`, file offset `0xb9a00`) holds 15 length-prefixed Pascal strings, but index 14 ("Under the Apple Tree") is unreachable from both the placement RNG and the rotation formulas.
+
+| Index | Title                       | Pool    |
+|------:|-----------------------------|---------|
+| 0     | Revenge of the Big Spider   | classic |
+| 1     | Northwest Romance           | classic |
+| 2     | Samurai Cop                 | classic |
+| 3     | Big Wave                    | classic |
+| 4     | Farewell to Morocco         | classic |
+| 5     | Fear of Shark Teeth         | classic |
+| 6     | Western Sheriff             | classic |
+| 7     | Dino Wars                   | new     |
+| 8     | The Making of a Star        | new     |
+| 9     | Love in N.Y.                | new     |
+| 10    | Waikiki Moon                | new     |
+| 11    | My Man of War               | new     |
+| 12    | Christmas for Both of Us    | new     |
+| 13    | Casual Friends              | new     |
+| 14    | Under the Apple Tree        | dead    |
+
+The two pools (low 0..6 = "classics", high 7..13 = "new releases") drive the runtime budget table partition described in [Runtime Budget Rules](#runtime-budget-rules): classics cap attendance lower (40 → 20 across age tiers); new releases cap higher (60 → 20).
+
+### Placement seed
+
+`allocate_entertainment_link_record` (0x11880160) calls the LCG sampler once and stores `sample_lcg15() % 14` into `venue_selector`. Party halls bypass this and store `0xff`.
+
+### Newspaper headline string
+
+`classify_news_slot_subject` (0x11D0:089F) returns `venue_selector + 0x2329` as the news-popup string ID, but only when `link_phase_state == 3` (ready). Each movie therefore drives a distinct headline; "Terrible sales! Change the movie!" appears when attendance falls into the lowest tier (the < 40 payout band).
+
+## Cinema "New Movie" Picker
+
+The cinema info dialog (template `0x82F6`, filter `TENANTINFODLOGFILTER` at `0x1108:0AD8`) routes by `g_facility_family_state == 0xA` — all four cinema type codes (`0x12/0x13/0x22/0x23`) collapse to family 10. Pressing "New Movie" (control id `0x0D`) opens dialog `0x82DB` (filter `MOVIETITLEDIALOGFILTER` at `0x1108:43DF`) with the cinema's link index passed as `lParam` and stashed at `[DS:0x2CFA]` on `WM_INITDIALOG`.
+
+The picker has two purchase buttons:
+
+| Button | Label                          | Cost      | Cycle formula                          |
+|-------:|--------------------------------|----------:|----------------------------------------|
+| 1      | "Show a new movie: $300,000"   | `$300,000` | `selector = ((selector + 1) % 7) + 7`  |
+| 3      | "Show a classic: $150,000"     | `$150,000` | `selector = (selector + 1) % 7`        |
+| 2      | (cancel)                       | —         | no mutation                            |
+
+Both purchase branches additionally:
+- reset `link_age_counter` to 0 (the next checkpoint-240 rebuild reseeds `upper_runtime_phase` / `lower_runtime_phase` from age tier 0)
+- subtract the price from `g_cash_balance` via `refund_income_from_cash` (`0x1180:0862`)
+
+The dialog handler does **not** gate on `link_phase_state` — the player can change the movie at any time (mid-cycle changes do not refund consumed budget but the new selector takes effect at the next rebuild).
+
+There is **no auto-rotation**: the only writers of `venue_selector` are (a) boot zero in `reset_entertainment_link_table` (`0x11880042`), (b) placement seed in `allocate_entertainment_link_record` (`0x11880160`/`0x1188016c`), and (c) the dialog handler at `0x110845FB` (high pool) and `0x11084640` (low pool). Movies stay locked until the player pays.

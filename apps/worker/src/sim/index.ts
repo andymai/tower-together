@@ -5,6 +5,7 @@ import {
 	handlePlaceTile,
 	handleRemoveElevatorCar,
 	handleRemoveTile,
+	handleSetCinemaMoviePool,
 	handleSetElevatorDwellDelay,
 	handleSetElevatorHomeFloor,
 	handleSetElevatorWaitingCarResponse,
@@ -236,6 +237,15 @@ export class TowerSim {
 				);
 			case "toggle_elevator_floor_stop":
 				return handleToggleElevatorFloorStop(cmd.x, cmd.floor, this.world);
+			case "set_cinema_movie_pool":
+				return handleSetCinemaMoviePool(
+					cmd.x,
+					cmd.y,
+					cmd.pool,
+					this.world,
+					this.ledger,
+					this.freeBuild,
+				);
 		}
 	}
 
@@ -255,6 +265,12 @@ export class TowerSim {
 			activationTickCount: number;
 			venueAvailability?: number;
 			housekeepingClaimedFlag?: number;
+		};
+		cinemaInfo?: {
+			selector: number;
+			linkAgeCounter: number;
+			attendanceCounter: number;
+			linkPhaseState: number;
 		};
 		carrierInfo?: {
 			carrierId: number;
@@ -277,10 +293,29 @@ export class TowerSim {
 
 		const record = this.world.placedObjects[anchorKey];
 		let venueAvailability: number | undefined;
+		let cinemaInfo:
+			| {
+					selector: number;
+					linkAgeCounter: number;
+					attendanceCounter: number;
+					linkPhaseState: number;
+			  }
+			| undefined;
 		if (record && record.linkedRecordIndex >= 0) {
 			const sidecar = this.world.sidecars[record.linkedRecordIndex];
 			if (sidecar?.kind === "commercial_venue") {
 				venueAvailability = sidecar.availabilityState;
+			}
+			if (
+				sidecar?.kind === "entertainment_link" &&
+				sidecar.familySelectorOrSingleLinkFlag !== 0xff
+			) {
+				cinemaInfo = {
+					selector: sidecar.familySelectorOrSingleLinkFlag,
+					linkAgeCounter: sidecar.linkAgeCounter,
+					attendanceCounter: sidecar.attendanceCounter,
+					linkPhaseState: sidecar.linkPhaseState,
+				};
 			}
 		}
 		const objectInfo = record
@@ -355,7 +390,13 @@ export class TowerSim {
 		}
 
 		const [anchorXStr] = anchorKey.split(",");
-		return { anchorX: Number(anchorXStr), tileType, objectInfo, carrierInfo };
+		return {
+			anchorX: Number(anchorXStr),
+			tileType,
+			objectInfo,
+			cinemaInfo,
+			carrierInfo,
+		};
 	}
 
 	// ── Serialization ──────────────────────────────────────────────────────────

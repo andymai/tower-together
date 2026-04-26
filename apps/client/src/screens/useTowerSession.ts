@@ -56,6 +56,7 @@ interface UseTowerSessionResult {
 	setElevatorWaitingCarResponse: (x: number, value: number) => void;
 	setElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
 	toggleElevatorFloorStop: (x: number, floor: number) => void;
+	setCinemaMoviePool: (x: number, y: number, pool: "classic" | "new") => void;
 	reconnect: () => void;
 }
 
@@ -141,6 +142,8 @@ export function useTowerSession({
 			controllerRef.current?.setElevatorHomeFloor(x, carIndex, floor),
 		toggleElevatorFloorStop: (x, floor) =>
 			controllerRef.current?.toggleElevatorFloorStop(x, floor),
+		setCinemaMoviePool: (x, y, pool) =>
+			controllerRef.current?.setCinemaMoviePool(x, y, pool),
 		reconnect: () => controllerRef.current?.reconnect(),
 	};
 }

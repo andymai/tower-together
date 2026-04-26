@@ -14,6 +14,12 @@ export type ClientMessage =
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
 	| { type: "add_elevator_car"; x: number; y: number }
 	| { type: "remove_elevator_car"; x: number }
+	| {
+			type: "set_cinema_movie_pool";
+			x: number;
+			y: number;
+			pool: "classic" | "new";
+	  }
 	| { type: "set_free_build"; enabled: boolean }
 	| { type: "set_active"; active: boolean };
 
@@ -136,6 +142,12 @@ export type ServerMessage =
 				unitStatus: number;
 				activationTickCount: number;
 				housekeepingClaimedFlag?: number;
+			};
+			cinemaInfo?: {
+				selector: number;
+				linkAgeCounter: number;
+				attendanceCounter: number;
+				linkPhaseState: number;
 			};
 			carrierInfo?: {
 				carrierId: number;

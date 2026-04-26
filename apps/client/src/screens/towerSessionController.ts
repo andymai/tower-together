@@ -422,6 +422,10 @@ export class TowerSessionController {
 		this.sendInputBatch([{ type: "toggle_elevator_floor_stop", x, floor }]);
 	}
 
+	setCinemaMoviePool(x: number, y: number, pool: "classic" | "new"): void {
+		this.sendInputBatch([{ type: "set_cinema_movie_pool", x, y, pool }]);
+	}
+
 	reconnect(): void {
 		this.socket.reconnect();
 	}
@@ -540,6 +544,7 @@ export class TowerSessionController {
 						anchorX: msg.anchorX,
 						tileType: msg.tileType,
 						objectInfo: msg.objectInfo,
+						cinemaInfo: msg.cinemaInfo,
 						carrierInfo: msg.carrierInfo,
 					},
 				});

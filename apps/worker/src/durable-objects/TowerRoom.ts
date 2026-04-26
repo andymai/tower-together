@@ -215,6 +215,7 @@ export class TowerRoom extends DurableObject<Env> {
 				anchorX: info.anchorX,
 				tileType: info.tileType,
 				objectInfo: info.objectInfo,
+				cinemaInfo: info.cinemaInfo,
 				carrierInfo: info.carrierInfo,
 			});
 			return;

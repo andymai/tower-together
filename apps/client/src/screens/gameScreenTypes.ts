@@ -25,6 +25,12 @@ export interface CellInfoData {
 		venueAvailability?: number;
 		housekeepingClaimedFlag?: number;
 	};
+	cinemaInfo?: {
+		selector: number;
+		linkAgeCounter: number;
+		attendanceCounter: number;
+		linkPhaseState: number;
+	};
 	carrierInfo?: {
 		carrierId: number;
 		column: number;

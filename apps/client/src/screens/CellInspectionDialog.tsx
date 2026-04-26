@@ -1,4 +1,9 @@
 import {
+	CINEMA_CLASSIC_MOVIE_COST,
+	CINEMA_NEW_MOVIE_COST,
+	MOVIE_TITLES,
+} from "../../../worker/src/sim/resources";
+import {
 	CARRIER_CAR_CONSTRUCTION_COST,
 	type CarrierCarStateData,
 	GRID_HEIGHT,
@@ -85,6 +90,7 @@ interface Props {
 	onSetElevatorWaitingCarResponse: (x: number, value: number) => void;
 	onSetElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
 	onToggleElevatorFloorStop: (x: number, floor: number) => void;
+	onSetCinemaMoviePool: (x: number, y: number, pool: "classic" | "new") => void;
 	onInspectCell: (x: number, y: number) => void;
 	onPatchInspectedCell: (updater: (cell: CellInfoData) => CellInfoData) => void;
 }
@@ -101,6 +107,7 @@ export function CellInspectionDialog({
 	onSetElevatorWaitingCarResponse,
 	onSetElevatorHomeFloor,
 	onToggleElevatorFloorStop,
+	onSetCinemaMoviePool,
 	onInspectCell,
 	onPatchInspectedCell,
 }: Props) {
@@ -150,6 +157,57 @@ export function CellInspectionDialog({
 							</div>
 						</div>
 					)}
+
+				{!inspectedCell.carrierInfo && inspectedCell.cinemaInfo && (
+					<div style={styles.inspectSection}>
+						<div style={styles.inspectRow}>
+							<span style={styles.inspectLabel}>Now Playing</span>
+							<span style={styles.inspectValue}>
+								{MOVIE_TITLES[inspectedCell.cinemaInfo.selector] ??
+									`#${inspectedCell.cinemaInfo.selector}`}
+							</span>
+						</div>
+						<div style={styles.inspectRow}>
+							<span style={styles.inspectLabel}>Length of Showing</span>
+							<span style={styles.inspectValue}>
+								{inspectedCell.cinemaInfo.linkAgeCounter} day
+								{inspectedCell.cinemaInfo.linkAgeCounter === 1 ? "" : "s"}
+							</span>
+						</div>
+						<div style={styles.inspectRow}>
+							<span style={styles.inspectLabel}>Attendance</span>
+							<span style={styles.inspectValue}>
+								{inspectedCell.cinemaInfo.attendanceCounter}
+							</span>
+						</div>
+						<div style={styles.carButtons}>
+							<button
+								type="button"
+								style={styles.carButton}
+								onClick={() => {
+									onSetCinemaMoviePool(
+										inspectedCell.x,
+										inspectedCell.y,
+										"classic",
+									);
+								}}
+							>
+								Show a classic ($
+								{CINEMA_CLASSIC_MOVIE_COST.toLocaleString()})
+							</button>
+							<button
+								type="button"
+								style={styles.carButton}
+								onClick={() => {
+									onSetCinemaMoviePool(inspectedCell.x, inspectedCell.y, "new");
+								}}
+							>
+								Show a new movie ($
+								{CINEMA_NEW_MOVIE_COST.toLocaleString()})
+							</button>
+						</div>
+					</div>
+				)}
 
 				{!inspectedCell.carrierInfo &&
 					inspectedCell.objectInfo &&
