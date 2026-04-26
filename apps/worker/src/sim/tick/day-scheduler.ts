@@ -12,9 +12,9 @@ import {
 	activateEntertainmentLowerHalf,
 	activateEntertainmentUpperHalf,
 	advanceEntertainmentLowerPairedPhaseAndAccrue,
-	advanceEntertainmentLowerPhaseAndAccrue,
 	advanceEntertainmentUpperPhase,
-	promoteAndActivateSingleLower,
+	advancePartyHallPhaseAndAccrue,
+	promoteCinemaAndActivatePartyHall,
 	seedEntertainmentBudgets,
 } from "../entertainment";
 import {
@@ -104,7 +104,7 @@ function checkpointEntertainmentHalf1(_s: SimState): void {
 function checkpointHotelSaleReset(_s: SimState): void {
 	_s.world.gateFlags.family345SaleCount = 0;
 	dispatchEvalMiddayReturn(_s.world);
-	promoteAndActivateSingleLower(_s.world);
+	promoteCinemaAndActivatePartyHall(_s.world);
 }
 
 function checkpointEntertainmentHalf2(_s: SimState): void {
@@ -130,7 +130,7 @@ function checkpointMidday(_s: SimState): void {
 	updateHotelOperationalAndOccupancy(_s.world, _s.time);
 	// 3. Normal midday tasks
 	resetCommercialVenueCycle(_s.world, _s.ledger);
-	advanceEntertainmentLowerPhaseAndAccrue(_s.world, _s.ledger);
+	advancePartyHallPhaseAndAccrue(_s.world, _s.ledger, _s.time.dayCounter);
 	updateRecyclingCenterState(_s.world, _s.ledger, 0);
 	// 4. advance_object_stay_phase_tiers @ 1230:0b5f — raises unit_status bands
 	//    (hotel 0x18→0x20, 0x28→0x30, 0x38→0x40; office 0x00→0x08, 0x10→0x18;
@@ -144,7 +144,11 @@ function checkpointNoop(_s: SimState): void {
 }
 
 function checkpointEntertainmentPhase2(_s: SimState): void {
-	advanceEntertainmentLowerPairedPhaseAndAccrue(_s.world, _s.ledger);
+	advanceEntertainmentLowerPairedPhaseAndAccrue(
+		_s.world,
+		_s.ledger,
+		_s.time.dayCounter,
+	);
 }
 
 function checkpointLateFacility(_s: SimState): void {

@@ -7,7 +7,13 @@ import {
 	FAMILY_PARTY_HALL,
 	FAMILY_PARTY_HALL_LOWER,
 } from "./resources";
-import { STATE_ACTIVE, STATE_ARRIVED, STATE_PARKED } from "./sims/states";
+import {
+	STATE_ACTIVE,
+	STATE_ARRIVED,
+	STATE_DEPARTURE,
+	STATE_MORNING_GATE,
+	STATE_PARKED,
+} from "./sims/states";
 import type { EntertainmentLinkRecord, WorldState } from "./world";
 
 // Family codes emitted by cinema placement (upper stairway, upper theater,
@@ -17,13 +23,6 @@ const CINEMA_FAMILY_CODES = new Set([
 	FAMILY_CINEMA_LOWER,
 	FAMILY_CINEMA_STAIRS_UPPER,
 	FAMILY_CINEMA_STAIRS_LOWER,
-]);
-
-// Family codes emitted by party hall placement (upper, lower). Both share one
-// sidecar.
-const PARTY_HALL_FAMILY_CODES = new Set([
-	FAMILY_PARTY_HALL,
-	FAMILY_PARTY_HALL_LOWER,
 ]);
 
 /**
@@ -48,11 +47,15 @@ function isPairedSidecar(sidecar: EntertainmentLinkRecord): boolean {
 }
 
 /**
- * Seed entertainment link budgets and increment link age.
- * Called as part of the facility ledger rebuild checkpoint.
+ * Binary `rebuild_entertainment_family_ledger` @ 1188:05af.
+ * Seed entertainment link budgets, increment link age, clear cycle counters.
+ * Called at tick 0x0F0 (240) as part of the facility ledger rebuild.
  *
  * Iterates sidecars directly: each placement owns exactly one sidecar,
  * shared by its 4 (cinema) or 2 (party hall) sub-records.
+ *
+ * Note: the binary does NOT clear `link_phase_state` here — that happens at
+ * the previous day's lower-half advance pass. We mirror that.
  */
 export function seedEntertainmentBudgets(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
@@ -61,7 +64,6 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 
 		sidecar.attendanceCounter = 0;
 		sidecar.activeRuntimeCount = 0;
-		sidecar.linkPhaseState = 0;
 		sidecar.pendingTransitionFlag = 0;
 		sidecar.linkAgeCounter = Math.min(0x7f, sidecar.linkAgeCounter + 1);
 
@@ -95,9 +97,17 @@ export function activateEntertainmentUpperHalf(world: WorldState): void {
 }
 
 /**
- * Promote paired links to ready phase; activate single-link lower-half.
+ * Tick 0x4B0 (1200) action.
+ * Promote paired (cinema) links phase 2 → 3, AND activate party hall lower
+ * half: link 0 → 1 plus seed every lower-half occupant sim's stateCode to
+ * STATE_MORNING_GATE (0x20).
+ *
+ * Binary `activate_entertainment_link_half_runtime_phase(half=1, paired=0)`
+ * @ 1188:06a8 walks the lower-half occupant span (40 slots) and writes
+ * sim[+5] = 0x20 unconditionally. We approximate the per-record span by
+ * matching `homeColumn` + family code on the lower half.
  */
-export function promoteAndActivateSingleLower(world: WorldState): void {
+export function promoteCinemaAndActivatePartyHall(world: WorldState): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		if (sidecar.ownerSubtypeIndex === 0xff) continue;
@@ -109,6 +119,11 @@ export function promoteAndActivateSingleLower(world: WorldState): void {
 		} else {
 			if (sidecar.linkPhaseState === 0) {
 				sidecar.linkPhaseState = 1;
+			}
+			for (const sim of world.sims) {
+				if (sim.familyCode !== FAMILY_PARTY_HALL_LOWER) continue;
+				if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
+				sim.stateCode = STATE_MORNING_GATE;
 			}
 		}
 	}
@@ -164,76 +179,99 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 }
 
 /**
- * advance_entertainment_facility_phase(param_1=1, param_2=0) — checkpoint 0x640.
- * Advance lower phase for single-link (party hall) only, accrue income, reset phase.
+ * Binary check at the entry of `accrue_facility_income_by_family` @ 1180:12e7:
+ * skip the cash payout when the day counter lands on a calendar edge. The
+ * record-level state reset (link_phase_state = 0) still happens.
  */
-export function advanceEntertainmentLowerPhaseAndAccrue(
+function isCalendarEdgePayoutSkipDay(dayCounter: number): boolean {
+	return dayCounter % 60 === 59 || dayCounter % 84 === 83;
+}
+
+/**
+ * Binary `advance_entertainment_facility_phase(half=1, paired=0)` — checkpoint 0x640.
+ * Drain party hall attendees one at a time, accrue $20k income (gated by
+ * the calendar-edge skip), reset link phase. The drain walks each occupant
+ * slot in the lower-half span: for each sim in STATE_ARRIVED, decrement
+ * `activeRuntimeCount` and set the sim's stateCode to STATE_DEPARTURE (0x05)
+ * so the linked-half routing handler routes it back to the lobby. Sims in
+ * any other state are left alone.
+ */
+export function advancePartyHallPhaseAndAccrue(
 	world: WorldState,
 	ledger: LedgerState,
+	dayCounter: number,
 ): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		if (sidecar.ownerSubtypeIndex === 0xff) continue;
 		if (isPairedSidecar(sidecar)) continue;
 
-		if (sidecar.linkPhaseState >= 1) {
-			sidecar.activeRuntimeCount = Math.max(
-				0,
-				sidecar.activeRuntimeCount - sidecar.lowerBudget,
-			);
-			if (sidecar.attendanceCounter > 0) {
-				const payout = 20_000;
-				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
-				ledger.incomeLedger[FAMILY_PARTY_HALL] =
-					(ledger.incomeLedger[FAMILY_PARTY_HALL] ?? 0) + payout;
-			}
-		}
-
+		const previousPhaseState = sidecar.linkPhaseState;
 		sidecar.linkPhaseState = 0;
 
 		for (const sim of world.sims) {
-			if (!PARTY_HALL_FAMILY_CODES.has(sim.familyCode)) continue;
+			if (sim.familyCode !== FAMILY_PARTY_HALL_LOWER) continue;
 			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
-			if (sim.stateCode !== STATE_PARKED) {
-				sim.stateCode = STATE_PARKED;
+			if (sim.stateCode === STATE_ARRIVED) {
+				sim.stateCode = STATE_DEPARTURE;
+				sidecar.activeRuntimeCount = Math.max(
+					0,
+					sidecar.activeRuntimeCount - 1,
+				);
 			}
+		}
+
+		if (previousPhaseState >= 1 && sidecar.attendanceCounter > 0) {
+			if (isCalendarEdgePayoutSkipDay(dayCounter)) continue;
+			const payout = 20_000;
+			ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
+			ledger.incomeLedger[FAMILY_PARTY_HALL] =
+				(ledger.incomeLedger[FAMILY_PARTY_HALL] ?? 0) + payout;
 		}
 	}
 }
 
 /**
- * advance_entertainment_facility_phase(param_1=1, param_2=1) — checkpoint 0x76c.
- * Advance lower phase for paired (cinema) links, accrue income, reset phase.
+ * Binary `advance_entertainment_facility_phase(half=1, paired=1)` — checkpoint 0x76c.
+ * Advance lower phase for paired (cinema) links, accrue income with the
+ * calendar-edge skip, reset link phase. Payout is attendance-tiered.
+ *
+ * Note: cinema sims aren't yet spawned in TS; the per-sim drain semantics
+ * here mirror party hall's for symmetry with the binary, but they currently
+ * touch zero sims.
  */
 export function advanceEntertainmentLowerPairedPhaseAndAccrue(
 	world: WorldState,
 	ledger: LedgerState,
+	dayCounter: number,
 ): void {
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		if (sidecar.ownerSubtypeIndex === 0xff) continue;
 		if (!isPairedSidecar(sidecar)) continue;
 
-		if (sidecar.linkPhaseState >= 1) {
-			sidecar.activeRuntimeCount = Math.max(
-				0,
-				sidecar.activeRuntimeCount - sidecar.lowerBudget,
-			);
-			const payout = movieTheaterPayout(sidecar.attendanceCounter);
-			if (payout > 0) {
-				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
-				ledger.incomeLedger[FAMILY_CINEMA] =
-					(ledger.incomeLedger[FAMILY_CINEMA] ?? 0) + payout;
-			}
-		}
-
+		const previousPhaseState = sidecar.linkPhaseState;
 		sidecar.linkPhaseState = 0;
 
 		for (const sim of world.sims) {
 			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
 			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
-			if (sim.stateCode !== STATE_PARKED) {
-				sim.stateCode = STATE_PARKED;
+			if (sim.stateCode === STATE_ARRIVED) {
+				sim.stateCode = STATE_DEPARTURE;
+				sidecar.activeRuntimeCount = Math.max(
+					0,
+					sidecar.activeRuntimeCount - 1,
+				);
+			}
+		}
+
+		if (previousPhaseState >= 1) {
+			if (isCalendarEdgePayoutSkipDay(dayCounter)) continue;
+			const payout = movieTheaterPayout(sidecar.attendanceCounter);
+			if (payout > 0) {
+				ledger.cashBalance = Math.min(99_999_999, ledger.cashBalance + payout);
+				ledger.incomeLedger[FAMILY_CINEMA] =
+					(ledger.incomeLedger[FAMILY_CINEMA] ?? 0) + payout;
 			}
 		}
 	}

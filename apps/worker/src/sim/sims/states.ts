@@ -6,6 +6,7 @@ import {
 	FAMILY_HOTEL_TWIN,
 	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
+	FAMILY_PARTY_HALL_LOWER,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
@@ -84,6 +85,9 @@ export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_SECURITY]: 6,
 	// Housekeeping helpers (family 0x0f).
 	[FAMILY_HOUSEKEEPING]: 6,
+	// Party hall lower (0x1e) — 40-slot occupant span; upper half (0x1d) is
+	// never activated and gets no sims. Binary `get_span_size_for_family` = 0x28.
+	[FAMILY_PARTY_HALL_LOWER]: 40,
 	// Cathedral guest sims: 5 floor types x 8 slots = 40 guests.
 	36: 8, // 0x24
 	37: 8, // 0x25

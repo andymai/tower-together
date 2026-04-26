@@ -105,36 +105,70 @@ function findEntertainmentLink(
 }
 
 /**
- * Binary `try_consume_entertainment_phase_budget`: check and consume one unit
- * of the link's upper-half attendance budget. Returns false when the budget or
- * runtime count is already zero (sim should not proceed for state 0x20).
+ * Binary `try_consume_entertainment_phase_budget` @ 1188:0ce9.
+ *
+ * Selects which budget byte to consume by entity placed-object type:
+ *   - 0x12 (cinema upper) | 0x22 (cinema upper stair) | 0x1d (party hall upper)
+ *       → upper budget (offset 4)
+ *   - all other types (0x13, 0x23, 0x1e) → lower budget (offset 5)
+ *
+ * Returns false if the selected budget byte is 0; otherwise decrements it
+ * by 1 and returns true. Does NOT touch `attendance_counter` (that is the
+ * job of `increment_entertainment_link_runtime_counters` on arrival).
  */
+function entertainmentBudgetUsesUpperByte(entityType: number): boolean {
+	return (
+		entityType === FAMILY_CINEMA ||
+		entityType === FAMILY_CINEMA_STAIRS_UPPER ||
+		entityType === FAMILY_PARTY_HALL
+	);
+}
+
 function tryConsumeEntertainmentPhaseBudget(
 	link: EntertainmentLinkRecord,
+	entityType: number,
 ): boolean {
-	if (link.upperBudget === 0 || link.activeRuntimeCount === 0) return false;
-	link.attendanceCounter += 1;
+	if (entertainmentBudgetUsesUpperByte(entityType)) {
+		if (link.upperBudget === 0) return false;
+		link.upperBudget -= 1;
+	} else {
+		if (link.lowerBudget === 0) return false;
+		link.lowerBudget -= 1;
+	}
 	return true;
 }
 
 /**
- * Binary `increment_entertainment_half_phase`: advance the link phase state
- * when a route fails during phase consumption.
+ * Binary `increment_entertainment_half_phase` @ 1188 (refund path).
+ * Called on a -1 route failure inside `handle_entertainment_phase_consumption`
+ * to give back the unit just consumed by `try_consume_entertainment_phase_budget`.
+ * Increments the same budget byte (saturating at 0xff), NOT `link_phase_state`.
  */
-function incrementEntertainmentHalfPhase(link: EntertainmentLinkRecord): void {
-	if (link.linkPhaseState < 3) {
-		link.linkPhaseState += 1;
+function incrementEntertainmentHalfPhase(
+	link: EntertainmentLinkRecord,
+	entityType: number,
+): void {
+	if (entertainmentBudgetUsesUpperByte(entityType)) {
+		link.upperBudget = Math.min(0xff, link.upperBudget + 1);
+	} else {
+		link.lowerBudget = Math.min(0xff, link.lowerBudget + 1);
 	}
 }
 
 /**
- * Binary `increment_entertainment_link_runtime_counters`: called on same-floor
- * arrival (route result 3) during phase consumption to decrement active count.
+ * Binary `increment_entertainment_link_runtime_counters`: called on a route
+ * result 3 (arrival) during phase consumption.
+ *
+ *   - increments `active_runtime_count` (currently-present attendees)
+ *   - increments `attendance_counter` (total arrivals this cycle)
+ *   - if `link_phase_state == 1`, promotes it to 2 (first arrival)
  */
 function incrementEntertainmentLinkRuntimeCounters(
 	link: EntertainmentLinkRecord,
 ): void {
-	link.activeRuntimeCount = Math.max(0, link.activeRuntimeCount - 1);
+	link.activeRuntimeCount = Math.min(0xff, link.activeRuntimeCount + 1);
+	link.attendanceCounter = Math.min(0xff, link.attendanceCounter + 1);
+	if (link.linkPhaseState === 1) link.linkPhaseState = 2;
 }
 
 /**
@@ -159,12 +193,14 @@ function getEntertainmentLinkReverseFloor(sim: SimRecord): number {
 /**
  * 1228:54b8 handle_entertainment_phase_consumption.
  *
- * State 0x20 (fresh): try consume budget; route from lobby to venue floor.
+ * State 0x20 (fresh): try consume budget byte (selected by entity type);
+ *   if budget==0 stay idle in 0x20. Otherwise route from lobby to venue floor.
  * State 0x60 (retry): route from sim.originFloor to venue floor.
  * Route results:
  *   0/1/2 → state 0x60 (in-transit retry)
- *   3     → decrement runtime counter, state 0x03 (arrived)
- *   -1    → for 0x20: state 0x20, clear counters, increment half phase;
+ *   3     → increment active+attendance counters (and promote phase 1→2),
+ *            state 0x03 (arrived)
+ *   -1    → for 0x20: state 0x20, refund consumed budget byte;
  *            for 0x60: state 0x27 (parked)
  */
 function handleEntertainmentPhaseConsumption(
@@ -175,7 +211,10 @@ function handleEntertainmentPhaseConsumption(
 	const link = findEntertainmentLink(world, sim);
 
 	if (sim.stateCode === ENT_STATE_PHASE_CONSUME) {
-		if (link !== null && !tryConsumeEntertainmentPhaseBudget(link)) {
+		if (
+			link !== null &&
+			!tryConsumeEntertainmentPhaseBudget(link, sim.familyCode)
+		) {
 			return;
 		}
 	}
@@ -214,7 +253,8 @@ function handleEntertainmentPhaseConsumption(
 				sim.originFloor = 0;
 				sim.elapsedTicks = 0;
 				sim.accumulatedTicks = 0;
-				if (link !== null) incrementEntertainmentHalfPhase(link);
+				if (link !== null)
+					incrementEntertainmentHalfPhase(link, sim.familyCode);
 			} else {
 				sim.stateCode = ENT_STATE_PARKED;
 			}
@@ -289,10 +329,15 @@ function handleEntertainmentServiceAcquisition(
 	time: TimeState,
 	sim: SimRecord,
 ): void {
+	// Binary 1228:5836 writes plain `0xb0` to sim[+6] on fresh dispatch, then
+	// stashes the chosen venue in a per-sim "current commercial venue" slot
+	// that we don't model. As a TS-side workaround we encode the bucket index
+	// into the sentinel byte (0xb0 + bucket) so the retry path can recover
+	// the bucket without a dedicated field. This is an observable divergence
+	// in `selectedFloor` traces that we accept until a per-sim chosen-venue
+	// field is added.
 	if (sim.stateCode === ENT_STATE_SERVICE_ACQUIRE) {
 		const bucketIndex = sampleRng(world) % ENT_VENUE_BUCKET_MODULO;
-		// Binary quirk: selector byte written to sim[+6] (selectedFloor). Value
-		// 0xb0+bucketIndex encodes the bucket index with a high sentinel byte.
 		sim.selectedFloor = ENT_NO_VENUE_SENTINEL + bucketIndex;
 	}
 

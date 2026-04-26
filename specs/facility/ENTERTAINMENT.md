@@ -141,7 +141,7 @@ Key observations:
 
 ## Record Initialization
 
-Fresh allocation zeroes the live cycle fields:
+Fresh allocation (`allocate_entertainment_link_record` @ 1188:0073) zeroes the live cycle fields:
 
 - `link_phase_state = 0`
 - `upper_runtime_phase = 0`
@@ -150,6 +150,8 @@ Fresh allocation zeroes the live cycle fields:
 - `link_age_counter = 0`
 - `active_runtime_count = 0`
 - `attendance_counter = 0`
+
+The daily rebuild at tick `0x0F0` (`rebuild_entertainment_family_ledger` @ 1188:05af) re-seeds the budgets per the rules below, increments `link_age_counter` (saturating at `0x7f`), and clears `pending_transition_flag`, `active_runtime_count`, `attendance_counter`. **The rebuild does NOT touch `link_phase_state`** — the previous day's lower-half advance (tick 1600 / 1900) is what resets phase to 0. On day 0 before any advance has run, the value carried forward is whatever `allocate_entertainment_link_record` wrote (= 0).
 
 Movie theaters roll a selector bucket at placement:
 
@@ -191,11 +193,30 @@ Party hall (`0x1d`) always rebuilds to:
 
 ## Attendance And Income
 
-Attendance is tracked directly on the venue record:
+Attendance is tracked directly on the venue record by `increment_entertainment_link_runtime_counters` (called from `handle_entertainment_phase_consumption` on route result 3):
 
-- each successful arrival into the entertainment destination increments both `active_runtime_count` and `attendance_counter`
-- the first arrival also promotes `link_phase_state` from 1 to 2
-- the daily checkpoint 240 rebuild clears both counters back to 0
+- increments `active_runtime_count` (currently-present attendees)
+- increments `attendance_counter` (total arrivals this cycle)
+- if `link_phase_state == 1`, promotes it to 2 (first arrival)
+
+The lower-half advance pass (tick 1600 / 1900) drains attendees one at a time:
+
+- per occupant slot in the half's span, if `sim[+5] == 0x03` (arrived):
+  - decrement `active_runtime_count` by 1
+  - set `sim[+5] = 5` (linked-half routing — sim heads back to the lobby)
+- party hall always sets the new state byte to `5`. Cinema may set it to `1` instead when `g_pre_day_4_flag != 0` (early-game variant)
+- sims in any other state are not touched
+
+The daily checkpoint 240 rebuild clears `active_runtime_count` and `attendance_counter` back to 0.
+
+### Calendar-edge payout skip
+
+`accrue_facility_income_by_family` @ 1180:12e7 is gated by two day-counter checks at function entry:
+
+- if `g_day_counter % 60 == 59` → return immediately
+- if `g_day_counter % 84 == 83` → return immediately
+
+When skipped, the venue's record-level state still resets (`link_phase_state` is set to 0 outside the accrual function), but no cash payout, no income-ledger update, and no popup notification. Applies to both cinema and party hall.
 
 Movie theater (`0x12`) cash income uses attendance thresholds:
 
@@ -218,13 +239,32 @@ People visiting entertainment flow through 8 states dispatched by the gate/dispa
 | State | Retry | Handler | Description |
 |-------|-------|---------|-------------|
 | `0x01` | `0x41` | service acquisition | Select random commercial venue, route to it, acquire slot |
-| `0x05` | `0x45` | linked-half routing | Route sim to the lower (reverse) floor of the link |
-| `0x20` | `0x60` | phase consumption | Consume budget, route to entertainment destination |
+| `0x05` | `0x45` | linked-half routing | Route sim from the link's reverse floor to the lobby |
+| `0x20` | `0x60` | phase consumption | Consume budget byte, route to entertainment destination |
 | `0x22` | `0x62` | service release/return | Release venue slot, route back to origin floor |
 
-State `0x20` calls `try_consume_entertainment_phase_budget` before routing. If no budget remains, the sim stays idle in state `0x20`. On route failure, the consumed budget unit is refunded via `increment_entertainment_half_phase`.
+State `0x20` calls `try_consume_entertainment_phase_budget(entity_type, link_index)` before routing. The function selects which budget byte to consume from the entity's placed-object type code:
 
-The gate handler (`0x12285231`) applies a daypart gate for states < `0x40`: sims only dispatch when `g_day_state` is in range [0, 4) and `g_day_tick > 240`.
+- types `0x1d`, `0x12`, `0x22` → consume `upper_runtime_phase` (offset 4)
+- all other types (`0x1e`, `0x13`, `0x23`) → consume `lower_runtime_phase` (offset 5)
+
+The function returns 0 (no consume) when `link_index < 0` OR the selected budget byte is already 0. On a 0 return the sim stays idle in state `0x20`. On a -1 route failure, `increment_entertainment_half_phase(entity_type, link_index)` refunds the consumed unit by **incrementing the same budget byte** that `try_consume...` decremented (NOT `link_phase_state`).
+
+The activation pass at tick 0x4B0 / 0x3E8 walks the activated half's 40-slot occupant span and writes `sim[+5] = 0x20` to every slot. The link's `link_phase_state` is promoted from 0 to 1 if it was 0.
+
+### Gate handler (`0x12285231`)
+
+Jump table at cs:0x539d (4 entries, words):
+
+```
+keys:    0x01 0x05 0x20 0x22
+targets: 0x537f 0x537f 0x530d 0x537f
+```
+
+- 0x537f → unconditional dispatch.
+- 0x530d → daypart gate (`g_daypart in [0,4)` AND `g_day_tick > 0xf0` AND `sample_lcg15() % 6 == 0`), then dispatch.
+
+For `sim[+5] >= 0x40` (transit alias): if `sim[+8]` (carrier index) is in [0x00, 0x40), call `decrement_route_queue_direction_load(sim_id, sim[+8])` and dispatch via the return path (no force-park); else direct dispatch.
 
 ## Venue Floor
 
@@ -233,6 +273,44 @@ The gate handler (`0x12285231`) applies a daypart gate for states < `0x40`: sims
 - Party hall: `lower_floor_index` (reverse)
 
 This is the floor used as the routing destination for commercial venue service acquisition.
+
+## Sim Population Spawn
+
+The lower-half placed-object record (type `0x1e` for party hall, `0x23`/`0x13` for cinema) owns a **40-slot occupant span** (`get_span_size_for_family` returns `0x28`). These 40 sim records share the same `homeColumn` and are activated as a group by the activation pass.
+
+For party hall the upper half (`0x1d`) is never activated, so its occupant span is effectively dead. TS therefore allocates 40 sim records on the lower-half subtype only.
+
+## Service Acquisition Sentinel
+
+`handle_entertainment_service_acquisition` writes the sentinel `0xb0` into `sim[+6]` (`selected_floor`) on fresh dispatch (state `0x01`). This is a constant in the binary — the bucket index `(rand() % 3)` is consumed internally by `select_random_commercial_venue_record_for_floor` and is **not** encoded into the byte. The chosen venue's record/floor is stashed in a separate per-sim "current commercial venue" slot.
+
+**TS quirk** — the TS reimplementation does not yet model the per-sim chosen-venue slot, and instead encodes the bucket into the sentinel as `0xb0 + bucket` so retries can recover the bucket without a dedicated field. This is an observable divergence in `selectedFloor` and is accepted until a per-sim chosen-venue field is added.
+
+On first-attempt route failure (state `0x01` → result `-1`), the binary parks the sim in state `0x41` with error sentinels `sim[+6] = 0xff`, `sim[+7] = 0x88`, `sim[+8] = 0xff`.
+
+## News Headlines
+
+`classify_news_slot_subject` @ 11d0:06c0 returns the subject family code for a clicked tile. For party hall (types `0x1d` / `0x1e`):
+
+- if `link_phase_state > 1` (state 2 or 3) → returns family code `0x1d` (generic party-hall headline)
+- otherwise → returns -2 (no headline)
+
+Unlike cinema (which encodes the movie selector into a per-record string ID via `selector + 0x2329`), party hall returns the raw family code, so all party halls share one generic headline string.
+
+The same `0x1d` subject code is also produced by the random-news system (`trigger_random_news_event` @ 11d0:03b1) when its 1-in-16 RNG samples a party hall tile. Both paths play sound `0xb28` (party hall jingle) via `play_classified_news_sound` @ 11d0:042c.
+
+## Tenant Info Dialog
+
+The dialog filter at 1108:0ad8 routes by `g_facility_family_state`:
+
+- types `0x12/0x13/0x22/0x23` → state `0xA` (cinema, has "New Movie" picker)
+- types `0x1d/0x1e` → state `0xB` (party hall, generic info dialog)
+
+State `0xB` takes the early-return branch at 1108:0baf (`state > 5`) — there is no party-hall-specific dialog, no picker, no per-record action.
+
+## Placement Validation
+
+`validate_floor_class_for_placement` @ 1200:304b rejects party hall (type `0x1d`) and cinema (`0x12`) when `placement_floor < 1` or `placement_floor < g_metro_station_floor_index`. Both venues are forbidden at floor 0 / underground, regardless of the tile being technically two-floor (the upper half lands above the lower half).
 
 ## Movie Identity (Cinema Selector)
 

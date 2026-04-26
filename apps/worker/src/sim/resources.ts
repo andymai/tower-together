@@ -151,8 +151,6 @@ export const UNDERGROUND_ALLOWED_TILES = new Set([
 	"restaurant",
 	"fastFood",
 	"retail",
-	"cinema",
-	"partyHall",
 	"security",
 ]);
 
