@@ -244,28 +244,12 @@ function handleOfficeActive(
 	});
 	if (dispatched && sim.stateCode === COMMERCIAL_DWELL_STATE) {
 		// Binary route_sim_to_commercial_venue (1238:022a) writes state 0x22
-		// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed,
-		// or state 0x41 (STATE_ACTIVE_TRANSIT) when acquire_slot returns 2
-		// (capacity > 39). dispatchCommercialVenueVisit's
-		// beginCommercialVenueDwell writes 0x62; we override based on the slot
-		// acquire result to match the binary.
-		const venue = findCommercialVenueAtFloor(
-			world,
-			sim.floorAnchor,
-			new Set([FAMILY_FAST_FOOD]),
-		);
-		if (venue) {
-			const result = tryAcquireOfficeVenueSlot(venue, sim, time);
-			if (result === VENUE_SLOT_FULL) {
-				// Binary: stay in 0x41 (in-transit alias). The per-stride 0x41
-				// handler will re-attempt acquire next stride. Clear the dwell
-				// state set by beginCommercialVenueDwell.
-				sim.stateCode = STATE_ACTIVE_TRANSIT;
-				sim.venueReturnState = STATE_AT_WORK;
-				sim.destinationFloor = sim.floorAnchor;
-				return;
-			}
-		}
+		// (STATE_VENUE_TRIP) when same-floor route + acquire_slot both succeed.
+		// dispatchCommercialVenueVisit's same-floor success path now calls
+		// `tryAcquireOfficeVenueSlot` itself (mirroring the binary state-0x01
+		// resolve-rc=3 acquire), and on FULL it writes STATE_ACTIVE_TRANSIT
+		// directly. Here we only need to override the post-acquire dwell state
+		// from 0x62 to 0x22 to match the binary's same-floor success target.
 		sim.stateCode = STATE_VENUE_TRIP;
 		sim.queueTick = time.dayTick;
 		return;
@@ -848,7 +832,16 @@ export function handleOfficeSimArrival(
 						new Set([FAMILY_FAST_FOOD]),
 					);
 		if (venue) {
-			const result = tryAcquireOfficeVenueSlot(venue, sim, time);
+			// Office worker arriving at a fast-food venue: pass the venue
+			// owner's family (FAMILY_FAST_FOOD) so the type/variant gate fires
+			// (sim.familyCode = FAMILY_OFFICE differs) and todayVisitCount is
+			// bumped on success — mirroring binary 11b0:0f3a–0f55.
+			const result = tryAcquireOfficeVenueSlot(
+				venue,
+				sim,
+				time,
+				FAMILY_FAST_FOOD,
+			);
 			if (result === VENUE_SLOT_FULL) {
 				// Stay in STATE_ACTIVE_TRANSIT; the per-stride 0x41 handler
 				// will re-attempt acquire next stride. Don't clear

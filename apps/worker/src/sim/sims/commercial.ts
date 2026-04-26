@@ -203,7 +203,17 @@ export function processCommercialSim(
 			// the dwell-start latch read by release.
 			sim.destinationFloor = -1;
 			sim.selectedFloor = sim.floorAnchor;
-			const acquireResult = tryAcquireOfficeVenueSlot(record, sim, time);
+			// Owner sim arriving at their own venue: pass sim.familyCode as the
+			// venue owner family so the type/variant gate suppresses the
+			// todayVisitCount bump (binary 11b0:0f3a–0f55: same family ⇒ skip).
+			// The owner's visit was already counted by
+			// try_consume_commercial_venue_capacity at MORNING_GATE above.
+			const acquireResult = tryAcquireOfficeVenueSlot(
+				record,
+				sim,
+				time,
+				sim.familyCode,
+			);
 			if (acquireResult === VENUE_SLOT_FULL) {
 				sim.stateCode = STATE_MORNING_TRANSIT;
 			} else {
@@ -369,7 +379,15 @@ function handleCommercialMorningTransit(
 			sim.lastDemandTick = time.dayTick;
 			return;
 		}
-		const acquireResult = tryAcquireOfficeVenueSlot(venue, sim, time);
+		// Owner sim arriving at their own venue via MORNING_TRANSIT: pass
+		// sim.familyCode as the venue owner family so the type/variant gate
+		// suppresses the todayVisitCount bump (already counted at MORNING_GATE).
+		const acquireResult = tryAcquireOfficeVenueSlot(
+			venue,
+			sim,
+			time,
+			sim.familyCode,
+		);
 		if (acquireResult === VENUE_SLOT_FULL) {
 			// Stay in STATE_MORNING_TRANSIT; next stride retries acquire.
 			return;
@@ -477,7 +495,15 @@ export function handleCommercialSimArrival(
 			sim.lastDemandTick = time.dayTick;
 			return;
 		}
-		const acquireResult = tryAcquireOfficeVenueSlot(venue, sim, time);
+		// Owner sim arriving at their own venue via carrier (handleCommercialSimArrival):
+		// pass sim.familyCode as the venue owner family so the type/variant gate
+		// suppresses the todayVisitCount bump (already counted at MORNING_GATE).
+		const acquireResult = tryAcquireOfficeVenueSlot(
+			venue,
+			sim,
+			time,
+			sim.familyCode,
+		);
 		if (acquireResult === VENUE_SLOT_FULL) {
 			// Stay in STATE_MORNING_TRANSIT; next stride re-attempts acquire.
 			// Restore route fields the per-stride handler expects.

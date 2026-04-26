@@ -144,6 +144,10 @@ interface VenueSelection {
 	record: CommercialVenueRecord;
 	floor: number;
 	heightMetric: number;
+	/** PlacedObjectRecord.objectTypeCode of the venue's owning facility.
+	 * Mirrors binary `record[+0]` (sim_type) for the type/variant gate in
+	 * `acquire_commercial_venue_slot` (11b0:0d92). */
+	ownerFamily: number;
 }
 
 /**
@@ -193,11 +197,23 @@ export const VENUE_SLOT_UNAVAILABLE = -1;
  * Match that exactly (rather than the off-by-one `< 39` used in
  * commercial.ts:135 for venue owners' own arrivals) so visiting workers
  * see the same threshold the binary's elevator-arrival handler does.
+ *
+ * Per binary, on the success path `record[+0x10]` (todayVisitCount) is
+ * also incremented when the visitor's type/variant differs from the
+ * venue owner's. For office workers visiting fast-food the gate fires
+ * (office=family 7, fast-food=family 12); for a venue owner sim
+ * arriving at their own venue the gate suppresses the bump (same family).
+ * Pass `venueOwnerFamily` so the helper can apply the gate correctly.
+ *
+ * Note: the binary does NOT touch `record[+7]` (visitCount/lifetime) at
+ * acquire time — that counter is only bumped by
+ * `try_consume_commercial_venue_capacity` (11b0:1150) at MORNING_GATE.
  */
 export function tryAcquireOfficeVenueSlot(
 	venue: CommercialVenueRecord,
 	sim: SimRecord,
 	time: TimeState,
+	venueOwnerFamily: number,
 ):
 	| typeof VENUE_SLOT_ACQUIRED
 	| typeof VENUE_SLOT_FULL
@@ -219,6 +235,13 @@ export function tryAcquireOfficeVenueSlot(
 		return VENUE_SLOT_FULL;
 	}
 	venue.currentPopulation += 1;
+	if (sim.familyCode !== venueOwnerFamily) {
+		// Binary 11b0:0f3a–0f55: bump record+0x10 (todayVisitCount) only when
+		// the visitor's type/variant differ from the venue owner's. This is
+		// the gate that prevents the venue's own owner sim (arriving at their
+		// home venue via MORNING_GATE) from double-counting today's visits.
+		venue.todayVisitCount += 1;
+	}
 	sim.lastDemandTick = time.dayTick;
 	return VENUE_SLOT_ACQUIRED;
 }
@@ -286,6 +309,7 @@ function pickAvailableVenue(
 			record,
 			floor: yToFloor(y),
 			heightMetric: object.leftTileIndex,
+			ownerFamily: object.objectTypeCode,
 		});
 	}
 
@@ -341,11 +365,6 @@ function pickAvailableVenue(
 // — it writes sim+7 to the destination floor and jumps directly into the
 // family-specific state handler. Mirrors of that path therefore must NOT
 // advance counters at arrival.
-
-function reserveVenue(record: CommercialVenueRecord): void {
-	record.todayVisitCount += 1;
-	record.visitCount += 1;
-}
 
 function beginCommercialVenueDwell(
 	sim: SimRecord,
@@ -475,23 +494,52 @@ export function dispatchCommercialVenueVisit(
 			}
 			return false;
 		}
-	}
 
-	reserveVenue(venue.record);
-	options.onVenueReserved?.();
-	if (venue.floor === sim.floorAnchor) {
-		if (options.advanceBeforeSameFloorDwell) {
-			// Binary: resolve_sim_route(floor→floor) returns 3 → advanceSimTripCounters
-			advanceSimTripCounters(sim);
-		}
-		beginCommercialVenueDwell(sim, venue.floor, options.returnState, time);
-	} else {
+		// Binary `route_sim_to_commercial_venue` (1238:0000) state-0x01 cross-
+		// floor branch: resolve returns 0/1/2 (in transit) → state 0x41
+		// (tripState). Acquire is NOT called here; it fires when the per-
+		// stride state-0x41 handler re-resolves the next leg and gets rc=3
+		// at carrier arrival (modeled in office.ts handleOfficeSimArrival
+		// STATE_ACTIVE_TRANSIT branch). The `onVenueReserved` callback fires
+		// here so per-family bookkeeping (e.g. hotel activationTickCount) can
+		// register the trip start.
+		options.onVenueReserved?.();
 		beginCommercialVenueTrip(
 			sim,
 			venue.floor,
 			options.tripState ?? STATE_VENUE_TRIP,
 		);
+		return true;
 	}
+
+	// Same-floor branch: binary `route_sim_to_commercial_venue` (1238:0000)
+	// state-0x01 same-floor path takes resolve rc=3 and immediately calls
+	// `acquire_commercial_venue_slot` (11b0:0d92). Mirror that here so the
+	// pick-time bump of `todayVisitCount` is gated on capacity (currentPopulation
+	// > 39 → SLOT_FULL → no bump) and on the visitor-vs-owner type gate.
+	if (options.advanceBeforeSameFloorDwell) {
+		// Binary: resolve_sim_route(floor→floor) returns 3 → advanceSimTripCounters
+		advanceSimTripCounters(sim);
+	}
+	const acquireResult = tryAcquireOfficeVenueSlot(
+		venue.record,
+		sim,
+		time,
+		venue.ownerFamily,
+	);
+	if (acquireResult === VENUE_SLOT_FULL) {
+		// Binary state-0x01 same-floor + acquire=2: writes state=0x41 (tripState)
+		// — the sim stays in the in-transit alias and the per-stride 0x41 handler
+		// re-attempts acquire next stride. Restore route fields to the same-floor
+		// shape so the retry loop is well-formed.
+		sim.stateCode = options.tripState ?? STATE_VENUE_TRIP;
+		sim.selectedFloor = sim.floorAnchor;
+		sim.destinationFloor = sim.floorAnchor;
+		sim.venueReturnState = options.returnState;
+		return true;
+	}
+	options.onVenueReserved?.();
+	beginCommercialVenueDwell(sim, venue.floor, options.returnState, time);
 	return true;
 }
 
