@@ -198,13 +198,6 @@ function drainFloorQueueForCar(
 	// the car's direction flag and drain from the flipped direction.
 	const qCurBuf = getDirectionQueue(floorQueue, car.directionFlag);
 	if (
-		(!(
-			time.dayCounter >= 3 &&
-			car.arrivalDispatchThisTick &&
-			car.arrivalDispatchStartingAssignedCount >= 10
-		) ||
-			car.dwellCounter !== 5) &&
-		(!car.suppressDwellOppositeDirectionFlip || car.dwellCounter <= 1) &&
 		qCurBuf.size === 0 &&
 		car.pendingAssignmentCount === 0 &&
 		car.nonemptyDestinationCount === 0

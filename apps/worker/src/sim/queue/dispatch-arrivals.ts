@@ -24,15 +24,29 @@ import type { CarrierCar, CarrierRecord, WorldState } from "../world";
 const DEPARTURE_SEQUENCE_TICKS = 5;
 
 /**
- * Binary `dispatch_destination_queue_entries` (1218:0883). Scans each
- * boarded slot; when the slot's destination equals the car's current
- * floor, pops the slot, decrements rider counters, then invokes the
- * owning sim's family dispatch handler inline (`dispatchSimArrival`).
+ * Binary `dispatch_destination_queue_entries` (1218:0883). Iterates the
+ * car's active-slot ring up to `assignment_capacity`; for each boarded
+ * slot whose destinationFloor matches the car's currentFloor, the binary
+ * runs the per-slot sequence:
  *
- * In the binary, the arrival branch looks up the sim by routeId, writes
- * `sim.selected_floor = car.currentFloor`, and jumps into the family's
- * state handler based on `sim.family_code`. The TS `dispatchSimArrival`
- * encapsulates that family switch.
+ *   1. `pop_active_route_slot_request` (1218:1905) — clears the slot in
+ *      place and yields the routeId.
+ *   2. Family dispatch: switch on the sim's family code and invoke
+ *      `dispatch_object_family_*_state_handler` (or the
+ *      housekeeping/entertainment/recycling/parking variants). The handler
+ *      may itself call `cancel_runtime_route_request` (1218:1a86), whose
+ *      inner `remove_request_from_active_route_slots` (1218:173a) ends
+ *      with `recompute_car_target_and_direction` — the mechanism by which
+ *      an express car at the top served floor flips its directionFlag
+ *      1→0 the moment its first/last disembarking rider is processed.
+ *   3. Decrement `assignedCount` (-0x5b) and the per-floor
+ *      `destinationCountByFloor[+0xc]` slot. The
+ *      `nonemptyDestinationCount` (-0x52) decrement runs once at
+ *      loop-exit when the per-floor counter has reached 0.
+ *
+ * Order matters: the family handler must run BEFORE the counter
+ * decrements so that the in-handler recompute observes the same
+ * `assignedCount` / `destinationCountByFloor` state the binary did.
  */
 export function dispatchDestinationQueueEntries(
 	world: WorldState,
@@ -44,16 +58,36 @@ export function dispatchDestinationQueueEntries(
 	let changed = false;
 	const assignedBeforeArrivals = car.assignedCount;
 	const limit = activeSlotLimitFor(carrier);
-	const arrivals: Array<{ routeId: string; floor: number }> = [];
+	const destinationSlot = floorToSlot(carrier, car.currentFloor);
 
 	for (let index = 0; index < limit; index++) {
 		const slot = car.activeRouteSlots[index];
 		if (!slot?.active || !slot.boarded) continue;
 		if (slot.destinationFloor !== car.currentFloor) continue;
+
+		// Step 1: pop_active_route_slot_request — clear the slot in place,
+		// matching binary order so the family handler sees the slot as
+		// already consumed if it walks the ring (e.g., via
+		// remove_request_from_active_route_slots inside cancel).
 		const arrivedRouteId = slot.routeId;
 		const arrivedFloor = slot.destinationFloor;
+		slot.active = false;
+		slot.routeId = "";
+		slot.sourceFloor = 0xff;
+		slot.destinationFloor = 0xff;
+		slot.boarded = false;
+
+		// Step 2: family dispatch. Look up the sim and invoke the
+		// per-family state handler. This may recursively touch the same
+		// car's slots/direction via cancel_runtime_route_request.
+		const sim = world.sims.find((s) => simKey(s) === arrivedRouteId);
+		if (sim) {
+			dispatchSimArrival(world, ledger, time, sim, arrivedFloor);
+		}
+
+		// Step 3: decrement counters. Done AFTER the handler so the in-
+		// handler recompute sees the binary's unmodified count snapshot.
 		car.assignedCount = Math.max(0, car.assignedCount - 1);
-		const destinationSlot = floorToSlot(carrier, slot.destinationFloor);
 		if (destinationSlot >= 0) {
 			const prev = car.destinationCountByFloor[destinationSlot] ?? 0;
 			car.destinationCountByFloor[destinationSlot] = Math.max(0, prev - 1);
@@ -64,40 +98,19 @@ export function dispatchDestinationQueueEntries(
 				);
 			}
 		}
-		slot.active = false;
+
 		carrier.pendingRoutes = carrier.pendingRoutes.filter(
 			(candidate) => candidate.simId !== arrivedRouteId,
 		);
 		if (!carrier.completedRouteIds.includes(arrivedRouteId)) {
 			carrier.completedRouteIds.push(arrivedRouteId);
 		}
-		arrivals.push({ routeId: arrivedRouteId, floor: arrivedFloor });
 		changed = true;
-	}
-
-	// Binary inline family dispatch: for each arrival, look up the sim and
-	// call its family state handler (dispatch_object_family_*_state_handler).
-	// Replaces the pre-Phase-7 `onArrival` callback plumbing.
-	for (const arrival of arrivals) {
-		const sim = world.sims.find((s) => simKey(s) === arrival.routeId);
-		if (!sim) continue;
-		dispatchSimArrival(world, ledger, time, sim, arrival.floor);
 	}
 
 	if (changed) {
 		car.arrivalDispatchThisTick = true;
 		car.arrivalDispatchStartingAssignedCount = assignedBeforeArrivals;
-		if (time.dayCounter >= 3 && assignedBeforeArrivals >= 10) {
-			car.suppressDwellOppositeDirectionFlip = true;
-		}
-		for (const slot of car.activeRouteSlots) {
-			if (!slot.active) {
-				slot.routeId = "";
-				slot.sourceFloor = 0xff;
-				slot.destinationFloor = 0xff;
-				slot.boarded = false;
-			}
-		}
 		syncPendingRouteIds(car);
 		syncAssignmentStatus(carrier);
 	}

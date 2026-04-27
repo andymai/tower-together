@@ -15,6 +15,7 @@ import {
 	normalizeInactiveSlots,
 	syncPendingRouteIds,
 } from "../carriers/sync";
+import { recomputeCarTargetAndDirection } from "../carriers/target";
 import type { CarrierCar, CarrierRecord } from "../world";
 import type { RouteRequestRing } from "./route-record";
 
@@ -100,26 +101,43 @@ export function popActiveRouteSlotRequest(
 }
 
 /**
- * Binary `remove_request_from_active_route_slots` (1218:173a). Sweeps
- * every car's active-slot ring and clears any slot matching `simId`.
- * Returns the number of slots cleared (0 or 1 in practice — a request id
- * is unique per carrier).
+ * Binary `remove_request_from_active_route_slots` (1218:173a). Scans cars
+ * in index order; on the FIRST car/slot whose routeId matches, clears the
+ * slot, then invokes `recompute_car_target_and_direction` for THAT car and
+ * returns 1. Returns 0 if no slot matched.
+ *
+ * The recompute call is how the binary re-evaluates a car's sweep direction
+ * the moment a rider/route is pulled out of its active set — most notably,
+ * it lets `update_car_direction_flag` (1098:1d2f) flip an express car at
+ * the top served floor (arrivalSeen==1, dir==1) to dir==0 when a cancel
+ * runs during the dwell-5 arrival path.
+ *
+ * Note on counter decrements: the binary also decrements `assignedCount`
+ * (-0x5b) and `destinationCountByFloor[+0xc]` for the slot's destination
+ * floor inline here. The TS counter model treats `assignedCount` as
+ * boarded-riders-only (incremented in `boardWaitingRoutes`), so the cancel
+ * path leaves `assignedCount` alone — counter resync runs through
+ * `syncAssignmentStatus` after the cancel completes. Mirroring the binary's
+ * unconditional decrement here would mis-balance non-boarded slot removals,
+ * so we keep that out of this routine.
  */
 export function removeRequestFromActiveRouteSlots(
 	carrier: CarrierRecord,
 	simId: string,
 ): number {
-	let cleared = 0;
-	for (const car of carrier.cars) {
-		for (const slot of car.activeRouteSlots) {
-			if (!slot.active || slot.routeId !== simId) continue;
+	for (let carIndex = 0; carIndex < carrier.cars.length; carIndex++) {
+		const car = carrier.cars[carIndex];
+		if (!car) continue;
+		const limit = activeSlotLimitFor(carrier);
+		for (let slotIndex = 0; slotIndex < limit; slotIndex++) {
+			const slot = car.activeRouteSlots[slotIndex];
+			if (!slot?.active || slot.routeId !== simId) continue;
 			slot.active = false;
-			cleared += 1;
-		}
-		if (cleared > 0) {
 			normalizeInactiveSlots(car);
 			syncPendingRouteIds(car);
+			recomputeCarTargetAndDirection(carrier, car, carIndex);
+			return 1;
 		}
 	}
-	return cleared;
+	return 0;
 }
