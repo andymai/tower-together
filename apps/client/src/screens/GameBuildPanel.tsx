@@ -10,6 +10,7 @@ import {
 	DoorOpen,
 	Eraser,
 	Film,
+	Hammer,
 	Home,
 	type LucideIcon,
 	MoveUpRight,
@@ -23,8 +24,9 @@ import {
 	Square,
 	TramFront,
 	UtensilsCrossed,
+	X,
 } from "lucide-react";
-import { memo } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { SelectedTool } from "../types";
 import { getTileStarRequirement, TILE_COSTS } from "../types";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
@@ -232,12 +234,39 @@ interface Props {
 	onToolSelect: (tool: SelectedTool) => void;
 }
 
+const COMPACT_QUERY = "(max-width: 720px)";
+
 export const GameBuildPanel = memo(function GameBuildPanel({
 	starCount,
 	freeBuild,
 	selectedTool,
 	onToolSelect,
 }: Props) {
+	const [isCompact, setIsCompact] = useState(() =>
+		typeof window === "undefined"
+			? false
+			: window.matchMedia(COMPACT_QUERY).matches,
+	);
+	const [isOpen, setIsOpen] = useState(false);
+
+	useEffect(() => {
+		const mql = window.matchMedia(COMPACT_QUERY);
+		const handler = (e: MediaQueryListEvent) => {
+			setIsCompact(e.matches);
+			if (!e.matches) setIsOpen(false);
+		};
+		mql.addEventListener("change", handler);
+		return () => mql.removeEventListener("change", handler);
+	}, []);
+
+	const handleToolSelect = useCallback(
+		(tool: SelectedTool) => {
+			onToolSelect(tool);
+			if (window.matchMedia(COMPACT_QUERY).matches) setIsOpen(false);
+		},
+		[onToolSelect],
+	);
+
 	const visibleCategories = CATEGORIES.map((tools) =>
 		tools.filter((tool) => {
 			if (freeBuild || tool.id === "empty" || tool.id === "inspect")
@@ -246,47 +275,80 @@ export const GameBuildPanel = memo(function GameBuildPanel({
 		}),
 	).filter((tools) => tools.length > 0);
 
+	const hidden = isCompact && !isOpen;
+
 	return (
-		<div style={styles.buildPanel}>
-			<div style={styles.debugTitle}>Build</div>
-			{visibleCategories.map((tools, categoryIndex) => (
-				<div
-					key={tools[0].id}
-					style={{
-						...styles.buildGrid,
-						...(categoryIndex > 0 ? { marginTop: 2 } : {}),
-					}}
+		<>
+			{hidden && (
+				<button
+					type="button"
+					style={styles.buildTrayHandle}
+					onClick={() => setIsOpen(true)}
+					aria-label="Open build panel"
 				>
-					{tools.map((tool) => {
-						const active = selectedTool === tool.id;
-						return (
-							<button
-								key={tool.id}
-								type="button"
-								title={
-									tool.cost > 0
-										? `${tool.label} — $${tool.cost.toLocaleString()}`
-										: tool.label
-								}
-								style={{
-									...styles.buildBtn,
-									borderColor: active
-										? tool.color
-										: "rgba(123, 148, 170, 0.25)",
-									background: active
-										? `${tool.color}22`
-										: "rgba(255, 255, 255, 0.02)",
-									color: active ? tool.color : "#aab8c2",
-								}}
-								onClick={() => onToolSelect(tool.id)}
-							>
-								<tool.Icon size={16} strokeWidth={1.8} />
-								<span style={styles.buildBtnLabel}>{tool.label}</span>
-							</button>
-						);
-					})}
+					<Hammer size={14} strokeWidth={1.8} />
+					<span>Build</span>
+				</button>
+			)}
+			<div
+				style={{
+					...styles.buildPanel,
+					...(hidden ? styles.buildPanelHidden : {}),
+				}}
+				aria-hidden={hidden}
+			>
+				<div style={styles.buildPanelHeader}>
+					<div style={styles.debugTitle}>Build</div>
+					{isCompact && (
+						<button
+							type="button"
+							style={styles.buildPanelClose}
+							onClick={() => setIsOpen(false)}
+							aria-label="Hide build panel"
+						>
+							<X size={14} strokeWidth={1.8} />
+						</button>
+					)}
 				</div>
-			))}
-		</div>
+				{visibleCategories.map((tools, categoryIndex) => (
+					<div
+						key={tools[0].id}
+						style={{
+							...styles.buildGrid,
+							...(categoryIndex > 0 ? { marginTop: 2 } : {}),
+						}}
+					>
+						{tools.map((tool) => {
+							const active = selectedTool === tool.id;
+							return (
+								<button
+									key={tool.id}
+									type="button"
+									title={
+										tool.cost > 0
+											? `${tool.label} — $${tool.cost.toLocaleString()}`
+											: tool.label
+									}
+									style={{
+										...styles.buildBtn,
+										borderColor: active
+											? tool.color
+											: "rgba(123, 148, 170, 0.25)",
+										background: active
+											? `${tool.color}22`
+											: "rgba(255, 255, 255, 0.02)",
+										color: active ? tool.color : "#aab8c2",
+									}}
+									onClick={() => handleToolSelect(tool.id)}
+								>
+									<tool.Icon size={16} strokeWidth={1.8} />
+									<span style={styles.buildBtnLabel}>{tool.label}</span>
+								</button>
+							);
+						})}
+					</div>
+				))}
+			</div>
+		</>
 	);
 });
