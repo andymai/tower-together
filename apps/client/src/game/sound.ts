@@ -261,16 +261,11 @@ export class SoundManager {
 			if (family === "transport") return transportActive;
 			return true;
 		};
-		// Elevator dings are the most diegetic transport cue, so weight the
-		// transport family heavily versus other facilities.
-		const familyWeight = (family: SoundFamily): number =>
-			family === "transport" ? 10 : 1;
-
 		let totalCount = 0;
 		for (const [family, count] of familyCounts) {
 			if (count <= 0) continue;
 			if (!familyAllowed(family)) continue;
-			totalCount += count * familyWeight(family);
+			totalCount += count;
 		}
 		if (totalCount === 0) return;
 
@@ -280,7 +275,7 @@ export class SoundManager {
 		for (const [family, count] of familyCounts) {
 			if (count <= 0) continue;
 			if (!familyAllowed(family)) continue;
-			acc += count * familyWeight(family);
+			acc += count;
 			if (target < acc) {
 				chosenFamily = family;
 				break;

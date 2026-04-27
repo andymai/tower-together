@@ -1015,13 +1015,19 @@ export class GameScene extends Scene {
 		let down = false;
 		for (const car of snapshot.items) {
 			if (car.currentFloor === car.targetFloor) continue;
+			// Span the bounds across the run so a viewport sitting between the
+			// two endpoints still counts the car as visible.
 			fillCarBounds(car, car.currentFloor, bounds);
-			if (
-				bounds.x + bounds.width < left ||
-				bounds.x > right ||
-				bounds.y + bounds.height < top ||
-				bounds.y > bottom
-			) {
+			const x0 = bounds.x;
+			const x1 = bounds.x + bounds.width;
+			const yA = bounds.y;
+			const yB = bounds.y + bounds.height;
+			fillCarBounds(car, car.targetFloor, bounds);
+			const yC = bounds.y;
+			const yD = bounds.y + bounds.height;
+			const segTop = Math.min(yA, yC);
+			const segBottom = Math.max(yB, yD);
+			if (x1 < left || x0 > right || segBottom < top || segTop > bottom) {
 				continue;
 			}
 			if (car.targetFloor > car.currentFloor) up = true;
