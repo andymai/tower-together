@@ -397,7 +397,7 @@ export class TowerLockstepSession {
 		this.onTick({
 			simTime: this.sim.simTime,
 			cash: this.sim.cash,
-			population: this.sim.population,
+			population: this.sim.currentPopulation,
 			starCount: this.sim.starCount,
 			cellPatches,
 			receivedAtMs: performance.now(),
@@ -412,7 +412,7 @@ export class TowerLockstepSession {
 		return {
 			simTime: this.sim.simTime,
 			cash: this.sim.cash,
-			population: this.sim.population,
+			population: this.sim.currentPopulation,
 			starCount: this.sim.starCount,
 			cells: this.sim.cellsToArray(),
 		};
