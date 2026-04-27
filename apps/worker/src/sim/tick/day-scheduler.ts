@@ -188,6 +188,8 @@ function checkpointRuntimeRefresh(_s: SimState): void {
 }
 
 function checkpointLedgerRollover(s: SimState): void {
+	// Binary also calls reset_sim_runtime_state at checkpoint 0x9e5.
+	resetSimRuntimeState(s.world);
 	doLedgerRollover(s.ledger, s.world, s.time.dayCounter);
 	if (s.time.dayCounter % 3 === 0) {
 		activateThreeDayCashflow(s.world, s.ledger, s.time.dayCounter);

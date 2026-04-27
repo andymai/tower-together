@@ -90,9 +90,16 @@ export function SimInspectionDialog({ sim, onClose }: Props) {
 						<span style={styles.inspectValue}>{sim.id.slice(0, 8)}</span>
 					</div>
 					<div style={styles.inspectRow}>
-						<span style={styles.inspectLabel}>Stress</span>
+						<span style={styles.inspectLabel}>Current Trip Stress</span>
 						<span style={styles.inspectValue}>
-							{STRESS_LABELS[sim.stressLevel]}
+							{sim.currentTripStressTicks} (
+							{STRESS_LABELS[sim.currentTripStressLevel]})
+						</span>
+					</div>
+					<div style={styles.inspectRow}>
+						<span style={styles.inspectLabel}>Trip Average Stress</span>
+						<span style={styles.inspectValue}>
+							{sim.averageTripStressTicks}
 						</span>
 					</div>
 					<div style={styles.inspectRow}>
@@ -128,7 +135,7 @@ export function SimInspectionDialog({ sim, onClose }: Props) {
 						<span style={styles.inspectValue}>{sim.tripCount}</span>
 					</div>
 					<div style={styles.inspectRow}>
-						<span style={styles.inspectLabel}>Elapsed Ticks</span>
+						<span style={styles.inspectLabel}>Stored Elapsed</span>
 						<span style={styles.inspectValue}>{sim.elapsedTicks}</span>
 					</div>
 					<div style={styles.inspectRow}>

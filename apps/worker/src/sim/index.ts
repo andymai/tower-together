@@ -15,7 +15,7 @@ import {
 import { handlePromptResponse } from "./events";
 import type { LedgerState } from "./ledger";
 import { STARTING_CASH } from "./resources";
-import { createSimStateRecords } from "./sims";
+import { createSimStateRecord, createSimStateRecords } from "./sims";
 import {
 	createInitialSnapshot,
 	hydrateSnapshot,
@@ -24,7 +24,12 @@ import {
 } from "./snapshot";
 import { serviceIdleTasks } from "./tick/service-idle-tasks";
 import type { TimeState } from "./time";
-import type { CarrierRecord, SimRecord, WorldState } from "./world";
+import type {
+	CarrierPendingRoute,
+	CarrierRecord,
+	SimRecord,
+	WorldState,
+} from "./world";
 
 export type { SimStateRecord } from "./sims";
 export { simKey } from "./sims";
@@ -509,7 +514,20 @@ export class TowerSim {
 	}
 
 	simsToArray() {
-		return createSimStateRecords(this.world);
+		return createSimStateRecords(this.world, this.time);
+	}
+
+	simToRecord(sim: SimRecord) {
+		const pendingBySimId = new Map<
+			string,
+			{ carrier: CarrierRecord; route: CarrierPendingRoute }
+		>();
+		for (const carrier of this.world.carriers) {
+			for (const route of carrier.pendingRoutes) {
+				pendingBySimId.set(route.simId, { carrier, route });
+			}
+		}
+		return createSimStateRecord(this.world, this.time, sim, pendingBySimId);
 	}
 
 	get liveSims(): readonly SimRecord[] {

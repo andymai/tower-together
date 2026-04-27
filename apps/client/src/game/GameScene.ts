@@ -102,12 +102,6 @@ function hashSimVariant(id: string, modulus: number): number {
 
 const EMPTY_PENDING: PendingBySimId = new Map();
 
-function stressLevelFor(sim: SimRecord): "low" | "medium" | "high" {
-	if (sim.elapsedTicks >= 120) return "high";
-	if (sim.elapsedTicks >= 80) return "medium";
-	return "low";
-}
-
 type RoomTextureConfig = {
 	files: string[];
 	dirtyFiles?: string[];
@@ -2140,6 +2134,8 @@ export class GameScene extends Scene {
 			const list: QueuedSimLayoutEntry[] = [];
 			for (let queueIndex = 0; queueIndex < entries.length; queueIndex += 1) {
 				const { simRecord, id } = entries[queueIndex] as QueuedEntry;
+				const simState = this.snapshotSource?.materializeSim(simRecord);
+				if (!simState) continue;
 				const { gridX, gridY } = getQueuedSimLayout(
 					simRecord,
 					elevatorColumnsByFloor,
@@ -2148,7 +2144,7 @@ export class GameScene extends Scene {
 				);
 				const px = gridX * TILE_WIDTH;
 				const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;
-				const stressLevel = stressLevelFor(simRecord);
+				const stressLevel = simState.currentTripStressLevel;
 				const textureKey =
 					stressLevel === "low"
 						? `sim_figure_low-${hashSimVariant(id, 4)}`

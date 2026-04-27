@@ -88,7 +88,11 @@ export {
 	simKey,
 } from "./population";
 export {
+	averageTripStressTicks,
+	createSimStateRecord,
 	createSimStateRecords,
+	currentTripStressLevel,
+	currentTripStressTicks,
 	maybeApplyDistanceFeedback,
 	recomputeObjectOperationalStatus,
 	refreshOccupiedFlagAndTripCounters,

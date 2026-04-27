@@ -577,11 +577,8 @@ export function CellInspectionDialog({
 							0,
 						);
 						const avgStress =
-							facilitySims.reduce(
-								(s, e) =>
-									s + (e.tripCount > 0 ? e.accumulatedTicks / e.tripCount : 0),
-								0,
-							) / facilitySims.length;
+							facilitySims.reduce((s, e) => s + e.averageTripStressTicks, 0) /
+							facilitySims.length;
 						return (
 							<div style={styles.inspectSection}>
 								<div style={styles.inspectLabel}>
@@ -592,7 +589,7 @@ export function CellInspectionDialog({
 									<strong>{totalTrips}</strong>
 								</div>
 								<div style={{ ...styles.inspectRow, color: "#e0e0e0" }}>
-									<span>Avg stress</span>
+									<span>Room avg stress</span>
 									<strong>{avgStress.toFixed(1)}</strong>
 								</div>
 								<div style={{ maxHeight: 120, overflowY: "auto" }}>
@@ -603,10 +600,11 @@ export function CellInspectionDialog({
 											</span>
 											<span
 												style={{
-													color: STRESS_COLORS[e.stressLevel],
+													color: STRESS_COLORS[e.currentTripStressLevel],
 												}}
 											>
-												{e.elapsedTicks}
+												Trip {e.currentTripStressTicks} · Avg{" "}
+												{e.averageTripStressTicks}
 											</span>
 										</div>
 									))}

@@ -1,8 +1,11 @@
 import {
+	FAMILY_CATHEDRAL_BASE,
+	FAMILY_CINEMA,
 	FAMILY_CONDO,
 	FAMILY_HOUSEKEEPING,
 	FAMILY_MEDICAL,
 	FAMILY_OFFICE,
+	FAMILY_PARTY_HALL,
 	FAMILY_RECYCLING_CENTER_UPPER,
 	FAMILY_SECURITY,
 } from "../resources";
@@ -317,6 +320,17 @@ export function resetSimRuntimeState(world: WorldState): void {
 	for (const sim of world.sims) {
 		const object = findObjectForSim(world, sim);
 		if (!object) continue;
+		const clearsDailyStress =
+			COMMERCIAL_FAMILIES.has(sim.familyCode) ||
+			sim.familyCode === FAMILY_SECURITY ||
+			sim.familyCode === FAMILY_HOUSEKEEPING ||
+			sim.familyCode === FAMILY_CINEMA ||
+			sim.familyCode === FAMILY_PARTY_HALL ||
+			sim.familyCode === 0x21 ||
+			sim.familyCode === FAMILY_CATHEDRAL_BASE;
+		if (clearsDailyStress) {
+			resetSimTripCounters(sim);
+		}
 
 		if (HOTEL_FAMILIES.has(sim.familyCode)) {
 			// Hotel sims manage their own day-boundary transitions via
@@ -337,10 +351,6 @@ export function resetSimRuntimeState(world: WorldState): void {
 		) {
 			// Spec TIME.md checkpoint 2500: family 6/7/10/12 → 0x20 (MORNING_GATE).
 			sim.stateCode = STATE_MORNING_GATE;
-			// Binary reset_sim_runtime_state clears trip counters for commercial sims daily.
-			if (COMMERCIAL_FAMILIES.has(sim.familyCode)) {
-				resetSimTripCounters(sim);
-			}
 		} else if (
 			sim.familyCode === FAMILY_RECYCLING_CENTER_UPPER ||
 			sim.familyCode === FAMILY_SECURITY

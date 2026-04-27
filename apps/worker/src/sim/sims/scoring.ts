@@ -16,6 +16,8 @@ import {
 	OP_SCORE_THRESHOLDS,
 } from "../resources";
 import { addDelayToCurrentSim } from "../stress/add-delay";
+import { reduceElapsedForLobbyBoarding } from "../stress/lobby-reduction";
+import { DAY_TICK_MAX, type TimeState } from "../time";
 import {
 	type CarrierPendingRoute,
 	GRID_HEIGHT,
@@ -75,6 +77,9 @@ export interface SimStateRecord {
 	carrierId: number | null;
 	assignedCarIndex: number;
 	boardedOnCarrier: boolean;
+	currentTripStressTicks: number;
+	currentTripStressLevel: "low" | "medium" | "high";
+	averageTripStressTicks: number;
 	stressLevel: "low" | "medium" | "high";
 	tripCount: number;
 	accumulatedTicks: number;
@@ -253,6 +258,50 @@ export function recomputeObjectOperationalStatus(
 	}
 }
 
+export function activeStressThresholds(world: WorldState): {
+	medium: number;
+	high: number;
+} {
+	const [medium, high] = OP_SCORE_THRESHOLDS[Math.min(world.starCount, 5)] ?? [
+		80, 200,
+	];
+	return { medium, high };
+}
+
+export function averageTripStressTicks(sim: SimRecord): number {
+	return sim.tripCount > 0
+		? Math.trunc(sim.accumulatedTicks / sim.tripCount)
+		: 0;
+}
+
+export function currentTripStressTicks(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): number {
+	let liveElapsed = 0;
+	if (sim.lastDemandTick >= 0) {
+		liveElapsed =
+			(time.dayTick - sim.lastDemandTick + DAY_TICK_MAX) % DAY_TICK_MAX;
+		const reduced = { elapsedTicks: liveElapsed };
+		reduceElapsedForLobbyBoarding(reduced, sim.originFloor, world);
+		liveElapsed = reduced.elapsedTicks;
+	}
+	return Math.min(300, sim.elapsedTicks + liveElapsed);
+}
+
+export function currentTripStressLevel(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+): "low" | "medium" | "high" {
+	const elapsed = currentTripStressTicks(world, time, sim);
+	const { medium, high } = activeStressThresholds(world);
+	if (elapsed >= high) return "high";
+	if (elapsed >= medium) return "medium";
+	return "low";
+}
+
 export function refreshOccupiedFlagAndTripCounters(
 	world: WorldState,
 	sim: SimRecord,
@@ -289,13 +338,12 @@ export function refreshOccupiedFlagAndTripCounters(
 }
 
 function simStressLevel(
+	world: WorldState,
+	time: TimeState,
 	sim: SimRecord,
 	_object: PlacedObjectRecord | undefined,
 ): "low" | "medium" | "high" {
-	const elapsed = sim.elapsedTicks;
-	if (elapsed >= 120) return "high";
-	if (elapsed >= 80) return "medium";
-	return "low";
+	return currentTripStressLevel(world, time, sim);
 }
 
 function shouldEmitDistanceFeedback(sim: SimRecord): boolean {
@@ -342,7 +390,56 @@ export function maybeApplyDistanceFeedback(
 	addDelayToCurrentSim(sim, penalty);
 }
 
-export function createSimStateRecords(world: WorldState): SimStateRecord[] {
+export function createSimStateRecord(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+	pendingBySimId: Map<
+		string,
+		{ carrier: (typeof world.carriers)[number]; route: CarrierPendingRoute }
+	>,
+): SimStateRecord | null {
+	const object = findObjectForSim(world, sim);
+	if (!object) return null;
+	const id = simKey(sim);
+	const pending = pendingBySimId.get(id);
+	const pendingRoute = pending?.route;
+	const carrierId =
+		pendingRoute || sim.route.mode === "carrier"
+			? (pending?.carrier.carrierId ??
+				(sim.route.mode === "carrier" ? sim.route.carrierId : null))
+			: null;
+	const routeModeNum =
+		sim.route.mode === "carrier" ? 2 : sim.route.mode === "segment" ? 1 : 0;
+	const currentTicks = currentTripStressTicks(world, time, sim);
+	const currentLevel = simStressLevel(world, time, sim, object);
+	return {
+		id,
+		floorAnchor: sim.floorAnchor,
+		selectedFloor: sim.selectedFloor,
+		homeColumn: sim.homeColumn,
+		baseOffset: sim.baseOffset,
+		familyCode: sim.familyCode,
+		stateCode: sim.stateCode,
+		routeMode: routeModeNum,
+		destinationFloor: sim.destinationFloor,
+		carrierId,
+		assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
+		boardedOnCarrier: pendingRoute?.boarded ?? false,
+		currentTripStressTicks: currentTicks,
+		currentTripStressLevel: currentLevel,
+		averageTripStressTicks: averageTripStressTicks(sim),
+		stressLevel: currentLevel,
+		tripCount: sim.tripCount,
+		accumulatedTicks: sim.accumulatedTicks,
+		elapsedTicks: sim.elapsedTicks,
+	} satisfies SimStateRecord;
+}
+
+export function createSimStateRecords(
+	world: WorldState,
+	time: TimeState,
+): SimStateRecord[] {
 	// Pre-index pending routes by simId to avoid O(sims × carriers × routes).
 	const pendingBySimId = new Map<
 		string,
@@ -356,36 +453,8 @@ export function createSimStateRecords(world: WorldState): SimStateRecord[] {
 
 	const result: SimStateRecord[] = [];
 	for (const sim of world.sims) {
-		const object = findObjectForSim(world, sim);
-		if (!object) continue;
-		const id = simKey(sim);
-		const pending = pendingBySimId.get(id);
-		const pendingRoute = pending?.route;
-		const carrierId =
-			pendingRoute || sim.route.mode === "carrier"
-				? (pending?.carrier.carrierId ??
-					(sim.route.mode === "carrier" ? sim.route.carrierId : null))
-				: null;
-		const routeModeNum =
-			sim.route.mode === "carrier" ? 2 : sim.route.mode === "segment" ? 1 : 0;
-		result.push({
-			id,
-			floorAnchor: sim.floorAnchor,
-			selectedFloor: sim.selectedFloor,
-			homeColumn: sim.homeColumn,
-			baseOffset: sim.baseOffset,
-			familyCode: sim.familyCode,
-			stateCode: sim.stateCode,
-			routeMode: routeModeNum,
-			destinationFloor: sim.destinationFloor,
-			carrierId,
-			assignedCarIndex: pendingRoute?.assignedCarIndex ?? -1,
-			boardedOnCarrier: pendingRoute?.boarded ?? false,
-			stressLevel: simStressLevel(sim, object),
-			tripCount: sim.tripCount,
-			accumulatedTicks: sim.accumulatedTicks,
-			elapsedTicks: sim.elapsedTicks,
-		} satisfies SimStateRecord);
+		const record = createSimStateRecord(world, time, sim, pendingBySimId);
+		if (record) result.push(record);
 	}
 	return result;
 }

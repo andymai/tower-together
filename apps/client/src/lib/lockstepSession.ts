@@ -88,6 +88,7 @@ export class TowerLockstepSession {
 	private readonly authoritativeFrames = new Map<number, AuthoritativeFrame>();
 	private readonly pendingLocalBatches = new Map<number, PendingLocalBatch>();
 	private pendingBySimIdCache: Map<string, SimPendingRoute> | null = null;
+	private simStateCache: Map<string, SimStateData> | null = null;
 	private flushHandle: ReturnType<typeof setTimeout> | null = null;
 	private replayInProgress = false;
 	private replayChunkHandle: ReturnType<typeof setTimeout> | null = null;
@@ -108,6 +109,7 @@ export class TowerLockstepSession {
 		this.sim = TowerSim.fromSnapshot(this.baseSnapshot);
 		this.sim.freeBuild = settings.freeBuild;
 		this.pendingBySimIdCache = null;
+		this.simStateCache = null;
 		this.emitReset();
 		this.restartTimer();
 	}
@@ -218,6 +220,7 @@ export class TowerLockstepSession {
 			this.sim = sim;
 			this.predictedTick = Math.max(cursor, this.baseTick);
 			this.pendingBySimIdCache = null;
+			this.simStateCache = null;
 			this.replayInProgress = false;
 			this.replayChunkHandle = null;
 			this.emitReset();
@@ -358,6 +361,7 @@ export class TowerLockstepSession {
 		const stepResult = this.sim.step();
 		cellPatches.push(...stepResult.cellPatches);
 		this.pendingBySimIdCache = null;
+		this.simStateCache = null;
 		this.emitTick(cellPatches);
 	}
 
@@ -436,9 +440,12 @@ export class TowerLockstepSession {
 
 	materializeSim(sim: SimRecord): SimStateData | null {
 		if (!this.sim) return null;
-		const id = simKey(sim);
-		const records = this.sim.simsToArray();
-		return records.find((record) => record.id === id) ?? null;
+		if (!this.simStateCache) {
+			this.simStateCache = new Map(
+				this.sim.simsToArray().map((record) => [record.id, record]),
+			);
+		}
+		return this.simStateCache.get(simKey(sim)) ?? null;
 	}
 
 	peekPendingBySimId(): PendingBySimId {

@@ -108,6 +108,9 @@ export type SimStateData = {
 	carrierId: number | null;
 	assignedCarIndex: number;
 	boardedOnCarrier: boolean;
+	currentTripStressTicks: number;
+	currentTripStressLevel: "low" | "medium" | "high";
+	averageTripStressTicks: number;
 	stressLevel: "low" | "medium" | "high";
 	tripCount: number;
 	accumulatedTicks: number;

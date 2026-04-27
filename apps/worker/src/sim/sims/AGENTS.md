@@ -11,13 +11,13 @@ Runtime sim facade: refresh stride orchestration (`advanceSimRefreshStride` / `r
 Shared runtime sim state codes, transit-bit helpers (`0x40` flag + base-code mask), family sets, floor sentinels, route idle value, population tables, and unit-status thresholds.
 
 ### `population.ts`
-Population construction and cleanup for placed-object-derived sims, sim-key lookup helpers, route clearing, runtime reset, and legacy sim-named compatibility aliases. Phase 5b: `clearSimRoute` intentionally does NOT touch `sim.stateCode` bits because the _TRANSIT phase byte is still needed by family arrival handlers to select the right branch. Bit-strip sites pair explicit `setSimInTransit(false)` or byte-overwrites.
+Population construction and cleanup for placed-object-derived sims, sim-key lookup helpers, route clearing, binary-aligned runtime reset including daily stress-counter clears for reset families, and legacy sim-named compatibility aliases. Phase 5b: `clearSimRoute` intentionally does NOT touch `sim.stateCode` bits because the _TRANSIT phase byte is still needed by family arrival handlers to select the right branch. Bit-strip sites pair explicit `setSimInTransit(false)` or byte-overwrites.
 
 ### `trip-counters.ts`
 Back-compat facade. The binary's per-sim stress accessors (11e0:*) moved to `sim/stress/*.ts` in Phase 8; this file re-exports them and keeps the family-scoped `resetSimTripCounters` / `resetFacilitySimTripCounters` helpers (no 11e0 counterpart).
 
 ### `scoring.ts`
-Operational scoring, nearby-noise checks, distance feedback, occupied flag refreshes, and wire-facing sim state projection records.
+Operational scoring, nearby-noise checks, distance feedback, occupied flag refreshes, binary-style current-trip/average-trip stress metrics, and wire-facing sim state projection records.
 
 ### `parking.ts`
 Parking coverage propagation from ramps, demand log rebuild, and assignment of parking-service requests to eligible hotel and office sims.
