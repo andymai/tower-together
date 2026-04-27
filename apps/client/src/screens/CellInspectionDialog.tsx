@@ -87,9 +87,13 @@ interface Props {
 	onClose: () => void;
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
 	onAddElevatorCar: (x: number, y: number) => void;
-	onRemoveElevatorCar: (x: number) => void;
-	onSetElevatorDwellDelay: (x: number, value: number) => void;
-	onSetElevatorWaitingCarResponse: (x: number, value: number) => void;
+	onRemoveElevatorCar: (x: number, y: number) => void;
+	onSetElevatorDwellDelay: (x: number, y: number, value: number) => void;
+	onSetElevatorWaitingCarResponse: (
+		x: number,
+		y: number,
+		value: number,
+	) => void;
 	onSetElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
 	onToggleElevatorFloorStop: (x: number, floor: number) => void;
 	onSetCinemaMoviePool: (x: number, y: number, pool: "classic" | "new") => void;
@@ -480,7 +484,7 @@ export function CellInspectionDialog({
 											}}
 											disabled={activeCars.length <= 1}
 											onClick={() => {
-												onRemoveElevatorCar(ci.column);
+												onRemoveElevatorCar(ci.column, inspectedCell.y);
 												onInspectCell(ci.column, inspectedCell.y);
 											}}
 										>
@@ -504,7 +508,11 @@ export function CellInspectionDialog({
 														: {}),
 												}}
 												onClick={() => {
-													onSetElevatorDwellDelay(ci.column, v);
+													onSetElevatorDwellDelay(
+														ci.column,
+														inspectedCell.y,
+														v,
+													);
 													onPatchInspectedCell((cell) => ({
 														...cell,
 														carrierInfo: cell.carrierInfo
@@ -545,7 +553,11 @@ export function CellInspectionDialog({
 													0,
 													Math.min(99, Number(e.target.value) || 0),
 												);
-												onSetElevatorWaitingCarResponse(ci.column, v);
+												onSetElevatorWaitingCarResponse(
+													ci.column,
+													inspectedCell.y,
+													v,
+												);
 												onPatchInspectedCell((cell) => ({
 													...cell,
 													carrierInfo: cell.carrierInfo

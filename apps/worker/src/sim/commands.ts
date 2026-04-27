@@ -88,9 +88,14 @@ export type SimCommand =
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
 	| { type: "add_elevator_car"; x: number; y: number }
-	| { type: "remove_elevator_car"; x: number }
-	| { type: "set_elevator_dwell_delay"; x: number; value: number }
-	| { type: "set_elevator_waiting_car_response"; x: number; value: number }
+	| { type: "remove_elevator_car"; x: number; y: number }
+	| { type: "set_elevator_dwell_delay"; x: number; y: number; value: number }
+	| {
+			type: "set_elevator_waiting_car_response";
+			x: number;
+			y: number;
+			value: number;
+	  }
 	| {
 			type: "set_elevator_home_floor";
 			x: number;
@@ -324,6 +329,57 @@ const ELEVATOR_MAX_SHAFTS = 24;
 
 function shaftMinGap(mode: 0 | 1 | 2): number {
 	return mode === 0 ? ELEVATOR_EXPRESS_MIN_GAP : ELEVATOR_STANDARD_MIN_GAP;
+}
+
+/**
+ * Resolve a carrier whose served-floor range covers `floor` at column `x`.
+ * Returns null when nothing is served there — disconnected segments at the
+ * same column are independent carriers.
+ */
+function findCarrierByColumnAndFloor(
+	world: WorldState,
+	x: number,
+	floor: number,
+): WorldState["carriers"][number] | null {
+	for (const c of world.carriers) {
+		if (
+			c.column === x &&
+			floor >= c.bottomServedFloor &&
+			floor <= c.topServedFloor
+		)
+			return c;
+	}
+	return null;
+}
+
+/**
+ * Resolve a carrier from a click coordinate. Two carriers can share a column
+ * if they are vertically separated, so the floor at `y` is required to pick
+ * the right one — falls back to the closest segment when the click landed
+ * outside any served range.
+ */
+function findCarrierAtClick(
+	world: WorldState,
+	x: number,
+	y: number,
+): WorldState["carriers"][number] | null {
+	const floor = yToFloor(y);
+	const direct = findCarrierByColumnAndFloor(world, x, floor);
+	if (direct) return direct;
+	let best: WorldState["carriers"][number] | null = null;
+	let bestDistance = Infinity;
+	for (const c of world.carriers) {
+		if (c.column !== x) continue;
+		const distance =
+			floor < c.bottomServedFloor
+				? c.bottomServedFloor - floor
+				: floor - c.topServedFloor;
+		if (distance < bestDistance) {
+			best = c;
+			bestDistance = distance;
+		}
+	}
+	return best;
 }
 
 function overlayTypeToMode(type: string): 0 | 1 | 2 {
@@ -626,14 +682,14 @@ function cinemaSubRecords(
 			width: 7,
 			familyCode: FAMILY_CINEMA_STAIRS_UPPER,
 		},
-		{ offsetX: 7, rowY: upperY, width: 24, familyCode: FAMILY_CINEMA },
+		{ offsetX: 7, rowY: upperY, width: 24, familyCode: FAMILY_CINEMA_LOWER },
 		{
 			offsetX: 0,
 			rowY: lowerY,
 			width: 7,
 			familyCode: FAMILY_CINEMA_STAIRS_LOWER,
 		},
-		{ offsetX: 7, rowY: lowerY, width: 24, familyCode: FAMILY_CINEMA_LOWER },
+		{ offsetX: 7, rowY: lowerY, width: 24, familyCode: FAMILY_CINEMA },
 	].map((r) => ({ ...r, offsetX: x + r.offsetX }) as EntertainmentSubRecord);
 }
 
@@ -651,6 +707,13 @@ function partyHallSubRecords(
 			familyCode: FAMILY_PARTY_HALL_LOWER,
 		},
 	];
+}
+
+function sampleCinemaInitialSelector(world: WorldState): number {
+	// Binary placement reaches `allocate_entertainment_link_record` after the
+	// deferred object rebuild path has consumed 13 placement-time RNG samples.
+	for (let i = 0; i < 13; i++) sampleRng(world);
+	return sampleRng(world) % 14;
 }
 
 function placeEntertainmentVenue(
@@ -719,7 +782,7 @@ function placeEntertainmentVenue(
 		ownerSubtypeIndex: x,
 		pairedSubtypeIndex: 0xff,
 		familySelectorOrSingleLinkFlag:
-			tileType === "cinema" ? sampleRng(world) % 14 : 0xff,
+			tileType === "cinema" ? sampleCinemaInitialSelector(world) : 0xff,
 		linkAgeCounter: 0,
 		upperBudget: 0,
 		lowerBudget: 0,
@@ -884,7 +947,16 @@ export function handlePlaceTile(
 		// at a column. Later floors extending an existing shaft charge
 		// a per-floor extension cost (binary: `charge_floor_range_construction_cost`
 		// at 1180:02e5, called from `FUN_10a8_0819`/`FUN_10a8_0b87`).
-		const isNewShaft = !world.carriers.some((c) => c.column === x);
+		// A placement only counts as an extension when it is vertically
+		// adjacent to (or inside) an existing same-column shaft — disconnected
+		// segments at the same column form independent carriers.
+		const placedFloor = yToFloor(y);
+		const isNewShaft = !world.carriers.some(
+			(c) =>
+				c.column === x &&
+				placedFloor >= c.bottomServedFloor - 1 &&
+				placedFloor <= c.topServedFloor + 1,
+		);
 		const shaftMode = overlayTypeToMode(normalizedTileType);
 		const shaftCost = isNewShaft
 			? (TILE_COSTS[normalizedTileType] ?? 0)
@@ -1460,7 +1532,7 @@ export function handleAddElevatorCar(
 	ledger: LedgerState,
 	freeBuild: boolean,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierAtClick(world, x, y);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1504,9 +1576,10 @@ export function handleAddElevatorCar(
 
 export function handleRemoveElevatorCar(
 	x: number,
+	y: number,
 	world: WorldState,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierAtClick(world, x, y);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1524,22 +1597,24 @@ export function handleRemoveElevatorCar(
 		);
 	if (hasActiveTraffic) {
 		world.eventState.pendingCarrierEditColumn = x;
+		world.eventState.pendingCarrierEditY = y;
 		world.pendingPrompts.push({
-			promptId: `carrier_remove_${x}`,
+			promptId: `carrier_remove_${x}_${y}`,
 			promptKind: "carrier_edit_confirmation",
 			message:
 				"Removing this elevator car will disrupt active traffic. Continue?",
 		});
 		return { accepted: true, patch: [] };
 	}
-	return applyRemoveElevatorCar(world, x);
+	return applyRemoveElevatorCar(world, x, y);
 }
 
 export function applyRemoveElevatorCar(
 	world: WorldState,
 	x: number,
+	y: number,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierAtClick(world, x, y);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1557,10 +1632,11 @@ export function applyRemoveElevatorCar(
 
 export function handleSetElevatorDwellDelay(
 	x: number,
+	y: number,
 	value: number,
 	world: WorldState,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierAtClick(world, x, y);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1570,10 +1646,11 @@ export function handleSetElevatorDwellDelay(
 
 export function handleSetElevatorWaitingCarResponse(
 	x: number,
+	y: number,
 	value: number,
 	world: WorldState,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierAtClick(world, x, y);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1587,7 +1664,7 @@ export function handleSetElevatorHomeFloor(
 	floor: number,
 	world: WorldState,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierByColumnAndFloor(world, x, floor);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}
@@ -1608,7 +1685,7 @@ export function handleToggleElevatorFloorStop(
 	floor: number,
 	world: WorldState,
 ): CommandResult {
-	const carrier = world.carriers.find((c) => c.column === x);
+	const carrier = findCarrierByColumnAndFloor(world, x, floor);
 	if (!carrier) {
 		return { accepted: false, reason: "No elevator at this column" };
 	}

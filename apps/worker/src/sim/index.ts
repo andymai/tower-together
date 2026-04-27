@@ -30,6 +30,7 @@ import type {
 	SimRecord,
 	WorldState,
 } from "./world";
+import { yToFloor } from "./world";
 
 export type { SimStateRecord } from "./sims";
 export { simKey } from "./sims";
@@ -228,12 +229,13 @@ export class TowerSim {
 					this.freeBuild,
 				);
 			case "remove_elevator_car":
-				return handleRemoveElevatorCar(cmd.x, this.world);
+				return handleRemoveElevatorCar(cmd.x, cmd.y, this.world);
 			case "set_elevator_dwell_delay":
-				return handleSetElevatorDwellDelay(cmd.x, cmd.value, this.world);
+				return handleSetElevatorDwellDelay(cmd.x, cmd.y, cmd.value, this.world);
 			case "set_elevator_waiting_car_response":
 				return handleSetElevatorWaitingCarResponse(
 					cmd.x,
+					cmd.y,
 					cmd.value,
 					this.world,
 				);
@@ -363,7 +365,13 @@ export class TowerSim {
 		if (overlayKey) {
 			const [anchorXStr] = overlayKey.split(",");
 			const col = Number(anchorXStr);
-			const carrier = this.world.carriers.find((c) => c.column === col);
+			const queriedFloor = yToFloor(y);
+			const carrier = this.world.carriers.find(
+				(c) =>
+					c.column === col &&
+					queriedFloor >= c.bottomServedFloor &&
+					queriedFloor <= c.topServedFloor,
+			);
 			if (carrier) {
 				const servedFloors: number[] = [];
 				const stopFloorEnabled: boolean[] = [];

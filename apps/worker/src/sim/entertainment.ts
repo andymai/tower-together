@@ -1,4 +1,5 @@
 import type { LedgerState } from "./ledger";
+import { addToPopulationBucket, clearPopulationBucket } from "./progression";
 import {
 	FAMILY_CINEMA,
 	FAMILY_CINEMA_LOWER,
@@ -46,6 +47,16 @@ function isPairedSidecar(sidecar: EntertainmentLinkRecord): boolean {
 	return sidecar.familySelectorOrSingleLinkFlag !== 0xff;
 }
 
+function simMatchesEntertainmentSidecar(
+	sim: { homeColumn: number },
+	sidecar: EntertainmentLinkRecord,
+): boolean {
+	return (
+		sim.homeColumn === sidecar.ownerSubtypeIndex ||
+		sim.homeColumn === sidecar.ownerSubtypeIndex + 7
+	);
+}
+
 /**
  * Binary `rebuild_entertainment_family_ledger` @ 1188:05af.
  * Seed entertainment link budgets, increment link age, clear cycle counters.
@@ -58,6 +69,8 @@ function isPairedSidecar(sidecar: EntertainmentLinkRecord): boolean {
  * the previous day's lower-half advance pass. We mirror that.
  */
 export function seedEntertainmentBudgets(world: WorldState): void {
+	let cinemaPopulation = 0;
+	let partyHallPopulation = 0;
 	for (const sidecar of world.sidecars) {
 		if (sidecar.kind !== "entertainment_link") continue;
 		if (sidecar.ownerSubtypeIndex === 0xff) continue;
@@ -74,10 +87,21 @@ export function seedEntertainmentBudgets(world: WorldState): void {
 			);
 			sidecar.upperBudget = budget;
 			sidecar.lowerBudget = budget;
+			cinemaPopulation += sidecar.upperBudget + sidecar.lowerBudget;
 		} else {
 			sidecar.upperBudget = 0;
 			sidecar.lowerBudget = 50;
+			partyHallPopulation += sidecar.lowerBudget;
 		}
+	}
+
+	clearPopulationBucket(world, FAMILY_CINEMA);
+	if (cinemaPopulation > 0) {
+		addToPopulationBucket(world, FAMILY_CINEMA, cinemaPopulation);
+	}
+	clearPopulationBucket(world, FAMILY_PARTY_HALL);
+	if (partyHallPopulation > 0) {
+		addToPopulationBucket(world, FAMILY_PARTY_HALL, partyHallPopulation);
 	}
 }
 
@@ -92,6 +116,11 @@ export function activateEntertainmentUpperHalf(world: WorldState): void {
 		if (!isPairedSidecar(sidecar)) continue;
 		if (sidecar.linkPhaseState === 0) {
 			sidecar.linkPhaseState = 1;
+		}
+		for (const sim of world.sims) {
+			if (sim.familyCode !== FAMILY_CINEMA) continue;
+			if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
+			sim.stateCode = STATE_MORNING_GATE;
 		}
 	}
 }
@@ -122,7 +151,7 @@ export function promoteCinemaAndActivatePartyHall(world: WorldState): void {
 			}
 			for (const sim of world.sims) {
 				if (sim.familyCode !== FAMILY_PARTY_HALL_LOWER) continue;
-				if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
+				if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
 				sim.stateCode = STATE_MORNING_GATE;
 			}
 		}
@@ -170,7 +199,7 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 
 		for (const sim of world.sims) {
 			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
-			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
+			if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
 			if (sim.stateCode >= STATE_ACTIVE && sim.stateCode <= STATE_ARRIVED) {
 				sim.stateCode = STATE_PARKED;
 			}
@@ -211,7 +240,7 @@ export function advancePartyHallPhaseAndAccrue(
 
 		for (const sim of world.sims) {
 			if (sim.familyCode !== FAMILY_PARTY_HALL_LOWER) continue;
-			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
+			if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
 			if (sim.stateCode === STATE_ARRIVED) {
 				sim.stateCode = STATE_DEPARTURE;
 				sidecar.activeRuntimeCount = Math.max(
@@ -254,7 +283,7 @@ export function advanceEntertainmentLowerPairedPhaseAndAccrue(
 
 		for (const sim of world.sims) {
 			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
-			if (sim.homeColumn !== sidecar.ownerSubtypeIndex) continue;
+			if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
 			if (sim.stateCode === STATE_ARRIVED) {
 				sim.stateCode = STATE_DEPARTURE;
 				sidecar.activeRuntimeCount = Math.max(

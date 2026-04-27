@@ -560,6 +560,8 @@ export interface EventState {
 	bombSearchScanTile: number;
 	/** Pending carrier-edit prompt target column, -1 when idle. */
 	pendingCarrierEditColumn: number;
+	/** Pending carrier-edit prompt target y, -1 when idle. */
+	pendingCarrierEditY: number;
 	/** When true, suppress triggerRandomNewsEvent (trace-test only). */
 	disableNewsEvents?: boolean;
 }
@@ -583,6 +585,7 @@ export function createEventState(): EventState {
 		bombSearchCurrentFloor: -1,
 		bombSearchScanTile: -1,
 		pendingCarrierEditColumn: -1,
+		pendingCarrierEditY: -1,
 	};
 }
 

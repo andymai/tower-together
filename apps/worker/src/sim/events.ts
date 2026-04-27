@@ -625,9 +625,11 @@ export function handlePromptResponse(
 
 	if (promptId.startsWith("carrier_remove_")) {
 		const column = world.eventState.pendingCarrierEditColumn;
+		const y = world.eventState.pendingCarrierEditY;
 		world.eventState.pendingCarrierEditColumn = -1;
-		if (!accepted || column < 0) return true;
-		applyRemoveElevatorCar(world, column);
+		world.eventState.pendingCarrierEditY = -1;
+		if (!accepted || column < 0 || y < 0) return true;
+		applyRemoveElevatorCar(world, column, y);
 		return true;
 	}
 

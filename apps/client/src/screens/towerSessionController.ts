@@ -409,17 +409,17 @@ export class TowerSessionController {
 		this.sendInputBatch([{ type: "add_elevator_car", x, y }]);
 	}
 
-	removeElevatorCar(x: number): void {
-		this.sendInputBatch([{ type: "remove_elevator_car", x }]);
+	removeElevatorCar(x: number, y: number): void {
+		this.sendInputBatch([{ type: "remove_elevator_car", x, y }]);
 	}
 
-	setElevatorDwellDelay(x: number, value: number): void {
-		this.sendInputBatch([{ type: "set_elevator_dwell_delay", x, value }]);
+	setElevatorDwellDelay(x: number, y: number, value: number): void {
+		this.sendInputBatch([{ type: "set_elevator_dwell_delay", x, y, value }]);
 	}
 
-	setElevatorWaitingCarResponse(x: number, value: number): void {
+	setElevatorWaitingCarResponse(x: number, y: number, value: number): void {
 		this.sendInputBatch([
-			{ type: "set_elevator_waiting_car_response", x, value },
+			{ type: "set_elevator_waiting_car_response", x, y, value },
 		]);
 	}
 

@@ -53,10 +53,10 @@ interface UseTowerSessionResult {
 	setFreeBuild: (enabled: boolean) => void;
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
 	addElevatorCar: (x: number, y: number) => void;
-	removeElevatorCar: (x: number) => void;
+	removeElevatorCar: (x: number, y: number) => void;
 	removeElevatorShaft: (x: number, topY: number, bottomY: number) => void;
-	setElevatorDwellDelay: (x: number, value: number) => void;
-	setElevatorWaitingCarResponse: (x: number, value: number) => void;
+	setElevatorDwellDelay: (x: number, y: number, value: number) => void;
+	setElevatorWaitingCarResponse: (x: number, y: number, value: number) => void;
 	setElevatorHomeFloor: (x: number, carIndex: number, floor: number) => void;
 	toggleElevatorFloorStop: (x: number, floor: number) => void;
 	setCinemaMoviePool: (x: number, y: number, pool: "classic" | "new") => void;
@@ -134,13 +134,13 @@ export function useTowerSession({
 		setRentLevel: (x, y, rentLevel) =>
 			controllerRef.current?.setRentLevel(x, y, rentLevel),
 		addElevatorCar: (x, y) => controllerRef.current?.addElevatorCar(x, y),
-		removeElevatorCar: (x) => controllerRef.current?.removeElevatorCar(x),
+		removeElevatorCar: (x, y) => controllerRef.current?.removeElevatorCar(x, y),
 		removeElevatorShaft: (x, topY, bottomY) =>
 			controllerRef.current?.removeElevatorShaft(x, topY, bottomY),
-		setElevatorDwellDelay: (x, value) =>
-			controllerRef.current?.setElevatorDwellDelay(x, value),
-		setElevatorWaitingCarResponse: (x, value) =>
-			controllerRef.current?.setElevatorWaitingCarResponse(x, value),
+		setElevatorDwellDelay: (x, y, value) =>
+			controllerRef.current?.setElevatorDwellDelay(x, y, value),
+		setElevatorWaitingCarResponse: (x, y, value) =>
+			controllerRef.current?.setElevatorWaitingCarResponse(x, y, value),
 		setElevatorHomeFloor: (x, carIndex, floor) =>
 			controllerRef.current?.setElevatorHomeFloor(x, carIndex, floor),
 		toggleElevatorFloorStop: (x, floor) =>

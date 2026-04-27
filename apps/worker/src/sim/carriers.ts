@@ -235,16 +235,55 @@ export function rebuildCarrierList(world: WorldState): void {
 		columns.get(x)?.floors.add(floor);
 	}
 
-	const newCarriers: CarrierRecord[] = [];
-	let id = 0;
-
+	// Split each column into contiguous floor runs. Two elevator overlays in
+	// the same column with a vertical gap form two independent carriers — the
+	// binary allows this, and routing/economy track each segment separately.
+	type Run = { col: number; mode: 0 | 1 | 2; bottom: number; top: number };
+	const runs: Run[] = [];
 	for (const [col, { floors, mode }] of columns) {
 		const sorted = [...floors].sort((a, b) => a - b);
-		const bottom = sorted[0];
-		const top = sorted[sorted.length - 1];
+		let runBottom = sorted[0];
+		let prev = sorted[0];
+		for (let i = 1; i < sorted.length; i++) {
+			const f = sorted[i];
+			if (f === prev + 1) {
+				prev = f;
+				continue;
+			}
+			runs.push({ col, mode, bottom: runBottom, top: prev });
+			runBottom = f;
+			prev = f;
+		}
+		runs.push({ col, mode, bottom: runBottom, top: prev });
+	}
+
+	const newCarriers: CarrierRecord[] = [];
+	const consumed = new Set<CarrierRecord>();
+	let id = 0;
+
+	for (const run of runs) {
+		const { col, mode, bottom, top } = run;
 		const numSlots = top - bottom + 1;
 
-		const existing = world.carriers.find((carrier) => carrier.column === col);
+		// Match this run to whichever existing same-column carrier overlaps it
+		// most. Preserves per-car state through ordinary extend/shrink edits;
+		// when a single placement merges or splits segments, the larger overlap
+		// wins and the smaller side starts fresh.
+		let existing: CarrierRecord | null = null;
+		let bestOverlap = 0;
+		for (const c of world.carriers) {
+			if (c.column !== col || consumed.has(c)) continue;
+			const overlap =
+				Math.min(c.topServedFloor, top) -
+				Math.max(c.bottomServedFloor, bottom) +
+				1;
+			if (overlap > bestOverlap) {
+				existing = c;
+				bestOverlap = overlap;
+			}
+		}
+		if (existing) consumed.add(existing);
+
 		if (existing) {
 			existing.carrierId = id++;
 			existing.carrierMode = mode;

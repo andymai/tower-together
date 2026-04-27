@@ -336,6 +336,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	snapshot.world.eventState.bombSearchCurrentFloor ??= -1;
 	snapshot.world.eventState.bombSearchScanTile ??= -1;
 	snapshot.world.eventState.pendingCarrierEditColumn ??= -1;
+	snapshot.world.eventState.pendingCarrierEditY ??= -1;
 	snapshot.ledger.populationLedger ??= new Array(256).fill(0);
 	snapshot.ledger.incomeLedger ??= new Array(256).fill(0);
 	snapshot.ledger.expenseLedger ??= new Array(256).fill(0);

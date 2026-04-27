@@ -18,7 +18,7 @@ export type ClientMessage =
 	| { type: "query_cell"; x: number; y: number }
 	| { type: "set_rent_level"; x: number; y: number; rentLevel: number }
 	| { type: "add_elevator_car"; x: number; y: number }
-	| { type: "remove_elevator_car"; x: number }
+	| { type: "remove_elevator_car"; x: number; y: number }
 	| {
 			type: "set_cinema_movie_pool";
 			x: number;
