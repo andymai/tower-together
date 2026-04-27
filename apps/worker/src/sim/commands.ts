@@ -1625,25 +1625,27 @@ export function handleToggleElevatorFloorStop(
 				car.pendingAssignmentCount -= 1;
 		}
 
-		// Sims already enqueued at the disabled floor would otherwise sit in the
-		// floor ring forever — visually, riders queue up and the elevator never
-		// arrives. Evict each queued request and clear the sim's route so the
-		// family state machine re-resolves on its next tick (which now scores the
-		// disabled floor as ineligible and picks a peer carrier or transfer).
-		const floorQueue = carrier.floorQueues[slot];
-		if (floorQueue) {
-			const queuedIds = [
-				...floorQueue.up.peekAll(),
-				...floorQueue.down.peekAll(),
-			].filter((id) => id !== "");
-			for (const queuedId of queuedIds) {
-				cancelRuntimeRouteRequest(carrier, queuedId);
-			}
-			if (queuedIds.length > 0) {
-				const queuedSet = new Set(queuedIds);
-				for (const sim of world.sims) {
-					if (queuedSet.has(simKey(sim))) clearSimRoute(sim);
-				}
+		// Sims with a pending route touching the disabled floor would otherwise
+		// stay in line forever — visually, riders queue up and the elevator
+		// never arrives (or arrives without being able to drop them off).
+		// Evict every not-yet-boarded route whose source OR destination is the
+		// disabled floor, then clear each sim's route so the family state
+		// machine re-resolves on its next tick (which now scores the disabled
+		// floor as ineligible and picks a peer carrier or transfer).
+		const evictedIds = carrier.pendingRoutes
+			.filter(
+				(route) =>
+					!route.boarded &&
+					(route.sourceFloor === floor || route.destinationFloor === floor),
+			)
+			.map((route) => route.simId);
+		for (const evictedId of evictedIds) {
+			cancelRuntimeRouteRequest(carrier, evictedId);
+		}
+		if (evictedIds.length > 0) {
+			const evictedSet = new Set(evictedIds);
+			for (const sim of world.sims) {
+				if (evictedSet.has(simKey(sim))) clearSimRoute(sim);
 			}
 		}
 	}
