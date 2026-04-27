@@ -36,6 +36,7 @@ import {
 } from "../resources";
 import { isSimInTransit } from "../sim-access/state-bits";
 import { LOBBY_FLOOR } from "../sims/states";
+import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import type { EntertainmentLinkRecord, SimRecord, WorldState } from "../world";
 import { sampleRng } from "../world";
@@ -368,6 +369,13 @@ function handleEntertainmentServiceAcquisition(
 
 	if (isFreshDispatch && destFloor < sourceFloor) {
 		sampleRng(world);
+		// Binary path on this branch: `resolve_sim_route_between_floors` returns
+		// 3 (same-floor), bumping trip counters and clearing lastDemandTick to
+		// -1; then `acquire_commercial_venue_slot` (11b0:0d92) lobby-fallback
+		// (slot_index<0) returns 3 and writes sim[+10]=g_day_tick. The TS
+		// shortcut bypasses both calls, so mirror the two writes here.
+		advanceSimTripCounters(sim);
+		sim.lastDemandTick = time.dayTick;
 		sim.stateCode = ENT_STATE_VENUE_DWELL;
 		return;
 	}
