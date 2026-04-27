@@ -141,6 +141,12 @@ export function rebuildRestaurantFacilityRecords(
 	time: TimeState,
 ): void {
 	const slot = selectFacilityProgressSlot(world, time);
+	// Binary `rebuild_type6_facility_records` (11b0:0250) clears the
+	// per-family bucket then iterates restaurants through
+	// `recompute_facility_runtime_state`, which calls
+	// `add_to_primary_family_ledger_bucket(6, record[+8])` after rolling the
+	// day counter. Mirrors the fast-food/retail clear+add pattern.
+	clearPopulationBucket(world, FAMILY_RESTAURANT);
 	for (const obj of Object.values(world.placedObjects)) {
 		if (obj.objectTypeCode !== FAMILY_RESTAURANT) continue;
 		if (obj.linkedRecordIndex < 0) continue;
@@ -161,6 +167,7 @@ export function rebuildRestaurantFacilityRecords(
 		record.remainingCapacity = cap;
 		record.eligibilityThreshold = -(cap + 1);
 		record.yesterdayVisitCount = record.todayVisitCount;
+		addToPopulationBucket(world, FAMILY_RESTAURANT, record.yesterdayVisitCount);
 		record.todayVisitCount = 0;
 		record.acquireCount = 0;
 		record.currentPopulation = 0;
