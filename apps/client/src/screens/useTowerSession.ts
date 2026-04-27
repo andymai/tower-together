@@ -36,6 +36,8 @@ interface UseTowerSessionResult {
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
 	lobbyExists: boolean;
+	starUpgrade: TowerSessionState["starUpgrade"];
+	dismissStarUpgrade: () => void;
 	setInspectedCell: Dispatch<SetStateAction<CellInfoData | null>>;
 	sendTileCommand: (
 		x: number,
@@ -144,6 +146,7 @@ export function useTowerSession({
 			controllerRef.current?.toggleElevatorFloorStop(x, floor),
 		setCinemaMoviePool: (x, y, pool) =>
 			controllerRef.current?.setCinemaMoviePool(x, y, pool),
+		dismissStarUpgrade: () => controllerRef.current?.dismissStarUpgrade(),
 		reconnect: () => controllerRef.current?.reconnect(),
 	};
 }

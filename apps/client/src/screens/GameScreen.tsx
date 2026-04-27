@@ -15,6 +15,7 @@ import { GameToolbar } from "./GameToolbar";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { Toast } from "./gameScreenTypes";
 import { SimInspectionDialog } from "./SimInspectionDialog";
+import { StarUpgradeDialog } from "./StarUpgradeDialog";
 import { useTowerSession } from "./useTowerSession";
 
 interface Props {
@@ -77,6 +78,8 @@ export function GameScreen({
 		speedMultiplier,
 		freeBuild,
 		activePrompt,
+		starUpgrade,
+		dismissStarUpgrade,
 		inspectedCell,
 		setInspectedCell,
 		sendTileCommand,
@@ -302,6 +305,13 @@ export function GameScreen({
 
 			{activePrompt && (
 				<GamePromptModal prompt={activePrompt} onRespond={respondToPrompt} />
+			)}
+
+			{starUpgrade && (
+				<StarUpgradeDialog
+					newStarCount={starUpgrade.newStarCount}
+					onDismiss={dismissStarUpgrade}
+				/>
 			)}
 
 			{pendingShaftErase && (

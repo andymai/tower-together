@@ -113,6 +113,7 @@ export interface TowerSessionState {
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
 	lobbyExists: boolean;
+	starUpgrade: { newStarCount: number } | null;
 }
 
 export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
@@ -130,6 +131,7 @@ export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	inspectedCell: null,
 	sceneReady: false,
 	lobbyExists: false,
+	starUpgrade: null,
 };
 
 interface TowerSessionControllerOptions {
@@ -366,6 +368,11 @@ export class TowerSessionController {
 		this.patchState({ activePrompt: null });
 	}
 
+	dismissStarUpgrade(): void {
+		if (!this.state.starUpgrade) return;
+		this.patchState({ starUpgrade: null });
+	}
+
 	setSpeedMultiplier(multiplier: 1 | 3 | 10): void {
 		this.patchState({ speedMultiplier: multiplier });
 		this.lockstep.updateSettings({ speedMultiplier: multiplier });
@@ -518,6 +525,12 @@ export class TowerSessionController {
 				});
 				break;
 			case "notification":
+				if (msg.kind === "star_advanced") {
+					const newStarCount = Number.parseInt(msg.message, 10);
+					if (Number.isFinite(newStarCount)) {
+						this.patchState({ starUpgrade: { newStarCount } });
+					}
+				}
 				break;
 			case "prompt":
 				this.patchState({
