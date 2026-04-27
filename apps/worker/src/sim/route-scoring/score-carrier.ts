@@ -24,25 +24,29 @@ import {
 
 /**
  * Binary `score_carrier_transfer_route` (11b8:168e) gates eligibility on
- * `served_floor_flags[floor] != 0`. The emulator's `build_carrier` writes
- * narrow per-floor flags for mode-0 (express) shafts — only lobby+basement
- * floors and sky-lobby stops (24, 39, 54, …) — while standard/service
- * carriers cover the full [bottom, top] span.
+ * `served_floor_flags[floor] != 0`. In the binary that bit is the union of
+ * "this floor is in the carrier's served set" (set when the shaft is built/
+ * extended) and "the player has not toggled this floor off" (cleared by the
+ * per-floor stop-dialog button at FUN_10a8_0085). TS splits these into
+ * `carrierSpansFloor` (geometric [bottom, top] coverage) and
+ * `stopFloorEnabled[slot]` (player toggle), so the gate must AND both.
  *
- * The TS CarrierRecord only has an aggregate `servedFloorFlags` slot array,
- * so compose the gate from `carrierSpansFloor` + `isExpressStopFloor`.
+ * Express carriers additionally restrict to lobby/sky-lobby slots even within
+ * their span, so chain `isExpressStopFloor` for mode-0.
  */
 function carrierEligibleFloor(
 	carrier: WorldState["carriers"][number],
 	floor: number,
+	lobbyMode: WorldState["lobbyMode"],
 ): boolean {
 	if (!carrierSpansFloor(carrier, floor)) return false;
+	const slot = floor - carrier.bottomServedFloor;
+	if ((carrier.stopFloorEnabled[slot] ?? 1) === 0) return false;
 	if (carrier.carrierMode === 0) {
 		// Express: only stops at internal/binary floors 1..10 (basement/ground)
-		// and sky-lobby floors at (floor-10)%15==14 (24, 39, 54, ...). The
-		// `floor` parameter here is in internal numbering — same convention
-		// `isExpressStopFloor` expects — no shift.
-		return isExpressStopFloor(floor);
+		// and the lobby cadence above. The `floor` parameter is in internal
+		// numbering — same convention `isExpressStopFloor` expects.
+		return isExpressStopFloor(floor, lobbyMode);
 	}
 	return true;
 }
@@ -76,8 +80,10 @@ export function scoreCarrierDirectRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierEligibleFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!carrierEligibleFloor(carrier, toFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, fromFloor, world.lobbyMode))
+		return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, toFloor, world.lobbyMode))
+		return ROUTE_COST_INFINITE;
 	const qCount = getFloorQueueCount(
 		carrier,
 		fromFloor,
@@ -118,7 +124,8 @@ export function scoreCarrierTransferRoute(
 		(candidate) => candidate.carrierId === carrierId,
 	);
 	if (!carrier) return ROUTE_COST_INFINITE;
-	if (!carrierEligibleFloor(carrier, fromFloor)) return ROUTE_COST_INFINITE;
+	if (!carrierEligibleFloor(carrier, fromFloor, world.lobbyMode))
+		return ROUTE_COST_INFINITE;
 	if (
 		!testCarrierTransferReachability(world, carrierId, toFloor, preferLocalMode)
 	) {

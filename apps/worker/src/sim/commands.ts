@@ -181,7 +181,13 @@ function allocSidecar(
 			ownerSubtypeIndex: x,
 			capacity: 48,
 			visitCount: 0,
-			todayVisitCount: 0,
+			// Binary `allocate_facility_record` (11b0:07d3) link-disabled branch
+			// seeds `record[+7] = 10`. For restaurant (family 6) this branch is
+			// always taken; for fast-food/retail it's taken when (daypart != 0
+			// || dayTick <= 240) — i.e. game-startup placement. The rebuild
+			// at tick 240 (fastfood/retail) / tick 1600 (restaurant) rolls
+			// this into yesterdayVisitCount and pushes +10 into the bucket.
+			todayVisitCount: 10,
 			yesterdayVisitCount: 0,
 			acquireCount: 0,
 			// Retail starts dormant (unrented); restaurant/fast-food start active
@@ -1036,10 +1042,11 @@ export function handlePlaceTile(
 	if (x + tileWidth - 1 >= world.width) {
 		return { accepted: false, reason: "Out of bounds" };
 	}
-	if (normalizedTileType === "lobby" && !isValidLobbyY(y)) {
+	if (normalizedTileType === "lobby" && !isValidLobbyY(y, world.lobbyMode)) {
+		const cadence = world.lobbyMode === "modern" ? "15" : "14, then 15";
 		return {
 			accepted: false,
-			reason: "Lobby only allowed on ground floor or every 15 floors above",
+			reason: `Lobby only allowed on ground floor or every 15 floors above (offsets +${cadence})`,
 		};
 	}
 	if (!freeBuild && cost > ledger.cashBalance) {
@@ -1593,7 +1600,35 @@ export function handleToggleElevatorFloorStop(
 	if (slot < 0) {
 		return { accepted: false, reason: "Floor not served by this elevator" };
 	}
-	carrier.stopFloorEnabled[slot] = carrier.stopFloorEnabled[slot] ? 0 : 1;
+	const wasEnabled = (carrier.stopFloorEnabled[slot] ?? 1) !== 0;
+	carrier.stopFloorEnabled[slot] = wasEnabled ? 0 : 1;
+
+	// Binary FUN_10a8_0085 follow-up: when disabling, FUN_10a8_14cc clears
+	// route-status slots so cars en route to the disabled floor get
+	// re-targeted on the next recompute. Mirror by zeroing primary/secondary
+	// per-floor status and decrementing the assigned car's pending count.
+	if (wasEnabled) {
+		const primaryTag = carrier.primaryRouteStatusByFloor[slot] ?? 0;
+		if (primaryTag !== 0) {
+			carrier.primaryRouteStatusByFloor[slot] = 0;
+			const car = carrier.cars[primaryTag - 1];
+			if (car && car.pendingAssignmentCount > 0)
+				car.pendingAssignmentCount -= 1;
+		}
+		const secondaryTag = carrier.secondaryRouteStatusByFloor[slot] ?? 0;
+		if (secondaryTag !== 0) {
+			carrier.secondaryRouteStatusByFloor[slot] = 0;
+			const car = carrier.cars[secondaryTag - 1];
+			if (car && car.pendingAssignmentCount > 0)
+				car.pendingAssignmentCount -= 1;
+		}
+	}
+
+	// Binary FUN_10a8_0085 unconditionally rebuilds the transfer-group cache
+	// and route-reachability tables after any toggle.
+	rebuildTransferGroupCache(world);
+	rebuildRouteReachabilityTables(world);
+
 	return { accepted: true, patch: [] };
 }
 

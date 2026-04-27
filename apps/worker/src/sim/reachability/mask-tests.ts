@@ -84,10 +84,14 @@ export function chooseTransferFloorFromCarrierReachability(
 
 	// Binary 11b8:0e41 opens with `carrier.served_floor_flags[target] != 0`,
 	// which covers the carrier's full [bottom, top] span (including non-lobby
-	// intermediate floors on express carriers). Use the span check so express
-	// direct-routes to floor 12/13 resolve without falling into the transfer
-	// loop.
-	if (carrierSpansFloor(carrier, targetFloor)) return targetFloor;
+	// intermediate floors on express carriers) AND the per-floor stop-enable
+	// bit cleared by the carrier-dialog toggle (FUN_10a8_0085). When the
+	// player disables a floor it falls through into the transfer-floor loop,
+	// matching the binary's "force transfer routing" branch.
+	if (carrierSpansFloor(carrier, targetFloor)) {
+		const targetSlot = targetFloor - carrier.bottomServedFloor;
+		if ((carrier.stopFloorEnabled[targetSlot] ?? 1) !== 0) return targetFloor;
+	}
 
 	// 11b8:0e41 binary loop — scans the 16-slot transfer_group_cache directly.
 	// For each entry that includes this carrier, clears the carrier's own bit
@@ -116,9 +120,15 @@ export function chooseTransferFloorFromCarrierReachability(
 function carrierStopsAtFloor(
 	carrier: WorldState["carriers"][number],
 	floor: number,
+	lobbyMode: WorldState["lobbyMode"],
 ): boolean {
 	if (!carrierSpansFloor(carrier, floor)) return false;
-	if (carrier.carrierMode === 0) return isExpressStopFloor(floor);
+	// Binary served_floor_flags[floor] != 0 — the player toggle in the
+	// carrier stop-floor dialog (FUN_10a8_0085) clears this bit, removing
+	// the floor from the carrier's effective served set for routing.
+	const slot = floor - carrier.bottomServedFloor;
+	if ((carrier.stopFloorEnabled[slot] ?? 1) === 0) return false;
+	if (carrier.carrierMode === 0) return isExpressStopFloor(floor, lobbyMode);
 	return true;
 }
 
@@ -130,7 +140,8 @@ function peersMaskReachesFloor(
 	for (let carrierIndex = 0; carrierIndex < 24; carrierIndex++) {
 		if ((mask & (1 << carrierIndex)) === 0) continue;
 		const peer = world.carriers.find((c) => c.carrierId === carrierIndex);
-		if (peer && carrierStopsAtFloor(peer, targetFloor)) return true;
+		if (peer && carrierStopsAtFloor(peer, targetFloor, world.lobbyMode))
+			return true;
 	}
 	for (
 		let recordIndex = 0;
@@ -174,7 +185,7 @@ function entryReachesDestinationFloor(
 		) {
 			continue;
 		}
-		if (carrierStopsAtFloor(carrier, toFloor)) return true;
+		if (carrierStopsAtFloor(carrier, toFloor, world.lobbyMode)) return true;
 	}
 	return testSpecialLinkTransferReachability(world, entry, toFloor);
 }

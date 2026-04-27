@@ -116,6 +116,10 @@ export function rebuildTransferGroupCache(world: WorldState): void {
 				// main-elevator membership in sky-lobby entries and produced
 				// spurious multi-carrier transfer routes for sky_office.
 				if (!carrierSpansFloor(carrier, span.floor)) continue;
+				// Player toggle (FUN_10a8_0085) clears served_floor_flags so a
+				// disabled lobby/sky-lobby floor drops out of transfer membership.
+				const slot = span.floor - carrier.bottomServedFloor;
+				if ((carrier.stopFloorEnabled[slot] ?? 1) === 0) continue;
 				membershipMask |= 1 << carrier.carrierId;
 			}
 			return { floor: span.floor, x: span.left, membershipMask };
@@ -205,9 +209,12 @@ function rebuildSpecialLinkRecordReachability(
 				(candidate) => candidate.carrierId === carrierIndex,
 			);
 			if (!carrier) continue;
-			if (carrierServesFloor(carrier, floor)) {
-				projectedMask |= 1 << carrierIndex;
-			}
+			if (!carrierServesFloor(carrier, floor)) continue;
+			// Binary served_floor_flags[floor] gate — drops the carrier from
+			// the projected reachability mask when the floor is toggled off.
+			const slot = floor - carrier.bottomServedFloor;
+			if ((carrier.stopFloorEnabled[slot] ?? 1) === 0) continue;
+			projectedMask |= 1 << carrierIndex;
 		}
 		for (let peerIndex = 0; peerIndex < MAX_SPECIAL_LINK_RECORDS; peerIndex++) {
 			if ((aggregateMask & (1 << (24 + peerIndex))) === 0) continue;
