@@ -1,4 +1,5 @@
 import { handleCathedralSimArrival, processCathedralSim } from "../cathedral";
+import { gateEntertainmentGuestState } from "../families/entertainment";
 import { maybeDispatchQueuedRouteAfterWait } from "../families/maybe-dispatch-after-wait";
 import type { LedgerState } from "../ledger";
 import {
@@ -6,6 +7,10 @@ import {
 	resolveSimRouteBetweenFloors,
 } from "../queue/resolve";
 import {
+	FAMILY_CINEMA,
+	FAMILY_CINEMA_LOWER,
+	FAMILY_CINEMA_STAIRS_LOWER,
+	FAMILY_CINEMA_STAIRS_UPPER,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
@@ -13,6 +18,8 @@ import {
 	FAMILY_HOTEL_TWIN,
 	FAMILY_HOUSEKEEPING,
 	FAMILY_OFFICE,
+	FAMILY_PARTY_HALL,
+	FAMILY_PARTY_HALL_LOWER,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
 } from "../resources";
@@ -642,7 +649,13 @@ export function advanceSimRefreshStride(
 			sim.familyCode !== FAMILY_HOUSEKEEPING &&
 			sim.familyCode !== FAMILY_RESTAURANT &&
 			sim.familyCode !== FAMILY_FAST_FOOD &&
-			sim.familyCode !== FAMILY_RETAIL
+			sim.familyCode !== FAMILY_RETAIL &&
+			sim.familyCode !== FAMILY_CINEMA &&
+			sim.familyCode !== FAMILY_CINEMA_LOWER &&
+			sim.familyCode !== FAMILY_CINEMA_STAIRS_UPPER &&
+			sim.familyCode !== FAMILY_CINEMA_STAIRS_LOWER &&
+			sim.familyCode !== FAMILY_PARTY_HALL &&
+			sim.familyCode !== FAMILY_PARTY_HALL_LOWER
 		) {
 			continue;
 		}
@@ -673,6 +686,14 @@ export function advanceSimRefreshStride(
 				break;
 			case FAMILY_HOUSEKEEPING:
 				processHousekeepingSim(world, time, sim);
+				break;
+			case FAMILY_CINEMA:
+			case FAMILY_CINEMA_LOWER:
+			case FAMILY_CINEMA_STAIRS_UPPER:
+			case FAMILY_CINEMA_STAIRS_LOWER:
+			case FAMILY_PARTY_HALL:
+			case FAMILY_PARTY_HALL_LOWER:
+				gateEntertainmentGuestState(world, ledger, time, sim);
 				break;
 			default:
 				if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {
@@ -728,6 +749,16 @@ function shouldFinalizeSegmentTrip(sim: SimRecord): boolean {
 		// (same-floor) before the claim fires. Skip the legacy finalizer.
 		return false;
 	}
+	if (
+		sim.familyCode === FAMILY_CINEMA ||
+		sim.familyCode === FAMILY_CINEMA_LOWER ||
+		sim.familyCode === FAMILY_CINEMA_STAIRS_UPPER ||
+		sim.familyCode === FAMILY_CINEMA_STAIRS_LOWER ||
+		sim.familyCode === FAMILY_PARTY_HALL ||
+		sim.familyCode === FAMILY_PARTY_HALL_LOWER
+	) {
+		return false;
+	}
 	return (
 		sim.stateCode === STATE_COMMUTE ||
 		sim.stateCode === STATE_COMMUTE_TRANSIT ||
@@ -764,6 +795,15 @@ function finalizePendingRouteLeg(sim: SimRecord): void {
 		sim.familyCode === FAMILY_RESTAURANT ||
 		sim.familyCode === FAMILY_FAST_FOOD ||
 		sim.familyCode === FAMILY_RETAIL
+	)
+		return;
+	if (
+		sim.familyCode === FAMILY_CINEMA ||
+		sim.familyCode === FAMILY_CINEMA_LOWER ||
+		sim.familyCode === FAMILY_CINEMA_STAIRS_UPPER ||
+		sim.familyCode === FAMILY_CINEMA_STAIRS_LOWER ||
+		sim.familyCode === FAMILY_PARTY_HALL ||
+		sim.familyCode === FAMILY_PARTY_HALL_LOWER
 	)
 		return;
 	// Transit countdown is handled by reconcileSimTransport; here we just

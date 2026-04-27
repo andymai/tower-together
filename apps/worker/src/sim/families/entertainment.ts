@@ -96,7 +96,8 @@ function findEntertainmentLink(
 	for (const sidecar of world.sidecars) {
 		if (
 			sidecar.kind === "entertainment_link" &&
-			sidecar.ownerSubtypeIndex === sim.homeColumn
+			(sidecar.ownerSubtypeIndex === sim.homeColumn ||
+				sidecar.ownerSubtypeIndex + 7 === sim.homeColumn)
 		) {
 			return sidecar;
 		}
@@ -221,7 +222,7 @@ function handleEntertainmentPhaseConsumption(
 
 	const venueFloor = getEntertainmentLinkVenueFloor(sim);
 	const isFreshDispatch = sim.stateCode === ENT_STATE_PHASE_CONSUME;
-	const sourceFloor = isFreshDispatch ? LOBBY_FLOOR : sim.originFloor;
+	const sourceFloor = isFreshDispatch ? LOBBY_FLOOR : sim.selectedFloor;
 	const directionFlag = venueFloor >= sourceFloor ? 1 : 0;
 
 	// Binary 1228:5592 (handle_entertainment_phase_consumption call site):
