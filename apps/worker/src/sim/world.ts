@@ -293,7 +293,11 @@ export interface PlacedObjectRecord {
 	occupiedFlag: number;
 	/** Operational rating: 0 = bad/refund-eligible, 1 = ok, 2 = good. −1 until first scoring sweep. */
 	evalLevel: number;
-	/** Raw average stress score before threshold bucketing. -1 until first scoring sweep. */
+	/**
+	 * Raw average stress score (per-occupant trip stress, before rent/noise
+	 * modifiers and threshold bucketing). -1 when no occupant has logged a
+	 * trip yet. Display-only; evalLevel is the value that drives game logic.
+	 */
 	evalScore: number;
 	/** Pricing tier 0–3 (0 = best payout, 3 = worst); 4 = no payout. */
 	rentLevel: number;

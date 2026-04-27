@@ -159,13 +159,42 @@ export function recomputeObjectOperationalStatus(
 ): void {
 	if (!EVALUATABLE_FAMILIES.has(object.objectTypeCode)) return;
 
+	// Always compute the raw average stress so the debug badge stays useful
+	// for sold-out hotels and other states the binary skips for evalLevel.
+	// Binary compute_object_operational_score (1138:040f) sums stress over the
+	// non-primary occupants only (loop starts at occupant index 1) and divides
+	// by the loop iteration count: single (3) → 1 non-primary occupant, twin/
+	// suite (4/5) → 2, office (7) → 6 (full sweep), condo (9) → 3 (full sweep).
+	// ENTITY_POPULATION_BY_TYPE counts ALL occupants including bo=0, so it
+	// overestimates the divisor for hotels by 1 — using it would lower scores
+	// and force eval=1/2 → midday-reset more rooms than the binary does.
+	const siblings = findSiblingSims(world, sim);
+	const populationCount =
+		OPERATIONAL_SCORE_DIVISOR[object.objectTypeCode] ??
+		ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ??
+		1;
+	let stressSum = 0;
+	let hasTripData = false;
+	for (const sibling of siblings) {
+		if (sibling.baseOffset === 0 && HOTEL_FAMILIES.has(object.objectTypeCode)) {
+			// Binary skips bo=0 in the hotel loop (occupant index starts at 1).
+			continue;
+		}
+		if (sibling.tripCount > 0) {
+			stressSum += Math.trunc(sibling.accumulatedTicks / sibling.tripCount);
+			hasTripData = true;
+		}
+	}
+	const rawAverageStress = hasTripData
+		? Math.trunc(stressSum / populationCount)
+		: -1;
+	object.evalScore = rawAverageStress;
+
 	if (
 		HOTEL_FAMILIES.has(object.objectTypeCode) &&
 		object.unitStatus > UNIT_STATUS_HOTEL_SOLD_OUT
 	) {
 		object.evalLevel = 0xff;
-		object.evalScore = -1;
-
 		return;
 	}
 	if (
@@ -174,8 +203,6 @@ export function recomputeObjectOperationalStatus(
 		object.occupiedFlag !== 0
 	) {
 		object.evalLevel = 0xff;
-		object.evalScore = -1;
-
 		return;
 	}
 	if (
@@ -184,35 +211,10 @@ export function recomputeObjectOperationalStatus(
 		object.occupiedFlag !== 0
 	) {
 		object.evalLevel = 0xff;
-		object.evalScore = -1;
-
 		return;
 	}
 
-	const siblings = findSiblingSims(world, sim);
-	// Binary compute_object_operational_score (1138:040f) sums stress over the
-	// non-primary occupants only (loop starts at occupant index 1) and divides
-	// by the loop iteration count: single (3) → 1 non-primary occupant, twin/
-	// suite (4/5) → 2, office (7) → 6 (full sweep), condo (9) → 3 (full sweep).
-	// ENTITY_POPULATION_BY_TYPE counts ALL occupants including bo=0, so it
-	// overestimates the divisor for hotels by 1 — using it would lower scores
-	// and force eval=1/2 → midday-reset more rooms than the binary does.
-	const populationCount =
-		OPERATIONAL_SCORE_DIVISOR[object.objectTypeCode] ??
-		ENTITY_POPULATION_BY_TYPE[object.objectTypeCode] ??
-		1;
-	let stressSum = 0;
-	for (const sibling of siblings) {
-		if (sibling.baseOffset === 0 && HOTEL_FAMILIES.has(object.objectTypeCode)) {
-			// Binary skips bo=0 in the hotel loop (occupant index starts at 1).
-			continue;
-		}
-		if (sibling.tripCount > 0) {
-			stressSum += Math.trunc(sibling.accumulatedTicks / sibling.tripCount);
-		}
-	}
-	let score = Math.trunc(stressSum / populationCount);
-
+	let score = hasTripData ? rawAverageStress : 0;
 	switch (object.rentLevel) {
 		case 0:
 			score += 30;
@@ -240,7 +242,6 @@ export function recomputeObjectOperationalStatus(
 	const [lower, upper] = OP_SCORE_THRESHOLDS[Math.min(world.starCount, 5)] ?? [
 		80, 200,
 	];
-	object.evalScore = score;
 	object.evalLevel = score < lower ? 2 : score < upper ? 1 : 0;
 	// Binary recompute_object_operational_status tail (1138:093c CMP +0x14,
 	// 1138:09d6 MOV byte ptr ES:[BX+0x14],1):
