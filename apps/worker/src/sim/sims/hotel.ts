@@ -70,7 +70,7 @@ function hotelArrivalState(world: WorldState, sim: SimRecord): number {
 /** activate_family_345_unit @ 1180:0e72: writes occupied-band base 0x00 / 0x08
  * only when the room was in the vacant band (>= 0x18). Also bumps the
  * population bucket by +1 (single) or +2 (twin/suite). */
-function activateFamily345Unit(
+function activateHotelUnit(
 	world: WorldState,
 	object: PlacedObjectRecord,
 	time: TimeState,
@@ -78,8 +78,7 @@ function activateFamily345Unit(
 	if (object.unitStatus >= 0x18) {
 		object.unitStatus = time.daypartIndex < 4 ? 0 : 8;
 		object.activationTickCount = 0;
-		const amount =
-			object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
+		const amount = object.objectTypeCode === FAMILY_HOTEL_SINGLE ? 1 : 2;
 		addToPopulationBucket(world, object.objectTypeCode, amount);
 	}
 }
@@ -164,7 +163,7 @@ function activateHotelStay(
 
 	// Binary 1228:33ba (en-route) + 1228:3434 (same-floor): both branches call
 	// activate_family_345_unit when the room is still vacant.
-	activateFamily345Unit(world, object, time);
+	activateHotelUnit(world, object, time);
 
 	if (result === 3) {
 		// Same-floor arrival: increment stay phase, then parity-split into
@@ -395,7 +394,7 @@ function handleHotelMorningTransit(
 	if (routeResult === 3) {
 		// Same-floor success. Binary 1228:3434 path: activate (if vacant), bump
 		// stay phase, then parity-split via hotelArrivalState.
-		activateFamily345Unit(world, object, time);
+		activateHotelUnit(world, object, time);
 		incrementStayPhase345(object, time);
 		sim.destinationFloor = -1;
 		sim.selectedFloor = sim.floorAnchor;
@@ -714,7 +713,7 @@ export function handleHotelSimArrival(
 		if (object) {
 			// Binary state-0x60 "in-transit arrived" (1228:3434): activate if
 			// vacant, bump stay phase, then parity-split into 0x01 / 0x04.
-			activateFamily345Unit(world, object, time);
+			activateHotelUnit(world, object, time);
 			incrementStayPhase345(object, time);
 			sim.stateCode = hotelArrivalState(world, sim);
 		}
