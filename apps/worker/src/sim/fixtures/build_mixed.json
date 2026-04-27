@@ -14,6 +14,8 @@
 		{ "type": "fast-food", "floor": 1, "left": 98 },
 		{ "type": "office", "floor": 2, "left": 62 },
 		{ "type": "office", "floor": 2, "left": 71 },
+		{ "type": "cinema", "floor": 2, "left": 130 },
+		{ "type": "party-hall", "floor": 2, "left": 170 },
 		{ "type": "condo", "floor": 3, "left": 62 },
 		{ "type": "retail", "floor": 4, "left": 62 },
 		{ "type": "suite", "floor": 4, "left": 74 },

@@ -154,6 +154,7 @@ export const UNDERGROUND_ALLOWED_TILES = new Set([
 	"security",
 	"partyHall",
 	"cinema",
+	"medical",
 ]);
 
 // ─── Family codes (object-type codes from the spec) ─────────────────────────

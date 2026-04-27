@@ -236,9 +236,8 @@ export function advancePartyHallPhaseAndAccrue(
  * Advance lower phase for paired (cinema) links, accrue income with the
  * calendar-edge skip, reset link phase. Payout is attendance-tiered.
  *
- * Note: cinema sims aren't yet spawned in TS; the per-sim drain semantics
- * here mirror party hall's for symmetry with the binary, but they currently
- * touch zero sims.
+ * Cinema and party-hall guest sims are both spawned from their binary-aligned
+ * occupant spans, so the per-sim drain semantics here mirror the binary path.
  */
 export function advanceEntertainmentLowerPairedPhaseAndAccrue(
 	world: WorldState,

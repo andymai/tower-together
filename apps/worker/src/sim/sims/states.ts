@@ -1,4 +1,5 @@
 import {
+	FAMILY_CINEMA,
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
 	FAMILY_HOTEL_SINGLE,
@@ -81,6 +82,9 @@ export const ENTITY_POPULATION_BY_TYPE: Record<number, number> = {
 	[FAMILY_CONDO]: 3,
 	[FAMILY_RETAIL]: 48,
 	[FAMILY_FAST_FOOD]: 48,
+	// Cinema primary (0x12) — binary allocates 56 guest sims for the theater
+	// span; sidecar phase handling drives attendance/payout state.
+	[FAMILY_CINEMA]: 56,
 	[FAMILY_RECYCLING_CENTER_UPPER]: 6,
 	[FAMILY_SECURITY]: 6,
 	// Housekeeping helpers (family 0x0f).
