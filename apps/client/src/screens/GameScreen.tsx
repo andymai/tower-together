@@ -46,6 +46,7 @@ export function GameScreen({
 	const [aliasSaving, setAliasSaving] = useState(false);
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [inspectedSim, setInspectedSim] = useState<SimStateData | null>(null);
+	const [stressBadgesEnabled, setStressBadgesEnabled] = useState(true);
 	const [pendingShaftErase, setPendingShaftErase] = useState<{
 		x: number;
 		topY: number;
@@ -268,6 +269,7 @@ export function GameScreen({
 					onCellInspect={handleCellInspect}
 					onQueuedSimInspect={handleQueuedSimInspect}
 					selectedTool={selectedTool}
+					stressBadgesEnabled={stressBadgesEnabled}
 					sceneRef={sceneRef}
 				/>
 				{sceneReady && initialTool === "lobby" && !lobbyExists && (
@@ -299,6 +301,8 @@ export function GameScreen({
 							onStarCountChange={setStarCount}
 							freeBuild={freeBuild}
 							onFreeBuildChange={setFreeBuild}
+							stressBadgesEnabled={stressBadgesEnabled}
+							onStressBadgesEnabledChange={setStressBadgesEnabled}
 						/>
 					)}
 				</div>

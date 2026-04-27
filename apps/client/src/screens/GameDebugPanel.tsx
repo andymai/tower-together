@@ -8,6 +8,8 @@ interface Props {
 	onStarCountChange: (starCount: 1 | 2 | 3 | 4 | 5 | 6) => void;
 	freeBuild: boolean;
 	onFreeBuildChange: (enabled: boolean) => void;
+	stressBadgesEnabled: boolean;
+	onStressBadgesEnabledChange: (enabled: boolean) => void;
 }
 
 export const GameDebugPanel = memo(function GameDebugPanel({
@@ -16,6 +18,8 @@ export const GameDebugPanel = memo(function GameDebugPanel({
 	onStarCountChange,
 	freeBuild,
 	onFreeBuildChange,
+	stressBadgesEnabled,
+	onStressBadgesEnabledChange,
 }: Props) {
 	return (
 		<div style={styles.debugPanel}>
@@ -46,6 +50,16 @@ export const GameDebugPanel = memo(function GameDebugPanel({
 						onChange={(e) => onFreeBuildChange(e.target.checked)}
 					/>
 					<span>Free build</span>
+				</label>
+			</div>
+			<div style={styles.debugRow}>
+				<label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+					<input
+						type="checkbox"
+						checked={stressBadgesEnabled}
+						onChange={(e) => onStressBadgesEnabledChange(e.target.checked)}
+					/>
+					<span>Stress badges</span>
 				</label>
 			</div>
 			<div style={styles.debugRow}>

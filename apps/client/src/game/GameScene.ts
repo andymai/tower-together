@@ -306,6 +306,7 @@ export class GameScene extends Scene {
 	private lastFloorLabelZoom = Number.NaN;
 	private lastFloorLabelWidth = -1;
 	private simsDirty = true;
+	private stressBadgesEnabled = true;
 	private lastSimWorldView = new Geom.Rectangle();
 
 	// Scratch buffers reused every frame to avoid GC pressure in the render
@@ -402,6 +403,14 @@ export class GameScene extends Scene {
 		this.selectedTool = tool;
 		this.updateCanvasCursor();
 		this.drawHover(); // refresh hover preview width
+	}
+
+	setStressBadgesEnabled(enabled: boolean): void {
+		if (this.stressBadgesEnabled === enabled) return;
+		this.stressBadgesEnabled = enabled;
+		if (this.staticRowChunks.length > 0) {
+			this.redrawStaticRows(Array.from({ length: GRID_HEIGHT }, (_, y) => y));
+		}
 	}
 
 	setLastPlaced(x: number, y: number, tileType: string): void {
@@ -1844,6 +1853,7 @@ export class GameScene extends Scene {
 					const evalScore = this.evalScoreMap.get(key);
 					if (
 						import.meta.env.DEV &&
+						this.stressBadgesEnabled &&
 						evalLevel !== undefined &&
 						evalLevel <= 2 &&
 						evalScore !== undefined &&

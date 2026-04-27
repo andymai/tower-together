@@ -10,6 +10,7 @@ interface Props {
 	onCellInspect: (x: number, y: number) => void;
 	onQueuedSimInspect: (sim: SimStateData) => void;
 	selectedTool: string;
+	stressBadgesEnabled: boolean;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
 
@@ -19,6 +20,7 @@ export const PhaserGame = memo(function PhaserGame({
 	onCellInspect,
 	onQueuedSimInspect,
 	selectedTool,
+	stressBadgesEnabled,
 	sceneRef,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +74,10 @@ export const PhaserGame = memo(function PhaserGame({
 	useEffect(() => {
 		sceneRef.current?.setSelectedTool(selectedTool);
 	}, [selectedTool, sceneRef]);
+
+	useEffect(() => {
+		sceneRef.current?.setStressBadgesEnabled(stressBadgesEnabled);
+	}, [stressBadgesEnabled, sceneRef]);
 
 	return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });
