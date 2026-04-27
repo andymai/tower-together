@@ -251,7 +251,15 @@ const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 		],
 		heightTiles: 2,
 	},
-	parking: { files: ["parking.svg", "parkingFull.svg"] },
+	parking: {
+		files: [
+			"parking.svg",
+			"parkingFull.svg",
+			"parkingFull2.svg",
+			"parkingFull3.svg",
+			"parkingFull4.svg",
+		],
+	},
 	parkingRamp: { files: ["parkingRamp.svg"] },
 	security: { files: ["security.svg"] },
 	metro: { files: ["metro.svg"] },
@@ -1494,7 +1502,10 @@ export class GameScene extends Scene {
 		const config = ROOM_TEXTURES[tileType];
 		if (!config || config.files.length <= 1) return 0;
 		const normalizedY = tileType === "recyclingCenterLower" ? y - 1 : y;
-		return Math.abs((x * 31 + normalizedY * 17) % config.files.length);
+		let h = (x * 374761393 + normalizedY * 668265263) | 0;
+		h = ((h ^ (h >>> 13)) * 1274126177) | 0;
+		h = (h ^ (h >>> 16)) >>> 0;
+		return h % config.files.length;
 	}
 
 	private getRoomTextureKey(
