@@ -26,16 +26,38 @@ export function syncPendingRouteIds(car: CarrierCar): void {
 		.map((slot) => slot.routeId);
 }
 
+// Binary preserves slot indices across syncs: `pop_active_route_slot_request`
+// (1218:1905) clears in place, and `store_request_in_active_route_slot`
+// (1218:187b) scans from index 0 and reuses the first freed slot. Compacting
+// here would shift later slots forward and reorder boarding in
+// `dispatchDestinationQueueEntries`, so we walk in place instead — clearing
+// inactive/orphaned slots to the sentinel, refreshing live slot fields from
+// the route table, and only padding when the array is shorter than capacity
+// (snapshot hydration), never by appending after a compaction.
 export function syncRouteSlots(carrier: CarrierRecord, car: CarrierCar): void {
-	car.activeRouteSlots = car.activeRouteSlots.filter((slot) => {
-		if (!slot.active) return false;
+	for (let i = 0; i < car.activeRouteSlots.length; i++) {
+		const slot = car.activeRouteSlots[i];
+		if (!slot) continue;
+		if (!slot.active) {
+			slot.routeId = "";
+			slot.sourceFloor = 0xff;
+			slot.destinationFloor = 0xff;
+			slot.boarded = false;
+			continue;
+		}
 		const route = findRoute(carrier, slot.routeId);
-		if (!route) return false;
+		if (!route) {
+			slot.active = false;
+			slot.routeId = "";
+			slot.sourceFloor = 0xff;
+			slot.destinationFloor = 0xff;
+			slot.boarded = false;
+			continue;
+		}
 		slot.sourceFloor = route.sourceFloor;
 		slot.destinationFloor = route.destinationFloor;
 		slot.boarded = route.boarded;
-		return true;
-	});
+	}
 	while (car.activeRouteSlots.length < ACTIVE_SLOT_CAPACITY) {
 		car.activeRouteSlots.push({
 			routeId: "",
