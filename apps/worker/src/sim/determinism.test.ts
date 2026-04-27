@@ -113,7 +113,12 @@ function buildFromFixture(name: string): TowerSim {
 	const spec: BuildSpec = JSON.parse(
 		readFileSync(`${fixtureDir}/build_${name}.json`, "utf-8"),
 	);
-	const sim = TowerSim.create("determinism-fixture", "Determinism Fixture");
+	// Fixtures dump the binary's floor 14, 29, 44, ... sky-lobby cadence.
+	const sim = TowerSim.create(
+		"determinism-fixture",
+		"Determinism Fixture",
+		"perfect-parity",
+	);
 	sim.freeBuild = true;
 
 	const groundExtent = spec.floor_extent["0"];

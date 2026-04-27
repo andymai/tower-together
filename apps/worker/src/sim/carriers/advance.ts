@@ -9,7 +9,7 @@
 //   settleCounter ↔ -0x5d (settle after a motion step)
 //   dwellCounter  ↔ -0x5c (dwell/boarding at a stop; 5 = just arrived)
 import type { TimeState } from "../time";
-import type { CarrierCar, CarrierRecord } from "../world";
+import type { CarrierCar, CarrierRecord, LobbyMode } from "../world";
 import {
 	cancelStaleFloorAssignment,
 	clearFloorRequestsOnArrival,
@@ -37,6 +37,7 @@ export function advanceCarrierCarState(
 	carrier: CarrierRecord,
 	carIndex: number,
 	time: TimeState,
+	lobbyMode: LobbyMode,
 ): void {
 	if (!car.active) return;
 
@@ -125,7 +126,7 @@ export function advanceCarrierCarState(
 		car.suppressDwellOppositeDirectionFlip = false;
 		car.prevFloor = car.currentFloor;
 		recomputeCarTargetAndDirection(carrier, car, carIndex);
-		if (!shouldCarDepart(carrier, car, time)) {
+		if (!shouldCarDepart(carrier, car, time, lobbyMode)) {
 			car.dwellCounter = 1;
 		}
 	}

@@ -13,6 +13,7 @@ import {
 	type SimRecord,
 	simKey,
 } from "../../../worker/src/sim/index";
+import type { LobbyMode } from "../../../worker/src/sim/world";
 import type { PendingBySimId } from "../lib/lockstepSession";
 import { getTowerView, setTowerView } from "../lib/storage";
 import {
@@ -338,6 +339,7 @@ export class GameScene extends Scene {
 	private currentCarrierSnapshot: TimedSnapshot<CarrierCarStateData> | null =
 		null;
 	private snapshotSource: SnapshotSource | null = null;
+	private lobbyMode: LobbyMode = "perfect-parity";
 	private presentationClock: PresentationClock = {
 		simTime: 0,
 		receivedAtMs: 0,
@@ -528,11 +530,16 @@ export class GameScene extends Scene {
 			this.lastPlacedAnchor,
 			this.grid,
 			this.overlayGrid,
+			this.lobbyMode,
 		);
 	}
 
 	setSnapshotSource(source: SnapshotSource): void {
 		this.snapshotSource = source;
+	}
+
+	setLobbyMode(mode: LobbyMode): void {
+		this.lobbyMode = mode;
 	}
 
 	applyInitState(
@@ -2591,7 +2598,7 @@ export class GameScene extends Scene {
 		}
 
 		const { x, y } = this.hoveredCell;
-		const hoverBounds = getHoverBounds(x, y, this.selectedTool);
+		const hoverBounds = getHoverBounds(x, y, this.selectedTool, this.lobbyMode);
 		if (!hoverBounds) return;
 
 		g.fillStyle(COLOR_HOVER, 0.2);

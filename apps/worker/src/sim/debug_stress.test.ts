@@ -53,7 +53,7 @@ describe("stress debug", () => {
 			.split("\n")
 			.map((line: string) => JSON.parse(line));
 
-		const sim = TowerSim.create("debug", "debug");
+		const sim = TowerSim.create("debug", "debug", "perfect-parity");
 		sim.freeBuild = true;
 
 		const groundExtent = spec.floor_extent["0"];

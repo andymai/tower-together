@@ -17,13 +17,25 @@ export const UNDERGROUND_FLOORS = 10; // floors 0–9 underground; floor 10 = gr
 export const UNDERGROUND_Y = GRID_HEIGHT - UNDERGROUND_FLOORS; // Y=110: first underground row
 export const GROUND_Y = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS; // Y=109: ground lobby row
 
-/** True iff the given Y is a valid lobby row (ground or every 15 floors above). */
-export function isValidLobbyY(y: number): boolean {
+/**
+ * Lobby placement mode.
+ *   "perfect-parity": ground + sky lobbies at floors 0, 14, 29, 44, ...
+ *     (matches the SimTower binary's express-stop convention; required for
+ *     trace-test parity).
+ *   "modern": ground + sky lobbies at floors 0, 15, 30, 45, ... (cleaner
+ *     every-15 cadence; used for new towers in modern play).
+ */
+export type LobbyMode = "perfect-parity" | "modern";
+
+export const DEFAULT_LOBBY_MODE: LobbyMode = "modern";
+
+/** True iff the given Y is a valid lobby row for the given lobby mode. */
+export function isValidLobbyY(y: number, mode: LobbyMode): boolean {
 	const floorsAboveGround = GROUND_Y - y;
-	return (
-		floorsAboveGround >= 0 &&
-		(floorsAboveGround === 0 || floorsAboveGround % 15 === 14)
-	);
+	if (floorsAboveGround < 0) return false;
+	if (floorsAboveGround === 0) return true;
+	const offset = mode === "modern" ? 0 : 14;
+	return floorsAboveGround % 15 === offset;
 }
 
 // ─── PRNG ────────────────────────────────────────────────────────────────────
@@ -584,6 +596,12 @@ export interface WorldState {
 	height: number;
 	/** Lobby slice height in floors; defaults to 1 until expanded-lobby support exists. */
 	lobbyHeight: number;
+	/**
+	 * Lobby placement / express-stop spacing mode.
+	 *   "perfect-parity": sky lobbies at floors 0, 14, 29, 44, ... (binary parity).
+	 *   "modern": sky lobbies at floors 0, 15, 30, 45, ... (regular every-15 cadence).
+	 */
+	lobbyMode: LobbyMode;
 	/** Global simulation gate flags (star advancement, recycling adequacy, etc.). */
 	gateFlags: GateFlags;
 	/** "x,y" → tileType for every occupied cell (anchors and extensions alike). */

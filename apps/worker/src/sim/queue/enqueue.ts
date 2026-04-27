@@ -9,7 +9,7 @@
 import { assignCarToFloorRequest } from "../carriers/assign";
 import { floorToSlot, isExpressStopFloor } from "../carriers/slot";
 import { syncAssignmentStatus } from "../carriers/sync";
-import type { CarrierFloorQueue, CarrierRecord } from "../world";
+import type { CarrierFloorQueue, CarrierRecord, LobbyMode } from "../world";
 import type { RouteRequestRing } from "./route-record";
 
 function getQueueState(
@@ -51,6 +51,7 @@ export function enqueueRequestIntoRouteQueue(
 	sourceFloor: number,
 	destinationFloor: number,
 	directionFlag: number,
+	lobbyMode: LobbyMode,
 ): boolean {
 	const traceOn =
 		(globalThis as { __DRAIN_TRACE__?: boolean }).__DRAIN_TRACE__ === true;
@@ -67,7 +68,10 @@ export function enqueueRequestIntoRouteQueue(
 	// returns 2 and writes sim+8. Mirror that here so the sim lands in a
 	// logical-only "queued on express" state without actually occupying a
 	// ring or triggering assign_car_to_floor_request.
-	if (carrier.carrierMode === 0 && !isExpressStopFloor(sourceFloor)) {
+	if (
+		carrier.carrierMode === 0 &&
+		!isExpressStopFloor(sourceFloor, lobbyMode)
+	) {
 		return true;
 	}
 	const floorQueue = getQueueState(carrier, sourceFloor);

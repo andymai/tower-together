@@ -3,6 +3,7 @@ import {
 	CINEMA_NEW_MOVIE_COST,
 	MOVIE_TITLES,
 } from "../../../worker/src/sim/resources";
+import type { LobbyMode } from "../../../worker/src/sim/world";
 import {
 	CARRIER_CAR_CONSTRUCTION_COST,
 	type CarrierCarStateData,
@@ -82,6 +83,7 @@ interface Props {
 	inspectedCell: CellInfoData | null;
 	sims: SimStateData[];
 	carriers: CarrierCarStateData[];
+	lobbyMode: LobbyMode;
 	onClose: () => void;
 	onSetRentLevel: (x: number, y: number, rentLevel: number) => void;
 	onAddElevatorCar: (x: number, y: number) => void;
@@ -99,6 +101,7 @@ export function CellInspectionDialog({
 	inspectedCell,
 	sims,
 	carriers,
+	lobbyMode,
 	onClose,
 	onSetRentLevel,
 	onAddElevatorCar,
@@ -259,13 +262,17 @@ export function CellInspectionDialog({
 						);
 						const { servedFloors, stopFloorEnabled, carInfos } = ci;
 						// Express elevators only stop at basement/ground (floors 1–10)
-						// and sky lobbies (floor-10) % 15 == 14 — hide other floors.
+						// and sky lobbies — hide other floors. The sky-lobby cadence
+						// follows the world's lobbyMode: perfect-parity → +14 offset,
+						// modern → +0 offset within each 15-floor cycle above ground.
+						const expressCycleOffset = lobbyMode === "modern" ? 0 : 14;
 						const displayFloors =
 							ci.carrierMode === 0
 								? servedFloors
 										.map((floor, fwdIdx) => ({ floor, fwdIdx }))
 										.filter(
-											({ floor }) => floor <= 10 || (floor - 10) % 15 === 14,
+											({ floor }) =>
+												floor <= 10 || (floor - 10) % 15 === expressCycleOffset,
 										)
 								: servedFloors.map((floor, fwdIdx) => ({ floor, fwdIdx }));
 

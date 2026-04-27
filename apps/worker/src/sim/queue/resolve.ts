@@ -310,6 +310,7 @@ export function resolveSimRouteBetweenFloors(
 		sourceFloor,
 		destinationFloor,
 		directionFlag,
+		world.lobbyMode,
 	);
 	if (!queued) {
 		// Binary 1218:021f-ish (queue-full path): writes sim+8 = 0xff and

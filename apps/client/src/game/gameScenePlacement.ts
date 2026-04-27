@@ -1,3 +1,4 @@
+import type { LobbyMode } from "../../../worker/src/sim/world";
 import {
 	GRID_HEIGHT,
 	GRID_WIDTH,
@@ -56,6 +57,7 @@ export function computeShiftFill(
 	lastPlacedAnchor: PlacementAnchor | null,
 	grid: Map<string, string>,
 	overlays: Map<string, string> = new Map(),
+	lobbyMode: LobbyMode = "perfect-parity",
 ): Array<{ x: number; y: number }> {
 	if (!lastPlacedAnchor || selectedTool === "empty") return [];
 	const { x: lastX, y: lastY, tileType: lastType } = lastPlacedAnchor;
@@ -128,6 +130,7 @@ export function computeShiftFill(
 					selectedTool,
 					grid,
 					tentative,
+					lobbyMode,
 				),
 			);
 		}
@@ -145,6 +148,7 @@ export function computeShiftFill(
 					selectedTool,
 					grid,
 					tentative,
+					lobbyMode,
 				),
 			);
 		}
@@ -152,7 +156,17 @@ export function computeShiftFill(
 		// Same X column — pure vertical fill.
 		for (let y = yStart; undergroundFill ? y <= yEnd : y >= yEnd; y += yStep) {
 			if (y === lastY) continue;
-			if (cellsAvailable(lastX, y, tileWidth, tentative, selectedTool, grid)) {
+			if (
+				cellsAvailable(
+					lastX,
+					y,
+					tileWidth,
+					tentative,
+					selectedTool,
+					grid,
+					lobbyMode,
+				)
+			) {
 				results.push({ x: lastX, y });
 				for (let dx = 0; dx < tileWidth; dx++) {
 					tentative.add(`${lastX + dx},${y}`);
@@ -174,9 +188,10 @@ export function getHoverBounds(
 	cursorX: number,
 	y: number,
 	selectedTool: string,
+	lobbyMode: LobbyMode = "perfect-parity",
 ): HoverBounds | null {
 	if (y < 0 || y >= GRID_HEIGHT) return null;
-	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return null;
+	if (selectedTool === "lobby" && !isValidLobbyRow(y, lobbyMode)) return null;
 	if (
 		selectedTool !== "empty" &&
 		selectedTool !== "inspect" &&
@@ -217,11 +232,14 @@ function packLeft(
 	selectedTool: string,
 	grid: Map<string, string>,
 	tentative: Set<string>,
+	lobbyMode: LobbyMode,
 ): Array<{ x: number; y: number }> {
 	const placements: Array<{ x: number; y: number }> = [];
 	let x = fillStart;
 	while (x <= fillEnd && x + tileWidth - 1 < GRID_WIDTH) {
-		if (cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid)) {
+		if (
+			cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid, lobbyMode)
+		) {
 			placements.push({ x, y });
 			for (let dx = 0; dx < tileWidth; dx++) {
 				tentative.add(`${x + dx},${y}`);
@@ -242,11 +260,14 @@ function packRight(
 	selectedTool: string,
 	grid: Map<string, string>,
 	tentative: Set<string>,
+	lobbyMode: LobbyMode,
 ): Array<{ x: number; y: number }> {
 	const placements: Array<{ x: number; y: number }> = [];
 	let x = Math.min(fillEnd, GRID_WIDTH - tileWidth);
 	while (x >= fillStart) {
-		if (cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid)) {
+		if (
+			cellsAvailable(x, y, tileWidth, tentative, selectedTool, grid, lobbyMode)
+		) {
 			placements.unshift({ x, y });
 			for (let dx = 0; dx < tileWidth; dx++) {
 				tentative.add(`${x + dx},${y}`);
@@ -266,6 +287,7 @@ function cellsAvailable(
 	tentative: Set<string>,
 	selectedTool: string,
 	grid: Map<string, string>,
+	lobbyMode: LobbyMode,
 ): boolean {
 	if (
 		selectedTool === "stairs" ||
@@ -275,7 +297,7 @@ function cellsAvailable(
 		selectedTool === "recyclingCenter"
 	)
 		return false;
-	if (selectedTool === "lobby" && !isValidLobbyRow(y)) return false;
+	if (selectedTool === "lobby" && !isValidLobbyRow(y, lobbyMode)) return false;
 	if (y >= UNDERGROUND_Y && !UNDERGROUND_ALLOWED_TILES.has(selectedTool)) {
 		return false;
 	}
@@ -310,12 +332,12 @@ function cellsAvailable(
 	return true;
 }
 
-function isValidLobbyRow(y: number): boolean {
+function isValidLobbyRow(y: number, mode: LobbyMode): boolean {
 	const floorsAboveGround = GRID_HEIGHT - 1 - UNDERGROUND_FLOORS - y;
-	return (
-		floorsAboveGround >= 0 &&
-		(floorsAboveGround === 0 || floorsAboveGround % 15 === 14)
-	);
+	if (floorsAboveGround < 0) return false;
+	if (floorsAboveGround === 0) return true;
+	const offset = mode === "modern" ? 0 : 14;
+	return floorsAboveGround % 15 === offset;
 }
 
 function isGroundFloor(y: number): boolean {

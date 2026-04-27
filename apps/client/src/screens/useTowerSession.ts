@@ -36,6 +36,7 @@ interface UseTowerSessionResult {
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
 	lobbyExists: boolean;
+	lobbyMode: TowerSessionState["lobbyMode"];
 	starUpgrade: TowerSessionState["starUpgrade"];
 	dismissStarUpgrade: () => void;
 	setInspectedCell: Dispatch<SetStateAction<CellInfoData | null>>;

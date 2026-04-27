@@ -86,9 +86,13 @@ export class TowerSim {
 
 	// ── Factory methods ────────────────────────────────────────────────────────
 
-	static create(towerId: string, name: string): TowerSim {
+	static create(
+		towerId: string,
+		name: string,
+		lobbyMode?: WorldState["lobbyMode"],
+	): TowerSim {
 		return TowerSim.fromSnapshot(
-			createInitialSnapshot(towerId, name, STARTING_CASH),
+			createInitialSnapshot(towerId, name, STARTING_CASH, lobbyMode),
 		);
 	}
 

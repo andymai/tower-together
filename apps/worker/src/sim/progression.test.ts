@@ -23,6 +23,7 @@ function makeWorld(): WorldState {
 		width: GRID_WIDTH,
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
+		lobbyMode: "perfect-parity",
 		starCount: 1,
 		currentPopulation: 0,
 		currentPopulationBuckets: {},

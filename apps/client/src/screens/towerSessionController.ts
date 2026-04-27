@@ -1,5 +1,6 @@
 import type { SimCommand } from "../../../worker/src/sim/commands";
 import type { CarrierRecord, SimRecord } from "../../../worker/src/sim/index";
+import type { LobbyMode } from "../../../worker/src/sim/world";
 import {
 	type PendingBySimId,
 	TowerLockstepSession,
@@ -83,6 +84,7 @@ export interface TowerSessionScene {
 		tickIntervalMs?: number,
 	) => void;
 	computeShiftFill: (x: number, y: number) => Array<{ x: number; y: number }>;
+	setLobbyMode: (mode: LobbyMode) => void;
 	setLastPlaced: (x: number, y: number, tileType: string) => void;
 	hasElevatorOverlayAt: (x: number, y: number, tileType?: string) => boolean;
 	getElevatorShaftAt: (
@@ -113,6 +115,7 @@ export interface TowerSessionState {
 	inspectedCell: CellInfoData | null;
 	sceneReady: boolean;
 	lobbyExists: boolean;
+	lobbyMode: LobbyMode;
 	starUpgrade: { newStarCount: number } | null;
 }
 
@@ -131,6 +134,7 @@ export const INITIAL_TOWER_SESSION_STATE: TowerSessionState = {
 	inspectedCell: null,
 	sceneReady: false,
 	lobbyExists: false,
+	lobbyMode: "perfect-parity",
 	starUpgrade: null,
 };
 
@@ -460,13 +464,16 @@ export class TowerSessionController {
 		switch (msg.type) {
 			case "init_state": {
 				const towerName = msg.name || msg.towerId;
+				const lobbyMode = msg.snapshot.world.lobbyMode ?? "perfect-parity";
 				this.onEconomy(msg.cash, msg.population);
 				this.patchState({
 					towerName,
 					starCount: msg.starCount,
 					speedMultiplier: msg.speedMultiplier,
 					freeBuild: msg.freeBuild,
+					lobbyMode,
 				});
+				this.getScene()?.setLobbyMode(lobbyMode);
 				setTowerToolbarCache(this.towerId, {
 					towerName,
 					starCount: msg.starCount,
@@ -487,16 +494,20 @@ export class TowerSessionController {
 					}
 				}
 				break;
-			case "checkpoint":
+			case "checkpoint": {
+				const lobbyMode = msg.snapshot.world.lobbyMode ?? "perfect-parity";
 				this.patchState({
 					speedMultiplier: msg.speedMultiplier,
 					freeBuild: msg.freeBuild,
+					lobbyMode,
 				});
+				this.getScene()?.setLobbyMode(lobbyMode);
 				this.lockstep.applyCheckpoint(msg.snapshot, {
 					freeBuild: msg.freeBuild,
 					speedMultiplier: msg.speedMultiplier,
 				});
 				break;
+			}
 			case "session_settings":
 				this.patchState({
 					speedMultiplier: msg.speedMultiplier,

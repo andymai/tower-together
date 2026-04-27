@@ -70,6 +70,7 @@ function createFakeScene(): TowerSessionScene {
 		applyCarriers: vi.fn(),
 		setPresentationClock: vi.fn(),
 		computeShiftFill: vi.fn(() => []),
+		setLobbyMode: vi.fn(),
 		setLastPlaced: vi.fn(),
 		hasElevatorOverlayAt: vi.fn(() => false),
 		getElevatorShaftAt: vi.fn(() => null),

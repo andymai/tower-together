@@ -39,7 +39,7 @@ export function carrierTick(
 	for (const carrier of world.carriers) {
 		resetCarrierTickBookkeeping(carrier);
 		for (const [carIndex, car] of carrier.cars.entries()) {
-			advanceCarrierCarState(car, carrier, carIndex, time);
+			advanceCarrierCarState(car, carrier, carIndex, time, world.lobbyMode);
 		}
 		for (const [, car] of carrier.cars.entries()) {
 			dispatchCarrierCarArrivals(world, ledger, time, carrier, car);

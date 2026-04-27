@@ -100,6 +100,7 @@ export function GameScreen({
 		reconnect,
 		sceneReady,
 		lobbyExists,
+		lobbyMode,
 	} = useTowerSession({
 		towerId,
 		playerId,
@@ -346,6 +347,7 @@ export function GameScreen({
 				inspectedCell={inspectedCell}
 				sims={sims}
 				carriers={carriers}
+				lobbyMode={lobbyMode}
 				onClose={() => setInspectedCell(null)}
 				onSetRentLevel={setRentLevel}
 				onAddElevatorCar={addElevatorCar}

@@ -294,7 +294,10 @@ function computeRngState(seed: number, calls: number): number {
 }
 
 function prepareFromTrace(spec: BuildSpec, trace: TraceEntry[]): TowerSim {
-	const sim = TowerSim.create("trace-test", "Trace Test");
+	// Trace fixtures are dumped from the binary, which places sky lobbies at
+	// floors 14, 29, 44, ... — pin the world to perfect-parity so placement
+	// validation and express-stop cadence match.
+	const sim = TowerSim.create("trace-test", "Trace Test", "perfect-parity");
 	// Place tiles at dayTick=2533 (day -1), matching the binary.
 	placeTilesFromSpec(sim, spec);
 	// Seed cash, rng state, and rng count from the day -1 baseline (trace[0]).

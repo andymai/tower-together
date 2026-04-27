@@ -14,8 +14,10 @@ import {
 	createEventState,
 	createGateFlags,
 	createMedicalServiceSlots,
+	DEFAULT_LOBBY_MODE,
 	GRID_HEIGHT,
 	GRID_WIDTH,
+	type LobbyMode,
 	MAX_SPECIAL_LINK_RECORDS,
 	MAX_SPECIAL_LINKS,
 	MAX_TRANSFER_GROUPS,
@@ -61,6 +63,7 @@ export function createInitialSnapshot(
 	towerId: string,
 	name: string,
 	startingCash: number,
+	lobbyMode: LobbyMode = DEFAULT_LOBBY_MODE,
 ): SimSnapshot {
 	return {
 		time: createNewGameTimeState(),
@@ -70,6 +73,7 @@ export function createInitialSnapshot(
 			width: GRID_WIDTH,
 			height: GRID_HEIGHT,
 			lobbyHeight: 1,
+			lobbyMode,
 			gateFlags: createGateFlags(),
 			cells: {},
 			cellToAnchor: {},
@@ -161,6 +165,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			width: (old.width as number) ?? GRID_WIDTH,
 			height: (old.height as number) ?? GRID_HEIGHT,
 			lobbyHeight: (old.lobbyHeight as number) ?? 1,
+			lobbyMode: (old.lobbyMode as LobbyMode) ?? "perfect-parity",
 			gateFlags: createGateFlags(),
 			cells: (old.cells as Record<string, string>) ?? {},
 			cellToAnchor: (old.cellToAnchor as Record<string, string>) ?? {},
@@ -277,6 +282,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	if (!snapshot.world.width || snapshot.world.width < GRID_WIDTH)
 		snapshot.world.width = GRID_WIDTH;
 	snapshot.world.lobbyHeight ??= 1;
+	// Pre-existing snapshots predate the lobbyMode flag; preserve their
+	// floor-14 sky-lobby positions by defaulting to perfect-parity.
+	snapshot.world.lobbyMode ??= "perfect-parity";
 	snapshot.world.placedObjects ??= {};
 	snapshot.world.sidecars ??= [];
 	const legacyWorld = snapshot.world as unknown as Record<string, unknown>;
@@ -538,6 +546,7 @@ export function serializeSimState(
 			width: world.width,
 			height: world.height,
 			lobbyHeight: world.lobbyHeight,
+			lobbyMode: world.lobbyMode,
 			gateFlags: { ...world.gateFlags },
 			cells: { ...world.cells },
 			cellToAnchor: { ...world.cellToAnchor },
