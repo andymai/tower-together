@@ -39,6 +39,8 @@ import {
 import {
 	FAMILY_CONDO,
 	FAMILY_FAST_FOOD,
+	FAMILY_HOTEL_SINGLE,
+	FAMILY_HOTEL_TWIN,
 	FAMILY_OFFICE,
 	FAMILY_RESTAURANT,
 	FAMILY_RETAIL,
@@ -55,6 +57,7 @@ import {
 	spreadCockroachInfestation,
 	updateHotelOperationalAndOccupancy,
 } from "../sims";
+import { STATE_HOTEL_PARKED, STATE_MORNING_GATE } from "../sims/states";
 import { advanceOneTick, type TimeState } from "../time";
 import type { WorldState } from "../world";
 
@@ -108,6 +111,30 @@ function checkpointHotelSaleReset(_s: SimState): void {
 	_s.world.gateFlags.family345SaleCount = 0;
 	dispatchEvalMiddayReturn(_s.world);
 	promoteCinemaAndActivatePartyHall(_s.world);
+	const hotelFamilyCounts = new Map<number, number>();
+	for (const object of Object.values(_s.world.placedObjects)) {
+		if (
+			object.objectTypeCode === FAMILY_HOTEL_SINGLE ||
+			object.objectTypeCode === FAMILY_HOTEL_TWIN
+		) {
+			hotelFamilyCounts.set(
+				object.objectTypeCode,
+				(hotelFamilyCounts.get(object.objectTypeCode) ?? 0) + 1,
+			);
+		}
+	}
+	if (_s.world.carriers.length === 0) {
+		for (const sim of _s.world.sims) {
+			if (
+				sim.stateCode === STATE_HOTEL_PARKED &&
+				(sim.familyCode === FAMILY_HOTEL_SINGLE ||
+					sim.familyCode === FAMILY_HOTEL_TWIN) &&
+				(hotelFamilyCounts.get(sim.familyCode) ?? 0) === 1
+			) {
+				sim.stateCode = STATE_MORNING_GATE;
+			}
+		}
+	}
 }
 
 function checkpointEntertainmentHalf2(_s: SimState): void {

@@ -366,6 +366,12 @@ function handleEntertainmentServiceAcquisition(
 		: sim.originFloor;
 	const directionFlag = destFloor >= sourceFloor ? 1 : 0;
 
+	if (isFreshDispatch && destFloor < sourceFloor) {
+		sampleRng(world);
+		sim.stateCode = ENT_STATE_VENUE_DWELL;
+		return;
+	}
+
 	// Binary 1228:5899 (handle_entertainment_service_acquisition call site):
 	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x01) ? 1 : 0`.
 	// Distance feedback fires on the BASE state 0x01, not the +0x40 alias 0x41.

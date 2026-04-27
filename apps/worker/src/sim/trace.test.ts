@@ -370,10 +370,6 @@ const FIXTURE_NAMES = [
 	"sky_office",
 ];
 
-const SKIP_CASH_CHECK = new Set<string>();
-const SKIP_STRESS_CHECK = new Set<string>();
-const SKIP_STATE_HISTOGRAM_CHECK = new Set<string>();
-
 describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	const { spec, trace: rawTrace } = loadFixture(fixtureName);
 	const trace = dropTerminalDuplicateDump(rawTrace);
@@ -452,13 +448,11 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 			);
 
 			// ── Cash ───────────────────────────────────────────────────────
-			if (!SKIP_CASH_CHECK.has(fixtureName)) {
-				assert.equal(
-					sim.cash,
-					entry.cash,
-					`cash mismatch at ${ctx} fx=${fixtureName}`,
-				);
-			}
+			assert.equal(
+				sim.cash,
+				entry.cash,
+				`cash mismatch at ${ctx} fx=${fixtureName}`,
+			);
 
 			// ── Sim counts & states (only for entries with named families) ─
 			const simKeys = Object.keys(entry.sims);
@@ -509,18 +503,15 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 					const ourStates = byFamilyState.get(familyCode) ?? new Map();
 					const ourObj: Record<string, number> = {};
 					for (const [st, cnt] of ourStates) ourObj[String(st)] = cnt;
-					if (!SKIP_STATE_HISTOGRAM_CHECK.has(fixtureName)) {
-						assert.deepEqual(
-							ourObj,
-							refGroup.states,
-							`family ${key} state counts mismatch at ${ctx}`,
-						);
-					}
+					assert.deepEqual(
+						ourObj,
+						refGroup.states,
+						`family ${key} state counts mismatch at ${ctx}`,
+					);
 
 					// Stress aggregates: computed over sims with stress > 0 only,
 					// to match the Python emulator's dump_tick_state.
 					if (
-						!SKIP_STRESS_CHECK.has(fixtureName) &&
 						refGroup.stress_avg !== undefined &&
 						refGroup.stress_min !== undefined &&
 						refGroup.stress_max !== undefined

@@ -13,7 +13,6 @@ import {
 	STATE_ARRIVED,
 	STATE_DEPARTURE,
 	STATE_MORNING_GATE,
-	STATE_PARKED,
 } from "./sims/states";
 import type { EntertainmentLinkRecord, WorldState } from "./world";
 
@@ -149,11 +148,6 @@ export function promoteCinemaAndActivatePartyHall(world: WorldState): void {
 			if (sidecar.linkPhaseState === 0) {
 				sidecar.linkPhaseState = 1;
 			}
-			for (const sim of world.sims) {
-				if (sim.familyCode !== FAMILY_PARTY_HALL_LOWER) continue;
-				if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
-				sim.stateCode = STATE_MORNING_GATE;
-			}
 		}
 	}
 }
@@ -200,8 +194,8 @@ export function advanceEntertainmentUpperPhase(world: WorldState): void {
 		for (const sim of world.sims) {
 			if (!CINEMA_FAMILY_CODES.has(sim.familyCode)) continue;
 			if (!simMatchesEntertainmentSidecar(sim, sidecar)) continue;
-			if (sim.stateCode >= STATE_ACTIVE && sim.stateCode <= STATE_ARRIVED) {
-				sim.stateCode = STATE_PARKED;
+			if (sim.stateCode === STATE_ARRIVED) {
+				sim.stateCode = STATE_ACTIVE;
 			}
 		}
 	}
