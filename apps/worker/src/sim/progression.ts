@@ -7,7 +7,7 @@
 //
 // 1. `computeTowerTierFromLedger()` > current starCount — the ledger total
 //    `g_primary_family_ledger_total` (1288:c13a, modeled here as
-//    `world.primaryFamilyLedgerTotal`) crosses the next tier threshold.
+//    `world.currentPopulation`) crosses the next tier threshold.
 //    Thresholds (binary DS:e630..e63c + hardcoded 15000): [300, 1000, 5000,
 //    10000, 15000]. Comparison is `>=` (binary uses `< threshold` for the
 //    lower-tier branch).
@@ -24,7 +24,7 @@ import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
 export function computeTowerTierFromLedger(world: WorldState): number {
-	const total = world.primaryFamilyLedgerTotal;
+	const total = world.currentPopulation;
 	let tier = 1;
 	for (let index = 0; index < STAR_THRESHOLDS.length; index++) {
 		// Binary compares `total < THRESHOLD[index]` to keep tier == index+1;
@@ -48,7 +48,7 @@ export function addToPrimaryFamilyLedger(
 ): void {
 	world.perFamilyLedgerBuckets[familyCode] =
 		(world.perFamilyLedgerBuckets[familyCode] ?? 0) + amount;
-	world.primaryFamilyLedgerTotal += amount;
+	world.currentPopulation += amount;
 }
 
 /**
@@ -64,7 +64,7 @@ export function clearPrimaryFamilyLedgerBucket(
 	familyCode: number,
 ): void {
 	const current = world.perFamilyLedgerBuckets[familyCode] ?? 0;
-	world.primaryFamilyLedgerTotal -= current;
+	world.currentPopulation -= current;
 	world.perFamilyLedgerBuckets[familyCode] = 0;
 }
 

@@ -26,7 +26,7 @@ Cinema and entertainment link state machines — budget seeding, phase advance, 
 Cathedral guest sims (families 0x24–0x28) — activation, dispatch, return routing, award path.
 
 ### `progression.ts`
-Per-tick star-advancement check (`tryAdvanceStarCount`) plus `addToPrimaryFamilyLedger` helper — tier-from-ledger uses `world.primaryFamilyLedgerTotal` (binary g_primary_family_ledger_total). Fired at the top of `carrierTick`, mirroring binary FUN_1098_03ab.
+Per-tick star-advancement check (`tryAdvanceStarCount`) plus `addToPrimaryFamilyLedger` helper — tier-from-ledger uses `world.currentPopulation` (binary g_primary_family_ledger_total). Fired at the top of `carrierTick`, mirroring binary FUN_1098_03ab.
 
 ### `resources.ts`
 Compile-time constants: tile widths/costs/types, family mappings, binary-aligned build-menu star requirements, income/expense tables, route delay constants.

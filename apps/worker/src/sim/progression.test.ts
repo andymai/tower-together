@@ -24,7 +24,7 @@ function makeWorld(): WorldState {
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
 		starCount: 1,
-		primaryFamilyLedgerTotal: 0,
+		currentPopulation: 0,
 		perFamilyLedgerBuckets: {},
 		gateFlags: createGateFlags(),
 		cells: {},
@@ -74,7 +74,7 @@ function addObjectWithActivation(
 	// Mirrors `add_to_primary_family_ledger_bucket` (1068:07f7): the binary
 	// stores the ledger total in g_primary_family_ledger_total; this test
 	// helper bumps the same field so star-tier checks see the contribution.
-	world.primaryFamilyLedgerTotal += ledgerContribution;
+	world.currentPopulation += ledgerContribution;
 	return object;
 }
 

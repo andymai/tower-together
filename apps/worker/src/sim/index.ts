@@ -442,6 +442,10 @@ export class TowerSim {
 		);
 	}
 
+	get currentPopulation(): number {
+		return this.world.currentPopulation;
+	}
+
 	get starCount(): number {
 		return this.world.starCount;
 	}

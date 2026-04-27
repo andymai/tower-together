@@ -378,7 +378,6 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 	// sim has no direct mapping for them yet:
 	//   - calendar_phase       (global 12-day phase counter; not modeled in TimeState)
 	//   - metro_floor          (metro station floor; only metroPlaced bit is tracked)
-	//   - population           (onsite occupancy roll-up; separate from sim count)
 	//   - sim_allocated/initialized/uninitialized (sim pool allocator bookkeeping)
 	it("matches full reference trace", () => {
 		if (simEntries.length === 0) return;
@@ -419,6 +418,11 @@ describe.each(FIXTURE_NAMES)("trace: build_%s", (fixtureName) => {
 				`daypart mismatch at ${ctx}`,
 			);
 			assert.equal(sim.starCount, entry.stars, `stars mismatch at ${ctx}`);
+			assert.equal(
+				sim.currentPopulation,
+				entry.population,
+				`population mismatch at ${ctx}`,
+			);
 			assert.equal(
 				gf.officeServiceOk !== 0,
 				entry.gates.office,

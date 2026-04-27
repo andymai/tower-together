@@ -628,9 +628,10 @@ export interface WorldState {
 	/**
 	 * Binary `g_primary_family_ledger_total` @ 1288:c13a. Population-weighted
 	 * activation total used by `compute_tower_tier_from_ledger` (1148:041d) to
-	 * gate star advancement. Updated via `add_to_primary_family_ledger_bucket`
-	 * (1068:07f7) and `clear_primary_family_ledger_bucket` (1068:07b3) on the
-	 * binary's family-ledger events:
+	 * gate star advancement, AND surfaced as the player-facing population
+	 * count. Updated via `add_to_primary_family_ledger_bucket` (1068:07f7) and
+	 * `clear_primary_family_ledger_bucket` (1068:07b3) on the binary's
+	 * family-ledger events:
 	 *   - office (family 7) activate/deactivate: ±6
 	 *   - hotel single (family 3) activate/deactivate: ±1
 	 *   - hotel twin/suite (family 4/5) activate/deactivate: ±2
@@ -639,11 +640,11 @@ export interface WorldState {
 	 *   - restaurant/fastfood (family 6/12) and entertainment families: rebuilt
 	 *     daily from runtime budgets (clear+seed pattern).
 	 */
-	primaryFamilyLedgerTotal: number;
+	currentPopulation: number;
 	/**
 	 * Binary `g_per_family_ledger_buckets` @ DS:0xc112 — per-family slot
-	 * accumulators that sum to `primaryFamilyLedgerTotal`. Mirrors the binary's
-	 * invariant: `primaryFamilyLedgerTotal == sum(perFamilyLedgerBuckets)`.
+	 * accumulators that sum to `currentPopulation`. Mirrors the binary's
+	 * invariant: `currentPopulation == sum(perFamilyLedgerBuckets)`.
 	 * `add_to_primary_family_ledger_bucket` updates bucket+total;
 	 * `clear_primary_family_ledger_bucket` subtracts bucket from total then
 	 * zeroes the bucket. Used to net out daily resets of fast-food/retail/
