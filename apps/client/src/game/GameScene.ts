@@ -163,7 +163,44 @@ const NUMBER_TEXTURE_RESOLUTION = Math.max(
 	1,
 	Math.round(window.devicePixelRatio * 4),
 );
-const STATIC_ROW_TEXTURE_SCALE = 8;
+// Mutable: chosen at scene preload-time based on the live WebGL context's
+// limits and the device's pixel ratio. The default keeps memory tame in case
+// the computation fails for any reason.
+let STATIC_ROW_TEXTURE_SCALE = 2;
+
+/**
+ * Pick the static-row canvas oversampling factor.
+ *
+ * Quality target is driven by the device pixel ratio so retina displays stay
+ * crisp up to MAX_ZOOM. A memory budget caps total canvas-backed texture
+ * memory; the budget is generous on desktop and tight on mobile (iOS Safari
+ * kills the process around ~256 MB of GPU-backed canvas, Android browsers
+ * have similar limits). GL MAX_TEXTURE_SIZE is also respected (chunk width is
+ * bounded separately by getStaticRowChunkWidth).
+ */
+function computeStaticRowTextureScale(maxTextureSize: number): number {
+	const dpr = Math.max(1, window.devicePixelRatio || 1);
+	// ~4× per device pixel keeps it crisp when zoomed in to MAX_ZOOM.
+	const idealScale = Math.max(2, Math.min(8, Math.ceil(dpr * 4)));
+
+	const isMobile =
+		typeof navigator !== "undefined" &&
+		(/iPad|iPhone|iPod|Android/.test(navigator.userAgent) ||
+			(/Mac/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+	const budgetBytes = isMobile ? 96 * 1024 * 1024 : 1024 * 1024 * 1024;
+	const totalRowPx = GRID_WIDTH * TILE_WIDTH * TILE_HEIGHT * GRID_HEIGHT;
+	const maxScaleByBudget = Math.max(
+		1,
+		Math.floor(Math.sqrt(budgetBytes / (totalRowPx * 4))),
+	);
+
+	const maxScaleByTexture = Math.max(
+		1,
+		Math.floor(maxTextureSize / TILE_HEIGHT),
+	);
+
+	return Math.max(1, Math.min(idealScale, maxScaleByBudget, maxScaleByTexture));
+}
 const STATIC_ROW_CULL_PAD_TILES = 4;
 const SIM_QUEUE_TEXTURE_SCALE = 8;
 // Sim figure SVG aspect matches its 6×20 viewBox.
@@ -844,7 +881,14 @@ export class GameScene extends Scene {
 	}
 
 	preload(): void {
-		const s = GameScene.ROOM_SVG_SCALE;
+		const renderer = this.renderer as Renderer.WebGL.WebGLRenderer | undefined;
+		const gl = renderer?.gl;
+		const maxTextureSize =
+			gl && typeof gl.getParameter === "function"
+				? Number(gl.getParameter(gl.MAX_TEXTURE_SIZE))
+				: 4096;
+		STATIC_ROW_TEXTURE_SCALE = computeStaticRowTextureScale(maxTextureSize);
+		const s = STATIC_ROW_TEXTURE_SCALE;
 		for (const [room, config] of Object.entries(ROOM_TEXTURES)) {
 			const heightTiles = config?.heightTiles ?? 1;
 			const w = ((TILE_WIDTHS[room] ?? 1) * TILE_WIDTH - STATIC_TILE_GAP_X) * s;
@@ -1502,8 +1546,6 @@ export class GameScene extends Scene {
 		}
 		this.undergroundBackground.setTileScale(tileScaleX, tileScale);
 	}
-
-	private static readonly ROOM_SVG_SCALE = STATIC_ROW_TEXTURE_SCALE;
 
 	/** Tile types that use the for-sale banner instead of for-rent. */
 	private static readonly FOR_SALE_TYPES = new Set(["condo"]);
