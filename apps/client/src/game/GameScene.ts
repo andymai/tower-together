@@ -145,6 +145,9 @@ type CockroachState = {
 	dirChangeTimer: number;
 };
 
+// One-finger drag past this many CSS pixels promotes a pending tap into a pan.
+const TOUCH_PAN_THRESHOLD_SQ = 10 * 10;
+
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
 const HOTEL_INFESTED_STATUS_MIN = 0x38;
@@ -2871,6 +2874,17 @@ export class GameScene extends Scene {
 		this.input.on("pointermove", (pointer: Input.Pointer) => {
 			if (this.updatePinch(cam)) return;
 
+			// Convert a pending touch tap into a pan once the finger has moved
+			// past a small threshold.
+			if (this.pendingTouchTap && pointer.isDown) {
+				const dx = pointer.x - this.panStartX;
+				const dy = pointer.y - this.panStartY;
+				if (dx * dx + dy * dy > TOUCH_PAN_THRESHOLD_SQ) {
+					this.pendingTouchTap = null;
+					this.isPanning = true;
+				}
+			}
+
 			const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 			const shift = !!(pointer.event as MouseEvent).shiftKey;
 
@@ -2956,6 +2970,10 @@ export class GameScene extends Scene {
 				// mode before the click commits. Mouse stays immediate.
 				if (pointer.wasTouch) {
 					this.pendingTouchTap = { x: ax, y: cell.y, shift };
+					this.panStartX = pointer.x;
+					this.panStartY = pointer.y;
+					this.camStartX = cam.scrollX;
+					this.camStartY = cam.scrollY;
 					return;
 				}
 				this.isDragging = true;
