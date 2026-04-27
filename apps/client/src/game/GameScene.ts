@@ -496,6 +496,24 @@ export class GameScene extends Scene {
 		}
 	}
 
+	/** "Stuck unoccupiable" detection — the binary's signal is occupiedFlag=0
+	 * (what we send as evalActiveFlag): handleOfficeMorningGate gates on
+	 * occupiedFlag at office.ts:339, so sims skip the commute entirely once
+	 * the scoring sweep deactivates the unit (refreshOccupiedFlagAndTripCounters
+	 * Branch C: evalLevel=0 with no high-rated donor). Newly-placed units have
+	 * occupiedFlag=1 (commands.ts:164), so they won't false-positive. Hotels
+	 * use the infested band (unitStatus>=0x38) since their occupiedFlag cycles
+	 * with checkout/turnover. */
+	private isStuckUnit(
+		tileType: string,
+		unitStatus: number,
+		key: string,
+	): boolean {
+		if (HOTEL_TILE_TYPES.has(tileType)) return unitStatus >= 0x38;
+		if (tileType !== "office" && tileType !== "condo") return false;
+		return this.evalActiveFlagMap.get(key) === 0;
+	}
+
 	/** Signature of a cell's visually-rendered state. Changes when (and only
 	 *  when) something in drawStaticRowContent would draw differently. */
 	private computeCellVisualSig(key: string): string {
@@ -520,7 +538,7 @@ export class GameScene extends Scene {
 		const coverage =
 			tileType === "parking" ? (this.coverageFlagMap.get(key) ?? 0) : 0;
 
-		const stuck = this.evalLevelMap.get(key) === 0xff ? 1 : 0;
+		const stuck = this.isStuckUnit(tileType, unitStatus, key) ? 1 : 0;
 
 		let badge = "";
 		if (import.meta.env.DEV) {
@@ -1839,7 +1857,11 @@ export class GameScene extends Scene {
 				const drawW = widthTiles * TILE_WIDTH - STATIC_TILE_GAP_X;
 				const drawH = heightTiles * TILE_HEIGHT - STATIC_TILE_GAP_Y;
 
-				const isStuck = this.evalLevelMap.get(key) === 0xff;
+				const isStuck = this.isStuckUnit(
+					tileType,
+					this.unitStatusMap.get(key) ?? 0,
+					key,
+				);
 				if (hasRoomTexture && texKey !== null) {
 					if (isStuck) ctx.filter = "grayscale(100%) brightness(0.85)";
 					this.drawTextureToRow(ctx, texKey, drawX, drawY, drawW, drawH);
