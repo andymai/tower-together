@@ -232,6 +232,7 @@ describe("housekeeping helper", () => {
 		sim.stateCode = HK_STATE_ROUTE_TO_CANDIDATE_TRANSIT;
 		sim.spawnFloor = 12;
 		sim.targetRoomFloor = 12;
+		sim.targetRoomColumn = 20;
 		sim.floorAnchor = 12; // arrival snaps floorAnchor forward in tests
 		world.sims.push(sim);
 		handleHousekeepingSimArrival(world, timeAt(50), sim, 12);

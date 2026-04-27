@@ -118,27 +118,35 @@ function promoteClaim(
 	world: WorldState,
 	time: TimeState,
 	sim: SimRecord,
-	object: PlacedObjectRecord,
+	object: PlacedObjectRecord | undefined,
 ): void {
-	// Binary `activate_selected_vacant_unit` (1158:02e2): the cleaned-room
-	// unit_status is 0x18 while daypart_index < 4, and 0x20 otherwise, i.e.
-	// the same morning/evening VACANT bucket `place_object` would have picked
-	// when the room was first placed. The room is *not* re-randomized to the
-	// occupied trip-counter band — that happens when the new guest arrives.
-	object.unitStatus = time.daypartIndex < 4 ? 0x18 : 0x20;
-	object.housekeepingClaimedFlag = 1;
-	sim.targetRoomColumn = object.leftTileIndex;
-	// The binary also flips the first guest occupant of the cleaned room to
-	// state 3 (ARRIVED) so the hotel-family state machine picks up the new
-	// occupancy on its next stride.
-	const newOccupant = world.sims.find(
-		(candidate) =>
-			candidate.familyCode === object.objectTypeCode &&
-			candidate.floorAnchor === sim.targetRoomFloor &&
-			candidate.homeColumn === object.leftTileIndex &&
-			candidate.baseOffset === 0,
-	);
-	if (newOccupant) newOccupant.stateCode = STATE_ARRIVED;
+	// Binary `activate_selected_vacant_unit` (1158:02e2) bails on:
+	//   - room_family ∉ [3,5] (1158:0381 / 03b3)
+	//   - room.unitStatus ∉ {0x28, 0x30} (1158:03e5 / 0415)
+	// When it bails, no fields are written. The caller (state-1 result-3 arm
+	// at 1228:6264) unconditionally sets sim+5 = 2 / sim+0xa = 3 afterward,
+	// so the helper still enters state-2 with countdown 3. Mirror that here.
+	const claimable = object !== undefined && isClaimableHotelRoom(object);
+	if (claimable && object !== undefined) {
+		// Binary `activate_selected_vacant_unit` (1158:02e2): the cleaned-room
+		// unit_status is 0x18 while daypart_index < 4, and 0x20 otherwise, i.e.
+		// the same morning/evening VACANT bucket `place_object` would have picked
+		// when the room was first placed. The room is *not* re-randomized to the
+		// occupied trip-counter band — that happens when the new guest arrives.
+		object.unitStatus = time.daypartIndex < 4 ? 0x18 : 0x20;
+		object.housekeepingClaimedFlag = 1;
+		// The binary also flips the first guest occupant of the cleaned room to
+		// state 3 (ARRIVED) so the hotel-family state machine picks up the new
+		// occupancy on its next stride.
+		const newOccupant = world.sims.find(
+			(candidate) =>
+				candidate.familyCode === object.objectTypeCode &&
+				candidate.floorAnchor === sim.targetRoomFloor &&
+				candidate.homeColumn === object.leftTileIndex &&
+				candidate.baseOffset === 0,
+		);
+		if (newOccupant) newOccupant.stateCode = STATE_ARRIVED;
+	}
 	sim.postClaimCountdown = HK_POST_CLAIM_COUNTDOWN;
 	sim.stateCode = HK_STATE_COUNTDOWN;
 }
@@ -171,24 +179,6 @@ function flagSelectedUnitUnavailable(world: WorldState, sim: SimRecord): void {
 			candidate.baseOffset === 0,
 	);
 	if (firstOccupant) firstOccupant.stateCode = STATE_HOTEL_PARKED;
-}
-
-function findRoomAtFloor(
-	world: WorldState,
-	floor: number,
-): PlacedObjectRecord | null {
-	const y = world.height - 1 - floor;
-	const entries = Object.entries(world.placedObjects);
-	const slots: Array<[number, PlacedObjectRecord]> = [];
-	for (const [key, object] of entries) {
-		const [x, yKey] = key.split(",").map(Number);
-		if (yKey !== y) continue;
-		if (!isClaimableHotelRoom(object)) continue;
-		slots.push([x, object]);
-	}
-	if (slots.length === 0) return null;
-	slots.sort((a, b) => a[0] - b[0]);
-	return slots[0][1];
 }
 
 export function processHousekeepingSim(
@@ -232,7 +222,16 @@ export function processHousekeepingSim(
 			// initiated immediately (result 0/1/2 → state 3, result 3 → claim,
 			// result -1 → reset). Mirror that by advancing to state 3 and running
 			// the state-3 body on the current stride.
+			// Binary `find_matching_vacant_unit_floor` (1158:0000) writes
+			// entity[+0xc] to identify the chosen room (slot rank within the
+			// floor). On arrival the state-3 handler hands that stored
+			// identifier to `activate_selected_vacant_unit`, which bails if the
+			// specific room's family/phase don't match. Stash the room's
+			// column at search time and look it up directly on arrival —
+			// re-scanning the floor for *any* claimable room lets us steal a
+			// room another helper is already routing to.
 			sim.targetRoomFloor = candidate.floor;
+			sim.targetRoomColumn = candidate.object.leftTileIndex;
 			sim.stateCode = HK_STATE_ROUTE_TO_TARGET;
 			tryClaimOnCurrentFloor(world, time, sim);
 			return;
@@ -309,11 +308,15 @@ function tryClaimOnCurrentFloor(
 		resetToSearch(sim);
 		return;
 	}
-	const room = findRoomAtFloor(world, sim.targetRoomFloor);
-	if (!room) {
-		resetToSearch(sim);
-		return;
-	}
+	// Look up the specific room targeted at search time, not whatever's
+	// currently claimable on this floor. promoteClaim handles the case where
+	// the room's status no longer qualifies (binary's activate bails, but the
+	// caller still transitions the helper to state 2).
+	const y = world.height - 1 - sim.targetRoomFloor;
+	const room =
+		sim.targetRoomColumn >= 0
+			? world.placedObjects[`${sim.targetRoomColumn},${y}`]
+			: undefined;
 	promoteClaim(world, time, sim, room);
 }
 
