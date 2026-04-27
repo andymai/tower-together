@@ -30,6 +30,7 @@ const EMPTY_CARRIERS: readonly CarrierRecord[] = [];
 const EMPTY_PENDING: PendingBySimId = new Map();
 
 const BASE_TICK_INTERVAL_MS = 50;
+const REPLAY_CHUNK_TICKS = 32;
 
 function cloneSnapshot(snapshot: SimSnapshot): SimSnapshot {
 	return structuredClone(snapshot);
@@ -88,7 +89,8 @@ export class TowerLockstepSession {
 	private readonly pendingLocalBatches = new Map<number, PendingLocalBatch>();
 	private pendingBySimIdCache: Map<string, SimPendingRoute> | null = null;
 	private flushHandle: ReturnType<typeof setTimeout> | null = null;
-	private flushNeedsTimerRestart = false;
+	private replayInProgress = false;
+	private replayChunkHandle: ReturnType<typeof setTimeout> | null = null;
 
 	constructor({ playerId, onReset, onTick }: TowerLockstepSessionOptions) {
 		this.playerId = playerId;
@@ -119,6 +121,11 @@ export class TowerLockstepSession {
 			clearTimeout(this.flushHandle);
 			this.flushHandle = null;
 		}
+		if (this.replayChunkHandle !== null) {
+			clearTimeout(this.replayChunkHandle);
+			this.replayChunkHandle = null;
+		}
+		this.replayInProgress = false;
 	}
 
 	updateSettings(settings: Partial<SessionSettings>): void {
@@ -148,7 +155,6 @@ export class TowerLockstepSession {
 				this.pendingLocalBatches.delete(clientSeq);
 			}
 		}
-		this.flushNeedsTimerRestart = true;
 		this.scheduleFlush();
 	}
 
@@ -179,17 +185,99 @@ export class TowerLockstepSession {
 		if (!this.baseSnapshot) {
 			return;
 		}
+		if (this.replayInProgress) {
+			// A replay is already running; it will pick up new frames when it
+			// completes via the trailing scheduleFlush().
+			return;
+		}
 		let target = Math.max(this.predictedTick, this.baseTick);
 		for (const tick of this.authoritativeFrames.keys()) {
 			if (tick > target) {
 				target = tick;
 			}
 		}
-		this.replayTo(target);
-		if (this.flushNeedsTimerRestart) {
-			this.flushNeedsTimerRestart = false;
-			this.restartTimer();
+		this.startReplay(target);
+	}
+
+	private startReplay(initialTarget: number): void {
+		if (!this.baseSnapshot) {
+			return;
 		}
+		if (this.timer !== null) {
+			clearInterval(this.timer);
+			this.timer = null;
+		}
+		this.replayInProgress = true;
+		const sim = TowerSim.fromSnapshot(this.baseSnapshot);
+		sim.freeBuild = this.settings.freeBuild;
+		const baseTickAtStart = this.baseTick;
+		let cursor = baseTickAtStart;
+		let target = initialTarget;
+
+		const finish = () => {
+			this.sim = sim;
+			this.predictedTick = Math.max(cursor, this.baseTick);
+			this.pendingBySimIdCache = null;
+			this.replayInProgress = false;
+			this.replayChunkHandle = null;
+			this.emitReset();
+			this.restartTimer();
+			// Pick up any frames that arrived during the replay.
+			if (this.shouldFlushAfterReplay(cursor)) {
+				this.scheduleFlush();
+			}
+		};
+
+		const runChunk = () => {
+			this.replayChunkHandle = null;
+			if (this.baseTick !== baseTickAtStart || !this.baseSnapshot) {
+				// A checkpoint landed mid-replay — abandon this run; the
+				// trailing scheduleFlush from applyCheckpoint will start fresh.
+				this.replayInProgress = false;
+				this.scheduleFlush();
+				return;
+			}
+			// Authoritative frames may have advanced the target while we were
+			// yielding back to the event loop.
+			for (const tick of this.authoritativeFrames.keys()) {
+				if (tick > target) {
+					target = tick;
+				}
+			}
+			const chunkEnd = Math.min(cursor + REPLAY_CHUNK_TICKS, target);
+			for (let tick = cursor + 1; tick <= chunkEnd; tick += 1) {
+				this.applyInputsForTick(
+					null,
+					this.authoritativeFrames.get(tick)?.batches ?? [],
+					(batch) => batch.inputs,
+					sim,
+				);
+				this.applyInputsForTick(
+					null,
+					[...this.pendingLocalBatches.values()],
+					(batch) => (batch.predictedTick === tick ? batch.inputs : []),
+					sim,
+				);
+				sim.step();
+			}
+			cursor = chunkEnd;
+			if (cursor >= target) {
+				finish();
+				return;
+			}
+			this.replayChunkHandle = setTimeout(runChunk, 0);
+		};
+
+		runChunk();
+	}
+
+	private shouldFlushAfterReplay(cursor: number): boolean {
+		for (const tick of this.authoritativeFrames.keys()) {
+			if (tick > cursor) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	queueLocalBatch(
@@ -271,33 +359,6 @@ export class TowerLockstepSession {
 		cellPatches.push(...stepResult.cellPatches);
 		this.pendingBySimIdCache = null;
 		this.emitTick(cellPatches);
-	}
-
-	private replayTo(targetTick: number): void {
-		if (!this.baseSnapshot) {
-			return;
-		}
-		const sim = TowerSim.fromSnapshot(this.baseSnapshot);
-		sim.freeBuild = this.settings.freeBuild;
-		for (let tick = this.baseTick + 1; tick <= targetTick; tick += 1) {
-			this.applyInputsForTick(
-				null,
-				this.authoritativeFrames.get(tick)?.batches ?? [],
-				(batch) => batch.inputs,
-				sim,
-			);
-			this.applyInputsForTick(
-				null,
-				[...this.pendingLocalBatches.values()],
-				(batch) => (batch.predictedTick === tick ? batch.inputs : []),
-				sim,
-			);
-			sim.step();
-		}
-		this.sim = sim;
-		this.predictedTick = Math.max(targetTick, this.baseTick);
-		this.pendingBySimIdCache = null;
-		this.emitReset();
 	}
 
 	private applyInputsForTick<TBatch>(
