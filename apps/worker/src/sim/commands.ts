@@ -1,5 +1,6 @@
 import { floorToSlot, makeCarrierCar, rebuildCarrierList } from "./carriers";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
+import { cancelRuntimeRouteRequest } from "./queue/cancel";
 import {
 	rebuildRouteReachabilityTables,
 	rebuildTransferGroupCache,
@@ -41,6 +42,7 @@ import {
 	rebuildRuntimeSims,
 } from "./sims";
 import { invalidateMedicalSlotsForSidecar } from "./sims/medical";
+import { clearSimRoute, simKey } from "./sims/population";
 import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
@@ -1621,6 +1623,28 @@ export function handleToggleElevatorFloorStop(
 			const car = carrier.cars[secondaryTag - 1];
 			if (car && car.pendingAssignmentCount > 0)
 				car.pendingAssignmentCount -= 1;
+		}
+
+		// Sims already enqueued at the disabled floor would otherwise sit in the
+		// floor ring forever — visually, riders queue up and the elevator never
+		// arrives. Evict each queued request and clear the sim's route so the
+		// family state machine re-resolves on its next tick (which now scores the
+		// disabled floor as ineligible and picks a peer carrier or transfer).
+		const floorQueue = carrier.floorQueues[slot];
+		if (floorQueue) {
+			const queuedIds = [
+				...floorQueue.up.peekAll(),
+				...floorQueue.down.peekAll(),
+			].filter((id) => id !== "");
+			for (const queuedId of queuedIds) {
+				cancelRuntimeRouteRequest(carrier, queuedId);
+			}
+			if (queuedIds.length > 0) {
+				const queuedSet = new Set(queuedIds);
+				for (const sim of world.sims) {
+					if (queuedSet.has(simKey(sim))) clearSimRoute(sim);
+				}
+			}
 		}
 	}
 
