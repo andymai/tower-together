@@ -3,10 +3,7 @@ import {
 	type LedgerState,
 	removeCashflowFromFamilyResource,
 } from "../ledger";
-import {
-	addToPrimaryFamilyLedger,
-	clearPrimaryFamilyLedgerBucket,
-} from "../progression";
+import { addToPopulationBucket, clearPopulationBucket } from "../progression";
 import {
 	COMMERCIAL_CAPACITY_CAPS,
 	COMMERCIAL_CLOSURE_BANDS,
@@ -90,8 +87,8 @@ export function rebuildCommercialVenueRuntime(
 	// before iterating records and re-adding each record's yesterday-visit-
 	// count. The clear-then-add yields a NET delta of (new - old) on the
 	// running total, matching the binary's daily population accounting.
-	clearPrimaryFamilyLedgerBucket(world, FAMILY_FAST_FOOD);
-	clearPrimaryFamilyLedgerBucket(world, FAMILY_RETAIL);
+	clearPopulationBucket(world, FAMILY_FAST_FOOD);
+	clearPopulationBucket(world, FAMILY_RETAIL);
 	for (const obj of Object.values(world.placedObjects)) {
 		const code = obj.objectTypeCode;
 		if (code !== FAMILY_FAST_FOOD && code !== FAMILY_RETAIL) continue;
@@ -120,7 +117,7 @@ export function rebuildCommercialVenueRuntime(
 		// the roll, so yesterday's daily visit count contributes to the
 		// running primary-family-ledger total used by star advancement.
 		record.yesterdayVisitCount = record.todayVisitCount;
-		addToPrimaryFamilyLedger(world, code, record.yesterdayVisitCount);
+		addToPopulationBucket(world, code, record.yesterdayVisitCount);
 		record.todayVisitCount = 0;
 		record.acquireCount = 0;
 		record.currentPopulation = 0;
@@ -249,6 +246,7 @@ function applyClosureCash(
 }
 
 export function activateRetailShop(
+	world: WorldState,
 	object: PlacedObjectRecord,
 	record: CommercialVenueRecord,
 	ledger: LedgerState,
@@ -261,11 +259,11 @@ export function activateRetailShop(
 		object.rentLevel,
 		object.objectTypeCode,
 	);
-	ledger.populationLedger[FAMILY_RETAIL] =
-		(ledger.populationLedger[FAMILY_RETAIL] ?? 0) + 10;
+	addToPopulationBucket(world, FAMILY_RETAIL, 10);
 }
 
 function deactivateRetailShop(
+	world: WorldState,
 	object: PlacedObjectRecord,
 	record: CommercialVenueRecord,
 	ledger: LedgerState,
@@ -284,6 +282,7 @@ function deactivateRetailShop(
 		object.rentLevel,
 		object.objectTypeCode,
 	);
+	addToPopulationBucket(world, FAMILY_RETAIL, -10);
 }
 
 export function refundUnhappyFacilities(
@@ -301,6 +300,7 @@ export function refundUnhappyFacilities(
 				object.rentLevel,
 				object.objectTypeCode,
 			);
+			addToPopulationBucket(world, FAMILY_CONDO, -3);
 			object.unitStatus =
 				time.daypartIndex < 4
 					? UNIT_STATUS_CONDO_VACANT
@@ -333,7 +333,7 @@ export function refundUnhappyFacilities(
 				| undefined;
 			if (!record || record.kind !== "commercial_venue") continue;
 			if (record.availabilityState === VENUE_DORMANT) continue;
-			deactivateRetailShop(object, record, ledger);
+			deactivateRetailShop(world, object, record, ledger);
 		}
 	}
 }

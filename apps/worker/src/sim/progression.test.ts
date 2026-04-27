@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	checkStarAdvancementConditions,
-	computeTowerTierFromLedger,
+	computeStarCountFromPopulation,
 	tryAdvanceStarCount,
 } from "./progression";
 import { STAR_THRESHOLDS } from "./resources";
@@ -25,7 +25,7 @@ function makeWorld(): WorldState {
 		lobbyHeight: 1,
 		starCount: 1,
 		currentPopulation: 0,
-		perFamilyLedgerBuckets: {},
+		currentPopulationBuckets: {},
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},
@@ -90,7 +90,7 @@ function lateAfternoonTime(): TimeState {
 describe("computeTowerTierFromLedger", () => {
 	it("returns tier 1 for empty tower", () => {
 		const world = makeWorld();
-		expect(computeTowerTierFromLedger(world)).toBe(1);
+		expect(computeStarCountFromPopulation(world)).toBe(1);
 	});
 
 	it("returns tier 2 once first threshold is met", () => {
@@ -99,27 +99,27 @@ describe("computeTowerTierFromLedger", () => {
 		// `total < THRESHOLD` for the lower-tier branch, so reaching the
 		// threshold value (e.g. 300) is enough to advance.
 		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0]);
-		expect(computeTowerTierFromLedger(world)).toBe(2);
+		expect(computeStarCountFromPopulation(world)).toBe(2);
 	});
 
 	it("stays in lower tier just below the threshold", () => {
 		const world = makeWorld();
 		addObjectWithActivation(world, "a", STAR_THRESHOLDS[0] - 1);
-		expect(computeTowerTierFromLedger(world)).toBe(1);
+		expect(computeStarCountFromPopulation(world)).toBe(1);
 	});
 
 	it("sums contributions to the primary ledger total", () => {
 		const world = makeWorld();
 		addObjectWithActivation(world, "a", 200);
-		expect(computeTowerTierFromLedger(world)).toBe(1);
+		expect(computeStarCountFromPopulation(world)).toBe(1);
 		addObjectWithActivation(world, "b", 100);
-		expect(computeTowerTierFromLedger(world)).toBe(2);
+		expect(computeStarCountFromPopulation(world)).toBe(2);
 	});
 
 	it("returns tier 6 when ledger reaches the top threshold", () => {
 		const world = makeWorld();
 		addObjectWithActivation(world, "a", STAR_THRESHOLDS[4]);
-		expect(computeTowerTierFromLedger(world)).toBe(6);
+		expect(computeStarCountFromPopulation(world)).toBe(6);
 	});
 });
 

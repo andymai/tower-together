@@ -644,14 +644,14 @@ export interface WorldState {
 	/**
 	 * Binary `g_per_family_ledger_buckets` @ DS:0xc112 — per-family slot
 	 * accumulators that sum to `currentPopulation`. Mirrors the binary's
-	 * invariant: `currentPopulation == sum(perFamilyLedgerBuckets)`.
+	 * invariant: `currentPopulation == sum(currentPopulationBuckets)`.
 	 * `add_to_primary_family_ledger_bucket` updates bucket+total;
 	 * `clear_primary_family_ledger_bucket` subtracts bucket from total then
 	 * zeroes the bucket. Used to net out daily resets of fast-food/retail/
 	 * restaurant per-day visit-count contributions: clear-then-add-yesterday
 	 * gives a delta of (newVisits - oldVisits) on the running total.
 	 */
-	perFamilyLedgerBuckets: Record<number, number>;
+	currentPopulationBuckets: Record<number, number>;
 	/** Bomb/fire/VIP event state. */
 	eventState: EventState;
 	/** Pending notifications emitted during the current tick (drained by the transport layer). */

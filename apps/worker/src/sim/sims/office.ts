@@ -1,5 +1,5 @@
 import { addCashflowFromFamilyResource, type LedgerState } from "../ledger";
-import { addToPrimaryFamilyLedger } from "../progression";
+import { addToPopulationBucket } from "../progression";
 import { FAMILY_FAST_FOOD, FAMILY_OFFICE } from "../resources";
 import type { TimeState } from "../time";
 import {
@@ -88,7 +88,7 @@ function activateOfficeCashflow(
 	// Binary: add_to_primary_family_ledger_bucket(7, 6) — population
 	// contribution that feeds compute_tower_tier_from_ledger and gates
 	// star advancement (e.g. 1→2 at total >= 300).
-	addToPrimaryFamilyLedger(world, FAMILY_OFFICE, 6);
+	addToPopulationBucket(world, FAMILY_OFFICE, 6);
 
 	resetFacilitySimTripCounters(world, sim);
 }

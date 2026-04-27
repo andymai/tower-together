@@ -23,7 +23,7 @@ import { STAR_THRESHOLDS } from "./resources";
 import type { TimeState } from "./time";
 import type { WorldState } from "./world";
 
-export function computeTowerTierFromLedger(world: WorldState): number {
+export function computeStarCountFromPopulation(world: WorldState): number {
 	const total = world.currentPopulation;
 	let tier = 1;
 	for (let index = 0; index < STAR_THRESHOLDS.length; index++) {
@@ -39,15 +39,15 @@ export function computeTowerTierFromLedger(world: WorldState): number {
  * Binary 1068:0812-082b: bucket[family] += amount AND total += amount, with
  * the total update unconditional. We mirror both so the running total stays
  * consistent with the per-family bucket sums and so
- * `clearPrimaryFamilyLedgerBucket` can later subtract the right amount.
+ * `clearPopulationBucket` can later subtract the right amount.
  */
-export function addToPrimaryFamilyLedger(
+export function addToPopulationBucket(
 	world: WorldState,
 	familyCode: number,
 	amount: number,
 ): void {
-	world.perFamilyLedgerBuckets[familyCode] =
-		(world.perFamilyLedgerBuckets[familyCode] ?? 0) + amount;
+	world.currentPopulationBuckets[familyCode] =
+		(world.currentPopulationBuckets[familyCode] ?? 0) + amount;
 	world.currentPopulation += amount;
 }
 
@@ -59,13 +59,13 @@ export function addToPrimaryFamilyLedger(
  * so that re-adding the new yesterday-visit-count yields a NET delta of
  * `(newVisits - oldVisits)` on the total.
  */
-export function clearPrimaryFamilyLedgerBucket(
+export function clearPopulationBucket(
 	world: WorldState,
 	familyCode: number,
 ): void {
-	const current = world.perFamilyLedgerBuckets[familyCode] ?? 0;
+	const current = world.currentPopulationBuckets[familyCode] ?? 0;
 	world.currentPopulation -= current;
-	world.perFamilyLedgerBuckets[familyCode] = 0;
+	world.currentPopulationBuckets[familyCode] = 0;
 }
 
 export function checkStarAdvancementConditions(
@@ -111,7 +111,7 @@ export function tryAdvanceStarCount(
 	time: TimeState,
 ): boolean {
 	if (world.starCount >= 5) return false;
-	if (computeTowerTierFromLedger(world) <= world.starCount) return false;
+	if (computeStarCountFromPopulation(world) <= world.starCount) return false;
 	if (!checkStarAdvancementConditions(world, time)) return false;
 
 	world.starCount += 1;

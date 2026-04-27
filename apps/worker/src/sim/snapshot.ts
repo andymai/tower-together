@@ -88,7 +88,7 @@ export function createInitialSnapshot(
 			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
 			currentPopulation: 0,
-			perFamilyLedgerBuckets: {},
+			currentPopulationBuckets: {},
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
@@ -179,7 +179,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			medicalServiceSlots: createMedicalServiceSlots(),
 			starCount: 1,
 			currentPopulation: 0,
-			perFamilyLedgerBuckets: {},
+			currentPopulationBuckets: {},
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
@@ -319,7 +319,7 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	}
 	snapshot.world.starCount ??= 1;
 	snapshot.world.currentPopulation ??= 0;
-	snapshot.world.perFamilyLedgerBuckets ??= {};
+	snapshot.world.currentPopulationBuckets ??= {};
 	snapshot.world.rngState ??= 1;
 	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
@@ -512,7 +512,7 @@ export function hydrateSnapshot(raw: SimSnapshot): SimSnapshot {
 	}
 	snapshot.world.starCount ??= 1;
 	snapshot.world.currentPopulation ??= 0;
-	snapshot.world.perFamilyLedgerBuckets ??= {};
+	snapshot.world.currentPopulationBuckets ??= {};
 	snapshot.world.rngState ??= 1;
 	snapshot.world.rngCallCount ??= 0;
 	snapshot.world.eventState ??= createEventState();
@@ -570,7 +570,7 @@ export function serializeSimState(
 			) as WorldState["medicalServiceSlots"],
 			starCount: world.starCount,
 			currentPopulation: world.currentPopulation,
-			perFamilyLedgerBuckets: { ...world.perFamilyLedgerBuckets },
+			currentPopulationBuckets: { ...world.currentPopulationBuckets },
 			rngState: world.rngState,
 			rngCallCount: world.rngCallCount,
 			eventState: JSON.parse(

@@ -193,7 +193,7 @@ export function processCommercialSim(
 			sim.familyCode === FAMILY_RETAIL &&
 			record.availabilityState === VENUE_DORMANT
 		) {
-			activateRetailShop(object, record, ledger);
+			activateRetailShop(world, object, record, ledger);
 		}
 		if (routeResult === 3) {
 			// Same-floor venue (LOBBY-anchored): binary state-0x20 handler at
@@ -373,7 +373,7 @@ function handleCommercialMorningTransit(
 					sim.familyCode === FAMILY_RETAIL &&
 					venue.availabilityState === VENUE_DORMANT
 				) {
-					activateRetailShop(object, venue, ledger);
+					activateRetailShop(world, object, venue, ledger);
 				}
 			}
 		}

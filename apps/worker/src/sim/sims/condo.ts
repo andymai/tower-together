@@ -1,4 +1,6 @@
 import { addCashflowFromFamilyResource, type LedgerState } from "../ledger";
+import { addToPopulationBucket } from "../progression";
+import { FAMILY_CONDO } from "../resources";
 import { preDay4, type TimeState } from "../time";
 import {
 	type PlacedObjectRecord,
@@ -40,6 +42,7 @@ import {
  * caller.
  */
 function finalizeCondoSale(
+	world: WorldState,
 	ledger: LedgerState,
 	time: TimeState,
 	object: PlacedObjectRecord,
@@ -51,6 +54,7 @@ function finalizeCondoSale(
 		object.objectTypeCode,
 	);
 	object.unitStatus = preDay4(time) ? 0x00 : 0x08;
+	addToPopulationBucket(world, FAMILY_CONDO, 3);
 }
 
 /**
@@ -95,7 +99,7 @@ function dispatchCondoMorningGate(
 	}
 
 	if (wasVacant) {
-		finalizeCondoSale(ledger, time, object);
+		finalizeCondoSale(world, ledger, time, object);
 	}
 
 	if (result === 3) {
@@ -165,7 +169,7 @@ function handleCondoMorningTransit(
 	}
 
 	if (wasVacant) {
-		finalizeCondoSale(ledger, time, object);
+		finalizeCondoSale(world, ledger, time, object);
 	}
 
 	if (result === 3) {
