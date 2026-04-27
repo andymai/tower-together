@@ -130,12 +130,17 @@ export function getQueuedSimLayout(
 	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
 	queueIndex: number,
+	carrierColumnsById: ReadonlyMap<number, number>,
 ): QueuedSimLayout {
 	const spanWidth = FAMILY_WIDTHS[sim.familyCode] ?? 1;
 	const population = FAMILY_POPULATION[sim.familyCode] ?? 1;
 	const slotFraction = (sim.baseOffset + 0.5) / population;
 	const fallbackX = sim.homeColumn + slotFraction * spanWidth;
-	const elevatorColumn = pickElevatorColumn(sim, elevatorColumnsByFloor);
+	const elevatorColumn = pickElevatorColumn(
+		sim,
+		elevatorColumnsByFloor,
+		carrierColumnsById,
+	);
 	const hasSelectedFloorColumns = elevatorColumnsByFloor.has(sim.selectedFloor);
 	const shaftWidth = TILE_WIDTHS.elevator ?? 4;
 	const shaftRightEdge =
@@ -163,11 +168,13 @@ export function getQueuedSimLayout(
 export function getQueuedSimQueueKey(
 	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
+	carrierColumnsById: ReadonlyMap<number, number>,
 ): string {
 	const dir = isSimAscending(sim) ? "u" : "d";
 	return `${sim.selectedFloor}:${pickElevatorColumn(
 		sim,
 		elevatorColumnsByFloor,
+		carrierColumnsById,
 	)}:${dir}`;
 }
 
@@ -200,7 +207,16 @@ export function fillCarBounds(
 function pickElevatorColumn(
 	sim: SimRecord,
 	elevatorColumnsByFloor: Map<number, number[]>,
+	carrierColumnsById: ReadonlyMap<number, number>,
 ): number {
+	// When the sim is in carrier mode, render at the actual carrier the sim
+	// is queued on — not the nearest elevator. Otherwise a sim queued on
+	// carrier A appears stacked at carrier B's shaft whenever B is closer
+	// to the sim's home, even if B doesn't stop at the sim's selected floor.
+	if (sim.route.mode === "carrier") {
+		const routedColumn = carrierColumnsById.get(sim.route.carrierId);
+		if (routedColumn !== undefined) return routedColumn;
+	}
 	const columns = elevatorColumnsByFloor.get(sim.floorAnchor);
 	const selectedColumns = elevatorColumnsByFloor.get(sim.selectedFloor);
 	const availableColumns = selectedColumns ?? columns;

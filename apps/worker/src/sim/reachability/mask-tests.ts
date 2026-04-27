@@ -82,15 +82,21 @@ export function chooseTransferFloorFromCarrierReachability(
 	);
 	if (!carrier) return -1;
 
-	// Binary 11b8:0e41 opens with `carrier.served_floor_flags[target] != 0`,
-	// which covers the carrier's full [bottom, top] span (including non-lobby
-	// intermediate floors on express carriers) AND the per-floor stop-enable
-	// bit cleared by the carrier-dialog toggle (FUN_10a8_0085). When the
-	// player disables a floor it falls through into the transfer-floor loop,
-	// matching the binary's "force transfer routing" branch.
+	// Binary 11b8:0e41 opens with `carrier.served_floor_flags[target] != 0`.
+	// `served_floor_flags` is written by FUN_10a8_1296 as `(carrier_mode != 0
+	// || floor <= 10 || isSkyLobbyFloor(floor)) && !insideMultiFloorLobby`, so
+	// on express carriers the byte is set ONLY at express-stop floors (binary
+	// 1..10 and the sky-lobby cadence) — non-lobby intermediate floors fall
+	// through into the transfer-cache loop. The per-floor stop-enable bit
+	// cleared by the carrier-dialog toggle (FUN_10a8_0085) also clears this
+	// flag, matching the "force transfer routing" branch.
 	if (carrierSpansFloor(carrier, targetFloor)) {
 		const targetSlot = targetFloor - carrier.bottomServedFloor;
-		if ((carrier.stopFloorEnabled[targetSlot] ?? 1) !== 0) return targetFloor;
+		const stopEnabled = (carrier.stopFloorEnabled[targetSlot] ?? 1) !== 0;
+		const expressOk =
+			carrier.carrierMode !== 0 ||
+			isExpressStopFloor(targetFloor, world.lobbyMode);
+		if (stopEnabled && expressOk) return targetFloor;
 	}
 
 	// 11b8:0e41 binary loop — scans the 16-slot transfer_group_cache directly.

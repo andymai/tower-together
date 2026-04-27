@@ -2089,6 +2089,11 @@ export class GameScene extends Scene {
 		const elevatorColumnsByFloor = collectElevatorColumnsByFloor(
 			this.overlayGrid,
 		);
+		const liveCarriers = this.snapshotSource?.readLiveCarriers() ?? [];
+		const carrierColumnsById = new Map<number, number>();
+		for (const carrier of liveCarriers) {
+			carrierColumnsById.set(carrier.carrierId, carrier.column);
+		}
 		const sims = this.snapshotSource?.readSims() ?? [];
 		const pending = this.snapshotSource?.readPendingBySimId() ?? EMPTY_PENDING;
 		const hasTexture =
@@ -2115,7 +2120,11 @@ export class GameScene extends Scene {
 		for (const simRecord of sims) {
 			const id = simKey(simRecord);
 			if (!isQueuedSimLive(simRecord, pending, id)) continue;
-			const key = getQueuedSimQueueKey(simRecord, elevatorColumnsByFloor);
+			const key = getQueuedSimQueueKey(
+				simRecord,
+				elevatorColumnsByFloor,
+				carrierColumnsById,
+			);
 			const arr = byQueueKey.get(key);
 			if (arr) arr.push({ simRecord, id });
 			else byQueueKey.set(key, [{ simRecord, id }]);
@@ -2135,6 +2144,7 @@ export class GameScene extends Scene {
 					simRecord,
 					elevatorColumnsByFloor,
 					queueIndex,
+					carrierColumnsById,
 				);
 				const px = gridX * TILE_WIDTH;
 				const py = (gridY + 0.5) * TILE_HEIGHT - STATIC_TILE_GAP_Y;

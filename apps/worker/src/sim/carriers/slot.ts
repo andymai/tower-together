@@ -38,12 +38,13 @@ export function carrierServesFloor(
 }
 
 /**
- * Span membership predicate. Binary `served_floor_flags[f]` is set for every
- * floor in [bottomServedFloor, topServedFloor] — including the intermediate
- * non-lobby floors on an express carrier that has no queue slot. The direct
- * and transfer route-gate tests use this span check (not the queue-slot
- * check) so express routes still resolve for rider destinations between
- * lobbies; queue-status reads continue to use `floorToSlot`.
+ * Geometric span check: `floor ∈ [bottomServedFloor, topServedFloor]`. NOT a
+ * substitute for binary `served_floor_flags[f]`, which on express carriers is
+ * gated by FUN_10a8_1296 to set the byte only at express-stop floors (binary
+ * 1..10 and the sky-lobby cadence). Use this where a pure span test is wanted
+ * (e.g. resetting out-of-range cars); use `carrierEligibleFloor` /
+ * `isExpressStopFloor` for the served-flag-equivalent gate the binary applies
+ * to route scoring and transfer-floor remapping.
  */
 export function carrierSpansFloor(
 	carrier: CarrierRecord,
