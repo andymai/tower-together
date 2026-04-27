@@ -405,6 +405,20 @@ export class GameScene extends Scene {
 	private isDragging = false;
 	private draggedCells = new Set<string>();
 
+	// Pinch-zoom state (two-finger touch)
+	private isPinching = false;
+	private pinchPrevDist = 0;
+	private pinchPrevMidX = 0;
+	private pinchPrevMidY = 0;
+
+	// Pending tap from a touch pointerdown — committed on pointerup so a
+	// second finger arriving for pinch can cancel it.
+	private pendingTouchTap: {
+		x: number;
+		y: number;
+		shift: boolean;
+	} | null = null;
+
 	// Last non-shift placement anchor (for shift-fill)
 	private lastPlacedAnchor: PlacementAnchor | null = null;
 
@@ -503,6 +517,8 @@ export class GameScene extends Scene {
 		const coverage =
 			tileType === "parking" ? (this.coverageFlagMap.get(key) ?? 0) : 0;
 
+		const stuck = this.evalLevelMap.get(key) === 0xff ? 1 : 0;
+
 		let badge = "";
 		if (import.meta.env.DEV) {
 			const level = this.evalLevelMap.get(key);
@@ -516,7 +532,7 @@ export class GameScene extends Scene {
 				badge = `${level}:${score}`;
 			}
 		}
-		return `${tileType}:${isAnchor}:${dirty}:${banner}:${coverage}:${badge}`;
+		return `${tileType}:${isAnchor}:${dirty}:${banner}:${coverage}:${stuck}:${badge}`;
 	}
 
 	/** Check whether the cell at (x, y) has an elevator-family overlay. */
@@ -1820,8 +1836,11 @@ export class GameScene extends Scene {
 				const drawW = widthTiles * TILE_WIDTH - STATIC_TILE_GAP_X;
 				const drawH = heightTiles * TILE_HEIGHT - STATIC_TILE_GAP_Y;
 
+				const isStuck = this.evalLevelMap.get(key) === 0xff;
 				if (hasRoomTexture && texKey !== null) {
+					if (isStuck) ctx.filter = "grayscale(100%) brightness(0.85)";
 					this.drawTextureToRow(ctx, texKey, drawX, drawY, drawW, drawH);
+					if (isStuck) ctx.filter = "none";
 				} else {
 					const color = TILE_COLORS[tileType];
 					if (color !== undefined && row === y) {
@@ -1890,8 +1909,6 @@ export class GameScene extends Scene {
 					if (
 						import.meta.env.DEV &&
 						this.stressBadgesEnabled &&
-						evalLevel !== undefined &&
-						evalLevel <= 2 &&
 						evalScore !== undefined &&
 						evalScore >= 0
 					) {
@@ -1900,7 +1917,9 @@ export class GameScene extends Scene {
 								? "#4488ff"
 								: evalLevel === 1
 									? "#ddcc00"
-									: "#dd3333";
+									: evalLevel === 0
+										? "#dd3333"
+										: "#888888";
 						const pillH = TILE_HEIGHT * 0.55;
 						const pillW = Math.max(
 							pillH * 1.4,
@@ -2784,13 +2803,74 @@ export class GameScene extends Scene {
 		}
 	}
 
+	// Detect that two pointers are now down and snapshot the starting pinch
+	// geometry. Returns true if pinch mode was just entered.
+	private beginPinchIfReady(): boolean {
+		if (this.isPinching) return true;
+		const p1 = this.input.pointer1;
+		const p2 = this.input.pointer2;
+		if (!p1?.isDown || !p2?.isDown) return false;
+		this.isPinching = true;
+		this.isDragging = false;
+		this.draggedCells.clear();
+		this.isPanning = false;
+		this.pendingTouchTap = null;
+		const dx = p2.x - p1.x;
+		const dy = p2.y - p1.y;
+		this.pinchPrevDist = Math.hypot(dx, dy);
+		this.pinchPrevMidX = (p1.x + p2.x) / 2;
+		this.pinchPrevMidY = (p1.y + p2.y) / 2;
+		return true;
+	}
+
+	// Apply incremental zoom + pan from the current two-pointer geometry.
+	// Returns true when pinch is active (caller should skip other move logic).
+	private updatePinch(cam: Phaser.Cameras.Scene2D.Camera): boolean {
+		if (!this.isPinching) return false;
+		const p1 = this.input.pointer1;
+		const p2 = this.input.pointer2;
+		if (!p1?.isDown || !p2?.isDown) return true;
+		const dx = p2.x - p1.x;
+		const dy = p2.y - p1.y;
+		const newDist = Math.hypot(dx, dy);
+		const newMidX = (p1.x + p2.x) / 2;
+		const newMidY = (p1.y + p2.y) / 2;
+		if (this.pinchPrevDist > 0) {
+			const ratio = newDist / this.pinchPrevDist;
+			const oldZoom = cam.zoom;
+			const newZoom = PhaserMath.Clamp(oldZoom * ratio, MIN_ZOOM, MAX_ZOOM);
+			cam.preRender();
+			const worldBefore = cam.getWorldPoint(newMidX, newMidY);
+			cam.setZoom(newZoom);
+			cam.preRender();
+			const worldAfter = cam.getWorldPoint(newMidX, newMidY);
+			cam.scrollX += worldBefore.x - worldAfter.x;
+			cam.scrollY += worldBefore.y - worldAfter.y;
+			cam.scrollX -= (newMidX - this.pinchPrevMidX) / newZoom;
+			cam.scrollY -= (newMidY - this.pinchPrevMidY) / newZoom;
+			cam.preRender();
+		}
+		this.pinchPrevDist = newDist;
+		this.pinchPrevMidX = newMidX;
+		this.pinchPrevMidY = newMidY;
+		return true;
+	}
+
 	private setupInput(): void {
 		const cam = this.cameras.main;
+
+		// Enable a second simultaneous touch pointer for pinch-to-zoom.
+		this.input.addPointer(1);
+		// Suppress the browser's native touch gestures (page pan/zoom) over the canvas
+		// so two-finger pinch reaches Phaser instead of zooming the page.
+		this.game.canvas.style.touchAction = "none";
 
 		this.input.on("pointerdown", () => this.soundManager?.unlock());
 		this.input.keyboard?.on("keydown", () => this.soundManager?.unlock());
 
 		this.input.on("pointermove", (pointer: Input.Pointer) => {
+			if (this.updatePinch(cam)) return;
+
 			const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 			const shift = !!(pointer.event as MouseEvent).shiftKey;
 
@@ -2825,6 +2905,11 @@ export class GameScene extends Scene {
 		});
 
 		this.input.on("pointerdown", (pointer: Input.Pointer) => {
+			// If a second finger has joined, switch to pinch-zoom and abandon
+			// any in-progress paint or pan from the first pointer.
+			if (this.beginPinchIfReady()) return;
+			if (this.isPinching) return;
+
 			if (pointer.rightButtonDown()) {
 				const cell = this.worldToCell(pointer.worldX, pointer.worldY);
 				if (
@@ -2865,16 +2950,41 @@ export class GameScene extends Scene {
 					cell.y >= GRID_HEIGHT
 				)
 					return;
+				const shift = !!(pointer.event as MouseEvent).shiftKey;
+				const ax = anchorX(cell.x, this.selectedTool);
+				// Defer touch taps so a second finger can switch us into pinch
+				// mode before the click commits. Mouse stays immediate.
+				if (pointer.wasTouch) {
+					this.pendingTouchTap = { x: ax, y: cell.y, shift };
+					return;
+				}
 				this.isDragging = true;
 				this.draggedCells.clear();
 				this.draggedCells.add(`${cell.x},${cell.y}`);
-				const shift = !!(pointer.event as MouseEvent).shiftKey;
-				const ax = anchorX(cell.x, this.selectedTool);
 				this.onCellClick?.(ax, cell.y, shift);
 			}
 		});
 
 		this.input.on("pointerup", (pointer: Input.Pointer) => {
+			if (this.isPinching) {
+				const p1 = this.input.pointer1;
+				const p2 = this.input.pointer2;
+				if (!p1?.isDown || !p2?.isDown) {
+					this.isPinching = false;
+					this.pendingTouchTap = null;
+					setTowerView(this.towerId, {
+						zoom: cam.zoom,
+						scrollX: cam.scrollX,
+						scrollY: cam.scrollY,
+					});
+				}
+				return;
+			}
+			if (this.pendingTouchTap) {
+				const tap = this.pendingTouchTap;
+				this.pendingTouchTap = null;
+				this.onCellClick?.(tap.x, tap.y, tap.shift);
+			}
 			if (!pointer.middleButtonDown() && !pointer.rightButtonDown()) {
 				if (this.isPanning) {
 					setTowerView(this.towerId, {
