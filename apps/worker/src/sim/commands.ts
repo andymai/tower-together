@@ -1008,6 +1008,20 @@ export function handlePlaceTile(
 				return { accepted: false, reason: "Cell already has an overlay" };
 			}
 		}
+		if (y === GROUND_Y) {
+			for (let dx = 0; dx < overlayWidth; dx++) {
+				const upperLandingKey = `${x + dx},${y - 1}`;
+				if (
+					!world.cells[upperLandingKey] &&
+					!world.cellToAnchor[upperLandingKey]
+				) {
+					return {
+						accepted: false,
+						reason: `${baseRequiredLabel} require a base tile on the floor above`,
+					};
+				}
+			}
+		}
 		if (
 			normalizedTileType === "stairs" &&
 			hasOverlappingMisalignedStairs(world, x, y, overlayWidth)

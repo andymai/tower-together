@@ -124,7 +124,6 @@ describe("underground placement restrictions", () => {
 			"office",
 			"condo",
 			"housekeeping",
-			"security",
 			"lobby",
 		];
 		for (const tileType of blocked) {
