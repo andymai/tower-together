@@ -267,10 +267,8 @@ export function resolveSimRouteBetweenFloors(
 		// next leg. When source == destination on a re-call, the same-floor branch
 		// (1218:0046) advances trip counters and returns 3, signaling arrival.
 		//
-		// Our TS merges adjacent stair tiles into a multi-floor segment, so we
-		// emulate the binary by stepping ONE FLOOR per call regardless of the
-		// merged segment's span — matching how the binary processes a stack of
-		// 1-floor stair segments tile-by-tile.
+		// With per-tile placement (extent_minus_one = 0 for a 2-floor stair tile),
+		// (flags >> 1) + 1 == 1, so each leg advances exactly one floor.
 		if (emitDistanceFeedback) {
 			maybeApplyDistanceFeedback(
 				world,

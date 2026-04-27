@@ -6,7 +6,10 @@
 // zone + carrier fallback).
 
 import { derivedRecordReachesFloor } from "../reachability/mask-tests";
-import { isFloorSpanWalkableForExpressRoute } from "../reachability/span-checks";
+import {
+	isFloorSpanWalkableForExpressRoute,
+	isFloorSpanWalkableForLocalRoute,
+} from "../reachability/span-checks";
 import { MAX_TRANSFER_GROUPS, type WorldState } from "../world";
 import { ROUTE_COST_INFINITE, STAIRS_ROUTE_EXTRA_COST } from "./constants";
 import {
@@ -48,18 +51,24 @@ export function selectBestRouteCandidate(
 	}
 
 	if (preferLocalMode) {
-		// Binary selector scans direct stairs/escalator segments unconditionally
-		// in index order 0..63; scoreLocalRouteSegment already rejects segments
-		// that don't cover both endpoints.
-		for (const [segmentIndex, segment] of world.specialLinks.entries()) {
-			const cost = scoreLocalRouteSegment(
-				segment,
-				fromFloor,
-				toFloor,
-				targetHeightMetric,
-			);
-			if (cost >= ROUTE_COST_INFINITE) continue;
-			bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
+		// Binary 11b8:14b0..14c4 gates the 64-entry local-segment scan with
+		// `|delta|==1 || isFloorSpanWalkableForLocalRoute(src,tgt)`. When the
+		// gate fails, control falls through to the special-link-record + carrier
+		// scans below.
+		const localScanGate =
+			delta === 1 ||
+			isFloorSpanWalkableForLocalRoute(world, fromFloor, toFloor);
+		if (localScanGate) {
+			for (const [segmentIndex, segment] of world.specialLinks.entries()) {
+				const cost = scoreLocalRouteSegment(
+					segment,
+					fromFloor,
+					toFloor,
+					targetHeightMetric,
+				);
+				if (cost >= ROUTE_COST_INFINITE) continue;
+				bestSegment = tryCandidate(bestSegment, "segment", segmentIndex, cost);
+			}
 		}
 		// Immediately accept a cheap direct local segment
 		if (bestSegment && bestSegment.cost < STAIRS_ROUTE_EXTRA_COST)
@@ -71,7 +80,14 @@ export function selectBestRouteCandidate(
 				if (!record.active) continue;
 				if (fromFloor < record.lowerFloor || fromFloor > record.upperFloor)
 					continue;
-				if (!derivedRecordReachesFloor(record, toFloor)) continue;
+				// Binary 11b8:0be2 short-circuits on `is_floor_within_special_link_span(record, dst)`
+				// before consulting the reachability mask: when both endpoints
+				// are inside the record's span the record is accepted with no
+				// mask check at all.
+				const destinationInSpan =
+					toFloor >= record.lowerFloor && toFloor <= record.upperFloor;
+				if (!destinationInSpan && !derivedRecordReachesFloor(record, toFloor))
+					continue;
 				const candidateEntryFloors = getDerivedRecordEntryFloors(
 					record,
 					toFloor,
@@ -84,7 +100,10 @@ export function selectBestRouteCandidate(
 							adjacentFloor,
 							targetHeightMetric,
 						);
-						if (cost >= STAIRS_ROUTE_EXTRA_COST) continue;
+						// Every stair score is `distance + STAIRS_ROUTE_EXTRA_COST`, so
+						// gating on that constant rejects all stairs unconditionally.
+						// Only INFINITE means "this segment can't make the trip".
+						if (cost >= ROUTE_COST_INFINITE) continue;
 						bestSegment = tryCandidate(
 							bestSegment,
 							"segment",

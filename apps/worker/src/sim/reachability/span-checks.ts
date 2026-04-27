@@ -63,7 +63,8 @@ export function isFloorWithinSpecialLinkSpan(
 	segment: WorldState["specialLinks"][number],
 	floor: number,
 ): boolean {
-	const span = segment.flags >> 1;
-	const topFloor = segment.entryFloor + span - 1;
+	const extentMinusOne = segment.flags >> 1;
+	// Binary encoding: top_floor = entry_floor + (flags >> 1) + 1.
+	const topFloor = segment.entryFloor + extentMinusOne + 1;
 	return floor >= segment.entryFloor && floor <= topFloor;
 }

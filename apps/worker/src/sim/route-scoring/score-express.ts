@@ -17,8 +17,9 @@ export function scoreExpressRouteSegment(
 	// Binary quirk: only handles odd-parity (stairs) segments — bit 0 of flags
 	// must be 1. Escalator segments (bit 0 = 0) return ROUTE_COST_INFINITE.
 	if ((segment.flags & 1) === 0) return ROUTE_COST_INFINITE;
-	const span = segment.flags >> 1;
-	const topFloor = segment.entryFloor + span - 1;
+	const extentMinusOne = segment.flags >> 1;
+	// Binary encoding: top_floor = entry_floor + (flags >> 1) + 1.
+	const topFloor = segment.entryFloor + extentMinusOne + 1;
 	// Binary quirk: same terminal-floor entry gate as score_local_route_segment.
 	// Going up: must enter at entryFloor. Going down: must enter at topFloor.
 	if (toFloor > fromFloor) {

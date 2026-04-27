@@ -16,8 +16,9 @@ export function scoreLocalRouteSegment(
 	targetHeightMetric: number,
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
+	// Binary 11b8:18fb only validates the source landing — the destination
+	// (toFloor) is not range-checked against the segment span.
 	if (!segmentCoversFloor(segment, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
 	const isStairs = (segment.flags & 1) !== 0;
@@ -40,8 +41,8 @@ export function scoreHousekeepingRouteSegment(
 ): number {
 	if (!segment.active) return ROUTE_COST_INFINITE;
 	if ((segment.flags & 1) === 0) return ROUTE_COST_INFINITE;
+	// Binary only validates the source landing — destination is not checked.
 	if (!segmentCoversFloor(segment, fromFloor)) return ROUTE_COST_INFINITE;
-	if (!segmentCoversFloor(segment, toFloor)) return ROUTE_COST_INFINITE;
 	if (!canEnterSegmentFromFloor(segment, fromFloor, toFloor))
 		return ROUTE_COST_INFINITE;
 	return (
@@ -50,14 +51,17 @@ export function scoreHousekeepingRouteSegment(
 	);
 }
 
-function getSegmentSpan(segment: WorldState["specialLinks"][number]): number {
+function getSegmentExtentMinusOne(
+	segment: WorldState["specialLinks"][number],
+): number {
 	return segment.flags >> 1;
 }
 
 function getSegmentTopFloor(
 	segment: WorldState["specialLinks"][number],
 ): number {
-	return segment.entryFloor + getSegmentSpan(segment) - 1;
+	// Binary encoding: top_floor = entry_floor + (flags >> 1) + 1.
+	return segment.entryFloor + getSegmentExtentMinusOne(segment) + 1;
 }
 
 function segmentCoversFloor(
@@ -72,12 +76,9 @@ function canEnterSegmentFromFloor(
 	fromFloor: number,
 	toFloor: number,
 ): boolean {
-	// Binary quirk: the binary stores each stair tile as a separate 2-floor segment
-	// (span=0), so its per-segment terminal-entry check is equivalent to allowing
-	// entry from any adjacent landing. The TS merges adjacent stair tiles into one
-	// multi-floor segment, so stairs must allow mid-span entry to match the binary.
-	if ((segment.flags & 1) !== 0) return true;
-	// Escalators: must enter at the bottom (going up) or top (going down).
+	// Binary score_local_route_segment: terminal-landing entry gate, applied
+	// uniformly to stairs and escalators. Going up: source must equal entry
+	// floor. Going down: source must equal top floor (entry + (flags>>1) + 1).
 	if (toFloor > fromFloor) return fromFloor === segment.entryFloor;
 	return fromFloor === getSegmentTopFloor(segment);
 }

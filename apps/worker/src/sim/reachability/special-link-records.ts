@@ -7,14 +7,32 @@
 
 import {
 	GRID_HEIGHT,
+	type LobbyMode,
 	MAX_SPECIAL_LINK_RECORDS,
 	MAX_SPECIAL_LINKS,
 	type WorldState,
 	yToFloor,
 } from "../world";
 
-const DERIVED_RECORD_CENTERS = [10, 25, 40, 55, 70, 85, 100];
+// Lobby/sky-lobby centers track the express-stop cadence (see
+// `isExpressStopFloor`): perfect-parity mode places them at 10, 24, 39, 54, ...
+// (step 15 starting at logical offset 14); modern mode at 10, 25, 40, 55, ...
+function derivedRecordCenters(lobbyMode: LobbyMode): number[] {
+	const cycleOffset = lobbyMode === "modern" ? 15 : 14;
+	return [
+		10,
+		10 + cycleOffset,
+		25 + cycleOffset,
+		40 + cycleOffset,
+		55 + cycleOffset,
+		70 + cycleOffset,
+		85 + cycleOffset,
+	];
+}
 
+// Per-tile placement matches binary 1200:149c. flags = ((extent_minus_one) << 1)
+// | stairsBit; for 2-floor tiles extent_minus_one = 0. entryFloor is the lower
+// landing (overlay coordinate is the upper landing in this codebase).
 export function rebuildSpecialLinkRouteRecords(world: WorldState): void {
 	world.specialLinks = Array.from({ length: MAX_SPECIAL_LINKS }, () => ({
 		active: false,
@@ -35,46 +53,36 @@ export function rebuildSpecialLinkRouteRecords(world: WorldState): void {
 		}),
 	);
 
-	const rawSegments: Array<{
+	const tileEntries: Array<{
 		column: number;
+		entryFloor: number;
 		type: "stairs" | "escalator";
-		floors: Set<number>;
 	}> = [];
-	const grouped = new Map<
-		string,
-		{ column: number; type: "stairs" | "escalator"; floors: Set<number> }
-	>();
 
 	for (const [key, type] of Object.entries(world.overlays)) {
 		if (type !== "stairs" && type !== "escalator") continue;
 		const [xStr, yStr] = key.split(",");
 		const column = Number(xStr);
-		const floor = yToFloor(Number(yStr));
-		const groupKey = `${type}:${column}`;
-		if (!grouped.has(groupKey)) {
-			grouped.set(groupKey, { column, type, floors: new Set<number>() });
-		}
-		const group = grouped.get(groupKey);
-		group?.floors.add(floor);
-		// Stairs/escalator at floor N connect N-1↔N; include the lower landing.
-		group?.floors.add(floor - 1);
+		const upperFloor = yToFloor(Number(yStr));
+		// Overlay coordinate is the upper landing; the binary stores entry_floor
+		// as the bottom landing — for a tile at floor F that's F - 1.
+		tileEntries.push({ column, entryFloor: upperFloor - 1, type });
 	}
 
-	for (const group of grouped.values()) rawSegments.push(group);
+	tileEntries.sort((a, b) =>
+		a.column === b.column ? a.entryFloor - b.entryFloor : a.column - b.column,
+	);
 
 	let segmentIndex = 0;
-	for (const group of rawSegments) {
+	for (const tile of tileEntries) {
 		if (segmentIndex >= MAX_SPECIAL_LINKS) break;
-		const sortedFloors = [...group.floors].sort((a, b) => a - b);
-		if (sortedFloors.length === 0) continue;
-		const entryFloor = sortedFloors[0];
-		const topFloor = sortedFloors[sortedFloors.length - 1];
-		const span = topFloor - entryFloor + 1;
+		const stairsBit = tile.type === "stairs" ? 1 : 0;
+		// extent_minus_one = 0 for a 2-floor tile, so flags == stairsBit.
 		world.specialLinks[segmentIndex++] = {
 			active: true,
-			flags: (span << 1) | (group.type === "stairs" ? 1 : 0),
-			heightMetric: group.column,
-			entryFloor,
+			flags: stairsBit,
+			heightMetric: tile.column,
+			entryFloor: tile.entryFloor,
 			reservedByte: 0,
 			descendingLoadCounter: 0,
 			ascendingLoadCounter: 0,
@@ -91,8 +99,9 @@ export function rebuildSpecialLinkRouteRecords(world: WorldState): void {
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
 		const bit = (segment.flags & 1) !== 0 ? 2 : 1;
-		const span = segment.flags >> 1;
-		const top = segment.entryFloor + span - 1;
+		const extentMinusOne = segment.flags >> 1;
+		// Binary encoding: top_floor = entry_floor + (flags >> 1) + 1.
+		const top = segment.entryFloor + extentMinusOne + 1;
 		for (let floor = segment.entryFloor; floor <= top; floor++) {
 			if (floor >= 0 && floor < GRID_HEIGHT) {
 				world.floorWalkabilityFlags[floor] |= bit;
@@ -100,7 +109,9 @@ export function rebuildSpecialLinkRouteRecords(world: WorldState): void {
 		}
 	}
 
-	for (const [recordIndex, center] of DERIVED_RECORD_CENTERS.entries()) {
+	for (const [recordIndex, center] of derivedRecordCenters(
+		world.lobbyMode,
+	).entries()) {
 		if (recordIndex >= MAX_SPECIAL_LINK_RECORDS) break;
 		const lowerFloor = scanSpecialLinkSpanBound(world, center, 0);
 		const upperFloor = scanSpecialLinkSpanBound(world, center, 1);
@@ -131,11 +142,14 @@ export function scanSpecialLinkSpanBound(
 		return centerFloor + 6;
 	}
 
-	for (let floor = centerFloor; floor > centerFloor - 6; floor--) {
+	// Binary 11b8:0763 starts at centerFloor-1 (not centerFloor) and returns
+	// floor+1 (not floor) on the zero-flag exit, so the lower bound stops one
+	// floor above the first non-walkable floor below the center.
+	for (let floor = centerFloor - 1; floor > centerFloor - 6; floor--) {
 		const flags = world.floorWalkabilityFlags[floor] ?? 0;
-		if (flags === 0) return floor;
+		if (flags === 0) return floor + 1;
 		if ((flags & 1) === 0) seenGap = true;
 		if (seenGap && floor <= centerFloor - 3) return floor;
 	}
-	return centerFloor - 6;
+	return centerFloor - 5;
 }

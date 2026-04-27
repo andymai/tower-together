@@ -48,8 +48,9 @@ export function rebuildRouteReachabilityTables(world: WorldState): void {
 	for (const segment of world.specialLinks) {
 		if (!segment.active) continue;
 		const bit = (segment.flags & 1) !== 0 ? 2 : 1;
-		const span = segment.flags >> 1;
-		const topFloor = segment.entryFloor + span - 1;
+		const extentMinusOne = segment.flags >> 1;
+		// Binary encoding: top_floor = entry_floor + (flags >> 1) + 1.
+		const topFloor = segment.entryFloor + extentMinusOne + 1;
 		for (let floor = segment.entryFloor; floor <= topFloor; floor++) {
 			if (floor >= 0 && floor < GRID_HEIGHT) {
 				world.floorWalkabilityFlags[floor] |= bit;
