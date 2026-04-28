@@ -808,11 +808,21 @@ export function gateEntertainmentGuestState(
 		const state = sim.stateCode;
 
 		if (state === ENT_STATE_PHASE_CONSUME) {
-			// Binary quirk (handler at 0x530d): gate on daypart 0–3, dayTick > 0xf0,
-			// and 1-in-6 RNG before delegating.
-			if (time.daypartIndex < 0 || time.daypartIndex > 3) return;
-			if (time.dayTick <= ENT_GATE_DAY_TICK_MIN) return;
-			if (sampleRng(world) % ENT_GATE_RNG_MODULO !== 0) return;
+			// Binary handler 0x530d: two independent branches.
+			//   if (daypart in 0..3 && dayTick > 0xf0 && rng()%6 == 0): dispatch
+			//   if (daypart > 3): sim.stateCode = 0x27 (force-park end-of-day)
+			if (
+				time.daypartIndex >= 0 &&
+				time.daypartIndex <= 3 &&
+				time.dayTick > ENT_GATE_DAY_TICK_MIN &&
+				sampleRng(world) % ENT_GATE_RNG_MODULO === 0
+			) {
+				dispatchEntertainmentGuestState(world, time, sim);
+			}
+			if (time.daypartIndex > 3) {
+				sim.stateCode = ENT_STATE_PARKED;
+			}
+			return;
 		} else if (
 			state !== ENT_STATE_SERVICE_ACQUIRE &&
 			state !== ENT_STATE_LINKED_HALF &&
