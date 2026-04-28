@@ -60,6 +60,13 @@ type PendingLocalBatch = {
 type AuthoritativeFrame = {
 	serverTick: number;
 	batches: ResolvedInputBatch[];
+	/**
+	 * Server's `lockstepChecksum` after applying the batches. The
+	 * client compares against its local sim's checksum at the same
+	 * tick after replay; mismatch indicates lockstep divergence and
+	 * the session forces a reload from the next checkpoint.
+	 */
+	checksum: number;
 };
 
 type TickUpdate = Omit<RenderState, "cells"> & {
@@ -68,16 +75,33 @@ type TickUpdate = Omit<RenderState, "cells"> & {
 	tickIntervalMs: number;
 };
 
+export interface ChecksumMismatch {
+	tick: number;
+	expected: number;
+	observed: number;
+}
+
 interface TowerLockstepSessionOptions {
 	playerId: string;
 	onReset: (state: RenderState, timing: { receivedAtMs: number }) => void;
 	onTick: (state: TickUpdate) => void;
+	/**
+	 * Called when a replayed authoritative frame's checksum doesn't
+	 * match the local sim's checksum at the same tick. Signals
+	 * lockstep divergence — the next checkpoint (every 500 ticks)
+	 * will heal the session, but a loud signal in the interim helps
+	 * production triage. Default behavior (when undefined) is a
+	 * console.warn; pass a custom handler to integrate with whatever
+	 * telemetry layer the host application uses.
+	 */
+	onChecksumMismatch?: (mismatch: ChecksumMismatch) => void;
 }
 
 export class TowerLockstepSession {
 	private readonly playerId: string;
 	private readonly onReset: TowerLockstepSessionOptions["onReset"];
 	private readonly onTick: TowerLockstepSessionOptions["onTick"];
+	private readonly onChecksumMismatch: (mismatch: ChecksumMismatch) => void;
 	private sim: TowerSim | null = null;
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private baseSnapshot: SimSnapshot | null = null;
@@ -103,10 +127,21 @@ export class TowerLockstepSession {
 	private replayInProgress = false;
 	private replayChunkHandle: ReturnType<typeof setTimeout> | null = null;
 
-	constructor({ playerId, onReset, onTick }: TowerLockstepSessionOptions) {
+	constructor({
+		playerId,
+		onReset,
+		onTick,
+		onChecksumMismatch,
+	}: TowerLockstepSessionOptions) {
 		this.playerId = playerId;
 		this.onReset = onReset;
 		this.onTick = onTick;
+		this.onChecksumMismatch =
+			onChecksumMismatch ??
+			((mismatch) =>
+				console.warn(
+					`[lockstep] checksum mismatch at tick ${mismatch.tick}: expected ${mismatch.expected}, observed ${mismatch.observed}. Next checkpoint will reconcile.`,
+				));
 	}
 
 	initialize(snapshot: SimSnapshot, settings: SessionSettings): void {
@@ -263,9 +298,10 @@ export class TowerLockstepSession {
 			}
 			const chunkEnd = Math.min(cursor + REPLAY_CHUNK_TICKS, target);
 			for (let tick = cursor + 1; tick <= chunkEnd; tick += 1) {
+				const authoritativeFrame = this.authoritativeFrames.get(tick);
 				this.applyInputsForTick(
 					null,
-					this.authoritativeFrames.get(tick)?.batches ?? [],
+					authoritativeFrame?.batches ?? [],
 					(batch) => batch.inputs,
 					sim,
 				);
@@ -276,6 +312,21 @@ export class TowerLockstepSession {
 					sim,
 				);
 				sim.step();
+				// Lockstep checksum: when an authoritative frame for this
+				// tick was present, compare local sim state against the
+				// server's stamp. Mismatch means we've drifted — the next
+				// 500-tick checkpoint will heal us, but we want a loud
+				// signal in the meantime so production drift gets caught.
+				if (authoritativeFrame) {
+					const localChecksum = sim.lockstepChecksum;
+					if (localChecksum !== authoritativeFrame.checksum) {
+						this.onChecksumMismatch({
+							tick,
+							expected: authoritativeFrame.checksum,
+							observed: localChecksum,
+						});
+					}
+				}
 			}
 			cursor = chunkEnd;
 			if (cursor >= target) {

@@ -107,6 +107,14 @@ export type ServerMessage =
 			type: "authoritative_batch";
 			serverTick: number;
 			batches: ResolvedInputBatch[];
+			/**
+			 * Cheap u32 checksum of the server's lockstep-relevant TS state
+			 * AFTER applying the resolved batches. Clients compare against
+			 * their local `TowerSim.lockstepChecksum` after replay; on
+			 * mismatch they log and force a checkpoint reapply. Drift
+			 * detection between full 500-tick checkpoints.
+			 */
+			checksum: number;
 	  }
 	| { type: "presence_update"; playerCount: number; activeCount: number }
 	| {

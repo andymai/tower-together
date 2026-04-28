@@ -156,6 +156,12 @@ describe("TowerLockstepSession integration", () => {
 						rejectedReason: "Requires 2 stars",
 					},
 				],
+				// Test injects a placeholder checksum; the local sim
+				// will compute its own and compare on replay. Mismatches
+				// trigger the onChecksumMismatch handler — for this
+				// test (which doesn't supply one) the default is
+				// console.warn, no behavioral effect.
+				checksum: 0,
 			});
 			vi.runOnlyPendingTimers();
 
