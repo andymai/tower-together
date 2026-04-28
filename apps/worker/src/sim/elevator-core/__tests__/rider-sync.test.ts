@@ -52,7 +52,7 @@ function carrier(): CarrierRecord {
 }
 
 describe("rider-sync end-to-end", () => {
-	it("spawns a rider, transports them, captures rider-exited in diffs", () => {
+	it("spawns a rider, transports them, returns resolved arrival via stepBridge", () => {
 		const world = fakeWorld();
 		const handle = createBridge(world, module);
 		syncTopology(handle, [carrier()]);
@@ -66,28 +66,28 @@ describe("rider-sync end-to-end", () => {
 		// dispatch to pick up the rider, travel from floor 0 to floor 4
 		// (16m at 2.2 m/s with accel/decel ≈ 200 ticks max), and arrive.
 		// Cap at 600 ticks to fail loudly if the rider never moves.
-		let exited = false;
+		let resolvedArrival: { simId: string; floor: number } | undefined;
 		for (let i = 0; i < 600; i++) {
-			stepBridge(handle);
-			if (
-				handle.diffs.snapshot().some((entry) => entry.kind === "rider-exited")
-			) {
-				exited = true;
+			const stepResult = stepBridge(handle);
+			if (stepResult.arrivals.length > 0) {
+				resolvedArrival = stepResult.arrivals[0];
 				break;
 			}
 		}
 
-		expect(exited).toBe(true);
+		expect(resolvedArrival).toBeDefined();
+		// The bridge's reverse-lookup mapped elevator-core's u32 StopId
+		// back to the (column, floor) pair the rider was bound for, AND
+		// matched the RiderId back to our simId via the riderIndex.
+		expect(resolvedArrival?.simId).toBe("sim:1");
+		expect(resolvedArrival?.floor).toBe(4);
+		// Rider was unlinked on exit so the index doesn't grow.
+		expect(handle.riderIndex.size).toBe(0);
+		// Diff buffer also captured the event for inspection.
 		const exits = handle.diffs
 			.snapshot()
 			.filter((e) => e.kind === "rider-exited");
 		expect(exits.length).toBeGreaterThanOrEqual(1);
-		// elevator-core's RiderExited event carries the small u32 StopId
-		// (config-level identifier) rather than the BigInt entity ref
-		// that our stopByFloor map stores. Asserting the kind is enough
-		// for the bridge's purposes; PR 5 adds a reverse-lookup if/when
-		// we need to dispatch arrival back to a TS family handler.
-		expect(exits[0].detail.rider).toBeTypeOf("number");
 
 		disposeBridge(world);
 	});

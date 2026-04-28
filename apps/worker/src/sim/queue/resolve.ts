@@ -344,6 +344,41 @@ export function resolveSimRouteBetweenFloors(
 		return -1;
 	}
 
+	// Authority flip: on `'core'` towers, spawn the rider directly in
+	// elevator-core instead of enqueuing into the classic TS queue.
+	// elevator-core's per-tick step (carrierTick) drives dispatch and
+	// emits RiderExited events that drive `dispatchSimArrival`; the TS
+	// queue would never be drained on these towers, so we just don't
+	// fill it. Falls back to the classic enqueue path if the bridge
+	// isn't attached yet (early in DO lifecycle, before async setup).
+	if (world.elevatorEngine === "core") {
+		const bridge = elevatorCoreBridgeModule?.getBridge(world);
+		if (bridge && elevatorCoreBridgeModule) {
+			const result = elevatorCoreBridgeModule.syncRiderSpawn(
+				bridge,
+				carrier,
+				simKey(sim),
+				sourceFloor,
+				destinationFloor,
+			);
+			if (result.kind === "spawned") {
+				sim.route = {
+					mode: "carrier",
+					carrierId: route.id,
+					direction: directionFlag === 1 ? "up" : "down",
+					source: sourceFloor,
+				};
+				if (familyUsesStateBits(sim.familyCode)) setSimInTransit(sim, true);
+				sim.queueTick = time?.dayTick ?? sim.queueTick;
+				sim.selectedFloor = sourceFloor;
+				sim.destinationFloor = destinationFloor;
+				return 2;
+			}
+			// spawn rejected (no matching stop, capacity, etc.) — fall
+			// through to the TS enqueue path so the trip isn't dropped.
+		}
+	}
+
 	const queued = enqueueRequestIntoRouteQueue(
 		carrier,
 		simKey(sim),
@@ -374,23 +409,6 @@ export function resolveSimRouteBetweenFloors(
 	// Phase 5b: idle → carrier (enqueued, boarding pending) → set 0x40 for
 	// dispatch_sim_behavior families. See `familyUsesStateBits` below.
 	if (familyUsesStateBits(sim.familyCode)) setSimInTransit(sim, true);
-
-	// Shadow-mode: mirror the spawn into elevator-core for `'core'`
-	// towers. Classic engine remains authoritative; this just lets
-	// elevator-core see the same trip so its events flow into the
-	// shadow-diff buffer.
-	if (world.elevatorEngine === "core") {
-		const bridge = elevatorCoreBridgeModule?.getBridge(world);
-		if (bridge) {
-			elevatorCoreBridgeModule?.syncRiderSpawn(
-				bridge,
-				carrier,
-				simKey(sim),
-				sourceFloor,
-				destinationFloor,
-			);
-		}
-	}
 	sim.queueTick = time?.dayTick ?? sim.queueTick;
 	// Binary: carrier branch writes sim+7 = source_floor (sim parks at source
 	// while waiting for the carrier; the carrier-arrival path will later set
