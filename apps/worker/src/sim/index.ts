@@ -587,15 +587,21 @@ export class TowerSim {
 	}
 
 	/**
-	 * Cheap u32 checksum of the lockstep-relevant TS state. Used by
+	 * Cheap u32 checksum of the lockstep-relevant state. Used by
 	 * client/server reconciliation to detect drift between checkpoints
 	 * without paying the cost of a full snapshot diff.
 	 *
 	 * The hash mixes everything that affects future ticks deterministically:
 	 * `rngState`, `rngCallCount`, `totalTicks`, `cashBalance`, sim count,
-	 * and population. We deliberately exclude `world.carriers` because
-	 * (a) on `'core'` towers it's render metadata only, (b) on classic
-	 * it's already implied by the rng state since dispatch is deterministic.
+	 * population, and (for `'core'` towers) elevator-core's native
+	 * `snapshotChecksum`. The elevator-core hash captures dispatch
+	 * internal state that the TS-side mix can't see — without it we'd
+	 * miss elevator-only drift like a car arriving one tick early on
+	 * one runtime.
+	 *
+	 * Classic towers' carriers are deliberately excluded — dispatch is
+	 * deterministic given the RNG state, so adding them would be
+	 * redundant.
 	 *
 	 * Uses FNV-1a (32-bit) — small, allocation-free, well-distributed
 	 * for short input streams. Not cryptographic; collision tolerance
@@ -623,6 +629,25 @@ export class TowerSim {
 		mix(this.ledger.cashBalance | 0);
 		mix(this.world.sims.length | 0);
 		mix(this.world.currentPopulation | 0);
+
+		// Fold elevator-core's native snapshot checksum on `'core'`
+		// towers. The bridge owns elevator/rider state we can't
+		// observe from TS — without this, drift inside elevator-core
+		// (e.g. a dispatch decision differing between runtimes) would
+		// go undetected until the next 500-tick checkpoint.
+		if (bridgeModuleCache && this.world.elevatorEngine === "core") {
+			const bridge = bridgeModuleCache.getBridge(this.world);
+			if (bridge) {
+				const result = bridge.sim.snapshotChecksum();
+				if (result.kind === "ok") {
+					// Native checksum is u64; mix the high and low halves
+					// separately into the 32-bit FNV state.
+					const value = result.value;
+					mix(Number(BigInt(value) & 0xffff_ffffn));
+					mix(Number((BigInt(value) >> 32n) & 0xffff_ffffn));
+				}
+			}
+		}
 		return h >>> 0;
 	}
 	get width(): number {
