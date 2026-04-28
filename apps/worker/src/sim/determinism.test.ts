@@ -54,6 +54,8 @@ const FIXTURE_TILE_MAP: Record<string, string> = {
 	housekeeping: "housekeeping",
 	medical: "medical",
 	lobby: "lobby",
+	cinema: "cinema",
+	"party-hall": "partyHall",
 };
 
 function place(sim: TowerSim, x: number, y: number, tileType: string): void {

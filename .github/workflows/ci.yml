@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ELEVATOR_CORE_PATH: ${{ github.workspace }}/elevator-core
+    steps:
+      - name: Checkout tower-together
+        uses: actions/checkout@v4
+        with:
+          path: tower-together
+
+      - name: Checkout elevator-core
+        uses: actions/checkout@v4
+        with:
+          repository: andymai/elevator-core
+          ref: main
+          path: elevator-core
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tower-together/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            elevator-core/target/
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('elevator-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
+      - name: Install wasm-pack
+        run: |
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          fi
+          wasm-pack --version
+
+      - name: Install npm deps
+        working-directory: tower-together
+        run: npm ci
+
+      - name: Build elevator-core-wasm
+        working-directory: tower-together
+        run: npm run build:wasm
+
+      - name: Typecheck
+        working-directory: tower-together
+        run: npm run typecheck
+
+      - name: Biome check
+        working-directory: tower-together
+        run: npx biome check .
+
+      - name: Test
+        working-directory: tower-together
+        run: npm run test
