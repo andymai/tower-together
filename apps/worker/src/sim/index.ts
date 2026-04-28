@@ -32,6 +32,15 @@ import type {
 } from "./world";
 import { yToFloor } from "./world";
 
+/**
+ * Cached reference to the elevator-core bridge module, populated by
+ * the first call to `attachElevatorCoreBridgeIfNeeded` and read by the
+ * synchronous `saveState` path so it can capture the postcard without
+ * an async hop. `null` until the first attach (classic towers never
+ * populate it).
+ */
+let bridgeModuleCache: typeof import("./elevator-core/index") | null = null;
+
 export type { SimStateRecord } from "./sims";
 export { simKey } from "./sims";
 export type { SimSnapshot } from "./snapshot";
@@ -108,6 +117,27 @@ export class TowerSim {
 		// replayTo re-used the same baseSnapshot across calls.
 		const hydrated = hydrateSnapshot(structuredClone(snap));
 		return new TowerSim(hydrated.time, hydrated.world, hydrated.ledger);
+	}
+
+	/**
+	 * Attach the elevator-core bridge for `'core'` towers. Async
+	 * because it loads the WASM module and (if the snapshot has a
+	 * postcard) restores from it, then seeds elevator-core's topology
+	 * from the current carriers list. Idempotent and a no-op for
+	 * classic towers. Must be awaited from any async setup point that
+	 * happens before the first tick.
+	 *
+	 * Side effect: caches the bridge module reference at module scope
+	 * so the synchronous `saveState` path can call
+	 * `captureBridgePostcard` without triggering an async load.
+	 */
+	async attachElevatorCoreBridgeIfNeeded(): Promise<void> {
+		const mod = await import("./elevator-core/index");
+		bridgeModuleCache = mod;
+		const bridge = await mod.ensureBridge(this.world);
+		if (bridge) {
+			mod.syncTopology(bridge, this.world.carriers);
+		}
 	}
 
 	// ── Tick ──────────────────────────────────────────────────────────────────
@@ -419,7 +449,22 @@ export class TowerSim {
 	// ── Serialization ──────────────────────────────────────────────────────────
 
 	saveState(): SimSnapshot {
-		return serializeSimState(this.time, this.world, this.ledger);
+		const snapshot = serializeSimState(this.time, this.world, this.ledger);
+		// For `'core'` towers, capture the elevator-core bridge state as
+		// base64 postcard bytes so a worker rehydrate or a client
+		// checkpoint apply can restore the bridge on the receiving side.
+		// Classic towers always carry `null` here.
+		if (snapshot.world.elevatorEngine === "core") {
+			// Lazy require avoids a top-level dep on the elevator-core
+			// module from saveState's hot path; the bridge module is
+			// only loaded once anywhere in the process.
+			const bridgeModule = bridgeModuleCache;
+			if (bridgeModule) {
+				snapshot.world.elevatorCorePostcard =
+					bridgeModule.captureBridgePostcard(this.world);
+			}
+		}
+		return snapshot;
 	}
 
 	drainNotifications(): Array<{ kind: string; message: string }> {

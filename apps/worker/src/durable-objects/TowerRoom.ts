@@ -57,11 +57,31 @@ export class TowerRoom extends DurableObject<Env> {
 		});
 		this.repository.initialize(snapshot);
 		this.sim = TowerSim.fromSnapshot(snapshot);
+		await this.attachBridgeIfNeeded();
 	}
 
 	private loadSim(): TowerSim | null {
 		const snapshot = this.repository.load();
-		return snapshot ? TowerSim.fromSnapshot(snapshot) : null;
+		if (!snapshot) return null;
+		const sim = TowerSim.fromSnapshot(snapshot);
+		this.sim = sim;
+		// Bridge attachment is async; fire-and-forget here so loadSim
+		// stays sync for callers in WebSocket handlers. The first
+		// tick will see the bridge once resolved (a few hundred
+		// milliseconds at most). Awaiting paths (initializeTower,
+		// /info GET) call attachBridgeIfNeeded directly.
+		void this.attachBridgeIfNeeded();
+		return sim;
+	}
+
+	/**
+	 * Lazy bridge attachment for `'core'` towers. Delegates to
+	 * `TowerSim.attachElevatorCoreBridgeIfNeeded` which owns the
+	 * `WorldState` reference and does the WASM load + topology sync.
+	 * No-op for classic towers.
+	 */
+	private async attachBridgeIfNeeded(): Promise<void> {
+		await this.sim?.attachElevatorCoreBridgeIfNeeded();
 	}
 
 	private persistSim(): void {
@@ -129,7 +149,11 @@ export class TowerRoom extends DurableObject<Env> {
 		}
 
 		if (request.method === "GET" && path === "/info") {
-			const sim = this.sim ?? this.loadSim();
+			let sim = this.sim;
+			if (!sim) {
+				sim = this.loadSim();
+				if (sim) await this.attachBridgeIfNeeded();
+			}
 			if (!sim)
 				return Response.json({ error: "Tower not found" }, { status: 404 });
 			return Response.json({
