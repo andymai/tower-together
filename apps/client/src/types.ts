@@ -163,6 +163,12 @@ export type ServerMessage =
 			type: "authoritative_batch";
 			serverTick: number;
 			batches: ResolvedInputBatch[];
+			/**
+			 * Server's `lockstepChecksum` after applying these batches.
+			 * Compared against local sim's checksum on replay; mismatch
+			 * indicates lockstep divergence.
+			 */
+			checksum: number;
 	  }
 	| { type: "presence_update"; playerCount: number; activeCount: number }
 	| {

@@ -394,6 +394,7 @@ export class TowerRoom extends DurableObject<Env> {
 				type: "authoritative_batch",
 				serverTick: result.simTime,
 				batches: resolvedBatches,
+				checksum: this.sim.lockstepChecksum,
 			});
 		}
 		this.broadcastEffects(result);
