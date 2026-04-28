@@ -19,7 +19,7 @@ export function LobbyScreen({
 	const [isCreating, setIsCreating] = useState(false);
 	const [createError, setCreateError] = useState("");
 
-	const recentTowers = getRecentTowers();
+	const recentTowers = import.meta.env.DEV ? getRecentTowers() : [];
 
 	async function handleCreate() {
 		setIsCreating(true);
