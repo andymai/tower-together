@@ -33,6 +33,8 @@ import {
 	simKey,
 } from "../sims";
 import { clearSimRoute } from "../sims/population";
+import { reduceElapsedForLobbyBoarding } from "../stress/lobby-reduction";
+import { rebaseSimElapsedFromClock } from "../stress/rebase-elapsed";
 import type { TimeState } from "../time";
 import type { WorldState } from "../world";
 
@@ -66,6 +68,21 @@ export function carrierTick(
 		const bridge = getBridge(world);
 		if (bridge) {
 			const result = stepBridge(bridge);
+			// Boarding stress accumulation: replicates classic
+			// applyBoardingStressUpdate. Service carriers (mode 2) skip
+			// stress to match the binary.
+			for (const board of result.boarded) {
+				const sim = findSimByKey(world, board.simId);
+				if (!sim) continue;
+				const route = sim.route;
+				if (route.mode !== "carrier") continue;
+				const carrier = world.carriers.find(
+					(c) => c.carrierId === route.carrierId,
+				);
+				if (!carrier || carrier.carrierMode === 2) continue;
+				rebaseSimElapsedFromClock(sim, time);
+				reduceElapsedForLobbyBoarding(sim, sim.selectedFloor, world);
+			}
 			for (const arrival of result.arrivals) {
 				const sim = findSimByKey(world, arrival.simId);
 				if (sim) {
@@ -76,9 +93,8 @@ export function carrierTick(
 				const sim = findSimByKey(world, giveUp.simId);
 				if (sim) {
 					// Patience expired: clear the route so the family handler
-					// re-evaluates next tick. Stress accumulation is shadow-only
-					// for now; per-family abandonment penalties land in a
-					// follow-up PR.
+					// re-evaluates next tick. Per-family abandonment penalties
+					// land in a follow-up PR.
 					clearSimRoute(sim);
 				}
 			}

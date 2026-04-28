@@ -5,6 +5,7 @@
 
 export {
 	type BridgeHandle,
+	type BridgeStepResult,
 	type CarrierModeGroups,
 	type CreateBridgeOptions,
 	captureBridgePostcard,
@@ -13,6 +14,7 @@ export {
 	ensureBridge,
 	getBridge,
 	groupForMode,
+	refToSlot,
 	stepBridge,
 } from "./bridge";
 export {

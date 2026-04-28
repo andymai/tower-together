@@ -11,6 +11,7 @@
 const DEFAULT_CAPACITY = 256;
 
 export type ShadowDiffKind =
+	| "rider-boarded"
 	| "rider-exited"
 	| "rider-abandoned"
 	| "rider-rejected"
