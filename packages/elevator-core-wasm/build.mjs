@@ -47,6 +47,14 @@ for (const target of targets) {
 			"--out-name",
 			"elevator_wasm",
 			CRATE_PATH,
+			// Opt into elevator-core's deterministic-fp feature so all
+			// `f64::mul_add` calls become `(a * b) + c` — bit-identical
+			// output across every WASM host (browser V8, worker V8,
+			// Node V8, etc.). Costs one extra rounded operation per
+			// call; defensive guarantee for the lockstep checksum path.
+			"--",
+			"--features",
+			"deterministic-fp",
 		],
 		{
 			stdio: "inherit",
