@@ -550,6 +550,46 @@ export class TowerSim {
 	get rngCallCount(): number {
 		return this.world.rngCallCount;
 	}
+
+	/**
+	 * Cheap u32 checksum of the lockstep-relevant TS state. Used by
+	 * client/server reconciliation to detect drift between checkpoints
+	 * without paying the cost of a full snapshot diff.
+	 *
+	 * The hash mixes everything that affects future ticks deterministically:
+	 * `rngState`, `rngCallCount`, `totalTicks`, `cashBalance`, sim count,
+	 * and population. We deliberately exclude `world.carriers` because
+	 * (a) on `'core'` towers it's render metadata only, (b) on classic
+	 * it's already implied by the rng state since dispatch is deterministic.
+	 *
+	 * Uses FNV-1a (32-bit) — small, allocation-free, well-distributed
+	 * for short input streams. Not cryptographic; collision tolerance
+	 * is fine for divergence detection.
+	 */
+	get lockstepChecksum(): number {
+		const FNV_OFFSET = 0x811c9dc5;
+		const FNV_PRIME = 0x01000193;
+		let h = FNV_OFFSET;
+		const mix = (n: number): void => {
+			// Spread a 32-bit number across four bytes via shifts, fold each
+			// into the FNV state. Math.imul keeps the multiply 32-bit.
+			h ^= n & 0xff;
+			h = Math.imul(h, FNV_PRIME);
+			h ^= (n >>> 8) & 0xff;
+			h = Math.imul(h, FNV_PRIME);
+			h ^= (n >>> 16) & 0xff;
+			h = Math.imul(h, FNV_PRIME);
+			h ^= (n >>> 24) & 0xff;
+			h = Math.imul(h, FNV_PRIME);
+		};
+		mix(this.world.rngState | 0);
+		mix(this.world.rngCallCount | 0);
+		mix(this.time.totalTicks | 0);
+		mix(this.ledger.cashBalance | 0);
+		mix(this.world.sims.length | 0);
+		mix(this.world.currentPopulation | 0);
+		return h >>> 0;
+	}
 	get width(): number {
 		return this.world.width;
 	}
@@ -619,25 +659,43 @@ export class TowerSim {
 	}
 
 	carriersToArray(): CarrierCarStateRecord[] {
+		// On `'core'` towers, override the integer `currentFloor` with
+		// elevator-core's continuous Y position (in floor units) so
+		// Phaser renders smooth trapezoidal motion instead of
+		// per-tick integer steps. The classic engine fills currentFloor
+		// directly from car.currentFloor (always integer).
+		const bridge =
+			this.world.elevatorEngine === "core" && bridgeModuleCache
+				? bridgeModuleCache.getBridge(this.world)
+				: undefined;
 		return this.world.carriers.flatMap((carrier) =>
-			carrier.cars.map((car, carIndex) => ({
-				carrierId: carrier.carrierId,
-				carIndex,
-				carCount: carrier.cars.length,
-				column: carrier.column,
-				carrierMode: carrier.carrierMode,
-				currentFloor: car.currentFloor,
-				targetFloor: car.targetFloor,
-				settleCounter: car.settleCounter,
-				directionFlag: car.directionFlag,
-				dwellCounter: car.dwellCounter,
-				assignedCount: car.assignedCount,
-				prevFloor: car.prevFloor,
-				arrivalSeen: car.arrivalSeen,
-				arrivalTick: car.arrivalTick,
-				homeFloor: car.homeFloor,
-				active: car.active,
-			})),
+			carrier.cars.map((car, carIndex) => {
+				const corePosition = bridge
+					? bridgeModuleCache?.carPositionInFloors(
+							bridge,
+							carrier.column,
+							carIndex,
+						)
+					: undefined;
+				return {
+					carrierId: carrier.carrierId,
+					carIndex,
+					carCount: carrier.cars.length,
+					column: carrier.column,
+					carrierMode: carrier.carrierMode,
+					currentFloor: corePosition ?? car.currentFloor,
+					targetFloor: car.targetFloor,
+					settleCounter: car.settleCounter,
+					directionFlag: car.directionFlag,
+					dwellCounter: car.dwellCounter,
+					assignedCount: car.assignedCount,
+					prevFloor: car.prevFloor,
+					arrivalSeen: car.arrivalSeen,
+					arrivalTick: car.arrivalTick,
+					homeFloor: car.homeFloor,
+					active: car.active,
+				};
+			}),
 		);
 	}
 }
