@@ -14,6 +14,7 @@ import {
 	processUnitTravelQueue,
 	resetCarrierTickBookkeeping,
 } from "../carriers";
+import { getBridge, stepBridge } from "../elevator-core";
 import type { LedgerState } from "../ledger";
 import { tryAdvanceStarCount } from "../progression";
 import {
@@ -50,4 +51,16 @@ export function carrierTick(
 	}
 
 	reconcileSimTransport(world, ledger, time);
+
+	// Shadow mode: for `'core'` towers, step the elevator-core bridge
+	// alongside the classic engine. Output is informational only —
+	// PR 4 starts acting on it. Bridge is `undefined` for `'classic'`
+	// towers and for `'core'` towers that haven't been hydrated yet
+	// (the bridge is created lazily on first WASM-aware code path).
+	if (world.elevatorEngine === "core") {
+		const bridge = getBridge(world);
+		if (bridge) {
+			stepBridge(bridge);
+		}
+	}
 }

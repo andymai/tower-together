@@ -41,6 +41,10 @@ import {
 } from "./carriers/index";
 import { syncAssignmentStatus } from "./carriers/sync";
 import {
+	getBridge as getElevatorCoreBridge,
+	syncTopology as syncElevatorCoreTopology,
+} from "./elevator-core";
+import {
 	cancelRuntimeRouteRequest,
 	dispatchCarrierCarArrivals,
 	enqueueRequestIntoRouteQueue,
@@ -365,6 +369,18 @@ export function rebuildCarrierList(world: WorldState): void {
 	world.carriers = newCarriers;
 	for (const carrier of world.carriers) {
 		syncAssignmentStatus(carrier);
+	}
+
+	// Shadow mode: mirror the classic carrier topology into the
+	// elevator-core bridge for `'core'` towers. Bridge is created
+	// lazily, so this is a no-op until the first WASM-aware code path
+	// (e.g. TowerSim hydration) wires up a handle. PR 3 ships
+	// shadow-only; PR 4 makes elevator-core authoritative.
+	if (world.elevatorEngine === "core") {
+		const bridge = getElevatorCoreBridge(world);
+		if (bridge) {
+			syncElevatorCoreTopology(bridge, world.carriers);
+		}
 	}
 }
 
