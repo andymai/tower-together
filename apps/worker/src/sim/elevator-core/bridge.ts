@@ -279,6 +279,14 @@ export interface BridgeStepResult {
 	 * reachability for an alt path; despawn gracefully if none.
 	 */
 	invalidated: Array<{ simId: string; affectedFloor: number }>;
+	/**
+	 * Riders that boarded a car this tick. Used by carrierTick to
+	 * accumulate per-sim wait-time stress on `'core'` towers — the
+	 * classic engine fires `applyBoardingStressUpdate` from the
+	 * boarding path, but on `'core'` that path doesn't run, so we
+	 * have to derive the stress hook from elevator-core events.
+	 */
+	boarded: Array<{ simId: string }>;
 }
 
 /**
@@ -300,9 +308,22 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 	const arrivals: BridgeStepResult["arrivals"] = [];
 	const abandoned: BridgeStepResult["abandoned"] = [];
 	const invalidated: BridgeStepResult["invalidated"] = [];
+	const boarded: BridgeStepResult["boarded"] = [];
 
 	for (const event of events) {
 		switch (event.kind) {
+			case "rider-boarded": {
+				const simId = handle.riderIndex.simIdForSlot(event.rider);
+				handle.diffs.push({
+					tick,
+					kind: "rider-boarded",
+					detail: { rider: event.rider, elevator: event.elevator, simId },
+				});
+				if (simId !== undefined) {
+					boarded.push({ simId });
+				}
+				break;
+			}
 			case "rider-exited": {
 				// elevator-core's EventDtos report rider/stop ids as u32 slot
 				// ids (low 32 bits of the slotmap FFI encoding), not the
@@ -372,5 +393,5 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 		}
 	}
 
-	return { arrivals, abandoned, invalidated };
+	return { arrivals, abandoned, invalidated, boarded };
 }
