@@ -334,9 +334,13 @@ export function resetSimRuntimeState(world: WorldState): void {
 		}
 
 		if (HOTEL_FAMILIES.has(sim.familyCode)) {
-			// Hotel sims manage their own day-boundary transitions via
-			// NIGHT_B / CHECKOUT_QUEUE→TRANSITION→DEPARTURE. The binary's
-			// runtime reset does not overwrite hotel sim states.
+			// Binary 1228:0000 reset_sim_runtime_state, family 3/4/5 case:
+			// if get_current_sim_state_word(sim) == 0 → stateCode = 0x24
+			// (STATE_HOTEL_PARKED). Other branches (room+0xb gate → 0x20/0x10)
+			// are left to the existing day-boundary state machine.
+			if (sim.baseOffset === 0) {
+				sim.stateCode = STATE_HOTEL_PARKED;
+			}
 			continue;
 		} else if (sim.familyCode === FAMILY_CONDO) {
 			// Condos persist across day boundaries via CHECKOUT_QUEUE→TRANSITION.
