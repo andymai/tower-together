@@ -2,9 +2,19 @@
 	"$schema": "https://turbo.build/schema.json",
 	"tasks": {
 		"build": {
+			"dependsOn": ["@tower-together/elevator-core-wasm#build"],
 			"outputs": ["dist/**", ".wrangler/tmp/**"]
 		},
-		"typecheck": {},
+		"@tower-together/elevator-core-wasm#build": {
+			"outputs": ["dist/**"],
+			"inputs": ["build.mjs", "src/**", "package.json"]
+		},
+		"typecheck": {
+			"dependsOn": ["@tower-together/elevator-core-wasm#build"]
+		},
+		"test": {
+			"dependsOn": ["@tower-together/elevator-core-wasm#build"]
+		},
 		"dev": {
 			"cache": false,
 			"persistent": true

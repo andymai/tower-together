@@ -1,0 +1,37 @@
+{
+	"name": "@tower-together/elevator-core-wasm",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "WASM bindings for elevator-core, packaged for tower-together's worker and client",
+	"exports": {
+		"./web": {
+			"types": "./dist/web/elevator_wasm.d.ts",
+			"import": "./dist/web/elevator_wasm.js"
+		},
+		"./node": {
+			"types": "./dist/node/elevator_wasm.d.ts",
+			"import": "./dist/node/elevator_wasm.js",
+			"require": "./dist/node/elevator_wasm.js"
+		},
+		"./loader": {
+			"types": "./src/loader.ts",
+			"import": "./src/loader.ts"
+		},
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "node build.mjs",
+		"clean": "rm -rf dist",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@types/node": "^25.6.0",
+		"typescript": "^6.0.2",
+		"vitest": "^4.1.3"
+	}
+}

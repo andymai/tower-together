@@ -4,12 +4,15 @@
 	"private": true,
 	"packageManager": "npm@10.9.2",
 	"workspaces": [
-		"apps/*"
+		"apps/*",
+		"packages/*"
 	],
 	"scripts": {
 		"dev": "turbo dev",
 		"build": "turbo build",
+		"build:wasm": "turbo run build --filter=@tower-together/elevator-core-wasm",
 		"typecheck": "turbo typecheck",
+		"test": "turbo run test",
 		"deploy": "turbo build && turbo deploy"
 	},
 	"devDependencies": {
