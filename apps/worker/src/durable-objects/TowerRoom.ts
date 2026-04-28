@@ -7,6 +7,7 @@ import {
 import { TowerSim } from "../sim/index";
 import { getTileStarRequirement, STARTING_CASH } from "../sim/resources";
 import { createInitialSnapshot } from "../sim/snapshot";
+import type { ElevatorEngine } from "../sim/world";
 import type { ResolvedInputBatch, ServerMessage } from "../types";
 import {
 	getInputDelayTicks,
@@ -46,8 +47,14 @@ export class TowerRoom extends DurableObject<Env> {
 
 	// ─── Persistence ────────────────────────────────────────────────────────────
 
-	private async initializeTower(towerId: string, name: string): Promise<void> {
-		const snapshot = createInitialSnapshot(towerId, name, STARTING_CASH);
+	private async initializeTower(
+		towerId: string,
+		name: string,
+		elevatorEngine: ElevatorEngine,
+	): Promise<void> {
+		const snapshot = createInitialSnapshot(towerId, name, STARTING_CASH, {
+			elevatorEngine,
+		});
 		this.repository.initialize(snapshot);
 		this.sim = TowerSim.fromSnapshot(snapshot);
 	}
@@ -105,8 +112,20 @@ export class TowerRoom extends DurableObject<Env> {
 					{ status: 400 },
 				);
 			}
-			await this.initializeTower(towerId, name);
-			return Response.json({ towerId, name });
+			const engineParam = url.searchParams.get("engine");
+			let elevatorEngine: ElevatorEngine;
+			if (engineParam === "core" || engineParam === "classic") {
+				elevatorEngine = engineParam;
+			} else if (engineParam === null) {
+				elevatorEngine = "classic";
+			} else {
+				return Response.json(
+					{ error: `Invalid engine: ${engineParam}` },
+					{ status: 400 },
+				);
+			}
+			await this.initializeTower(towerId, name, elevatorEngine);
+			return Response.json({ towerId, name, elevatorEngine });
 		}
 
 		if (request.method === "GET" && path === "/info") {

@@ -1,3 +1,5 @@
+import type { ElevatorEngine } from "./sim/world";
+
 interface TowerRoomEnv {
 	TOWER_ROOM: DurableObjectNamespace;
 }
@@ -40,10 +42,12 @@ export async function initializeTower(
 	env: TowerRoomEnv,
 	towerId: string,
 	name: string,
+	elevatorEngine: ElevatorEngine = "classic",
 ): Promise<Response> {
 	const initUrl = new URL("http://do/init");
 	initUrl.searchParams.set("towerId", towerId);
 	initUrl.searchParams.set("name", name);
+	initUrl.searchParams.set("engine", elevatorEngine);
 	return getTowerRoomStub(env, towerId).fetch(initUrl.toString(), {
 		method: "POST",
 	});

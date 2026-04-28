@@ -1,8 +1,16 @@
 import { Hono } from "hono";
+import type { ElevatorEngine } from "../sim/world";
 import { fetchTowerInfo, initializeTower } from "../tower-service";
 
 interface Env {
 	TOWER_ROOM: DurableObjectNamespace;
+	/**
+	 * Defaults the per-tower `elevatorEngine` flag at creation when the
+	 * client doesn't specify one. `"development"` defaults to `'core'`
+	 * so the dev team eats their own dogfood; everything else defaults
+	 * to `'classic'`. Set in `wrangler.toml` per environment.
+	 */
+	ENVIRONMENT?: string;
 }
 
 export const towersRouter = new Hono<{ Bindings: Env }>();
@@ -16,21 +24,37 @@ function generateTowerId(): string {
 	return id;
 }
 
+function defaultEngine(env: Env): ElevatorEngine {
+	return env.ENVIRONMENT === "development" ? "core" : "classic";
+}
+
 // POST /api/towers - create a new tower
 towersRouter.post("/towers", async (c) => {
 	const body = await c.req
-		.json<{ name?: string }>()
-		.catch(() => ({}) as { name?: string });
+		.json<{ name?: string; elevatorEngine?: string }>()
+		.catch(() => ({}) as { name?: string; elevatorEngine?: string });
 	const name = body.name ?? "My Tower";
 	const towerId = generateTowerId();
 
-	const res = await initializeTower(c.env, towerId, name);
+	let elevatorEngine: ElevatorEngine;
+	if (body.elevatorEngine === "core" || body.elevatorEngine === "classic") {
+		elevatorEngine = body.elevatorEngine;
+	} else if (body.elevatorEngine === undefined) {
+		elevatorEngine = defaultEngine(c.env);
+	} else {
+		return c.json(
+			{ error: `Invalid elevatorEngine: ${body.elevatorEngine}` },
+			400,
+		);
+	}
+
+	const res = await initializeTower(c.env, towerId, name, elevatorEngine);
 	if (!res.ok) {
 		const err = await res.json<{ error: string }>();
 		return c.json({ error: err.error ?? "Failed to initialize tower" }, 500);
 	}
 
-	return c.json({ towerId, name }, 201);
+	return c.json({ towerId, name, elevatorEngine }, 201);
 });
 
 // GET /api/towers/:id - get tower info
