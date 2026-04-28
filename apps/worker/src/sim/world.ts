@@ -220,6 +220,14 @@ export interface SimRecord {
 	postClaimCountdown: number;
 	/** Housekeeping helper: encoded subtype/slot of the claimed room (`(0 - floor) * 0x400`). */
 	encodedTargetFloor: number;
+	/**
+	 * Binary sim[+6] commercial-venue slot index for entertainment guests
+	 * (handle_entertainment_service_acquisition at 1228:57e2). Holds the
+	 * sidecar index of the picked CommercialVenueRecord; -1 means lobby
+	 * fallback (no candidate). Other families overload sim[+6] differently
+	 * and use `selectedFloor` for that.
+	 */
+	commercialVenueSlot: number;
 }
 
 // ─── Routing types ────────────────────────────────────────────────────────────
@@ -479,6 +487,22 @@ export interface EntertainmentLinkRecord {
 	attendanceCounter: number;
 	/** Active runtime attendee count (decremented on phase advance). */
 	activeRuntimeCount: number;
+	/**
+	 * Binary `EntertainmentLinkRecord.lowerHalfFloor` (offset +0x03).
+	 * Floor index of the lower half of the venue. Used as routing source by
+	 * `get_entertainment_link_routing_source_floor` (1188:0dce) for
+	 * entertainment guest service-acquire / linked-half / dwell-return
+	 * routing, and as the destination for party hall in
+	 * `get_entertainment_link_venue_floor` (1188:0d98).
+	 */
+	lowerHalfFloor: number;
+	/**
+	 * Binary `EntertainmentLinkRecord.upperHalfFloor` (offset +0x00). Floor
+	 * index of the upper half of the venue. Returned by
+	 * `get_entertainment_link_venue_floor` (1188:0d98) for cinema (when
+	 * `familySelectorOrSingleLinkFlag` is non-negative as a signed byte).
+	 */
+	upperHalfFloor: number;
 }
 
 export interface MedicalCenterRecord {

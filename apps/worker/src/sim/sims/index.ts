@@ -1,5 +1,8 @@
 import { handleCathedralSimArrival, processCathedralSim } from "../cathedral";
-import { gateEntertainmentGuestState } from "../families/entertainment";
+import {
+	gateEntertainmentGuestState,
+	handleEntertainmentSimArrival,
+} from "../families/entertainment";
 import { maybeDispatchQueuedRouteAfterWait } from "../families/maybe-dispatch-after-wait";
 import type { LedgerState } from "../ledger";
 import {
@@ -855,6 +858,14 @@ export function dispatchSimArrival(
 			return;
 		case FAMILY_HOUSEKEEPING:
 			handleHousekeepingSimArrival(world, time, sim, arrivalFloor);
+			return;
+		case FAMILY_CINEMA:
+		case FAMILY_CINEMA_LOWER:
+		case FAMILY_CINEMA_STAIRS_UPPER:
+		case FAMILY_CINEMA_STAIRS_LOWER:
+		case FAMILY_PARTY_HALL:
+		case FAMILY_PARTY_HALL_LOWER:
+			handleEntertainmentSimArrival(world, time, sim, arrivalFloor);
 			return;
 		default:
 			if (CATHEDRAL_FAMILIES.has(sim.familyCode)) {

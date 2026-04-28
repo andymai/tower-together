@@ -38,8 +38,14 @@ import { isSimInTransit } from "../sim-access/state-bits";
 import { LOBBY_FLOOR } from "../sims/states";
 import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
-import type { EntertainmentLinkRecord, SimRecord, WorldState } from "../world";
-import { sampleRng } from "../world";
+import {
+	type CommercialVenueRecord,
+	type EntertainmentLinkRecord,
+	type SimRecord,
+	sampleRng,
+	type WorldState,
+	yToFloor,
+} from "../world";
 import { maybeDispatchQueuedRouteAfterWait } from "./maybe-dispatch-after-wait";
 
 // Family codes emitted by cinema / party hall placement. Cinema is split
@@ -80,14 +86,8 @@ const ENT_VENUE_FAMILIES: Set<number>[] = [
 	new Set([FAMILY_FAST_FOOD]),
 ];
 
-// Sentinel stored in sim.selectedFloor when no venue is pre-selected.
-const ENT_NO_VENUE_SENTINEL = 0xb0;
-
-// Sentinel stored in sim.selectedFloor on route failure.
+// Sentinel stored in sim.commercialVenueSlot / sim.originFloor on route failure.
 const ENT_ROUTE_FAIL_VENUE = 0xff;
-
-// Value written to sim.originFloor on first-attempt route failure (binary: 0x88).
-const ENT_ROUTE_FAIL_ORIGIN = 0x88;
 
 /** Find the EntertainmentLinkRecord for a sim (keyed by ownerSubtypeIndex = homeColumn). */
 function findEntertainmentLink(
@@ -174,20 +174,124 @@ function incrementEntertainmentLinkRuntimeCounters(
 }
 
 /**
- * Binary `get_entertainment_link_venue_floor`: floor of the entertainment
- * venue for this link. In TS, the sim spawns at its home floor.
+ * Binary `get_entertainment_link_venue_floor` (1188:0d98). Returns the
+ * destination venue floor for phase-consumption arrivals. Binary picks
+ * `upperHalfFloor` for cinema (`kindOrMovieId>=0`) and `lowerHalfFloor`
+ * for party hall (`kindOrMovieId<0`). In TS we keep using `sim.floorAnchor`
+ * here — for cinema-upper / party-hall guests this resolves to the same
+ * floor the binary picks, and the trace fixtures rely on that mapping for
+ * lower-half guests being routed back to their own home half rather than
+ * their sibling's.
  */
-function getEntertainmentLinkVenueFloor(sim: SimRecord): number {
+function getEntertainmentLinkVenueFloor(
+	_link: EntertainmentLinkRecord | null,
+	sim: SimRecord,
+): number {
 	return sim.floorAnchor;
 }
 
 /**
- * Binary `get_entertainment_link_reverse_floor`: floor of the reverse-half
- * of the link (lower-half floor for an upper-half cinema guest). In TS, use
- * the sim's home floor since the paired floor isn't separately tracked.
+ * Binary `get_entertainment_link_routing_source_floor` (1188:0dce). Returns
+ * `link.lowerHalfFloor` — used as the routing source for entertainment
+ * guest service-acquire / linked-half / dwell-return paths. Falls back to
+ * `sim.floorAnchor` when no link is bound.
  */
-function getEntertainmentLinkReverseFloor(sim: SimRecord): number {
-	return sim.floorAnchor;
+function getEntertainmentLinkRoutingSourceFloor(
+	link: EntertainmentLinkRecord | null,
+	sim: SimRecord,
+): number {
+	if (link === null) return sim.floorAnchor;
+	return link.lowerHalfFloor;
+}
+
+interface CommercialVenueCandidate {
+	sidecarIndex: number;
+}
+
+/**
+ * Binary `select_random_commercial_venue_record_from_bucket` (11b0:1361):
+ * indexes a per-family zone-row bucket table, falls back to row 0 when the
+ * target row is empty, and picks uniformly via `abs(sample_lcg15()) % count`.
+ *
+ * Post-pick validation at LAB_11b0_14c1: if the picked record's
+ * `availabilityState` is `0xff` (dormant) or `3` (closed), returns -1.
+ */
+function selectRandomCommercialVenueRecordFromBucket(
+	world: WorldState,
+	serviceBucket: number,
+	zoneRow: number,
+): number {
+	if (serviceBucket < 0 || serviceBucket >= ENT_VENUE_BUCKET_MODULO) return -1;
+	const venueFamilies = ENT_VENUE_FAMILIES[serviceBucket];
+
+	const byZone = new Map<number, CommercialVenueCandidate[]>();
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (!venueFamilies.has(object.objectTypeCode)) continue;
+		if (object.linkedRecordIndex < 0) continue;
+		const sidecar = world.sidecars[object.linkedRecordIndex] as
+			| CommercialVenueRecord
+			| undefined;
+		if (!sidecar || sidecar.kind !== "commercial_venue") continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		const [, y] = key.split(",").map(Number);
+		const floor = yToFloor(y);
+		const zoneKey = Math.max(0, Math.trunc((floor - 9) / 15));
+		const list = byZone.get(zoneKey) ?? [];
+		list.push({ sidecarIndex: object.linkedRecordIndex });
+		byZone.set(zoneKey, list);
+	}
+
+	let row = byZone.get(zoneRow);
+	if (!row || row.length === 0) row = byZone.get(0);
+	if (!row || row.length === 0) return -1;
+
+	const pick = Math.abs(sampleRng(world)) % row.length;
+	const recordIdx = row[pick].sidecarIndex;
+	const sidecar = world.sidecars[recordIdx] as
+		| CommercialVenueRecord
+		| undefined;
+	if (
+		!sidecar ||
+		sidecar.availabilityState === 0xff ||
+		sidecar.availabilityState === 3
+	) {
+		return -1;
+	}
+	return recordIdx;
+}
+
+/**
+ * Binary `select_random_commercial_venue_record_for_floor` (11b0:151d):
+ * computes `zone_row = max(0, (floor_index - 9) / 15)` and delegates.
+ */
+function selectRandomCommercialVenueRecordForFloor(
+	world: WorldState,
+	serviceBucket: number,
+	floorIndex: number,
+): number {
+	const zoneRow = Math.max(0, Math.trunc((floorIndex - 9) / 15));
+	return selectRandomCommercialVenueRecordFromBucket(
+		world,
+		serviceBucket,
+		zoneRow,
+	);
+}
+
+/**
+ * Binary `get_current_commercial_venue_destination_floor` (11b0:10fe):
+ * returns lobby (10) when the slot is < 0, else the slot's owner_floor.
+ */
+function getCurrentCommercialVenueDestinationFloor(
+	world: WorldState,
+	sim: SimRecord,
+): number {
+	if (sim.commercialVenueSlot < 0) return LOBBY_FLOOR;
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (object.linkedRecordIndex !== sim.commercialVenueSlot) continue;
+		const [, y] = key.split(",").map(Number);
+		return yToFloor(y);
+	}
+	return LOBBY_FLOOR;
 }
 
 // ─── Helper state machines (binary 1228:54b8..5a22) ─────────────────────────
@@ -221,7 +325,7 @@ function handleEntertainmentPhaseConsumption(
 		}
 	}
 
-	const venueFloor = getEntertainmentLinkVenueFloor(sim);
+	const venueFloor = getEntertainmentLinkVenueFloor(link, sim);
 	const isFreshDispatch = sim.stateCode === ENT_STATE_PHASE_CONSUME;
 	const sourceFloor = isFreshDispatch ? LOBBY_FLOOR : sim.selectedFloor;
 	const directionFlag = venueFloor >= sourceFloor ? 1 : 0;
@@ -279,8 +383,9 @@ function handleEntertainmentLinkedHalfRouting(
 	sim: SimRecord,
 ): void {
 	const isFreshDispatch = sim.stateCode === ENT_STATE_LINKED_HALF;
+	const link = findEntertainmentLink(world, sim);
 	const sourceFloor = isFreshDispatch
-		? getEntertainmentLinkReverseFloor(sim)
+		? getEntertainmentLinkRoutingSourceFloor(link, sim)
 		: sim.originFloor;
 	const directionFlag = LOBBY_FLOOR >= sourceFloor ? 1 : 0;
 
@@ -310,79 +415,108 @@ function handleEntertainmentLinkedHalfRouting(
 }
 
 /**
+ * Binary `acquire_commercial_venue_slot` (11b0:0d92).
+ *
+ * Lobby-fallback short-circuit: if `recordIdx < 0`, return rc=3 without
+ * touching any venue record. Otherwise validate slot status (rejects
+ * `availabilityState` 0xff or 3 → -1), capacity (>=0x28 currentPopulation
+ * → 2), then increments occupancy and `acquireCount` (when the visitor's
+ * family differs from the venue owner) and returns 3.
+ *
+ * In all paths sim's `lastDemandTick` is stamped with the current dayTick.
+ */
+function acquireCommercialVenueSlot(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+	recordIdx: number,
+): number {
+	if (recordIdx < 0) {
+		sim.lastDemandTick = time.dayTick;
+		return 3;
+	}
+	const sidecar = world.sidecars[recordIdx] as
+		| CommercialVenueRecord
+		| undefined;
+	if (
+		!sidecar ||
+		sidecar.kind !== "commercial_venue" ||
+		sidecar.ownerSubtypeIndex === 0xff ||
+		sidecar.availabilityState === 0xff ||
+		sidecar.availabilityState === 3
+	) {
+		advanceSimTripCounters(sim);
+		sim.lastDemandTick = time.dayTick;
+		return -1;
+	}
+	if (sidecar.currentPopulation > 39) {
+		sim.lastDemandTick = time.dayTick;
+		return 2;
+	}
+	sidecar.currentPopulation += 1;
+	if (sim.familyCode !== sidecar.ownerSubtypeIndex) {
+		sidecar.acquireCount += 1;
+	}
+	sim.lastDemandTick = time.dayTick;
+	return 3;
+}
+
+/**
  * 1228:57e2 handle_entertainment_service_acquisition.
  *
- * State 0x01 (fresh): pick random venue bucket (RNG % 3 = retail/restaurant/
- *   fast-food), store bucket index as sim.selectedFloor, route from link
- *   reverse floor to venue destination.
- * State 0x41 (retry): use stored bucket index from sim.selectedFloor, route
- *   from sim.originFloor.
- * Route results:
- *   0/1/2 → state 0x41 (in-transit retry)
- *   3     → state 0x22 (at venue / dwell)
- *   -1    → for 0x01: state 0x41, selectedFloor=0xff, originFloor=0x88;
- *            for 0x41: state 0x27 (parked)
+ * Fresh dispatch (state 0x01):
+ *   - rng()%3 selects a service-bucket family (retail/restaurant/fastfood)
+ *     for `select_random_commercial_venue_record_for_floor`. The picker's
+ *     return value (record index 0..N-1, or 0xffff/-1 on failure) is
+ *     stored as the LOW BYTE into `sim[+6]` (1228:5826 POP AX; 5827 MOV
+ *     ES:[BX+6], AL). On failure that byte becomes 0xff, which sign-extends
+ *     to -1 in `get_current_commercial_venue_destination_floor`, routing to
+ *     LOBBY (10).
+ *   - destination = `get_current_commercial_venue_destination_floor`: for
+ *     `sim[+6] < 0` returns `LOBBY_FLOOR` (10); else slot's owner floor.
+ *   - source = `link.lowerHalfFloor` (`get_entertainment_link_routing_source_floor`).
  *
- * Binary quirk: on first-attempt failure the sim parks in 0x41 (not 0x27)
- * with selectedFloor=0xff and originFloor=0x88 as error sentinels.
+ * Retry dispatch (state 0x41): source = `sim.originFloor`, dest unchanged.
+ *
+ * After `resolve_sim_route_between_floors`, switch on rc:
+ *   0/1/2 → state 0x41 (in transit)
+ *   3     → `acquire_commercial_venue_slot(sim, sim[+6])`:
+ *             sim[+6]<0 → rc=3 → state 0x22
+ *             rc=2 (full) → state 0x41
+ *             rc=-1 (rejected) or rc=3 → state 0x22
+ *             rc=0 → return without state change (binary fallthrough)
+ *   -1    → fresh: state 0x41, sim[+6]=0xff, sim[+7]=0x88, sim[+8]=0xff;
+ *           non-fresh: state 0x27.
  */
 function handleEntertainmentServiceAcquisition(
 	world: WorldState,
 	time: TimeState,
 	sim: SimRecord,
 ): void {
-	// Binary 1228:5836 writes plain `0xb0` to sim[+6] on fresh dispatch, then
-	// stashes the chosen venue in a per-sim "current commercial venue" slot
-	// that we don't model. As a TS-side workaround we encode the bucket index
-	// into the sentinel byte (0xb0 + bucket) so the retry path can recover
-	// the bucket without a dedicated field. This is an observable divergence
-	// in `selectedFloor` traces that we accept until a per-sim chosen-venue
-	// field is added.
-	if (sim.stateCode === ENT_STATE_SERVICE_ACQUIRE) {
-		const bucketIndex = sampleRng(world) % ENT_VENUE_BUCKET_MODULO;
-		sim.selectedFloor = ENT_NO_VENUE_SENTINEL + bucketIndex;
-	}
-
-	const bucketIndex =
-		sim.selectedFloor >= ENT_NO_VENUE_SENTINEL
-			? sim.selectedFloor - ENT_NO_VENUE_SENTINEL
-			: 0;
-	const venueFamilies =
-		ENT_VENUE_FAMILIES[bucketIndex % ENT_VENUE_BUCKET_MODULO] ??
-		new Set([FAMILY_RETAIL]);
-
-	// Find a venue in the selected bucket. Binary: get_current_commercial_venue_destination_floor.
-	let destFloor = sim.floorAnchor;
-	for (const [key, obj] of Object.entries(world.placedObjects)) {
-		if (!venueFamilies.has(obj.objectTypeCode)) continue;
-		if (obj.linkedRecordIndex < 0) continue;
-		const [, y] = key.split(",").map(Number);
-		destFloor = world.height - 1 - y;
-		break;
-	}
-
 	const isFreshDispatch = sim.stateCode === ENT_STATE_SERVICE_ACQUIRE;
+	const link = findEntertainmentLink(world, sim);
+	// 1228:5402-540b: dispatch reads sim[+7] (= selectedFloor in TS) into [BP-6].
+	// resolve_sim_route_between_floors updates sim[+7] to the post-link floor on
+	// each segment leg, so on retry the source advances toward the destination.
 	const sourceFloor = isFreshDispatch
-		? getEntertainmentLinkReverseFloor(sim)
-		: sim.originFloor;
-	const directionFlag = destFloor >= sourceFloor ? 1 : 0;
+		? getEntertainmentLinkRoutingSourceFloor(link, sim)
+		: sim.selectedFloor;
 
-	if (isFreshDispatch && destFloor < sourceFloor) {
-		sampleRng(world);
-		// Binary path on this branch: `resolve_sim_route_between_floors` returns
-		// 3 (same-floor), bumping trip counters and clearing lastDemandTick to
-		// -1; then `acquire_commercial_venue_slot` (11b0:0d92) lobby-fallback
-		// (slot_index<0) returns 3 and writes sim[+10]=g_day_tick. The TS
-		// shortcut bypasses both calls, so mirror the two writes here.
-		advanceSimTripCounters(sim);
-		sim.lastDemandTick = time.dayTick;
-		sim.stateCode = ENT_STATE_VENUE_DWELL;
-		return;
+	if (isFreshDispatch) {
+		const bucket = Math.abs(sampleRng(world)) % ENT_VENUE_BUCKET_MODULO;
+		const recordIdx = selectRandomCommercialVenueRecordForFloor(
+			world,
+			bucket,
+			sourceFloor,
+		);
+		sim.commercialVenueSlot = recordIdx;
 	}
+
+	const destFloor = getCurrentCommercialVenueDestinationFloor(world, sim);
+	const directionFlag = destFloor >= sourceFloor ? 1 : 0;
 
 	// Binary 1228:5899 (handle_entertainment_service_acquisition call site):
 	// `is_passenger_route = 1`, `emit_distance_feedback = (state == 0x01) ? 1 : 0`.
-	// Distance feedback fires on the BASE state 0x01, not the +0x40 alias 0x41.
 	const result = resolveSimRouteBetweenFloors(
 		world,
 		sim,
@@ -399,16 +533,30 @@ function handleEntertainmentServiceAcquisition(
 		case 2:
 			sim.stateCode = ENT_STATE_SERVICE_ACQUIRE_TRANSIT;
 			break;
-		case 3:
-			// Binary: acquire_commercial_venue_slot result 3 → state 0x22 (slot acquired).
-			sim.stateCode = ENT_STATE_VENUE_DWELL;
-			break;
-		default: // -1
-			if (sim.stateCode === ENT_STATE_SERVICE_ACQUIRE) {
-				// Binary quirk: first-attempt failure parks in 0x41 with error sentinels.
+		case 3: {
+			const acquireRc = acquireCommercialVenueSlot(
+				world,
+				time,
+				sim,
+				sim.commercialVenueSlot,
+			);
+			if (acquireRc === 2) {
 				sim.stateCode = ENT_STATE_SERVICE_ACQUIRE_TRANSIT;
-				sim.selectedFloor = ENT_ROUTE_FAIL_VENUE;
-				sim.originFloor = ENT_ROUTE_FAIL_ORIGIN;
+			} else if (acquireRc === -1 || acquireRc === 3) {
+				sim.stateCode = ENT_STATE_VENUE_DWELL;
+			}
+			// acquireRc == 0 → binary fallthrough: no state change.
+			break;
+		}
+		default: // -1
+			if (isFreshDispatch) {
+				// 1228:58db-5981: first-attempt rc=-1 writes sim[+5]=0x41, sim[+6]=0xff,
+				// sim[+7]=lowerHalfFloor (re-fetched via get_entertainment_link_routing_source_floor),
+				// sim[+8]=0xff.
+				sim.stateCode = ENT_STATE_SERVICE_ACQUIRE_TRANSIT;
+				sim.commercialVenueSlot = ENT_ROUTE_FAIL_VENUE;
+				sim.selectedFloor = getEntertainmentLinkRoutingSourceFloor(link, sim);
+				sim.originFloor = ENT_ROUTE_FAIL_VENUE;
 			} else {
 				sim.stateCode = ENT_STATE_PARKED;
 			}
@@ -470,6 +618,47 @@ function handleEntertainmentServiceReleaseReturn(
 }
 
 // ─── Gate and dispatch entry points ─────────────────────────────────────────
+
+/**
+ * Carrier-arrival entry point for entertainment guests (cinema / party hall).
+ *
+ * Binary `finalize_runtime_route_state` (1228:1481) does NOT touch the
+ * sim's state byte — entertainment sims keep their `0x4_` in-transit state
+ * across the carrier arrival, so the next-tick dispatch enters the
+ * non-fresh arm of the matching state handler with `sim.originFloor`
+ * pointing at the lobby. TS strips the 0x40 bit in `finalizeRuntimeRouteState`
+ * (queue/dispatch-arrivals.ts wires it inline before this handler runs);
+ * we therefore re-stamp the sim's `originFloor` to the arrival floor and
+ * invoke the matching state handler at the *retry* state. Mirrors the
+ * binary's "sim arrived at lobby in 0x41/0x45/0x60/0x62 → next dispatch
+ * routes lobby→destination as same-floor or onward leg" behaviour.
+ */
+export function handleEntertainmentSimArrival(
+	world: WorldState,
+	time: TimeState,
+	sim: SimRecord,
+	arrivalFloor: number,
+): void {
+	if (!ENTERTAINMENT_GUEST_FAMILIES.has(sim.familyCode)) return;
+	sim.originFloor = arrivalFloor;
+	switch (sim.stateCode) {
+		case ENT_STATE_SERVICE_ACQUIRE:
+			sim.stateCode = ENT_STATE_SERVICE_ACQUIRE_TRANSIT;
+			break;
+		case ENT_STATE_LINKED_HALF:
+			sim.stateCode = ENT_STATE_LINKED_HALF_TRANSIT;
+			break;
+		case ENT_STATE_PHASE_CONSUME:
+			sim.stateCode = ENT_STATE_PHASE_CONSUME_TRANSIT;
+			break;
+		case ENT_STATE_VENUE_DWELL:
+			sim.stateCode = ENT_STATE_VENUE_DWELL_TRANSIT;
+			break;
+		default:
+			break;
+	}
+	dispatchEntertainmentGuestState(world, time, sim);
+}
 
 /**
  * 1228:53ad dispatch_entertainment_guest_state.

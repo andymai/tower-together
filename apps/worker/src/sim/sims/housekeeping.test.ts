@@ -110,6 +110,7 @@ function makeHousekeeper(floor: number, homeColumn = 0): SimRecord {
 		spawnFloor: floor,
 		postClaimCountdown: 0,
 		encodedTargetFloor: 0,
+		commercialVenueSlot: -1,
 	};
 }
 

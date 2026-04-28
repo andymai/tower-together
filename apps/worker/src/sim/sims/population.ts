@@ -63,6 +63,7 @@ function makeSim(
 		spawnFloor: floorAnchor,
 		postClaimCountdown: 0,
 		encodedTargetFloor: 0,
+		commercialVenueSlot: -1,
 	};
 }
 
