@@ -21,6 +21,9 @@ function makeWorld(): WorldState {
 	return {
 		towerId: "t",
 		name: "T",
+		elevatorEngine: "classic",
+		elevatorCoreVersion: null,
+		elevatorCorePostcard: null,
 		width: GRID_WIDTH,
 		height: GRID_HEIGHT,
 		lobbyHeight: 1,
