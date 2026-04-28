@@ -9,6 +9,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@tower-together/elevator-core-wasm": "^0.1.0",
 		"hono": "^4.12.11"
 	},
 	"devDependencies": {

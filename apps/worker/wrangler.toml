@@ -18,6 +18,11 @@ type = "Text"
 globs = ["migrations/*.sql"]
 fallthrough = true
 
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
 [dev]
 port = 8787
 
