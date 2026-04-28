@@ -15,6 +15,7 @@ import {
 	advanceEntertainmentUpperPhase,
 	advancePartyHallPhaseAndAccrue,
 	promoteCinemaAndActivatePartyHall,
+	promoteCinemaLinksToReadyPhase,
 	seedEntertainmentBudgets,
 } from "../entertainment";
 import {
@@ -162,6 +163,9 @@ function checkpointMidday(_s: SimState): void {
 	//    rebuild_type6_facility_records above; fast-food/retail counters
 	//    stay untouched until dayTick=240's rebuild_linked_facility_records).
 	advancePartyHallPhaseAndAccrue(_s.world, _s.ledger, _s.time.dayCounter);
+	// Binary 0x640: promote_entertainment_links_to_ready_phase(1, 1)
+	// promotes cinema-paired link.linkPhaseState 2 -> 3.
+	promoteCinemaLinksToReadyPhase(_s.world);
 	updateRecyclingCenterState(_s.world, _s.ledger, 0);
 	// 4. advance_object_stay_phase_tiers @ 1230:0b5f — raises unit_status bands
 	//    (hotel 0x18→0x20, 0x28→0x30, 0x38→0x40; office 0x00→0x08, 0x10→0x18;

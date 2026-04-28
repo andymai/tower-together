@@ -153,6 +153,26 @@ export function promoteCinemaAndActivatePartyHall(world: WorldState): void {
 }
 
 /**
+ * Binary `promote_entertainment_links_to_ready_phase(half=1, paired=1)` @
+ * 1188:0826 — checkpoint 0x640 (1600). For every cinema-paired link with
+ * `linkPhaseState >= 2`, advances `linkPhaseState` 2 → 3 (the "READY" /
+ * post-show phase). Also writes byte +0x13 = 1 on the 4 audience-sim
+ * records bound to the link (2 per half), but that flag write is not yet
+ * mirrored here. This partial implementation captures the linkPhaseState
+ * transition only.
+ */
+export function promoteCinemaLinksToReadyPhase(world: WorldState): void {
+	for (const sidecar of world.sidecars) {
+		if (sidecar.kind !== "entertainment_link") continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (!isPairedSidecar(sidecar)) continue;
+		if (sidecar.linkPhaseState >= 2) {
+			sidecar.linkPhaseState = 3;
+		}
+	}
+}
+
+/**
  * Activate paired-link lower-half sims still in phase 1.
  */
 export function activateEntertainmentLowerHalf(world: WorldState): void {
