@@ -10,6 +10,7 @@ export {
 	type CreateBridgeOptions,
 	captureBridgePostcard,
 	carPositionInFloors,
+	carPositionsInFloorsPacked,
 	createBridge,
 	disposeBridge,
 	ensureBridge,

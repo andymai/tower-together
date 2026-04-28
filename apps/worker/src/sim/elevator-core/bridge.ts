@@ -208,6 +208,10 @@ export function refToSlot(ref: bigint): number {
  * trapezoidal motion internally so passing 0 is fine for steady-state
  * rendering. The hook is here so a future renderer can pass an actual
  * frame-time alpha for even smoother motion.
+ *
+ * For batched per-frame use over many cars, prefer
+ * [`carPositionsInFloorsPacked`] — one wasm-bindgen crossing instead
+ * of N.
  */
 export function carPositionInFloors(
 	handle: BridgeHandle,
@@ -221,6 +225,32 @@ export function carPositionInFloors(
 	if (positionMeters === undefined) return undefined;
 	// Inverse of topology-sync's METERS_PER_FLOOR scaling.
 	return positionMeters / 4.0;
+}
+
+/**
+ * Batched variant of `carPositionInFloors` for the rendering hot
+ * path. Fills `out[i]` with the floor-unit position of the elevator
+ * referenced by `refs[i]`, using elevator-core's
+ * `positionsAtPacked` to collapse N wasm-bindgen crossings into one.
+ *
+ * Out-of-range slots and unknown refs come back as `f64::NAN` from
+ * elevator-core; this wrapper preserves that — caller should
+ * `Number.isNaN(out[i])` to detect. Caller is responsible for sizing
+ * `out` at least as long as `refs`.
+ */
+export function carPositionsInFloorsPacked(
+	handle: BridgeHandle,
+	refs: BigUint64Array,
+	out: Float64Array,
+	alpha = 0,
+): number {
+	const written = handle.sim.positionsAtPacked(refs, alpha, out);
+	// Convert meters → floors in-place. Inverse of topology-sync's
+	// METERS_PER_FLOOR (4.0) scaling.
+	for (let i = 0; i < written; i++) {
+		out[i] /= 4.0;
+	}
+	return written;
 }
 
 export function disposeBridge(world: WorldState): void {
