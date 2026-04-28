@@ -699,38 +699,72 @@ export class TowerSim {
 		// Phaser renders smooth trapezoidal motion instead of
 		// per-tick integer steps. The classic engine fills currentFloor
 		// directly from car.currentFloor (always integer).
+		//
+		// Uses positionsAtPacked to collapse one wasm-bindgen crossing
+		// per car into one crossing per frame — significant on dense
+		// towers where carriersToArray runs every render frame.
 		const bridge =
 			this.world.elevatorEngine === "core" && bridgeModuleCache
 				? bridgeModuleCache.getBridge(this.world)
 				: undefined;
-		return this.world.carriers.flatMap((carrier) =>
-			carrier.cars.map((car, carIndex) => {
-				const corePosition = bridge
-					? bridgeModuleCache?.carPositionInFloors(
-							bridge,
-							carrier.column,
-							carIndex,
-						)
+
+		// Build a flat array of (carrier, car, carIndex) so we can
+		// either index into the packed-position output or fall back
+		// to the classic integer floor cleanly.
+		type CarTuple = {
+			carrier: WorldState["carriers"][number];
+			car: WorldState["carriers"][number]["cars"][number];
+			carIndex: number;
+		};
+		const tuples: CarTuple[] = [];
+		for (const carrier of this.world.carriers) {
+			for (let carIndex = 0; carIndex < carrier.cars.length; carIndex++) {
+				tuples.push({ carrier, car: carrier.cars[carIndex], carIndex });
+			}
+		}
+
+		let packedPositions: Float64Array | null = null;
+		if (bridge && bridgeModuleCache) {
+			const refs = new BigUint64Array(tuples.length);
+			let validCount = 0;
+			for (let i = 0; i < tuples.length; i++) {
+				const { carrier, carIndex } = tuples[i];
+				const ref = bridge.elevatorByCar.get(`${carrier.column}:${carIndex}`);
+				if (ref !== undefined) {
+					refs[i] = ref;
+					validCount++;
+				}
+			}
+			if (validCount > 0) {
+				const out = new Float64Array(tuples.length);
+				bridgeModuleCache.carPositionsInFloorsPacked(bridge, refs, out);
+				packedPositions = out;
+			}
+		}
+
+		return tuples.map(({ carrier, car, carIndex }, i) => {
+			const corePosition =
+				packedPositions !== null && Number.isFinite(packedPositions[i])
+					? packedPositions[i]
 					: undefined;
-				return {
-					carrierId: carrier.carrierId,
-					carIndex,
-					carCount: carrier.cars.length,
-					column: carrier.column,
-					carrierMode: carrier.carrierMode,
-					currentFloor: corePosition ?? car.currentFloor,
-					targetFloor: car.targetFloor,
-					settleCounter: car.settleCounter,
-					directionFlag: car.directionFlag,
-					dwellCounter: car.dwellCounter,
-					assignedCount: car.assignedCount,
-					prevFloor: car.prevFloor,
-					arrivalSeen: car.arrivalSeen,
-					arrivalTick: car.arrivalTick,
-					homeFloor: car.homeFloor,
-					active: car.active,
-				};
-			}),
-		);
+			return {
+				carrierId: carrier.carrierId,
+				carIndex,
+				carCount: carrier.cars.length,
+				column: carrier.column,
+				carrierMode: carrier.carrierMode,
+				currentFloor: corePosition ?? car.currentFloor,
+				targetFloor: car.targetFloor,
+				settleCounter: car.settleCounter,
+				directionFlag: car.directionFlag,
+				dwellCounter: car.dwellCounter,
+				assignedCount: car.assignedCount,
+				prevFloor: car.prevFloor,
+				arrivalSeen: car.arrivalSeen,
+				arrivalTick: car.arrivalTick,
+				homeFloor: car.homeFloor,
+				active: car.active,
+			};
+		});
 	}
 }
