@@ -41,6 +41,22 @@ import type { SimRecord, WorldState } from "../world";
 import { enqueueRequestIntoRouteQueue } from "./enqueue";
 
 /**
+ * Lazy-bound reference to the elevator-core bridge module. Populated
+ * by TowerSim.attachElevatorCoreBridgeIfNeeded; null on classic
+ * towers and on core towers that haven't completed async setup.
+ * Read by the shadow-rider-spawn path so we don't pull WASM into
+ * the classic-tower hot path.
+ */
+let elevatorCoreBridgeModule: typeof import("../elevator-core/index") | null =
+	null;
+
+export function _setElevatorCoreBridgeModule(
+	mod: typeof import("../elevator-core/index") | null,
+): void {
+	elevatorCoreBridgeModule = mod;
+}
+
+/**
  * Family → route-selector dispatch.
  *
  * Earlier comments here claimed the binary's `assign_request_to_runtime_route`
@@ -358,6 +374,23 @@ export function resolveSimRouteBetweenFloors(
 	// Phase 5b: idle → carrier (enqueued, boarding pending) → set 0x40 for
 	// dispatch_sim_behavior families. See `familyUsesStateBits` below.
 	if (familyUsesStateBits(sim.familyCode)) setSimInTransit(sim, true);
+
+	// Shadow-mode: mirror the spawn into elevator-core for `'core'`
+	// towers. Classic engine remains authoritative; this just lets
+	// elevator-core see the same trip so its events flow into the
+	// shadow-diff buffer.
+	if (world.elevatorEngine === "core") {
+		const bridge = elevatorCoreBridgeModule?.getBridge(world);
+		if (bridge) {
+			elevatorCoreBridgeModule?.syncRiderSpawn(
+				bridge,
+				carrier,
+				simKey(sim),
+				sourceFloor,
+				destinationFloor,
+			);
+		}
+	}
 	sim.queueTick = time?.dayTick ?? sim.queueTick;
 	// Binary: carrier branch writes sim+7 = source_floor (sim parks at source
 	// while waiting for the carrier; the carrier-arrival path will later set
