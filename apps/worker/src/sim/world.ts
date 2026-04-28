@@ -648,9 +648,38 @@ export function createEventState(): EventState {
 // ─── WorldState ───────────────────────────────────────────────────────────────
 
 /** All placed tile data for one tower. */
+/**
+ * Which elevator engine drives this tower's lifts. Set at tower creation
+ * and immutable for the tower's lifetime; a tower never changes engines
+ * mid-game. `'classic'` is the original TS engine in `apps/worker/src/sim/`;
+ * `'core'` is the elevator-core WASM engine introduced in the inversion
+ * migration. Per-tower scoping lets us roll out elevator-core gradually
+ * without touching towers already in flight.
+ */
+export type ElevatorEngine = "classic" | "core";
+
 export interface WorldState {
 	towerId: string;
 	name: string;
+	/**
+	 * Engine that owns elevator/rider-in-transit state for this tower.
+	 * Defaults to `'classic'` for legacy snapshots via `normalizeSnapshot`.
+	 */
+	elevatorEngine: ElevatorEngine;
+	/**
+	 * Stamped semver of the `elevator-core` crate that produced the
+	 * accompanying `elevatorCorePostcard` bytes, or `null` for classic
+	 * towers. Used by `assertEngineMatches` on the client to detect
+	 * engine/version mismatches at checkpoint apply time.
+	 */
+	elevatorCoreVersion: string | null;
+	/**
+	 * Base64-encoded postcard bytes from `WasmSim.snapshotBytes()` for
+	 * `'core'` towers, or `null` for `'classic'` towers. Populated by
+	 * later PRs in the inversion migration (PR 3 shadow mode and beyond);
+	 * always `null` after PR 2.
+	 */
+	elevatorCorePostcard: string | null;
 	width: number;
 	height: number;
 	/** Lobby slice height in floors; defaults to 1 until expanded-lobby support exists. */

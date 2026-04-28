@@ -16,6 +16,7 @@ import {
 	createGateFlags,
 	createMedicalServiceSlots,
 	DEFAULT_LOBBY_MODE,
+	type ElevatorEngine,
 	GRID_HEIGHT,
 	GRID_WIDTH,
 	type LobbyMode,
@@ -60,17 +61,38 @@ function createEmptyTransferGroupEntries(): WorldState["transferGroupEntries"] {
 	}));
 }
 
+/**
+ * Stamped onto every `'core'` snapshot at creation time so the loader
+ * can refuse to apply a snapshot whose elevator-core crate version
+ * doesn't match the runtime's. `null` for `'classic'` towers (no WASM
+ * involved). Tracks the runtime crate version exposed by the
+ * `@tower-together/elevator-core-wasm` package; PR 3 wires it through
+ * to the actual WasmSim version when the bridge is instantiated.
+ */
+const ELEVATOR_CORE_VERSION_PLACEHOLDER: string | null = null;
+
+export interface CreateInitialSnapshotOptions {
+	lobbyMode?: LobbyMode;
+	elevatorEngine?: ElevatorEngine;
+}
+
 export function createInitialSnapshot(
 	towerId: string,
 	name: string,
 	startingCash: number,
-	lobbyMode: LobbyMode = DEFAULT_LOBBY_MODE,
+	options: CreateInitialSnapshotOptions = {},
 ): SimSnapshot {
+	const lobbyMode = options.lobbyMode ?? DEFAULT_LOBBY_MODE;
+	const elevatorEngine: ElevatorEngine = options.elevatorEngine ?? "classic";
 	return {
 		time: createNewGameTimeState(),
 		world: {
 			towerId,
 			name,
+			elevatorEngine,
+			elevatorCoreVersion:
+				elevatorEngine === "core" ? ELEVATOR_CORE_VERSION_PLACEHOLDER : null,
+			elevatorCorePostcard: null,
 			width: GRID_WIDTH,
 			height: GRID_HEIGHT,
 			lobbyHeight: 1,
@@ -164,6 +186,9 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 		snapshot.world = {
 			towerId: old.towerId as string,
 			name: old.name as string,
+			elevatorEngine: "classic",
+			elevatorCoreVersion: null,
+			elevatorCorePostcard: null,
 			width: (old.width as number) ?? GRID_WIDTH,
 			height: (old.height as number) ?? GRID_HEIGHT,
 			lobbyHeight: (old.lobbyHeight as number) ?? 1,
@@ -197,6 +222,19 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 	}
 	if (!snapshot.world.commercialVenueBuckets) {
 		snapshot.world.commercialVenueBuckets = createCommercialVenueBuckets();
+	}
+
+	// Engine stamping (added in the elevator-core inversion migration). Pre-
+	// migration snapshots have no engine field; they came from the classic
+	// engine by definition.
+	if (!snapshot.world.elevatorEngine) {
+		snapshot.world.elevatorEngine = "classic";
+	}
+	if (snapshot.world.elevatorCoreVersion === undefined) {
+		snapshot.world.elevatorCoreVersion = null;
+	}
+	if (snapshot.world.elevatorCorePostcard === undefined) {
+		snapshot.world.elevatorCorePostcard = null;
 	}
 
 	if (!snapshot.ledger) {
@@ -550,6 +588,9 @@ export function serializeSimState(
 		world: {
 			towerId: world.towerId,
 			name: world.name,
+			elevatorEngine: world.elevatorEngine,
+			elevatorCoreVersion: world.elevatorCoreVersion,
+			elevatorCorePostcard: world.elevatorCorePostcard,
 			width: world.width,
 			height: world.height,
 			lobbyHeight: world.lobbyHeight,
@@ -606,4 +647,39 @@ export function serializeSimState(
 			cashBalanceCycleBase: ledger.cashBalanceCycleBase,
 		},
 	};
+}
+
+/**
+ * Thrown by `assertEngineMatches` when a snapshot's stamped engine
+ * doesn't match what the runtime can drive. The lockstep client
+ * surfaces this as a forced reconnect; the worker should never see it
+ * because it both produces and consumes its own snapshots.
+ */
+export class EngineMismatchError extends Error {
+	constructor(
+		public readonly snapshotEngine: ElevatorEngine,
+		public readonly runtimeEngine: ElevatorEngine,
+	) {
+		super(
+			`elevator engine mismatch: snapshot is "${snapshotEngine}", runtime is "${runtimeEngine}"`,
+		);
+		this.name = "EngineMismatchError";
+	}
+}
+
+/**
+ * Verify that the snapshot's stamped engine matches the runtime's
+ * supported engine. Call this on the boundary where a snapshot is
+ * received from another runtime (e.g. on the client when a checkpoint
+ * arrives from the worker) — never in the same-process path where the
+ * snapshot was just produced.
+ */
+export function assertEngineMatches(
+	snapshot: SimSnapshot,
+	expected: ElevatorEngine,
+): void {
+	const stamped = snapshot.world.elevatorEngine;
+	if (stamped !== expected) {
+		throw new EngineMismatchError(stamped, expected);
+	}
 }

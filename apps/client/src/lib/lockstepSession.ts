@@ -8,6 +8,8 @@ import {
 	simKey,
 	TowerSim,
 } from "../../../worker/src/sim/index";
+import { assertEngineMatches } from "../../../worker/src/sim/snapshot";
+import type { ElevatorEngine } from "../../../worker/src/sim/world";
 import type {
 	CarrierCarStateData,
 	CellData,
@@ -79,6 +81,14 @@ export class TowerLockstepSession {
 	private sim: TowerSim | null = null;
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private baseSnapshot: SimSnapshot | null = null;
+	/**
+	 * Engine pinned for this session at `initialize` time. Once set,
+	 * every subsequent checkpoint must carry the same `elevatorEngine`
+	 * stamp; a mismatch indicates the worker started serving a
+	 * different tower (or the snapshot wire was corrupted) and the
+	 * session must reconnect rather than apply silently.
+	 */
+	private pinnedEngine: ElevatorEngine | null = null;
 	private baseTick = 0;
 	private predictedTick = 0;
 	private settings: SessionSettings = {
@@ -100,6 +110,7 @@ export class TowerLockstepSession {
 	}
 
 	initialize(snapshot: SimSnapshot, settings: SessionSettings): void {
+		this.pinnedEngine = snapshot.world.elevatorEngine;
 		this.baseSnapshot = cloneSnapshot(snapshot);
 		this.baseTick = this.baseSnapshot.time.totalTicks;
 		this.predictedTick = this.baseTick;
@@ -144,6 +155,9 @@ export class TowerLockstepSession {
 	}
 
 	applyCheckpoint(snapshot: SimSnapshot, settings: SessionSettings): void {
+		if (this.pinnedEngine) {
+			assertEngineMatches(snapshot, this.pinnedEngine);
+		}
 		this.baseSnapshot = cloneSnapshot(snapshot);
 		this.baseTick = this.baseSnapshot.time.totalTicks;
 		this.settings = settings;

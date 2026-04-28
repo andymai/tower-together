@@ -98,7 +98,7 @@ export class TowerSim {
 		lobbyMode?: WorldState["lobbyMode"],
 	): TowerSim {
 		return TowerSim.fromSnapshot(
-			createInitialSnapshot(towerId, name, STARTING_CASH, lobbyMode),
+			createInitialSnapshot(towerId, name, STARTING_CASH, { lobbyMode }),
 		);
 	}
 
