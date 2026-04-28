@@ -156,6 +156,7 @@ describe("TowerSessionController with mocked server", () => {
 						rejectedReason: "Server rejected removal",
 					},
 				],
+				checksum: 0,
 			});
 
 			expect(toasts).toContain("Server rejected removal");
