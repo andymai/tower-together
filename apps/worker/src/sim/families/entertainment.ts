@@ -233,6 +233,7 @@ function selectRandomCommercialVenueRecordFromBucket(
 			| undefined;
 		if (!sidecar || sidecar.kind !== "commercial_venue") continue;
 		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		if (sidecar.availabilityState === 0xff) continue;
 		const [, y] = key.split(",").map(Number);
 		const floor = yToFloor(y);
 		const zoneKey = Math.max(0, Math.trunc((floor - 9) / 15));
@@ -503,6 +504,15 @@ function handleEntertainmentServiceAcquisition(
 		: sim.selectedFloor;
 
 	if (isFreshDispatch) {
+		// Binary 1228:5807-5827 (handle_entertainment_service_acquisition):
+		// after `select_random_commercial_venue_record_for_floor`, the picker's
+		// AX return value is pushed at 1228:5807 and popped back at 1228:5826,
+		// then `MOV byte ptr ES:[BX+0x6], AL` at 1228:5827 writes the LOW
+		// BYTE of the recordIdx into sim[+6]. The picker advances the LCG once
+		// (bucket selector via `lcg15 % 3`) and once more inside
+		// `select_random_commercial_venue_record_from_bucket` when a non-empty
+		// row exists. We store the picker's full int return; sentinel -1 makes
+		// `getCurrentCommercialVenueDestinationFloor` fall back to LOBBY_FLOOR.
 		const bucket = Math.abs(sampleRng(world)) % ENT_VENUE_BUCKET_MODULO;
 		const recordIdx = selectRandomCommercialVenueRecordForFloor(
 			world,
