@@ -38,6 +38,15 @@ export async function fetchTowerInfo(
 	return getTowerRoomStub(env, towerId).fetch("http://do/info");
 }
 
+export async function migrateTowerToCore(
+	env: TowerRoomEnv,
+	towerId: string,
+): Promise<Response> {
+	return getTowerRoomStub(env, towerId).fetch("http://do/migrate-to-core", {
+		method: "POST",
+	});
+}
+
 export async function initializeTower(
 	env: TowerRoomEnv,
 	towerId: string,

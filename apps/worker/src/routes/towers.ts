@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import type { ElevatorEngine } from "../sim/world";
-import { fetchTowerInfo, initializeTower } from "../tower-service";
+import {
+	fetchTowerInfo,
+	initializeTower,
+	migrateTowerToCore,
+} from "../tower-service";
 
 interface Env {
 	TOWER_ROOM: DurableObjectNamespace;
@@ -72,4 +76,21 @@ towersRouter.get("/towers/:id", async (c) => {
 
 	const info = await res.json();
 	return c.json(info);
+});
+
+// POST /api/towers/:id/migrate-to-core — flip a 'classic' tower to
+// 'core'. Idempotent on already-core towers. Used as the migration
+// sweep before the legacy classic engine is deleted.
+towersRouter.post("/towers/:id/migrate-to-core", async (c) => {
+	const towerId = c.req.param("id");
+	const res = await migrateTowerToCore(c.env, towerId);
+	if (!res.ok) {
+		const err = await res.json<{ error: string }>();
+		return c.json(
+			{ error: err.error ?? "Migration failed" },
+			res.status as 404 | 500,
+		);
+	}
+	const result = await res.json();
+	return c.json(result);
 });

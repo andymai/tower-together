@@ -95,3 +95,8 @@ Per-sim stress accessors (binary segment 11e0): `advanceSimTripCounters`, `rebas
 
 ### `daily/`
 Once-per-day sweeps fired from specific day-tick checkpoints. Hosts `dispatchActiveRequestsByFamily` (1190:0977), wired into the 0x9c4 checkpoint.
+
+### `elevator-core/`
+WASM bridge to the [elevator-core](https://github.com/andymai/elevator-core) Rust engine. Active only on `'core'` towers; `'classic'` towers never load the WASM module. See `elevator-core/AGENTS.md` for the per-file breakdown — bridge handle lifecycle, topology mirroring, rider spawn/event-drain, shadow diff buffer.
+
+On `'core'` towers, `tick/carrier-tick.ts` skips the binary-faithful per-carrier loop and instead drives arrivals/abandonment/route-invalidation from elevator-core events. `world.carriers` is still rebuilt by `rebuildCarrierList` for render metadata (column, mode, served range) but no longer drives transit. `commands.ts` translations (per-floor stop toggle, dwell, etc.) mirror into the bridge where elevator-core has matching APIs.
