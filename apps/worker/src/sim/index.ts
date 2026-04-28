@@ -552,6 +552,41 @@ export class TowerSim {
 	}
 
 	/**
+	 * Which elevator engine this tower runs (`'classic'` or `'core'`).
+	 * Set at tower creation, immutable for the tower's lifetime
+	 * except via `flipEngineToCore` (one-way migration only).
+	 */
+	get engine(): WorldState["elevatorEngine"] {
+		return this.world.elevatorEngine;
+	}
+
+	/**
+	 * Flip a `'classic'` tower to `'core'`. One-way; meant for the
+	 * post-soak migration sweep that drains the tail of pre-cutover
+	 * stored towers. The next `attachElevatorCoreBridgeIfNeeded` call
+	 * will instantiate a bridge and seed elevator-core's topology
+	 * from the existing `world.carriers` list. No-op for towers
+	 * already on `'core'`.
+	 *
+	 * This is the only path that mutates `world.elevatorEngine` after
+	 * tower creation. It does NOT translate in-flight transit state —
+	 * any sims currently in `route.mode === 'carrier'` will get their
+	 * routes cleared on the next tick when the family handler
+	 * re-resolves under elevator-core's authority.
+	 */
+	flipEngineToCore(): void {
+		if (this.world.elevatorEngine === "core") return;
+		this.world.elevatorEngine = "core";
+		// Clear any in-flight TS-queue transit state so the bridge
+		// doesn't see a half-driven trip on first attach.
+		for (const sim of this.world.sims) {
+			if (sim.route.mode === "carrier") {
+				sim.route = { mode: "idle" };
+			}
+		}
+	}
+
+	/**
 	 * Cheap u32 checksum of the lockstep-relevant TS state. Used by
 	 * client/server reconciliation to detect drift between checkpoints
 	 * without paying the cost of a full snapshot diff.

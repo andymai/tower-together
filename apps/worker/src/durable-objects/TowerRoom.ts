@@ -168,6 +168,40 @@ export class TowerRoom extends DurableObject<Env> {
 			});
 		}
 
+		// One-shot migration: flip a 'classic' tower's engine flag to
+		// 'core'. Re-saves the snapshot with the new stamp; the next
+		// hydrate attaches the bridge and rebuilds elevator-core
+		// topology from the existing world.carriers list. Idempotent —
+		// calling on a 'core' tower returns success without changes.
+		// Used to drain the long tail of pre-migration stored towers
+		// before the eventual classic-engine deletion lands.
+		if (request.method === "POST" && path === "/migrate-to-core") {
+			let sim = this.sim;
+			if (!sim) {
+				sim = this.loadSim();
+				if (sim) await this.attachBridgeIfNeeded();
+			}
+			if (!sim) {
+				return Response.json({ error: "Tower not found" }, { status: 404 });
+			}
+			const before = sim.engine;
+			if (before === "core") {
+				return Response.json({
+					towerId: sim.towerId,
+					engine: "core",
+					migrated: false,
+				});
+			}
+			sim.flipEngineToCore();
+			await this.attachBridgeIfNeeded();
+			this.persistSim();
+			return Response.json({
+				towerId: sim.towerId,
+				engine: "core",
+				migrated: true,
+			});
+		}
+
 		return Response.json({ error: "Not found" }, { status: 404 });
 	}
 
