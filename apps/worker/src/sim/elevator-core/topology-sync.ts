@@ -10,7 +10,7 @@
 //   - 1 Elevator per car on the line, starting at its currentFloor.
 
 import type { CarrierRecord } from "../world";
-import { type BridgeHandle, groupForMode } from "./bridge";
+import { type BridgeHandle, groupForMode, refToSlot } from "./bridge";
 
 /**
  * Vertical separation between floors in elevator-core's continuous
@@ -108,6 +108,13 @@ export function syncTopology(
 				handle.sim.addStop(lineRef, `f${floor}`, floor * METERS_PER_FLOOR),
 			);
 			handle.stopByFloor.set(key, stopRef);
+			// Maintain the reverse lookup so RiderExited.stop (a u32 slot
+			// id reported by elevator-core's events) can be mapped back
+			// to the (column, floor) pair the rider arrived at.
+			handle.stopBySlot.set(refToSlot(stopRef), {
+				column: carrier.column,
+				floor,
+			});
 		}
 
 		// Ensure each car has an elevator.
@@ -140,6 +147,7 @@ export function syncTopology(
 		if (desiredStops.has(key)) continue;
 		unwrapVoid(`removeStop ${key}`, handle.sim.removeStop(stopRef));
 		handle.stopByFloor.delete(key);
+		handle.stopBySlot.delete(refToSlot(stopRef));
 	}
 	for (const [column, lineRef] of handle.lineByColumn) {
 		if (desiredLines.has(column)) continue;

@@ -7,9 +7,18 @@
 // Decision: a TS Map (not elevator-core extension storage) avoids the
 // serde round-trip cost on every snapshot and lets us invalidate
 // linkages naturally on cancel/reroute.
+//
+// Key shape: elevator-core EventDtos report rider ids as u32 slot
+// ids (low 32 bits of the slotmap FFI encoding), but addStop /
+// spawnRiderByRef return full u64 entity refs. The index keeps both
+// keyings — the BigInt ref for cancellation paths that already have
+// the full ref in hand, and the slot-only number for the event-drain
+// path where we only have what elevator-core hands us.
+
+import { refToSlot } from "./bridge";
 
 export class RiderIndex {
-	private readonly riderToSim = new Map<bigint, string>();
+	private readonly slotToSim = new Map<number, string>();
 	private readonly simToRider = new Map<string, bigint>();
 
 	link(riderRef: bigint, simId: string): void {
@@ -17,14 +26,18 @@ export class RiderIndex {
 		// drop the old linkage so simToRider stays exclusive.
 		const prevRider = this.simToRider.get(simId);
 		if (prevRider !== undefined) {
-			this.riderToSim.delete(prevRider);
+			this.slotToSim.delete(refToSlot(prevRider));
 		}
-		this.riderToSim.set(riderRef, simId);
+		this.slotToSim.set(refToSlot(riderRef), simId);
 		this.simToRider.set(simId, riderRef);
 	}
 
 	simIdFor(riderRef: bigint): string | undefined {
-		return this.riderToSim.get(riderRef);
+		return this.slotToSim.get(refToSlot(riderRef));
+	}
+
+	simIdForSlot(slot: number): string | undefined {
+		return this.slotToSim.get(slot);
 	}
 
 	riderRefFor(simId: string): bigint | undefined {
@@ -32,9 +45,13 @@ export class RiderIndex {
 	}
 
 	unlinkRider(riderRef: bigint): string | undefined {
-		const simId = this.riderToSim.get(riderRef);
+		return this.unlinkRiderBySlot(refToSlot(riderRef));
+	}
+
+	unlinkRiderBySlot(slot: number): string | undefined {
+		const simId = this.slotToSim.get(slot);
 		if (simId !== undefined) {
-			this.riderToSim.delete(riderRef);
+			this.slotToSim.delete(slot);
 			this.simToRider.delete(simId);
 		}
 		return simId;
@@ -44,17 +61,17 @@ export class RiderIndex {
 		const riderRef = this.simToRider.get(simId);
 		if (riderRef !== undefined) {
 			this.simToRider.delete(simId);
-			this.riderToSim.delete(riderRef);
+			this.slotToSim.delete(refToSlot(riderRef));
 		}
 		return riderRef;
 	}
 
 	clear(): void {
-		this.riderToSim.clear();
+		this.slotToSim.clear();
 		this.simToRider.clear();
 	}
 
 	get size(): number {
-		return this.riderToSim.size;
+		return this.slotToSim.size;
 	}
 }
