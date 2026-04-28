@@ -14,6 +14,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ELEVATOR_CORE_PATH: ${{ github.workspace }}/elevator-core
     steps:
       - name: Checkout tower-together
         uses: actions/checkout@v4
@@ -65,8 +67,6 @@ jobs:
 
       - name: Build elevator-core-wasm
         working-directory: tower-together
-        env:
-          ELEVATOR_CORE_PATH: ${{ github.workspace }}/elevator-core
         run: npm run build:wasm
 
       - name: Typecheck
