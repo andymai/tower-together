@@ -9,6 +9,7 @@ export {
 	type CarrierModeGroups,
 	type CreateBridgeOptions,
 	captureBridgePostcard,
+	carPositionInFloors,
 	createBridge,
 	disposeBridge,
 	ensureBridge,

@@ -196,6 +196,33 @@ export function refToSlot(ref: bigint): number {
 	return Number(ref & 0xffff_ffffn);
 }
 
+/**
+ * Query elevator-core for the continuous Y position of a car,
+ * expressed in tower-together's floor units (so the render path can
+ * use it where it currently uses integer `currentFloor`). Returns
+ * `undefined` if the car key isn't in the bridge — caller should fall
+ * back to whatever classic state it has.
+ *
+ * `alpha` is the inter-tick interpolation fraction the renderer
+ * already passes for sub-tick smoothing; elevator-core does its own
+ * trapezoidal motion internally so passing 0 is fine for steady-state
+ * rendering. The hook is here so a future renderer can pass an actual
+ * frame-time alpha for even smoother motion.
+ */
+export function carPositionInFloors(
+	handle: BridgeHandle,
+	column: number,
+	carIndex: number,
+	alpha = 0,
+): number | undefined {
+	const elevatorRef = handle.elevatorByCar.get(`${column}:${carIndex}`);
+	if (elevatorRef === undefined) return undefined;
+	const positionMeters = handle.sim.positionAt(elevatorRef, alpha);
+	if (positionMeters === undefined) return undefined;
+	// Inverse of topology-sync's METERS_PER_FLOOR scaling.
+	return positionMeters / 4.0;
+}
+
 export function disposeBridge(world: WorldState): void {
 	const handle = bridges.get(world);
 	if (!handle) return;
