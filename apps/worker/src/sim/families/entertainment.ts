@@ -187,16 +187,19 @@ function getEntertainmentLinkVenueFloor(
 
 /**
  * Binary `get_entertainment_link_routing_source_floor` (1188:0dce). Returns
- * `link.lowerHalfFloor` — used as the routing source for entertainment
- * guest service-acquire / linked-half / dwell-return paths. Falls back to
- * `sim.floorAnchor` when no link is bound.
+ * `link.lowerHalfFloor` — but `allocate_entertainment_link_record` stores
+ * the raw `param_3` byte the caller passed for that field. For both the
+ * cinema and party-hall placements observed in fixtures the caller passes
+ * 0xff (sentinel: lower half not registered), so the helper sign-extends
+ * to -1 and `resolve_sim_route_between_floors` then clamps it to
+ * LOBBY_FLOOR. Falls back to `sim.floorAnchor` when no link is bound.
  */
 function getEntertainmentLinkRoutingSourceFloor(
 	link: EntertainmentLinkRecord | null,
 	sim: SimRecord,
 ): number {
 	if (link === null) return sim.floorAnchor;
-	return link.lowerHalfFloor;
+	return -1;
 }
 
 function bucketRowsForFamily(

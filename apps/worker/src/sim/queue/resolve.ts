@@ -33,6 +33,7 @@ import { selectHousekeepingRoute } from "../route-scoring/select-housekeeping";
 import { setSimInTransit, setSimWaiting } from "../sim-access/state-bits";
 import { clearSimRoute, simKey } from "../sims/population";
 import { maybeApplyDistanceFeedback } from "../sims/scoring";
+import { LOBBY_FLOOR } from "../sims/states";
 import { addDelayToCurrentSim } from "../stress/add-delay";
 import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
@@ -221,6 +222,13 @@ export function resolveSimRouteBetweenFloors(
 	const targetHeightMetric = options.targetHeightMetric ?? sim.homeColumn;
 	const isPassengerRoute = options.isPassengerRoute ?? true;
 	const emitDistanceFeedback = options.emitDistanceFeedback ?? true;
+
+	// Binary 1218:001e/0029: clamp negative source/target to LOBBY_FLOOR (10).
+	// Sentinel -1 reaches here from `get_entertainment_link_routing_source_floor`
+	// (binary stores 0xff in the half it has not registered yet) and from
+	// `get_current_commercial_venue_destination_floor` (lobby fallback).
+	if (sourceFloor < 0) sourceFloor = LOBBY_FLOOR;
+	if (destinationFloor < 0) destinationFloor = LOBBY_FLOOR;
 
 	if (sourceFloor === destinationFloor) {
 		// Binary quirk: same-floor result code is 3 (not 2). The caller treats
