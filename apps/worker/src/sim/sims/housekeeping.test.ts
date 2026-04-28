@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FAMILY_HOTEL_SINGLE, FAMILY_HOUSEKEEPING } from "../resources";
 import { createTimeState, type TimeState } from "../time";
 import {
+	createCommercialVenueBuckets,
 	createEventState,
 	createGateFlags,
 	createMedicalServiceSlots,
@@ -36,6 +37,7 @@ function makeWorld(): WorldState {
 		starCount: 1,
 		currentPopulation: 0,
 		currentPopulationBuckets: {},
+		commercialVenueBuckets: createCommercialVenueBuckets(),
 		gateFlags: createGateFlags(),
 		cells: {},
 		cellToAnchor: {},

@@ -450,6 +450,34 @@ export interface CommercialVenueRecord {
 	overrideSeed: number;
 }
 
+/**
+ * Per-family runtime path buckets. Mirrors the binary's
+ * `g_retail_shop_bucket_table` / `g_restaurant_bucket_table` /
+ * `g_fast_food_bucket_table` (each 7 zone rows × variable slot count).
+ * Each row holds sidecar indices appended by `append_facility_path_bucket_entry`
+ * (11b0:161b) when the venue is placed/recomputed. The selector
+ * (`select_random_commercial_venue_record_from_bucket`, 11b0:1361) reads from
+ * the requested zone row, falling back to row 0 when the requested row is
+ * empty, then validates the picked record's availabilityState post-pick.
+ */
+export interface CommercialVenueBuckets {
+	retail: number[][];
+	restaurant: number[][];
+	fastFood: number[][];
+}
+
+export const COMMERCIAL_VENUE_BUCKET_ROWS = 7;
+
+export function createCommercialVenueBuckets(): CommercialVenueBuckets {
+	const empty = (): number[][] =>
+		Array.from({ length: COMMERCIAL_VENUE_BUCKET_ROWS }, () => []);
+	return {
+		retail: empty(),
+		restaurant: empty(),
+		fastFood: empty(),
+	};
+}
+
 // CommercialVenueRecord.availabilityState values
 export const VENUE_AVAILABLE = 0;
 export const VENUE_PARTIAL = 1; // active_assignment_count 1..9
@@ -701,6 +729,15 @@ export interface WorldState {
 	 * gives a delta of (newVisits - oldVisits) on the running total.
 	 */
 	currentPopulationBuckets: Record<number, number>;
+	/**
+	 * Per-family path buckets used by entertainment guests / hotel guests when
+	 * picking a commercial venue. Maintained in sync with the binary's
+	 * `recompute_facility_runtime_state` (11b0:02f2) and
+	 * `append_facility_path_bucket_entry` (11b0:161b). Rebuilt at venue
+	 * placement/demolition (`runGlobalRebuilds`) and at the daily restock
+	 * checkpoints (tick 240 fast-food/retail, tick 1600 restaurant).
+	 */
+	commercialVenueBuckets: CommercialVenueBuckets;
 	/** Bomb/fire/VIP event state. */
 	eventState: EventState;
 	/** Pending notifications emitted during the current tick (drained by the transport layer). */

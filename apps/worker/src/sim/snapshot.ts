@@ -11,6 +11,7 @@ import { LEGACY_TILE_ALIASES, LEGACY_VIP_TILE_TO_STANDARD } from "./resources";
 import { rebuildRuntimeSims } from "./sims";
 import { createNewGameTimeState, type TimeState } from "./time";
 import {
+	createCommercialVenueBuckets,
 	createEventState,
 	createGateFlags,
 	createMedicalServiceSlots,
@@ -93,6 +94,7 @@ export function createInitialSnapshot(
 			starCount: 1,
 			currentPopulation: 0,
 			currentPopulationBuckets: {},
+			commercialVenueBuckets: createCommercialVenueBuckets(),
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
@@ -185,12 +187,16 @@ export function normalizeSnapshot(raw: SimSnapshot): SimSnapshot {
 			starCount: 1,
 			currentPopulation: 0,
 			currentPopulationBuckets: {},
+			commercialVenueBuckets: createCommercialVenueBuckets(),
 			rngState: 1,
 			rngCallCount: 0,
 			eventState: createEventState(),
 			pendingNotifications: [],
 			pendingPrompts: [],
 		};
+	}
+	if (!snapshot.world.commercialVenueBuckets) {
+		snapshot.world.commercialVenueBuckets = createCommercialVenueBuckets();
 	}
 
 	if (!snapshot.ledger) {
@@ -581,6 +587,9 @@ export function serializeSimState(
 			starCount: world.starCount,
 			currentPopulation: world.currentPopulation,
 			currentPopulationBuckets: { ...world.currentPopulationBuckets },
+			commercialVenueBuckets: JSON.parse(
+				JSON.stringify(world.commercialVenueBuckets),
+			) as WorldState["commercialVenueBuckets"],
 			rngState: world.rngState,
 			rngCallCount: world.rngCallCount,
 			eventState: JSON.parse(

@@ -39,7 +39,9 @@ import { LOBBY_FLOOR } from "../sims/states";
 import { advanceSimTripCounters } from "../stress/trip-counters";
 import type { TimeState } from "../time";
 import {
+	COMMERCIAL_VENUE_BUCKET_ROWS,
 	type CommercialVenueRecord,
+	createCommercialVenueBuckets,
 	type EntertainmentLinkRecord,
 	type SimRecord,
 	sampleRng,
@@ -78,13 +80,6 @@ const ENT_GATE_RNG_MODULO = 6; // 1-in-6 RNG gate
 
 // Venue selector bucket RNG divisor (binary: select_random_commercial_venue_record).
 const ENT_VENUE_BUCKET_MODULO = 3; // 0=retail, 1=restaurant, 2=fast-food
-
-// Venue selector families (binary: selector 0/1/2 map to these families).
-const ENT_VENUE_FAMILIES: Set<number>[] = [
-	new Set([FAMILY_RETAIL]),
-	new Set([FAMILY_RESTAURANT]),
-	new Set([FAMILY_FAST_FOOD]),
-];
 
 // Sentinel stored in sim.commercialVenueSlot / sim.originFloor on route failure.
 const ENT_ROUTE_FAIL_VENUE = 0xff;
@@ -204,50 +199,36 @@ function getEntertainmentLinkRoutingSourceFloor(
 	return link.lowerHalfFloor;
 }
 
-interface CommercialVenueCandidate {
-	sidecarIndex: number;
+function bucketRowsForFamily(
+	world: WorldState,
+	serviceBucket: number,
+): number[][] | null {
+	if (serviceBucket === 0) return world.commercialVenueBuckets.retail;
+	if (serviceBucket === 1) return world.commercialVenueBuckets.restaurant;
+	if (serviceBucket === 2) return world.commercialVenueBuckets.fastFood;
+	return null;
 }
 
 /**
  * Binary `select_random_commercial_venue_record_from_bucket` (11b0:1361):
- * indexes a per-family zone-row bucket table, falls back to row 0 when the
- * target row is empty, and picks uniformly via `abs(sample_lcg15()) % count`.
- *
- * Post-pick validation at LAB_11b0_14c1: if the picked record's
- * `availabilityState` is `0xff` (dormant) or `3` (closed), returns -1.
+ * indexes the maintained per-family zone-row bucket, falls back to row 0 when
+ * the target row is empty, and picks uniformly via `abs(sample_lcg15()) %
+ * count`. Critically the LCG is sampled BEFORE the post-pick availability
+ * check (LAB_11b0_14c1): a dormant or closed pick still burns RNG and returns
+ * -1.
  */
 function selectRandomCommercialVenueRecordFromBucket(
 	world: WorldState,
 	serviceBucket: number,
 	zoneRow: number,
 ): number {
-	if (serviceBucket < 0 || serviceBucket >= ENT_VENUE_BUCKET_MODULO) return -1;
-	const venueFamilies = ENT_VENUE_FAMILIES[serviceBucket];
-
-	const byZone = new Map<number, CommercialVenueCandidate[]>();
-	for (const [key, object] of Object.entries(world.placedObjects)) {
-		if (!venueFamilies.has(object.objectTypeCode)) continue;
-		if (object.linkedRecordIndex < 0) continue;
-		const sidecar = world.sidecars[object.linkedRecordIndex] as
-			| CommercialVenueRecord
-			| undefined;
-		if (!sidecar || sidecar.kind !== "commercial_venue") continue;
-		if (sidecar.ownerSubtypeIndex === 0xff) continue;
-		if (sidecar.availabilityState === 0xff) continue;
-		const [, y] = key.split(",").map(Number);
-		const floor = yToFloor(y);
-		const zoneKey = Math.max(0, Math.trunc((floor - 9) / 15));
-		const list = byZone.get(zoneKey) ?? [];
-		list.push({ sidecarIndex: object.linkedRecordIndex });
-		byZone.set(zoneKey, list);
-	}
-
-	let row = byZone.get(zoneRow);
-	if (!row || row.length === 0) row = byZone.get(0);
+	const rows = bucketRowsForFamily(world, serviceBucket);
+	if (!rows) return -1;
+	let row = rows[zoneRow];
+	if (!row || row.length === 0) row = rows[0];
 	if (!row || row.length === 0) return -1;
-
 	const pick = Math.abs(sampleRng(world)) % row.length;
-	const recordIdx = row[pick].sidecarIndex;
+	const recordIdx = row[pick];
 	const sidecar = world.sidecars[recordIdx] as
 		| CommercialVenueRecord
 		| undefined;
@@ -259,6 +240,79 @@ function selectRandomCommercialVenueRecordFromBucket(
 		return -1;
 	}
 	return recordIdx;
+}
+
+/**
+ * Binary `classify_path_bucket_index` (11b0:16f0): maps a floor index in
+ * 5..104 to one of seven bucket rows; floors outside the 10-floor strip per
+ * 15-floor zone return -1 (the venue is not appended to any bucket row).
+ */
+function classifyPathBucketIndex(floor: number): number {
+	const offset = floor - 5;
+	const row = Math.trunc(offset / 15);
+	if (row < 0 || row > 6) return -1;
+	if (offset % 15 > 9) return -1;
+	return row;
+}
+
+function appendBucketsForFamilies(
+	world: WorldState,
+	families: Set<number>,
+): void {
+	const sidecarToFloor = new Map<number, number>();
+	const sidecarToFamily = new Map<number, number>();
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (object.linkedRecordIndex < 0) continue;
+		const family = object.objectTypeCode;
+		if (!families.has(family)) continue;
+		const [, y] = key.split(",").map(Number);
+		sidecarToFloor.set(object.linkedRecordIndex, yToFloor(y));
+		sidecarToFamily.set(object.linkedRecordIndex, family);
+	}
+	for (let idx = 0; idx < world.sidecars.length; idx++) {
+		const sidecar = world.sidecars[idx];
+		if (!sidecar || sidecar.kind !== "commercial_venue") continue;
+		if (sidecar.ownerSubtypeIndex === 0xff) continue;
+		const floor = sidecarToFloor.get(idx);
+		const family = sidecarToFamily.get(idx);
+		if (floor === undefined || family === undefined) continue;
+		const row = classifyPathBucketIndex(floor);
+		if (row < 0 || row >= COMMERCIAL_VENUE_BUCKET_ROWS) continue;
+		let target: number[][] | null = null;
+		if (family === FAMILY_RETAIL) target = world.commercialVenueBuckets.retail;
+		else if (family === FAMILY_RESTAURANT)
+			target = world.commercialVenueBuckets.restaurant;
+		else if (family === FAMILY_FAST_FOOD)
+			target = world.commercialVenueBuckets.fastFood;
+		if (target) target[row].push(idx);
+	}
+}
+
+/**
+ * Binary `rebuild_linked_facility_records` (11b0:0184) bucket-rebuild path.
+ * Clears all three family buckets via FUN_11b0_154e, then iterates the
+ * facility record table appending entries for every family EXCEPT 6 (restaurant).
+ * The restaurant bucket therefore stays empty between tick 240 and tick 1600;
+ * it is re-populated separately by `rebuildRestaurantBuckets`. Used by
+ * `runGlobalRebuilds` (placement/demolition) and `rebuildCommercialVenueRuntime`
+ * (tick 240).
+ */
+export function recomputeCommercialVenueBuckets(world: WorldState): void {
+	world.commercialVenueBuckets = createCommercialVenueBuckets();
+	appendBucketsForFamilies(world, new Set([FAMILY_RETAIL, FAMILY_FAST_FOOD]));
+}
+
+/**
+ * Binary `rebuild_type6_facility_records` (11b0:0250). Re-appends restaurant
+ * (family 6) entries into `world.commercialVenueBuckets.restaurant`. Called
+ * at the tick 1600 restaurant restock checkpoint. Does NOT touch the other
+ * two family buckets. Note the binary leaves stale restaurant entries in
+ * place: the restaurant bucket was cleared at tick 240 and stays empty until
+ * this point, after which it holds the current placement set.
+ */
+export function recomputeRestaurantVenueBuckets(world: WorldState): void {
+	for (const row of world.commercialVenueBuckets.restaurant) row.length = 0;
+	appendBucketsForFamilies(world, new Set([FAMILY_RESTAURANT]));
 }
 
 /**

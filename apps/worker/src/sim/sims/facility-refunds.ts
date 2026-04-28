@@ -1,4 +1,8 @@
 import {
+	recomputeCommercialVenueBuckets,
+	recomputeRestaurantVenueBuckets,
+} from "../families/entertainment";
+import {
 	addCashflowFromFamilyResource,
 	type LedgerState,
 	removeCashflowFromFamilyResource,
@@ -126,6 +130,7 @@ export function rebuildCommercialVenueRuntime(
 		// Clear the active calendar slot (not necessarily phaseA).
 		writeSeedForSlot(record, slot, 0);
 	}
+	recomputeCommercialVenueBuckets(world);
 }
 
 /**
@@ -174,6 +179,7 @@ export function rebuildRestaurantFacilityRecords(
 		record.visitCount = 0;
 		writeSeedForSlot(record, slot, 0);
 	}
+	recomputeRestaurantVenueBuckets(world);
 }
 
 export function closeCommercialVenues(world: WorldState): void {

@@ -1,4 +1,5 @@
 import { floorToSlot, makeCarrierCar, rebuildCarrierList } from "./carriers";
+import { recomputeCommercialVenueBuckets } from "./families/entertainment";
 import { type LedgerState, rebuildFacilityLedger } from "./ledger";
 import { cancelRuntimeRouteRequest } from "./queue/cancel";
 import {
@@ -503,6 +504,7 @@ export function runGlobalRebuilds(
 	rebuildSpecialLinkRouteRecords(world);
 	rebuildRouteReachabilityTables(world);
 	rebuildTransferGroupCache(world);
+	recomputeCommercialVenueBuckets(world);
 }
 
 function hasRecyclingStackOverlap(
