@@ -44,6 +44,23 @@ import {
 } from "./sims";
 import { invalidateMedicalSlotsForSidecar } from "./sims/medical";
 import { clearSimRoute, simKey } from "./sims/population";
+
+/**
+ * Lazy-bound reference to the elevator-core bridge module. Populated
+ * by TowerSim.attachElevatorCoreBridgeIfNeeded; null on classic
+ * towers and on core towers that haven't completed async setup. Read
+ * by per-floor command translators so we don't pull WASM into the
+ * classic-tower hot path.
+ */
+let elevatorCoreBridgeModule: typeof import("./elevator-core/index") | null =
+	null;
+
+export function _setElevatorCoreBridgeModuleForCommands(
+	mod: typeof import("./elevator-core/index") | null,
+): void {
+	elevatorCoreBridgeModule = mod;
+}
+
 import {
 	type CommercialVenueRecord,
 	type EntertainmentLinkRecord,
@@ -1751,6 +1768,29 @@ export function handleToggleElevatorFloorStop(
 	// and route-reachability tables after any toggle.
 	rebuildTransferGroupCache(world);
 	rebuildRouteReachabilityTables(world);
+
+	// Mirror the toggle into the elevator-core bridge for `'core'`
+	// towers. Disabling a floor removes the elevator-core stop so the
+	// engine stops dispatching cars there; re-enabling adds it back.
+	// elevator-core's `RouteInvalidated` event fires for any rider
+	// already bound for the removed stop, which `carrierTick` catches
+	// and clears the sim's route.
+	if (world.elevatorEngine === "core") {
+		const bridge = elevatorCoreBridgeModule?.getBridge(world);
+		if (bridge && elevatorCoreBridgeModule) {
+			elevatorCoreBridgeModule.syncTopology(bridge, world.carriers);
+			const stopKey = `${carrier.column}:${floor}`;
+			if (wasEnabled) {
+				// Disabled — drop the stop so elevator-core won't service it.
+				const stopRef = bridge.stopByFloor.get(stopKey);
+				if (stopRef !== undefined) {
+					bridge.sim.removeStop(stopRef);
+					bridge.stopByFloor.delete(stopKey);
+					bridge.stopBySlot.delete(elevatorCoreBridgeModule.refToSlot(stopRef));
+				}
+			}
+		}
+	}
 
 	return { accepted: true, patch: [] };
 }

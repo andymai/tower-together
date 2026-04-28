@@ -135,9 +135,14 @@ export class TowerSim {
 		const mod = await import("./elevator-core/index");
 		bridgeModuleCache = mod;
 		// Wire the bridge module into the resolve.ts shadow-spawn path
-		// so trip enqueues mirror into elevator-core for 'core' towers.
-		const resolveMod = await import("./queue/resolve");
+		// and commands.ts per-floor command translators so the
+		// classic-tower hot path doesn't pull WASM at module load.
+		const [resolveMod, commandsMod] = await Promise.all([
+			import("./queue/resolve"),
+			import("./commands"),
+		]);
 		resolveMod._setElevatorCoreBridgeModule(mod);
+		commandsMod._setElevatorCoreBridgeModuleForCommands(mod);
 		const bridge = await mod.ensureBridge(this.world);
 		if (bridge) {
 			mod.syncTopology(bridge, this.world.carriers);
