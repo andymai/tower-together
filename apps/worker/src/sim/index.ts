@@ -134,10 +134,32 @@ export class TowerSim {
 	async attachElevatorCoreBridgeIfNeeded(): Promise<void> {
 		const mod = await import("./elevator-core/index");
 		bridgeModuleCache = mod;
+		// Wire the bridge module into the resolve.ts shadow-spawn path
+		// so trip enqueues mirror into elevator-core for 'core' towers.
+		const resolveMod = await import("./queue/resolve");
+		resolveMod._setElevatorCoreBridgeModule(mod);
 		const bridge = await mod.ensureBridge(this.world);
 		if (bridge) {
 			mod.syncTopology(bridge, this.world.carriers);
 		}
+	}
+
+	/**
+	 * Snapshot of the elevator-core bridge's shadow-mode diff buffer
+	 * for `'core'` towers. Returns an empty array when no bridge is
+	 * attached (classic towers, or core towers that haven't completed
+	 * their async setup yet). Used by tests and the dev panel to
+	 * inspect what elevator-core decided alongside the classic engine.
+	 */
+	getElevatorCoreShadowDiffs(): Array<{
+		tick: number;
+		kind: string;
+		detail: Record<string, unknown>;
+	}> {
+		if (!bridgeModuleCache) return [];
+		const bridge = bridgeModuleCache.getBridge(this.world);
+		if (!bridge) return [];
+		return bridge.diffs.snapshot();
 	}
 
 	// ── Tick ──────────────────────────────────────────────────────────────────
