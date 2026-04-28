@@ -648,14 +648,33 @@ function handleEntertainmentServiceReleaseReturn(
 	sim: SimRecord,
 ): void {
 	if (sim.stateCode === ENT_STATE_VENUE_DWELL) {
-		// Binary: release_commercial_venue_slot returns 0 while dwell time has
-		// not elapsed. TS gates on lastDemandTick stamp (set at venue arrival).
-		if (sim.lastDemandTick > 0 && time.dayTick - sim.lastDemandTick < 60) {
+		// Binary `release_commercial_venue_slot` (11b0:0fae). On entry:
+		//   - slotIdx < 0 (sentinel 0xff/0xfe): skip the venue table and write
+		//     sim[+7] = LOBBY_FLOOR, sim[+8] = 0xfe; return 1.
+		//   - valid record but record[+1] == -1 OR record[+2] in {-1, 3}:
+		//     skip dwell check; write sim[+7] = ownerFloor, sim[+8] = 0xfe;
+		//     return 1.
+		//   - otherwise: dwell = dayTick - sim[+10]; if dwell < per-category
+		//     service-duration global → return 0 (handler early-returns);
+		//     else decrement record[+9], update availability, write sim[+7]
+		//     and sim[+8] as above; return 1.
+		if (
+			sim.commercialVenueSlot >= 0 &&
+			sim.lastDemandTick > 0 &&
+			time.dayTick - sim.lastDemandTick < 60
+		) {
 			return;
 		}
+		// Release succeeded: stamp sim.selectedFloor with the post-release
+		// destination (lobby for sentinel slots, venue's owner floor otherwise).
+		// Mirrors the binary's `sim[+7] = ownerFloor or 10` write inside
+		// release_commercial_venue_slot. The route call below uses
+		// sim.selectedFloor as its source, matching the binary's reliance on
+		// sim[+7] for the post-release route on both fresh and retry paths.
+		sim.selectedFloor = getCurrentCommercialVenueDestinationFloor(world, sim);
 	}
 
-	const sourceFloor = sim.originFloor >= 0 ? sim.originFloor : sim.floorAnchor;
+	const sourceFloor = sim.selectedFloor;
 	const directionFlag = LOBBY_FLOOR >= sourceFloor ? 1 : 0;
 
 	// Binary 1228:5aa2 (handle_entertainment_service_release_return call site):
