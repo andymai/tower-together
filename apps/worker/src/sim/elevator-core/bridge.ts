@@ -101,6 +101,14 @@ export interface BridgeHandle {
 	readonly lineByColumn: Map<number, bigint>;
 	/** `${column}:${floor}` → stop ref. */
 	readonly stopByFloor: Map<string, bigint>;
+	/**
+	 * Reverse lookup keyed by the *slot* portion of the entity ref
+	 * (lower 32 bits of the slotmap FFI encoding). elevator-core's
+	 * EventDtos report stops as `u32` slot ids, not the full BigInt
+	 * entity ref, so the bridge needs this reverse path to map
+	 * `RiderExited.stop` → tower-together's `(column, floor)`.
+	 */
+	readonly stopBySlot: Map<number, { column: number; floor: number }>;
 	/** `${column}:${carIndex}` → elevator ref. */
 	readonly elevatorByCar: Map<string, bigint>;
 }
@@ -171,10 +179,21 @@ export function createBridge(
 		modeGroups: { standard, express, service },
 		lineByColumn: new Map(),
 		stopByFloor: new Map(),
+		stopBySlot: new Map(),
 		elevatorByCar: new Map(),
 	};
 	bridges.set(world, handle);
 	return handle;
+}
+
+/**
+ * Extract the slotmap slot id from a u64 entity ref. The slot is the
+ * low 32 bits of the FFI encoding; the high 32 bits are the version.
+ * elevator-core's EventDtos report stops as u32 slot ids rather than
+ * the full ref, so this is what we key `stopBySlot` by.
+ */
+export function refToSlot(ref: bigint): number {
+	return Number(ref & 0xffff_ffffn);
 }
 
 export function disposeBridge(world: WorldState): void {
@@ -245,37 +264,75 @@ export function groupForMode(
 }
 
 /**
+ * Resolved gameplay events that the bridge produced this tick, mapped
+ * back from elevator-core's identifier space (rider refs, stop slot
+ * ids) into tower-together's (sim id, floor). Consumed by carrierTick
+ * for `'core'` towers to drive arrival dispatch, abandonment, and
+ * route-invalidation handling.
+ */
+export interface BridgeStepResult {
+	arrivals: Array<{ simId: string; floor: number }>;
+	abandoned: Array<{ simId: string; floor: number }>;
+	/**
+	 * Riders whose route became unservable mid-trip (e.g. a player
+	 * removed the destination floor). Caller should ask TS pedestrian
+	 * reachability for an alt path; despawn gracefully if none.
+	 */
+	invalidated: Array<{ simId: string; affectedFloor: number }>;
+}
+
+/**
  * Tick the bridge one tick alongside the classic engine. Drains all
- * events emitted during the tick and pushes interesting ones (rider
- * lifecycle, elevator arrivals, topology changes that we didn't
- * initiate) into the bridge's shadow-diff buffer so consumers can
- * observe what elevator-core decided.
+ * events emitted during the tick, maps the gameplay-relevant ones
+ * back to TS identifiers, pushes them into the shadow-diff buffer for
+ * inspection, and returns the resolved set so the caller (carrierTick)
+ * can act on them on `'core'` towers.
  *
  * Filtering is deliberate: every elevator-core tick can emit dozens
  * of low-level events (door open/close, passing-floor markers,
- * direction-indicator changes); we keep only the events that map
- * onto tower-together's gameplay seams.
+ * direction-indicator changes); we keep only what maps onto
+ * tower-together's gameplay seams.
  */
-export function stepBridge(handle: BridgeHandle): void {
+export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 	handle.sim.stepMany(1);
 	const events = handle.sim.drainEvents();
 	const tick = Number(handle.sim.currentTick());
+	const arrivals: BridgeStepResult["arrivals"] = [];
+	const abandoned: BridgeStepResult["abandoned"] = [];
+	const invalidated: BridgeStepResult["invalidated"] = [];
+
 	for (const event of events) {
 		switch (event.kind) {
-			case "rider-exited":
+			case "rider-exited": {
+				// elevator-core's EventDtos report rider/stop ids as u32 slot
+				// ids (low 32 bits of the slotmap FFI encoding), not the
+				// full u64 entity ref. The riderIndex and stopBySlot maps
+				// are both keyed by slot id to match.
+				const simId = handle.riderIndex.unlinkRiderBySlot(event.rider);
+				const stopInfo = handle.stopBySlot.get(event.stop);
 				handle.diffs.push({
 					tick,
 					kind: "rider-exited",
-					detail: { rider: event.rider, stop: event.stop },
+					detail: { rider: event.rider, stop: event.stop, simId, stopInfo },
 				});
+				if (simId !== undefined && stopInfo !== undefined) {
+					arrivals.push({ simId, floor: stopInfo.floor });
+				}
 				break;
-			case "rider-abandoned":
+			}
+			case "rider-abandoned": {
+				const simId = handle.riderIndex.unlinkRiderBySlot(event.rider);
+				const stopInfo = handle.stopBySlot.get(event.stop);
 				handle.diffs.push({
 					tick,
 					kind: "rider-abandoned",
-					detail: { rider: event.rider, stop: event.stop },
+					detail: { rider: event.rider, stop: event.stop, simId },
 				});
+				if (simId !== undefined && stopInfo !== undefined) {
+					abandoned.push({ simId, floor: stopInfo.floor });
+				}
 				break;
+			}
 			case "rider-rejected":
 				handle.diffs.push({
 					tick,
@@ -283,7 +340,9 @@ export function stepBridge(handle: BridgeHandle): void {
 					detail: { rider: event.rider, reason: event.reason },
 				});
 				break;
-			case "route-invalidated":
+			case "route-invalidated": {
+				const simId = handle.riderIndex.simIdForSlot(event.rider);
+				const stopInfo = handle.stopBySlot.get(event.affected_stop);
 				handle.diffs.push({
 					tick,
 					kind: "route-invalidated",
@@ -291,9 +350,14 @@ export function stepBridge(handle: BridgeHandle): void {
 						rider: event.rider,
 						affected_stop: event.affected_stop,
 						reason: event.reason,
+						simId,
 					},
 				});
+				if (simId !== undefined && stopInfo !== undefined) {
+					invalidated.push({ simId, affectedFloor: stopInfo.floor });
+				}
 				break;
+			}
 			case "elevator-arrived":
 				handle.diffs.push({
 					tick,
@@ -307,4 +371,6 @@ export function stepBridge(handle: BridgeHandle): void {
 				break;
 		}
 	}
+
+	return { arrivals, abandoned, invalidated };
 }
