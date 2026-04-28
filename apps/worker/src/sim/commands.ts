@@ -777,8 +777,8 @@ function placeEntertainmentVenue(
 	// Binary `allocate_entertainment_link_record` @ 1188:0073: `venue_selector`
 	// (offset 7) is `rand() % 14` iff the registering sub-type is 0x22/0x23
 	// (cinema stairway). Party hall (and any other caller) gets 0xff.
-	const lowerHalfFloor = yToFloor(lowerY);
-	const upperHalfFloor = yToFloor(upperY);
+	const upperHalfFloor = yToFloor(lowerY);
+	const lowerHalfFloor = upperHalfFloor - 1;
 	const sidecar: EntertainmentLinkRecord = {
 		kind: "entertainment_link",
 		ownerSubtypeIndex: x,
