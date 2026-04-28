@@ -22,4 +22,5 @@ export {
 } from "./diff";
 export { type ElevatorCoreModule, loadBridgeWasm } from "./loader";
 export { RiderIndex } from "./rider-index";
+export { syncRiderSpawn } from "./rider-sync";
 export { METERS_PER_FLOOR, syncTopology } from "./topology-sync";

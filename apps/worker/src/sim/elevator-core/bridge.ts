@@ -245,9 +245,66 @@ export function groupForMode(
 }
 
 /**
- * Tick the bridge one tick alongside the classic engine. Returns the
- * events drained — caller can inspect them or push to the diff buffer.
+ * Tick the bridge one tick alongside the classic engine. Drains all
+ * events emitted during the tick and pushes interesting ones (rider
+ * lifecycle, elevator arrivals, topology changes that we didn't
+ * initiate) into the bridge's shadow-diff buffer so consumers can
+ * observe what elevator-core decided.
+ *
+ * Filtering is deliberate: every elevator-core tick can emit dozens
+ * of low-level events (door open/close, passing-floor markers,
+ * direction-indicator changes); we keep only the events that map
+ * onto tower-together's gameplay seams.
  */
 export function stepBridge(handle: BridgeHandle): void {
 	handle.sim.stepMany(1);
+	const events = handle.sim.drainEvents();
+	const tick = Number(handle.sim.currentTick());
+	for (const event of events) {
+		switch (event.kind) {
+			case "rider-exited":
+				handle.diffs.push({
+					tick,
+					kind: "rider-exited",
+					detail: { rider: event.rider, stop: event.stop },
+				});
+				break;
+			case "rider-abandoned":
+				handle.diffs.push({
+					tick,
+					kind: "rider-abandoned",
+					detail: { rider: event.rider, stop: event.stop },
+				});
+				break;
+			case "rider-rejected":
+				handle.diffs.push({
+					tick,
+					kind: "rider-rejected",
+					detail: { rider: event.rider, reason: event.reason },
+				});
+				break;
+			case "route-invalidated":
+				handle.diffs.push({
+					tick,
+					kind: "route-invalidated",
+					detail: {
+						rider: event.rider,
+						affected_stop: event.affected_stop,
+						reason: event.reason,
+					},
+				});
+				break;
+			case "elevator-arrived":
+				handle.diffs.push({
+					tick,
+					kind: "elevator-arrived",
+					detail: { elevator: event.elevator, stop: event.stop },
+				});
+				break;
+			default:
+				// Other event kinds (door, passing-floor, idle, etc.) are
+				// noise for shadow-mode parity logging.
+				break;
+		}
+	}
 }
