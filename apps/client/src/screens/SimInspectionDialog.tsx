@@ -43,6 +43,7 @@ const STRESS_LABELS: Record<SimStateData["stressLevel"], string> = {
 interface Props {
 	sim: SimStateData | null;
 	onClose: () => void;
+	onFind?: () => void;
 }
 
 function formatFloor(floor: number): string {
@@ -57,7 +58,7 @@ function formatState(code: number): string {
 	return inTransit ? `${label} (Transit)` : label;
 }
 
-export function SimInspectionDialog({ sim, onClose }: Props) {
+export function SimInspectionDialog({ sim, onClose, onFind }: Props) {
 	if (!sim) return null;
 
 	return (
@@ -79,9 +80,21 @@ export function SimInspectionDialog({ sim, onClose }: Props) {
 					<span style={styles.inspectTitle}>
 						{FAMILY_LABELS[sim.familyCode] ?? "Queued Sim"}
 					</span>
-					<button type="button" style={styles.inspectClose} onClick={onClose}>
-						&times;
-					</button>
+					<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+						{onFind && (
+							<button
+								type="button"
+								style={styles.rentButton}
+								onClick={onFind}
+								title="Center on this sim and flash a red arrow"
+							>
+								Find
+							</button>
+						)}
+						<button type="button" style={styles.inspectClose} onClick={onClose}>
+							&times;
+						</button>
+					</div>
 				</div>
 
 				<div style={styles.inspectSection}>
