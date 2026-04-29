@@ -230,6 +230,20 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		}
 	}, [sceneReady]);
 
+	useEffect(() => {
+		// Set canvas backing-buffer size once on mount/expand. Setting `width`
+		// or `height` on a <canvas> wipes its pixels and transform — doing it
+		// on every render (the previous inline ref) caused per-frame flicker.
+		const canvas = canvasRef.current;
+		if (!canvas || collapsed) return;
+		const w = MINIMAP_WIDTH * PIXEL_RATIO;
+		const h = MINIMAP_HEIGHT * PIXEL_RATIO;
+		if (canvas.width !== w) canvas.width = w;
+		if (canvas.height !== h) canvas.height = h;
+		lastViewSigRef.current = "";
+		lastCellRevisionRef.current = -1;
+	}, [collapsed]);
+
 	const jumpToMinimapPoint = useCallback(
 		(clientX: number, clientY: number) => {
 			const canvas = canvasRef.current;
@@ -336,13 +350,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 					</div>
 					<div style={styles.canvasWrapper}>
 						<canvas
-							ref={(el) => {
-								canvasRef.current = el;
-								if (el) {
-									el.width = MINIMAP_WIDTH * PIXEL_RATIO;
-									el.height = MINIMAP_HEIGHT * PIXEL_RATIO;
-								}
-							}}
+							ref={canvasRef}
 							style={styles.canvas}
 							onPointerDown={handlePointerDown}
 							onPointerMove={handlePointerMove}

@@ -1170,8 +1170,12 @@ export class GameScene extends Scene {
 	}
 
 	/** Allows scrolling slightly past the world edge for sky/dirt context. */
-	private clampScroll(value: number, viewSize: number, worldSize: number) {
-		const minVisible = TILE_HEIGHT;
+	private clampScroll(
+		value: number,
+		viewSize: number,
+		worldSize: number,
+		minVisible: number,
+	) {
 		const lo = -viewSize + minVisible;
 		const hi = worldSize - minVisible;
 		if (lo > hi) return (lo + hi) / 2;
@@ -1195,8 +1199,8 @@ export class GameScene extends Scene {
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
 		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
 		cam.setScroll(
-			this.clampScroll(scrollX, cam.worldView.width, worldWidth),
-			this.clampScroll(scrollY, cam.worldView.height, worldHeight),
+			this.clampScroll(scrollX, cam.worldView.width, worldWidth, TILE_WIDTH),
+			this.clampScroll(scrollY, cam.worldView.height, worldHeight, TILE_HEIGHT),
 		);
 	}
 
