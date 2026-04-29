@@ -1176,10 +1176,15 @@ export class GameScene extends Scene {
 		worldSize: number,
 		minVisible: number,
 	) {
-		const lo = -viewSize + minVisible;
-		const hi = worldSize - minVisible;
-		if (lo > hi) return (lo + hi) / 2;
-		return PhaserMath.Clamp(value, lo, hi);
+		// Viewport already contains the whole world: lock to centered.
+		if (viewSize >= worldSize) return (worldSize - viewSize) / 2;
+		// Otherwise allow at most `minVisible` of overflow past either edge so
+		// the viewport always mostly shows world, never mostly void.
+		return PhaserMath.Clamp(
+			value,
+			-minVisible,
+			worldSize - viewSize + minVisible,
+		);
 	}
 
 	persistCameraView(): void {
