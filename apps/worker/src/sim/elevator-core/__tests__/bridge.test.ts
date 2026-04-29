@@ -52,10 +52,11 @@ describe("bridge lifecycle", () => {
 	it("disposeBridge frees the WasmSim and clears state", () => {
 		const world = makeWorld("c");
 		const handle = createBridge(world, module);
-		handle.riderIndex.link(42n, "sim:0");
-		expect(handle.riderIndex.size).toBe(1);
+		// Push a diff entry so we can confirm disposeBridge clears it.
+		handle.diffs.push({ tick: 0, kind: "rider-exited", detail: {} });
+		expect(handle.diffs.size).toBe(1);
 		disposeBridge(world);
-		expect(handle.riderIndex.size).toBe(0);
+		expect(handle.diffs.size).toBe(0);
 	});
 
 	it("restores from postcard bytes when supplied", () => {

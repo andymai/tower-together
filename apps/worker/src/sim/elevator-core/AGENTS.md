@@ -11,13 +11,16 @@ elevator-core authoritative; PR 5 deletes the classic engine.
 ### `index.ts`
 Public re-exports for the rest of `sim/`: `getBridge`,
 `syncTopology`, `stepBridge`, `syncRiderSpawn`, `disposeBridge`,
-`getShadowDiffs`.
+`encodeSimIdTag` / `decodeSimIdTag`, `getShadowDiffs`.
 
 ### `bridge.ts`
 Owns the per-tower `WasmSim` handle. The handle is *not* part of the
 snapshot — it's a runtime-only side table keyed by the `WorldState`
 identity, recreated on hydrate via `WasmSim.fromSnapshotBytes` if the
-snapshot has a postcard, or via `WasmSim.new` otherwise.
+snapshot has a postcard, or via `WasmSim.new` otherwise. `stepBridge`
+maps elevator-core's rider-bearing events back into TS sim ids by
+reading `event.tag` (the encoded `SimRecord` identity stamped at
+spawn) — there's no bridge-side `Map<RiderId, simId>`.
 
 ### `topology-sync.ts`
 Translates `world.carriers` to elevator-core's Groups/Lines/Stops.
@@ -30,10 +33,13 @@ Translates `world.carriers` to elevator-core's Groups/Lines/Stops.
 Re-runs on every `rebuildCarrierList`; idempotent within a sim
 identity.
 
-### `rider-index.ts`
-`Map<RiderId, simId>` (and reverse). Persists in the bridge handle so
-arrival events can dispatch back to the right family handler. Not part
-of `WorldState` — bridge-local state.
+### `sim-id-tag.ts`
+Bit-packs a `SimRecord`'s identity tuple
+(`floorAnchor:homeColumn:familyCode:baseOffset`) into a `u64` for
+elevator-core's per-rider `tag`. Replaces the old `Map<RiderId, simId>`
+side-table — every rider-bearing event now carries the tag inline,
+including across snapshot restore. Marker bit ensures the encoding is
+never the reserved untagged sentinel `0`.
 
 ### `diff.ts`
 Per-tick comparison hook. Drains elevator-core events and TS

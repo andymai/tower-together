@@ -1,31 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RiderIndex, ShadowDiffBuffer } from "../index";
-
-describe("RiderIndex", () => {
-	it("links and looks up bidirectionally", () => {
-		const idx = new RiderIndex();
-		idx.link(7n, "sim:42");
-		expect(idx.simIdFor(7n)).toBe("sim:42");
-		expect(idx.riderRefFor("sim:42")).toBe(7n);
-	});
-
-	it("relinking the same simId drops the previous rider mapping", () => {
-		const idx = new RiderIndex();
-		idx.link(1n, "sim:1");
-		idx.link(2n, "sim:1");
-		expect(idx.simIdFor(1n)).toBeUndefined();
-		expect(idx.simIdFor(2n)).toBe("sim:1");
-		expect(idx.riderRefFor("sim:1")).toBe(2n);
-	});
-
-	it("unlinkRider removes both directions", () => {
-		const idx = new RiderIndex();
-		idx.link(7n, "sim:42");
-		expect(idx.unlinkRider(7n)).toBe("sim:42");
-		expect(idx.simIdFor(7n)).toBeUndefined();
-		expect(idx.riderRefFor("sim:42")).toBeUndefined();
-	});
-});
+import { ShadowDiffBuffer } from "../index";
 
 describe("ShadowDiffBuffer", () => {
 	it("preserves chronological order under capacity", () => {
