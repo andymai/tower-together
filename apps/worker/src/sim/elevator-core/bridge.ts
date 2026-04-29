@@ -1,18 +1,25 @@
 // Per-tower elevator-core bridge handle. Owns the live `WasmSim`
-// instance, the `RiderIndex` map, and the shadow-diff buffer. The
-// bridge is *not* part of the snapshot — it lives on the side and is
-// reconstructed on hydrate via `WasmSim.fromSnapshotBytes` (when the
-// snapshot has a postcard) or `WasmSim.new` (fresh tower).
+// instance and the shadow-diff buffer. The bridge is *not* part of
+// the snapshot — it lives on the side and is reconstructed on hydrate
+// via `WasmSim.fromSnapshotBytes` (when the snapshot has a postcard)
+// or `WasmSim.new` (fresh tower).
 //
 // One bridge per `WorldState` identity. The `BridgeRegistry` keeps
 // bridges in a WeakMap keyed by WorldState so a TowerSim that hydrates
 // a fresh world gets a fresh bridge automatically without needing
 // explicit teardown.
+//
+// Sim ↔ rider correlation rides on elevator-core's per-rider opaque
+// tag (`Rider.tag`, set in rider-sync via `setRiderTag`). Every
+// rider-bearing event drained here carries that tag, so the bridge
+// has no separate `Map<RiderId, simId>` to keep in sync — see
+// `decodeSimIdTag` for the inverse projection back into `simKey()`
+// shape that the rest of the sim consumes.
 
 import type { WorldState } from "../world";
 import { ShadowDiffBuffer } from "./diff";
 import { type ElevatorCoreModule, loadBridgeWasm } from "./loader";
-import { RiderIndex } from "./rider-index";
+import { decodeSimIdTag } from "./sim-id-tag";
 
 // Base64 encode/decode using web standards (btoa/atob). Available in
 // both Cloudflare Workers and Node 16+ via globalThis. Avoids pulling
@@ -89,7 +96,6 @@ export interface CarrierModeGroups {
 export interface BridgeHandle {
 	readonly module: ElevatorCoreModule;
 	readonly sim: WasmSim;
-	readonly riderIndex: RiderIndex;
 	readonly diffs: ShadowDiffBuffer;
 	readonly modeGroups: CarrierModeGroups;
 	/**
@@ -174,7 +180,6 @@ export function createBridge(
 	const handle: BridgeHandle = {
 		module,
 		sim,
-		riderIndex: new RiderIndex(),
 		diffs: new ShadowDiffBuffer(),
 		modeGroups: { standard, express, service },
 		lineByColumn: new Map(),
@@ -257,7 +262,6 @@ export function disposeBridge(world: WorldState): void {
 	const handle = bridges.get(world);
 	if (!handle) return;
 	handle.sim.free();
-	handle.riderIndex.clear();
 	handle.diffs.clear();
 	bridges.delete(world);
 }
@@ -370,7 +374,7 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 	for (const event of events) {
 		switch (event.kind) {
 			case "rider-boarded": {
-				const simId = handle.riderIndex.simIdForSlot(event.rider);
+				const simId = decodeSimIdTag(event.tag);
 				handle.diffs.push({
 					tick,
 					kind: "rider-boarded",
@@ -382,11 +386,11 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 				break;
 			}
 			case "rider-exited": {
-				// elevator-core's EventDtos report rider/stop ids as u32 slot
-				// ids (low 32 bits of the slotmap FFI encoding), not the
-				// full u64 entity ref. The riderIndex and stopBySlot maps
-				// are both keyed by slot id to match.
-				const simId = handle.riderIndex.unlinkRiderBySlot(event.rider);
+				// `event.tag` carries the simId encoded by `encodeSimIdTag`
+				// at spawn. elevator-core samples the tag before freeing
+				// the rider, so we can dispatch the arrival even though
+				// `event.rider` is now a stale slot id.
+				const simId = decodeSimIdTag(event.tag);
 				const stopInfo = handle.stopBySlot.get(event.stop);
 				handle.diffs.push({
 					tick,
@@ -399,7 +403,7 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 				break;
 			}
 			case "rider-abandoned": {
-				const simId = handle.riderIndex.unlinkRiderBySlot(event.rider);
+				const simId = decodeSimIdTag(event.tag);
 				const stopInfo = handle.stopBySlot.get(event.stop);
 				handle.diffs.push({
 					tick,
@@ -419,7 +423,7 @@ export function stepBridge(handle: BridgeHandle): BridgeStepResult {
 				});
 				break;
 			case "route-invalidated": {
-				const simId = handle.riderIndex.simIdForSlot(event.rider);
+				const simId = decodeSimIdTag(event.tag);
 				const stopInfo = handle.stopBySlot.get(event.affected_stop);
 				handle.diffs.push({
 					tick,

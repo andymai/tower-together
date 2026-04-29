@@ -357,7 +357,7 @@ export function resolveSimRouteBetweenFloors(
 			const result = elevatorCoreBridgeModule.syncRiderSpawn(
 				bridge,
 				carrier,
-				simKey(sim),
+				sim,
 				sourceFloor,
 				destinationFloor,
 			);

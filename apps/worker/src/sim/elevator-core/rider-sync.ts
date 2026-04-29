@@ -1,14 +1,12 @@
 // Spawns a parallel rider in the elevator-core bridge whenever a TS
-// sim is enqueued for travel. Shadow-mode in PR 4: classic engine
-// remains authoritative for the actual transit, but elevator-core
-// sees the same trip and produces RiderExited / RiderAbandoned events
-// that flow into the diff buffer for inspection.
-//
-// Linkage tracked in `BridgeHandle.riderIndex` so PR 5 can drive
-// arrival dispatch directly off elevator-core events.
+// sim is enqueued for travel. The bridge owns the WASM `WasmSim`; we
+// stamp the sim's identity onto the rider via elevator-core's opaque
+// per-rider tag (`setRiderTag`) so the back-pointer round-trips
+// through every rider-bearing event without a side-table.
 
-import type { CarrierRecord } from "../world";
+import type { CarrierRecord, SimRecord } from "../world";
 import type { BridgeHandle } from "./bridge";
+import { encodeSimIdTag } from "./sim-id-tag";
 
 interface SpawnResult {
 	kind: "spawned" | "skipped";
@@ -28,7 +26,7 @@ interface SpawnResult {
 export function syncRiderSpawn(
 	handle: BridgeHandle,
 	carrier: CarrierRecord,
-	simId: string,
+	sim: SimRecord,
 	sourceFloor: number,
 	destinationFloor: number,
 	weight = 75,
@@ -51,6 +49,13 @@ export function syncRiderSpawn(
 		return { kind: "skipped", reason: result.error };
 	}
 	const riderRef = BigInt(result.value);
-	handle.riderIndex.link(riderRef, simId);
+	const tagResult = handle.sim.setRiderTag(riderRef, encodeSimIdTag(sim));
+	if (tagResult.kind === "err") {
+		// Should never fire — setRiderTag only errors on a stale rider
+		// ref, and we received this ref from spawnRiderByRef one line
+		// up. Treat as a hard error so we notice if elevator-core's
+		// invariants ever change.
+		throw new Error(`setRiderTag after spawn: ${tagResult.error}`);
+	}
 	return { kind: "spawned", riderRef };
 }

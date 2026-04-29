@@ -5,7 +5,8 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { makeCarrierCar } from "../../carriers";
-import type { CarrierRecord, WorldState } from "../../world";
+import { simKey } from "../../sims/population";
+import type { CarrierRecord, SimRecord, WorldState } from "../../world";
 import {
 	createBridge,
 	disposeBridge,
@@ -51,16 +52,48 @@ function carrier(): CarrierRecord {
 	};
 }
 
+function sim(over: Partial<SimRecord> = {}): SimRecord {
+	// biome-ignore lint/suspicious/noExplicitAny: stub for tag-encode shape only
+	const route: any = { mode: "idle" };
+	return {
+		floorAnchor: 1,
+		homeColumn: 50,
+		baseOffset: 2,
+		facilitySlot: 0,
+		familyCode: 7,
+		stateCode: 0,
+		route,
+		selectedFloor: 0,
+		originFloor: 0,
+		destinationFloor: -1,
+		venueReturnState: 0,
+		queueTick: 0,
+		elapsedTicks: 0,
+		transitTicksRemaining: 0,
+		lastDemandTick: -1,
+		tripCount: 0,
+		accumulatedTicks: 0,
+		targetRoomFloor: -1,
+		targetRoomColumn: -1,
+		spawnFloor: 0,
+		postClaimCountdown: 0,
+		encodedTargetFloor: 0,
+		commercialVenueSlot: -1,
+		...over,
+	};
+}
+
 describe("rider-sync end-to-end", () => {
 	it("spawns a rider, transports them, returns resolved arrival via stepBridge", () => {
 		const world = fakeWorld();
 		const handle = createBridge(world, module);
 		syncTopology(handle, [carrier()]);
 
-		const result = syncRiderSpawn(handle, carrier(), "sim:1", 0, 4);
+		const rider = sim();
+		const expectedSimId = simKey(rider);
+		const result = syncRiderSpawn(handle, carrier(), rider, 0, 4);
 		expect(result.kind).toBe("spawned");
 		expect(result.riderRef).toBeDefined();
-		expect(handle.riderIndex.size).toBe(1);
 
 		// Step the bridge enough ticks for the elevator-core LOOK
 		// dispatch to pick up the rider, travel from floor 0 to floor 4
@@ -76,13 +109,11 @@ describe("rider-sync end-to-end", () => {
 		}
 
 		expect(resolvedArrival).toBeDefined();
-		// The bridge's reverse-lookup mapped elevator-core's u32 StopId
-		// back to the (column, floor) pair the rider was bound for, AND
-		// matched the RiderId back to our simId via the riderIndex.
-		expect(resolvedArrival?.simId).toBe("sim:1");
+		// `event.tag` from elevator-core's RiderExited round-trips back
+		// through `decodeSimIdTag` to the same shape `simKey()` produces
+		// — no bridge-side `Map<RiderId, simId>` involved.
+		expect(resolvedArrival?.simId).toBe(expectedSimId);
 		expect(resolvedArrival?.floor).toBe(4);
-		// Rider was unlinked on exit so the index doesn't grow.
-		expect(handle.riderIndex.size).toBe(0);
 		// Diff buffer also captured the event for inspection.
 		const exits = handle.diffs
 			.snapshot()
@@ -96,9 +127,8 @@ describe("rider-sync end-to-end", () => {
 		const world = fakeWorld();
 		const handle = createBridge(world, module);
 		// Topology not synced — stops absent.
-		const result = syncRiderSpawn(handle, carrier(), "sim:lost", 0, 4);
+		const result = syncRiderSpawn(handle, carrier(), sim(), 0, 4);
 		expect(result.kind).toBe("skipped");
-		expect(handle.riderIndex.size).toBe(0);
 		disposeBridge(world);
 	});
 });

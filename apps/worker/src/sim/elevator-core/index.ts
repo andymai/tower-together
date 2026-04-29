@@ -25,6 +25,6 @@ export {
 	type ShadowDiffKind,
 } from "./diff";
 export { type ElevatorCoreModule, loadBridgeWasm } from "./loader";
-export { RiderIndex } from "./rider-index";
 export { syncRiderSpawn } from "./rider-sync";
+export { decodeSimIdTag, encodeSimIdTag } from "./sim-id-tag";
 export { METERS_PER_FLOOR, syncTopology } from "./topology-sync";
