@@ -384,10 +384,7 @@ export class GameScene extends Scene {
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
-	// Bumped whenever the placed-tile silhouette changes (used by the minimap).
 	private cellRevision = 0;
-	// Active "Find Person" indicator (red ▼ arrow). Cleared when the tween
-	// completes or when a new findSim call replaces it.
 	private findIndicator: GameObjects.Graphics | null = null;
 	// Keys of anchor cells only (used for rendering)
 	private anchorSet: Set<string> = new Set();
@@ -1076,10 +1073,8 @@ export class GameScene extends Scene {
 		// Room textures finished loading in preload() before create() was called.
 		this.roomTexturesLoaded = true;
 
-		// Restore the previously-saved zoom and scroll for this tower.
 		// Saved zoom may be sub-1× (Fit preset goes below MIN_ZOOM by design),
-		// so floor at the smaller of MIN_ZOOM and a true vertical fit instead
-		// of forcing MIN_ZOOM.
+		// so floor at min(MIN_ZOOM, vertical-fit) instead of forcing MIN_ZOOM.
 		const savedView = getTowerView(this.towerId);
 		const fitFloor = this.scale.height / (GRID_HEIGHT * TILE_HEIGHT);
 		const initialZoom = PhaserMath.Clamp(
@@ -1142,7 +1137,6 @@ export class GameScene extends Scene {
 		this.soundManager?.triggerCash();
 	}
 
-	/** Snapshot of camera state for minimap/scrollbar overlays. */
 	getCameraView(): CameraView {
 		const cam = this.cameras?.main;
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
@@ -1175,12 +1169,7 @@ export class GameScene extends Scene {
 		};
 	}
 
-	/**
-	 * Clamp a proposed scroll value so at least one tile of world remains
-	 * visible. Permits the existing pre-PR behavior of scrolling slightly
-	 * past the world edge for sky/dirt context, but stops the new minimap
-	 * and scrollbar affordances from stranding the camera off-world.
-	 */
+	/** Allows scrolling slightly past the world edge for sky/dirt context. */
 	private clampScroll(value: number, viewSize: number, worldSize: number) {
 		const minVisible = TILE_HEIGHT;
 		const lo = -viewSize + minVisible;
@@ -1189,7 +1178,6 @@ export class GameScene extends Scene {
 		return PhaserMath.Clamp(value, lo, hi);
 	}
 
-	/** Persist the camera's current scroll (and optionally zoom). */
 	persistCameraView(): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
@@ -1200,10 +1188,7 @@ export class GameScene extends Scene {
 		});
 	}
 
-	/**
-	 * Set the camera scroll directly (world coordinates), clamped to the
-	 * world bounds. Does NOT persist — callers persist on settle.
-	 */
+	/** Clamped to world bounds. Callers persist on settle (drag end). */
 	setCameraScroll(scrollX: number, scrollY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
@@ -1215,10 +1200,6 @@ export class GameScene extends Scene {
 		);
 	}
 
-	/**
-	 * Center the camera on a world-coordinate point. Does NOT persist —
-	 * callers persist on settle.
-	 */
 	centerCameraOnWorld(worldX: number, worldY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
@@ -1227,21 +1208,18 @@ export class GameScene extends Scene {
 		this.setCameraScroll(worldX - halfW, worldY - halfH);
 	}
 
-	/** Vertical fit: zoom so the full tower height fits the canvas; horizontally center. */
 	applyPresetFit(): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
 		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
-		// MIN_ZOOM=1 would silently override a genuine fit (≈0.42); allow a
-		// sub-1× zoom for this preset only, but cap at MAX_ZOOM.
+		// MIN_ZOOM=1 would silently override a genuine fit (≈0.42).
 		const fitZoom = Math.min(this.scale.height / worldHeight, MAX_ZOOM);
 		cam.setZoom(fitZoom);
 		cam.centerOn(worldWidth / 2, worldHeight / 2);
 		this.persistCameraView();
 	}
 
-	/** Reset to MIN_ZOOM, keeping the current viewport center. */
 	applyPresetActualSize(): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
@@ -1252,11 +1230,7 @@ export class GameScene extends Scene {
 		this.persistCameraView();
 	}
 
-	/**
-	 * Iterate every occupied cell (anchor + overlay) for minimap rendering.
-	 * `evalLevel` is `undefined` for cells with no evaluation score (e.g.
-	 * stairs, lobbies) and 0–2 for evaluable rooms (matches binary semantics).
-	 */
+	/** `evalLevel` is undefined for non-evaluable cells (stairs, lobbies, etc). */
 	*iterateOccupiedCells(): Generator<{
 		x: number;
 		y: number;
@@ -1274,30 +1248,20 @@ export class GameScene extends Scene {
 		}
 	}
 
-	/** Monotonic counter that ticks when the placed-tile silhouette changes. */
 	getCellRevision(): number {
 		return this.cellRevision;
 	}
 
-	/**
-	 * SimTower's "Find Person" feature: scroll to the sim and flash a red
-	 * arrow above them for ~3 seconds. The position uses floorAnchor +
-	 * homeColumn — close enough as a snap target; the indicator stays at
-	 * the snapshot location even if the sim moves during the flash.
-	 */
 	findSim(sim: SimStateData): void {
 		if (!this.sceneCreated) return;
 		this.findIndicator?.destroy();
 		this.findIndicator = null;
-		// Floor indices grow upward (ground=10, top=119); world Y grows
-		// downward — every other floor→Y conversion in this codebase inverts
-		// via `GRID_HEIGHT - 1 - floor`. Match it here, otherwise Find lands
-		// in the sky.
+		// Floor indices grow upward; world Y grows downward — invert via
+		// `GRID_HEIGHT - 1 - floor`, matching every other floor→Y conversion.
 		const worldX = (sim.homeColumn + 0.5) * TILE_WIDTH;
 		const worldY = (GRID_HEIGHT - 1 - sim.floorAnchor + 0.5) * TILE_HEIGHT;
 		this.centerCameraOnWorld(worldX, worldY);
 		this.persistCameraView();
-		// Downward triangle: tip at (worldX, worldY - 1px), base above it.
 		const halfBaseW = TILE_WIDTH * 0.6;
 		const heightPx = TILE_HEIGHT * 0.7;
 		const arrow = this.add.graphics();

@@ -15,11 +15,6 @@ interface Geometry {
 	horizontalThumb: { left: number; width: number; trackWidth: number } | null;
 }
 
-/**
- * Thin auto-hide scrollbars overlaying the Phaser canvas. Driven by the
- * scene's camera state via getCameraView()/setCameraScroll(). Auto-hides
- * after a short idle period unless the user is hovering the canvas.
- */
 export function CanvasScrollbars({ sceneRef, sceneReady }: Props) {
 	const [visible, setVisible] = useState(false);
 	const [geometry, setGeometry] = useState<Geometry>({
@@ -45,8 +40,6 @@ export function CanvasScrollbars({ sceneRef, sceneReady }: Props) {
 		}, HIDE_DELAY_MS);
 	}, []);
 
-	// Poll camera state on rAF to keep thumb positions in sync, and reveal
-	// the scrollbars whenever the camera moves.
 	useEffect(() => {
 		if (!sceneReady) return;
 		let raf = 0;
@@ -156,8 +149,7 @@ export function CanvasScrollbars({ sceneRef, sceneReady }: Props) {
 	);
 
 	const opacity = visible ? 1 : 0;
-	// Tracks are always pointer-transparent so the canvas underneath keeps
-	// receiving build/inspect clicks at the edges. Only the thumb intercepts.
+	// Tracks are pointer-transparent so the canvas keeps receiving edge clicks.
 	const trackBaseStyle: React.CSSProperties = {
 		position: "absolute",
 		background: "rgba(20, 28, 38, 0.45)",

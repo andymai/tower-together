@@ -78,9 +78,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			setTowerView(towerId, { minimapCollapsed: next });
 			return next;
 		});
-		// Panel size changes between collapsed/expanded; re-clamp position
-		// after the next paint so a panel anchored near the right/bottom edge
-		// doesn't overflow the viewport when expanded.
+		// Re-clamp after layout: panel size is ~3× larger when expanded.
 		requestAnimationFrame(() => {
 			setPos((current) => (current ? clampPos(current.x, current.y) : current));
 		});
@@ -88,7 +86,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 
 	const handlePanelPointerDown = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
-			// Ignore drags that originate on a button or the canvas.
 			const target = event.target as HTMLElement;
 			if (target.closest("button") || target.closest("canvas")) return;
 			const panel = panelRef.current;
@@ -100,8 +97,8 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 				offsetX: event.clientX - rect.left,
 				offsetY: event.clientY - rect.top,
 			};
-			// Materialize current position so subsequent moves animate from here
-			// even if we were anchored bottom-left by default.
+			// Materialize the bottom-left default into an absolute position
+			// so subsequent moves animate from the current screen rect.
 			setPos(clampPos(rect.left, rect.top));
 		},
 		[clampPos],
@@ -132,7 +129,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		[towerId],
 	);
 
-	// Re-clamp on viewport resize so the panel doesn't get stranded off-screen.
 	useEffect(() => {
 		const onResize = () => {
 			setPos((current) => (current ? clampPos(current.x, current.y) : current));
@@ -173,14 +169,9 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
 		ctx.clearRect(0, 0, cssW, cssH);
 
-		// Background — semi-transparent so the dark-glass panel shows through
-		// without too much canvas/silhouette contrast loss.
 		ctx.fillStyle = "rgba(20, 28, 38, 0.95)";
 		ctx.fillRect(0, 0, cssW, cssH);
 
-		// Tower silhouette. Edit tab = uniform gray; Eval tab = colored by
-		// evalLevel where available (red/yellow/blue per SimTower manual),
-		// gray for non-evaluable cells (stairs, lobbies, infrastructure).
 		const tileW = Math.max(1, TILE_WIDTH * sx);
 		const tileH = Math.max(1, TILE_HEIGHT * sy);
 		for (const cell of scene.iterateOccupiedCells()) {
@@ -193,7 +184,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			);
 		}
 
-		// Ground line (top of underground rows)
 		const groundY = (UNDERGROUND_Y * TILE_HEIGHT * cssH) / worldH;
 		ctx.strokeStyle = "rgba(74, 222, 128, 0.4)";
 		ctx.lineWidth = 1;
@@ -202,8 +192,8 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.lineTo(cssW, groundY);
 		ctx.stroke();
 
-		// Viewport rectangle, clipped jointly so a partially off-world rect
-		// shows only the visible portion instead of being translated.
+		// Clip jointly so a partially off-world rect shows only the visible
+		// portion instead of being translated.
 		const rx = view.scrollX * sx;
 		const ry = view.scrollY * sy;
 		const rw = view.viewWidth * sx;
@@ -219,7 +209,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		}
 	}, [sceneRef, activeTab]);
 
-	// Animation loop: poll scene state every frame while uncollapsed.
 	useEffect(() => {
 		if (collapsed || !sceneReady) return;
 		let raf = 0;
@@ -233,8 +222,8 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		};
 	}, [collapsed, renderMinimap, sceneReady]);
 
-	// Reset cached signatures when the scene becomes ready, forcing a redraw.
 	useEffect(() => {
+		// Force a redraw on (re)mount of the scene.
 		if (sceneReady) {
 			lastCellRevisionRef.current = -1;
 			lastViewSigRef.current = "";
@@ -367,7 +356,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	);
 }
 
-// Dark-glass styling matching the existing buildPanel/debugPanel HUD chrome.
 const containerBase: React.CSSProperties = {
 	position: "absolute",
 	bottom: PADDING,

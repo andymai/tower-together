@@ -8,16 +8,9 @@ interface Props {
 	sceneReady: boolean;
 }
 
-/**
- * SimTower's "Zoom box" was a single binary toggle in the top-right of the
- * Edit window between normal and full-screen view. We mirror that intent:
- * one button that toggles between fit-to-tower and 1× zoom.
- */
 export function ZoomToggle({ sceneRef, sceneReady }: Props) {
 	const [isFit, setIsFit] = useState(false);
 
-	// Poll camera zoom to keep the label honest if the user changes zoom via
-	// wheel/pinch/scrollbars/minimap.
 	useEffect(() => {
 		if (!sceneReady) return;
 		let raf = 0;
@@ -30,7 +23,6 @@ export function ZoomToggle({ sceneRef, sceneReady }: Props) {
 			const fitZoom = view.viewHeight
 				? scene.scale.height / (GRID_HEIGHT * TILE_HEIGHT)
 				: 0;
-			// Halfway-threshold heuristic between fitZoom and 1×.
 			setIsFit(view.zoom < (fitZoom + 1) / 2);
 		};
 		raf = requestAnimationFrame(tick);
@@ -58,9 +50,6 @@ export function ZoomToggle({ sceneRef, sceneReady }: Props) {
 
 const styles = {
 	button: {
-		// SimTower placed the Zoom box at the top-right of the Edit window,
-		// but our top-right is already crowded by the build panel + debug HUD.
-		// Top-left is the open corner closest to that mental model.
 		position: "absolute",
 		top: 12,
 		left: 12,

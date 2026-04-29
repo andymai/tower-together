@@ -13,12 +13,10 @@ const ZOOM_KEYS = new Set([
 ]);
 
 /**
- * Suppresses browser page-zoom (Ctrl/Cmd +/-/0 and Ctrl+wheel) while the hook
- * is mounted. Phaser's in-game ctrl+wheel zoom keeps working: preventDefault
- * only cancels the browser's default action, not other listeners.
- *
- * Does NOT block on guest/lobby screens — only mount inside GameScreen so
- * accessibility zoom remains available on form pages.
+ * Suppresses browser page-zoom while the hook is mounted. Phaser's in-game
+ * ctrl+wheel zoom keeps working — preventDefault cancels the browser default
+ * but not other listeners. Mount only inside GameScreen so accessibility
+ * zoom remains available on form pages.
  */
 export function useBlockBrowserZoom(): void {
 	useEffect(() => {
