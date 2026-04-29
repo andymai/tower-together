@@ -85,6 +85,19 @@ export type CellClickHandler = (x: number, y: number, shift: boolean) => void;
 export type CellInspectHandler = (x: number, y: number) => void;
 export type QueuedSimInspectHandler = (sim: SimStateData) => void;
 
+export interface CameraView {
+	scrollX: number;
+	scrollY: number;
+	zoom: number;
+	viewWidth: number;
+	viewHeight: number;
+	worldWidth: number;
+	worldHeight: number;
+	minZoom: number;
+	maxZoom: number;
+	ready: boolean;
+}
+
 export type SnapshotSource = {
 	readSims: () => readonly SimRecord[];
 	readCarriers: () => CarrierCarStateData[];
@@ -1124,18 +1137,7 @@ export class GameScene extends Scene {
 	}
 
 	/** Snapshot of camera state for minimap/scrollbar overlays. */
-	getCameraView(): {
-		scrollX: number;
-		scrollY: number;
-		zoom: number;
-		viewWidth: number;
-		viewHeight: number;
-		worldWidth: number;
-		worldHeight: number;
-		minZoom: number;
-		maxZoom: number;
-		ready: boolean;
-	} {
+	getCameraView(): CameraView {
 		const cam = this.cameras?.main;
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
 		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
@@ -1167,15 +1169,24 @@ export class GameScene extends Scene {
 		};
 	}
 
+	/** Persist the camera's current scroll (and optionally zoom) to local storage. */
+	private persistCameraView(
+		cam: Phaser.Cameras.Scene2D.Camera,
+		includeZoom: boolean,
+	): void {
+		setTowerView(this.towerId, {
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+			...(includeZoom ? { zoom: cam.zoom } : {}),
+		});
+	}
+
 	/** Set the camera scroll directly (world coordinates). */
 	setCameraScroll(scrollX: number, scrollY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
 		cam.setScroll(scrollX, scrollY);
-		setTowerView(this.towerId, {
-			scrollX: cam.scrollX,
-			scrollY: cam.scrollY,
-		});
+		this.persistCameraView(cam, false);
 	}
 
 	/** Center the camera on a world-coordinate point (anchor pinned at the center of the viewport). */
@@ -1183,10 +1194,7 @@ export class GameScene extends Scene {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
 		cam.centerOn(worldX, worldY);
-		setTowerView(this.towerId, {
-			scrollX: cam.scrollX,
-			scrollY: cam.scrollY,
-		});
+		this.persistCameraView(cam, false);
 	}
 
 	/** Vertical fit: zoom so the full tower height fits the canvas; horizontally center. */
@@ -1202,11 +1210,7 @@ export class GameScene extends Scene {
 		);
 		cam.setZoom(fitZoom);
 		cam.centerOn(worldWidth / 2, worldHeight / 2);
-		setTowerView(this.towerId, {
-			zoom: fitZoom,
-			scrollX: cam.scrollX,
-			scrollY: cam.scrollY,
-		});
+		this.persistCameraView(cam, true);
 	}
 
 	/** Reset to MIN_ZOOM, keeping the current viewport center. */
@@ -1217,11 +1221,7 @@ export class GameScene extends Scene {
 		const centerY = cam.worldView.y + cam.worldView.height / 2;
 		cam.setZoom(MIN_ZOOM);
 		cam.centerOn(centerX, centerY);
-		setTowerView(this.towerId, {
-			zoom: cam.zoom,
-			scrollX: cam.scrollX,
-			scrollY: cam.scrollY,
-		});
+		this.persistCameraView(cam, true);
 	}
 
 	/** Center on the ground-floor lobby row (horizontally centered, current zoom preserved). */
@@ -1231,21 +1231,16 @@ export class GameScene extends Scene {
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
 		const lobbyY = GROUND_Y * TILE_HEIGHT + TILE_HEIGHT / 2;
 		cam.centerOn(worldWidth / 2, lobbyY);
-		setTowerView(this.towerId, {
-			scrollX: cam.scrollX,
-			scrollY: cam.scrollY,
-		});
+		this.persistCameraView(cam, false);
 	}
 
 	/** Iterate every occupied cell (anchor + overlay) for minimap rendering. */
 	*iterateOccupiedCells(): Generator<{ x: number; y: number }> {
-		for (const key of this.grid.keys()) {
-			const [xs, ys] = key.split(",");
-			yield { x: Number(xs), y: Number(ys) };
-		}
-		for (const key of this.overlayGrid.keys()) {
-			const [xs, ys] = key.split(",");
-			yield { x: Number(xs), y: Number(ys) };
+		for (const map of [this.grid, this.overlayGrid]) {
+			for (const key of map.keys()) {
+				const [xs, ys] = key.split(",");
+				yield { x: Number(xs), y: Number(ys) };
+			}
 		}
 	}
 

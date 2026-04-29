@@ -169,19 +169,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		[],
 	);
 
-	const applyFit = useCallback(
-		() => sceneRef.current?.applyPresetFit(),
-		[sceneRef],
-	);
-	const apply1x = useCallback(
-		() => sceneRef.current?.applyPresetActualSize(),
-		[sceneRef],
-	);
-	const applyLobby = useCallback(
-		() => sceneRef.current?.applyPresetLobby(),
-		[sceneRef],
-	);
-
 	return (
 		<div style={collapsed ? styles.containerCollapsed : styles.container}>
 			<div style={styles.header}>
@@ -198,7 +185,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 						<button
 							type="button"
 							style={styles.presetBtn}
-							onClick={applyFit}
+							onClick={() => sceneRef.current?.applyPresetFit()}
 							title="Fit tower (F)"
 						>
 							Fit
@@ -206,7 +193,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 						<button
 							type="button"
 							style={styles.presetBtn}
-							onClick={apply1x}
+							onClick={() => sceneRef.current?.applyPresetActualSize()}
 							title="Actual size (1)"
 						>
 							1×
@@ -214,7 +201,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 						<button
 							type="button"
 							style={styles.presetBtn}
-							onClick={applyLobby}
+							onClick={() => sceneRef.current?.applyPresetLobby()}
 							title="Jump to lobby (L)"
 						>
 							Lobby
@@ -242,33 +229,30 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	);
 }
 
+const containerBase: React.CSSProperties = {
+	position: "absolute",
+	bottom: PADDING,
+	left: PADDING,
+	zIndex: 70,
+	background: "rgba(14, 18, 24, 0.9)",
+	border: "1px solid rgba(123, 148, 170, 0.35)",
+	backdropFilter: "blur(6px)",
+	pointerEvents: "auto",
+};
+
 const styles = {
 	container: {
-		position: "absolute",
-		bottom: PADDING,
-		left: PADDING,
-		zIndex: 70,
+		...containerBase,
 		padding: 6,
 		borderRadius: 8,
-		background: "rgba(14, 18, 24, 0.9)",
-		border: "1px solid rgba(123, 148, 170, 0.35)",
-		backdropFilter: "blur(6px)",
 		display: "flex",
 		flexDirection: "column",
 		gap: 6,
-		pointerEvents: "auto",
 	},
 	containerCollapsed: {
-		position: "absolute",
-		bottom: PADDING,
-		left: PADDING,
-		zIndex: 70,
+		...containerBase,
 		padding: "4px 6px",
 		borderRadius: 6,
-		background: "rgba(14, 18, 24, 0.9)",
-		border: "1px solid rgba(123, 148, 170, 0.35)",
-		backdropFilter: "blur(6px)",
-		pointerEvents: "auto",
 	},
 	header: {
 		display: "flex",
