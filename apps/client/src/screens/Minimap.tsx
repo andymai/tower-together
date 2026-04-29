@@ -140,8 +140,8 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
 		ctx.clearRect(0, 0, cssW, cssH);
 
-		// Background
-		ctx.fillStyle = "rgba(20, 28, 38, 0.95)";
+		// Background (matches container so border is the only visible chrome).
+		ctx.fillStyle = "#181818";
 		ctx.fillRect(0, 0, cssW, cssH);
 
 		// Tower silhouette: tile cells as gray rectangles.
@@ -266,7 +266,12 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			onPointerUp={handlePanelPointerUp}
 			onPointerCancel={handlePanelPointerUp}
 		>
-			<div style={styles.header} title="Drag to reposition">
+			<div
+				style={
+					collapsed ? { ...styles.header, borderBottom: "none" } : styles.header
+				}
+				title="Drag to reposition"
+			>
 				<button
 					type="button"
 					style={styles.collapseBtn}
@@ -324,69 +329,66 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	);
 }
 
+// Minimal styling to match the README's reverse-engineered-tool aesthetic:
+// no blur, no rounded corners, no drop shadow — just a 1px border, a single
+// solid background, and small monospace-feeling controls.
 const containerBase: React.CSSProperties = {
 	position: "absolute",
 	bottom: PADDING,
 	left: PADDING,
 	zIndex: 70,
-	background: "rgba(14, 18, 24, 0.9)",
-	border: "1px solid rgba(123, 148, 170, 0.35)",
-	backdropFilter: "blur(6px)",
+	background: "#181818",
+	border: "1px solid #444",
 	pointerEvents: "auto",
 };
 
 const styles = {
 	container: {
 		...containerBase,
-		padding: 6,
-		borderRadius: 8,
 		display: "flex",
 		flexDirection: "column",
-		gap: 6,
 	},
 	containerCollapsed: {
 		...containerBase,
-		padding: "4px 6px",
-		borderRadius: 6,
 	},
 	header: {
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "space-between",
-		gap: 6,
+		gap: 8,
+		padding: "2px 4px",
+		borderBottom: "1px solid #333",
 		cursor: "grab",
 		touchAction: "none",
 	},
 	collapseBtn: {
 		background: "transparent",
 		border: "none",
-		color: "#aab8c2",
-		fontSize: 11,
-		fontWeight: 700,
-		letterSpacing: "0.06em",
+		color: "#bbb",
+		fontSize: 10,
+		fontWeight: 600,
+		letterSpacing: "0.04em",
 		textTransform: "uppercase",
 		cursor: "pointer",
-		padding: "2px 4px",
+		padding: 0,
 	},
 	presetButtons: {
 		display: "flex",
-		gap: 4,
+		gap: 6,
 	},
 	presetBtn: {
-		padding: "2px 6px",
-		borderRadius: 3,
-		border: "1px solid rgba(123, 148, 170, 0.4)",
+		padding: 0,
+		border: "none",
 		background: "transparent",
-		color: "#aab8c2",
+		color: "#888",
 		fontSize: 10,
-		fontWeight: 600,
+		fontWeight: 500,
 		cursor: "pointer",
 	},
 	canvas: {
 		display: "block",
 		width: MINIMAP_WIDTH,
 		height: MINIMAP_HEIGHT,
-		borderRadius: 4,
 		cursor: "crosshair",
 		touchAction: "none",
 	},
