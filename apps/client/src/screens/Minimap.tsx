@@ -87,19 +87,21 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.lineTo(cssW, groundY);
 		ctx.stroke();
 
-		// Viewport rectangle
+		// Viewport rectangle, clipped jointly so a partially off-world rect
+		// shows only the visible portion instead of being translated.
 		const rx = view.scrollX * sx;
 		const ry = view.scrollY * sy;
 		const rw = view.viewWidth * sx;
 		const rh = view.viewHeight * sy;
-		ctx.strokeStyle = "#facc15";
-		ctx.lineWidth = 1.5;
-		ctx.strokeRect(
-			Math.max(0, rx),
-			Math.max(0, ry),
-			Math.min(cssW, rw),
-			Math.min(cssH, rh),
-		);
+		const x0 = Math.max(0, rx);
+		const y0 = Math.max(0, ry);
+		const x1 = Math.min(cssW, rx + rw);
+		const y1 = Math.min(cssH, ry + rh);
+		if (x1 > x0 && y1 > y0) {
+			ctx.strokeStyle = "#facc15";
+			ctx.lineWidth = 1.5;
+			ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+		}
 	}, [sceneRef]);
 
 	// Animation loop: poll scene state every frame while uncollapsed.
@@ -163,10 +165,13 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 
 	const handlePointerUp = useCallback(
 		(event: React.PointerEvent<HTMLCanvasElement>) => {
+			if (draggingRef.current) {
+				sceneRef.current?.persistCameraView();
+			}
 			draggingRef.current = false;
 			(event.target as Element).releasePointerCapture(event.pointerId);
 		},
-		[],
+		[sceneRef],
 	);
 
 	return (

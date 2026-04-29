@@ -62,7 +62,6 @@ export function GameScreen({
 	const lastCashRef = useRef<number | null>(null);
 
 	useBlockBrowserZoom();
-	useViewPresetHotkeys(sceneRef);
 
 	const addToast = useCallback(
 		(message: string, variant: "error" | "info" = "error") => {
@@ -127,6 +126,15 @@ export function GameScreen({
 			lastCashRef.current = cash;
 		},
 	});
+
+	const hotkeysEnabled =
+		!isRenaming &&
+		!activePrompt &&
+		!starUpgrade &&
+		!inspectedCell &&
+		!inspectedSim &&
+		!pendingShaftErase;
+	useViewPresetHotkeys(sceneRef, hotkeysEnabled);
 
 	const handleCellClick = useCallback(
 		(x: number, y: number, shift: boolean) => {

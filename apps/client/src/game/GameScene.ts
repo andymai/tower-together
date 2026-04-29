@@ -1075,10 +1075,14 @@ export class GameScene extends Scene {
 		this.roomTexturesLoaded = true;
 
 		// Restore the previously-saved zoom and scroll for this tower.
+		// Saved zoom may be sub-1× (Fit preset goes below MIN_ZOOM by design),
+		// so floor at the smaller of MIN_ZOOM and a true vertical fit instead
+		// of forcing MIN_ZOOM.
 		const savedView = getTowerView(this.towerId);
+		const fitFloor = this.scale.height / (GRID_HEIGHT * TILE_HEIGHT);
 		const initialZoom = PhaserMath.Clamp(
 			savedView.zoom ?? (this.scale.width / totalWidth) * 3,
-			MIN_ZOOM,
+			Math.min(MIN_ZOOM, fitFloor),
 			MAX_ZOOM,
 		);
 		this.cameras.main.setZoom(initialZoom);
@@ -1169,32 +1173,56 @@ export class GameScene extends Scene {
 		};
 	}
 
-	/** Persist the camera's current scroll (and optionally zoom) to local storage. */
-	private persistCameraView(
-		cam: Phaser.Cameras.Scene2D.Camera,
-		includeZoom: boolean,
-	): void {
+	/**
+	 * Clamp a proposed scroll value so at least one tile of world remains
+	 * visible. Permits the existing pre-PR behavior of scrolling slightly
+	 * past the world edge for sky/dirt context, but stops the new minimap
+	 * and scrollbar affordances from stranding the camera off-world.
+	 */
+	private clampScroll(value: number, viewSize: number, worldSize: number) {
+		const minVisible = TILE_HEIGHT;
+		const lo = -viewSize + minVisible;
+		const hi = worldSize - minVisible;
+		if (lo > hi) return (lo + hi) / 2;
+		return PhaserMath.Clamp(value, lo, hi);
+	}
+
+	/** Persist the camera's current scroll (and optionally zoom). */
+	persistCameraView(): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
 		setTowerView(this.towerId, {
 			scrollX: cam.scrollX,
 			scrollY: cam.scrollY,
-			...(includeZoom ? { zoom: cam.zoom } : {}),
+			zoom: cam.zoom,
 		});
 	}
 
-	/** Set the camera scroll directly (world coordinates). */
+	/**
+	 * Set the camera scroll directly (world coordinates), clamped to the
+	 * world bounds. Does NOT persist — callers persist on settle.
+	 */
 	setCameraScroll(scrollX: number, scrollY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
-		cam.setScroll(scrollX, scrollY);
-		this.persistCameraView(cam, false);
+		const worldWidth = GRID_WIDTH * TILE_WIDTH;
+		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
+		cam.setScroll(
+			this.clampScroll(scrollX, cam.worldView.width, worldWidth),
+			this.clampScroll(scrollY, cam.worldView.height, worldHeight),
+		);
 	}
 
-	/** Center the camera on a world-coordinate point (anchor pinned at the center of the viewport). */
+	/**
+	 * Center the camera on a world-coordinate point. Does NOT persist —
+	 * callers persist on settle.
+	 */
 	centerCameraOnWorld(worldX: number, worldY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
-		cam.centerOn(worldX, worldY);
-		this.persistCameraView(cam, false);
+		const halfW = cam.worldView.width / 2;
+		const halfH = cam.worldView.height / 2;
+		this.setCameraScroll(worldX - halfW, worldY - halfH);
 	}
 
 	/** Vertical fit: zoom so the full tower height fits the canvas; horizontally center. */
@@ -1203,14 +1231,12 @@ export class GameScene extends Scene {
 		if (!cam || !this.sceneCreated) return;
 		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
-		const fitZoom = PhaserMath.Clamp(
-			this.scale.height / worldHeight,
-			MIN_ZOOM,
-			MAX_ZOOM,
-		);
+		// MIN_ZOOM=1 would silently override a genuine fit (≈0.42); allow a
+		// sub-1× zoom for this preset only, but cap at MAX_ZOOM.
+		const fitZoom = Math.min(this.scale.height / worldHeight, MAX_ZOOM);
 		cam.setZoom(fitZoom);
 		cam.centerOn(worldWidth / 2, worldHeight / 2);
-		this.persistCameraView(cam, true);
+		this.persistCameraView();
 	}
 
 	/** Reset to MIN_ZOOM, keeping the current viewport center. */
@@ -1221,7 +1247,7 @@ export class GameScene extends Scene {
 		const centerY = cam.worldView.y + cam.worldView.height / 2;
 		cam.setZoom(MIN_ZOOM);
 		cam.centerOn(centerX, centerY);
-		this.persistCameraView(cam, true);
+		this.persistCameraView();
 	}
 
 	/** Center on the ground-floor lobby row (horizontally centered, current zoom preserved). */
@@ -1231,7 +1257,7 @@ export class GameScene extends Scene {
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
 		const lobbyY = GROUND_Y * TILE_HEIGHT + TILE_HEIGHT / 2;
 		cam.centerOn(worldWidth / 2, lobbyY);
-		this.persistCameraView(cam, false);
+		this.persistCameraView();
 	}
 
 	/** Iterate every occupied cell (anchor + overlay) for minimap rendering. */

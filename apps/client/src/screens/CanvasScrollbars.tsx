@@ -146,25 +146,31 @@ export function CanvasScrollbars({ sceneRef, sceneReady }: Props) {
 
 	const handleThumbPointerUp = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
+			if (dragStateRef.current) {
+				sceneRef.current?.persistCameraView();
+			}
 			dragStateRef.current = null;
 			(event.target as Element).releasePointerCapture(event.pointerId);
 		},
-		[],
+		[sceneRef],
 	);
 
 	const opacity = visible ? 1 : 0;
+	// Tracks are always pointer-transparent so the canvas underneath keeps
+	// receiving build/inspect clicks at the edges. Only the thumb intercepts.
 	const trackBaseStyle: React.CSSProperties = {
 		position: "absolute",
 		background: "rgba(20, 28, 38, 0.45)",
 		opacity,
 		transition: "opacity 250ms ease-out",
-		pointerEvents: visible ? "auto" : "none",
+		pointerEvents: "none",
 	};
 	const thumbStyle: React.CSSProperties = {
 		position: "absolute",
 		background: "rgba(170, 184, 194, 0.85)",
 		borderRadius: 4,
 		cursor: "grab",
+		pointerEvents: visible ? "auto" : "none",
 	};
 
 	return (
