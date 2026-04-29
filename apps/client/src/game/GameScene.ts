@@ -242,6 +242,11 @@ const STATIC_ROW_DEPTH = 2;
 const STATIC_OVERLAY_DEPTH = 2.9;
 const DYNAMIC_ENTITY_DEPTH = 3;
 const HOVER_DEPTH = 4;
+// Extra sky/dirt rendered past the world edges so the camera, which can
+// center on any world point, never shows void at extreme scrolls.
+// Generous fixed value: > half the viewport on any reasonable monitor at
+// MIN_ZOOM, so it survives window resizes without recomputation.
+const SCROLL_PADDING = 2000;
 
 const ROOM_TEXTURES: Partial<Record<string, RoomTextureConfig>> = {
 	office: {
@@ -1083,15 +1088,17 @@ export class GameScene extends Scene {
 			MAX_ZOOM,
 		);
 		this.cameras.main.setZoom(initialZoom);
-		// Constrain the viewport to never extend past the world (no sky above
-		// the top, no void below the underground). `centerOn=true` locks the
-		// camera centered when the viewport is larger than the world on an
-		// axis (typical at fit-zoom horizontally).
+		// Camera can center on any world point, but the sky/underground
+		// textures (drawSky / drawUndergroundBackground) are extended by
+		// SCROLL_PADDING on each side so the viewport never shows void
+		// — only sky above and dirt below. `centerOn=true` locks the camera
+		// centered on any axis where the viewport is larger than the
+		// padded bounds.
 		this.cameras.main.setBounds(
-			0,
-			0,
-			GRID_WIDTH * TILE_WIDTH,
-			GRID_HEIGHT * TILE_HEIGHT,
+			-SCROLL_PADDING,
+			-SCROLL_PADDING,
+			GRID_WIDTH * TILE_WIDTH + 2 * SCROLL_PADDING,
+			GRID_HEIGHT * TILE_HEIGHT + 2 * SCROLL_PADDING,
 			true,
 		);
 		if (savedView.scrollX != null && savedView.scrollY != null) {
@@ -1683,8 +1690,10 @@ export class GameScene extends Scene {
 	}
 
 	private drawSky(): void {
-		const skyW = GRID_WIDTH * TILE_WIDTH;
-		const skyH = UNDERGROUND_Y * TILE_HEIGHT;
+		const skyW = GRID_WIDTH * TILE_WIDTH + 2 * SCROLL_PADDING;
+		const skyH = UNDERGROUND_Y * TILE_HEIGHT + SCROLL_PADDING;
+		const skyX = -SCROLL_PADDING;
+		const skyY = -SCROLL_PADDING;
 
 		const buildGradientTexture = (
 			key: string,
@@ -1696,7 +1705,13 @@ export class GameScene extends Scene {
 			const ctx = canvas.getContext("2d");
 			if (!ctx) return;
 			const grad = ctx.createLinearGradient(0, 0, 0, skyH);
-			for (const [pos, color] of stops) grad.addColorStop(pos, color);
+			// Anchor the original gradient stops to the bottom (where the
+			// world top is). The padding above gets the topmost stop's color.
+			const f = SCROLL_PADDING / skyH;
+			grad.addColorStop(0, stops[0][1]);
+			for (const [pos, color] of stops) {
+				grad.addColorStop(f + pos * (1 - f), color);
+			}
 			ctx.fillStyle = grad;
 			ctx.fillRect(0, 0, 1, skyH);
 			if (this.textures.exists(key)) this.textures.remove(key);
@@ -1708,7 +1723,7 @@ export class GameScene extends Scene {
 			[0.6, "#5ba8d4"],
 			[1, "#b4ddf0"],
 		]);
-		const sky = this.add.image(0, 0, "skyGradient");
+		const sky = this.add.image(skyX, skyY, "skyGradient");
 		sky.setOrigin(0, 0);
 		sky.setDisplaySize(skyW, skyH);
 		sky.setDepth(0);
@@ -1718,7 +1733,7 @@ export class GameScene extends Scene {
 			[0.5, "#0a1235"],
 			[1, "#0e1f4a"],
 		]);
-		this.skyNight = this.add.image(0, 0, "skyGradientNight");
+		this.skyNight = this.add.image(skyX, skyY, "skyGradientNight");
 		this.skyNight.setOrigin(0, 0);
 		this.skyNight.setDisplaySize(skyW, skyH);
 		this.skyNight.setDepth(0.5);
@@ -1776,8 +1791,10 @@ export class GameScene extends Scene {
 	}
 
 	private drawUndergroundBackground(): void {
-		const backgroundWidth = GRID_WIDTH * TILE_WIDTH;
-		const backgroundHeight = (GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT;
+		const baseHeight = (GRID_HEIGHT - UNDERGROUND_Y) * TILE_HEIGHT;
+		const backgroundWidth = GRID_WIDTH * TILE_WIDTH + 2 * SCROLL_PADDING;
+		const backgroundHeight = baseHeight + SCROLL_PADDING;
+		const backgroundX = -SCROLL_PADDING;
 		const backgroundY = UNDERGROUND_Y * TILE_HEIGHT;
 
 		if (!this.textures.exists(GameScene.UNDERGROUND_TEXTURE_KEY)) {
@@ -1788,13 +1805,15 @@ export class GameScene extends Scene {
 
 		const frame = this.textures.getFrame(GameScene.UNDERGROUND_TEXTURE_KEY);
 		if (!frame) return;
-		const tileScale = backgroundHeight / frame.height;
-		const tileWidth = (frame.width / frame.height) * backgroundHeight;
+		// Tile scale is anchored to the world's underground band height so the
+		// extra padding tiles seamlessly without changing texture size.
+		const tileScale = baseHeight / frame.height;
+		const tileWidth = (frame.width / frame.height) * baseHeight;
 		const tileScaleX = tileWidth / frame.width;
 
 		if (!this.undergroundBackground) {
 			this.undergroundBackground = this.add.tileSprite(
-				0,
+				backgroundX,
 				backgroundY,
 				backgroundWidth,
 				backgroundHeight,
@@ -1803,7 +1822,7 @@ export class GameScene extends Scene {
 			this.undergroundBackground.setOrigin(0, 0);
 			this.undergroundBackground.setDepth(1);
 		} else {
-			this.undergroundBackground.setPosition(0, backgroundY);
+			this.undergroundBackground.setPosition(backgroundX, backgroundY);
 			this.undergroundBackground.setSize(backgroundWidth, backgroundHeight);
 		}
 		this.undergroundBackground.setTileScale(tileScaleX, tileScale);
