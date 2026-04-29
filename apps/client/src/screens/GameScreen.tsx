@@ -47,6 +47,7 @@ export function GameScreen({
 	const [toasts, setToasts] = useState<Toast[]>([]);
 	const [inspectedSim, setInspectedSim] = useState<SimStateData | null>(null);
 	const [stressBadgesEnabled, setStressBadgesEnabled] = useState(true);
+	const [soundMuted, setSoundMuted] = useState(false);
 	const [pendingShaftErase, setPendingShaftErase] = useState<{
 		x: number;
 		topY: number;
@@ -248,7 +249,9 @@ export function GameScreen({
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
 				speedMultiplier={speedMultiplier}
+				soundMuted={soundMuted}
 				onSpeedChange={setSpeedMultiplier}
+				onSoundMutedChange={setSoundMuted}
 				onAliasInputChange={handleAliasInputChange}
 				onRenameStart={handleRenameStart}
 				onRenameCancel={handleRenameCancel}
@@ -270,6 +273,7 @@ export function GameScreen({
 					onQueuedSimInspect={handleQueuedSimInspect}
 					selectedTool={selectedTool}
 					stressBadgesEnabled={stressBadgesEnabled}
+					soundMuted={soundMuted}
 					sceneRef={sceneRef}
 				/>
 				{sceneReady && initialTool === "lobby" && !lobbyExists && (

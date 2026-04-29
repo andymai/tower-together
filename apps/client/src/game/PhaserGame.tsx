@@ -23,6 +23,7 @@ interface Props {
 	onQueuedSimInspect: (sim: SimStateData) => void;
 	selectedTool: string;
 	stressBadgesEnabled: boolean;
+	soundMuted: boolean;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
 
@@ -33,10 +34,13 @@ export const PhaserGame = memo(function PhaserGame({
 	onQueuedSimInspect,
 	selectedTool,
 	stressBadgesEnabled,
+	soundMuted,
 	sceneRef,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const gameRef = useRef<Game | null>(null);
+	const soundMutedRef = useRef(soundMuted);
+	soundMutedRef.current = soundMuted;
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -47,6 +51,7 @@ export const PhaserGame = memo(function PhaserGame({
 
 		const buildGame = (forceCanvas: boolean): Game => {
 			const scene = new GameScene(towerId);
+			scene.setSoundMuted(soundMutedRef.current);
 			sceneRef.current = scene;
 
 			const config: Types.Core.GameConfig = {
@@ -158,6 +163,10 @@ export const PhaserGame = memo(function PhaserGame({
 	useEffect(() => {
 		sceneRef.current?.setStressBadgesEnabled(stressBadgesEnabled);
 	}, [stressBadgesEnabled, sceneRef]);
+
+	useEffect(() => {
+		sceneRef.current?.setSoundMuted(soundMuted);
+	}, [soundMuted, sceneRef]);
 
 	return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 });

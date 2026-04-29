@@ -295,6 +295,15 @@ export const gameScreenStyles = {
 		border: "1px solid #3b82f6",
 		color: "#fff",
 	},
+	muteButton: {
+		display: "inline-flex",
+		alignItems: "center",
+		justifyContent: "center",
+		width: 24,
+		height: 20,
+		padding: 0,
+		flexShrink: 0,
+	},
 	statusBar: {
 		display: "flex",
 		alignItems: "center",

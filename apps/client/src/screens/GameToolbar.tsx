@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { Star, Volume2, VolumeX } from "lucide-react";
 import {
 	forwardRef,
 	memo,
@@ -106,7 +106,9 @@ interface Props {
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
 	speedMultiplier: 1 | 3 | 10;
+	soundMuted: boolean;
 	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
+	onSoundMutedChange: (muted: boolean) => void;
 	onAliasInputChange: (value: string) => void;
 	onRenameStart: () => void;
 	onRenameCancel: () => void;
@@ -128,7 +130,9 @@ export const GameToolbar = memo(
 			playerCount,
 			connectionStatus,
 			speedMultiplier,
+			soundMuted,
 			onSpeedChange,
+			onSoundMutedChange,
 			onAliasInputChange,
 			onRenameStart,
 			onRenameCancel,
@@ -322,6 +326,19 @@ export const GameToolbar = memo(
 							);
 						})}
 					</span>
+					<button
+						type="button"
+						style={{
+							...styles.speedButton,
+							...(soundMuted ? styles.speedButtonActive : {}),
+							...styles.muteButton,
+						}}
+						aria-label={soundMuted ? "Unmute sound" : "Mute sound"}
+						title={soundMuted ? "Unmute" : "Mute"}
+						onClick={() => onSoundMutedChange(!soundMuted)}
+					>
+						{soundMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+					</button>
 					<span style={styles.cashCluster}>
 						<span ref={cashSpanRef} style={styles.cashDisplay} />
 						<span ref={popSpanRef} style={styles.populationDisplay} />

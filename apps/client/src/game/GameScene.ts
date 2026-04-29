@@ -322,6 +322,7 @@ export class GameScene extends Scene {
 	private hoverGraphics!: GameObjects.Graphics;
 	private cloudManager!: CloudManager;
 	private soundManager: SoundManager | null = null;
+	private soundMuted = false;
 	private lastSoundUpdateMs = 0;
 	private visibleFamiliesScratch: Map<SoundFamily, number> = new Map();
 	private floorLabelBg!: GameObjects.Rectangle;
@@ -459,6 +460,11 @@ export class GameScene extends Scene {
 		if (this.staticRowChunks.length > 0) {
 			this.redrawStaticRows(Array.from({ length: GRID_HEIGHT }, (_, y) => y));
 		}
+	}
+
+	setSoundMuted(muted: boolean): void {
+		this.soundMuted = muted;
+		this.soundManager?.setMuted(muted);
 	}
 
 	setLastPlaced(x: number, y: number, tileType: string): void {
@@ -1044,6 +1050,7 @@ export class GameScene extends Scene {
 		this.setupFloorLabels();
 		this.updateFloorLabels();
 		this.soundManager = new SoundManager();
+		this.soundManager.setMuted(this.soundMuted);
 		this.events.once("shutdown", () => {
 			this.soundManager?.destroy();
 			this.soundManager = null;

@@ -161,6 +161,7 @@ export class SoundManager {
 	private rooster: HTMLAudioElement;
 	private prevHour: number | null = null;
 	private destroyed = false;
+	private muted = false;
 
 	constructor() {
 		this.morningAmbience = makeLoop(MORNING_AMBIENCE_SRC, AMBIENCE_VOLUME);
@@ -191,16 +192,44 @@ export class SoundManager {
 
 	/** Resume the audio context after a user gesture (Chrome autoplay policy). */
 	unlock(): void {
-		if (this.destroyed) return;
+		if (this.destroyed || this.muted) return;
 		const ctx = this.ensureContext();
 		if (ctx && ctx.state === "suspended") {
 			void ctx.resume().catch(() => {});
 		}
 	}
 
+	setMuted(muted: boolean): void {
+		if (this.muted === muted) return;
+		this.muted = muted;
+		if (muted) {
+			for (const source of this.activeSources) {
+				try {
+					source.stop();
+				} catch {
+					// already stopped
+				}
+			}
+			this.activeSources.clear();
+			this.kachingPending = false;
+		}
+		this.morningAmbience.muted = muted;
+		this.afternoonAmbience.muted = muted;
+		this.nightAmbience.muted = muted;
+		this.rooster.muted = muted;
+	}
+
 	updateAmbience(hour: number): void {
 		if (this.destroyed) return;
 		this.currentHour = hour;
+		if (this.muted) {
+			this.setLoopPlaying(this.morningAmbience, false);
+			this.setLoopPlaying(this.afternoonAmbience, false);
+			this.setLoopPlaying(this.nightAmbience, false);
+			this.rooster.pause();
+			this.prevHour = hour;
+			return;
+		}
 		const cyclic = ((hour % 24) + 24) % 24;
 		const inMorning = cyclic >= 6 && cyclic < 12;
 		const inAfternoon = cyclic >= 12 && cyclic < 20;
@@ -231,7 +260,7 @@ export class SoundManager {
 	 * the count-scaled cooldown and visible-family weighting.
 	 */
 	triggerCash(): void {
-		if (this.destroyed) return;
+		if (this.destroyed || this.muted) return;
 		this.kachingPending = true;
 	}
 
@@ -239,7 +268,7 @@ export class SoundManager {
 		familyCounts: ReadonlyMap<SoundFamily, number>,
 		transport: TransportDirections = { up: false, down: false },
 	): void {
-		if (this.destroyed) return;
+		if (this.destroyed || this.muted) return;
 		const ctx = this.ensureContext();
 		if (!ctx || ctx.state !== "running") return;
 
