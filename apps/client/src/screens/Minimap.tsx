@@ -2,12 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameScene } from "../game/GameScene";
 import { TILE_HEIGHT, TILE_WIDTH } from "../game/gameSceneConstants";
 import { getTowerView, setTowerView } from "../lib/storage";
-import { UNDERGROUND_Y } from "../types";
+import { GRID_HEIGHT, GRID_WIDTH, UNDERGROUND_Y } from "../types";
 
 const MINIMAP_WIDTH = 130;
-const MINIMAP_HEIGHT = 200;
+// Match world aspect so the minimap is a true scale-down of the canvas
+// (sx === sy, building proportions match what the user sees in-game).
+const MINIMAP_HEIGHT = Math.round(
+	(MINIMAP_WIDTH * GRID_HEIGHT * TILE_HEIGHT) / (GRID_WIDTH * TILE_WIDTH),
+);
 const PADDING = 8;
 const PIXEL_RATIO = window.devicePixelRatio || 1;
+
+const MINIMAP_SKY_FILL = "#243c5c";
+const MINIMAP_UNDERGROUND_FILL = "#3a2a18";
 
 interface Props {
 	towerId: string;
@@ -78,7 +85,8 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			setTowerView(towerId, { minimapCollapsed: next });
 			return next;
 		});
-		// Re-clamp after layout: panel size is ~3× larger when expanded.
+		// Re-clamp after layout: collapsed is title-bar-only, expanded adds
+		// tabs + canvas, so offsetHeight changes by an order of magnitude.
 		requestAnimationFrame(() => {
 			setPos((current) => (current ? clampPos(current.x, current.y) : current));
 		});
@@ -145,9 +153,27 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		const view = scene.getCameraView();
 		if (!view.ready) return;
 
+		// Keep backing buffer in sync with CSS dims. Required because module
+		// constants (MINIMAP_HEIGHT, PIXEL_RATIO) can change via hot reload or
+		// monitor swap without re-firing the mount-time useEffect — a stale
+		// buffer makes the browser stretch-compress every drawn coordinate.
+		// Steady-state is a no-op; the inequality guards prevent flicker.
+		const expectedW = MINIMAP_WIDTH * PIXEL_RATIO;
+		const expectedH = MINIMAP_HEIGHT * PIXEL_RATIO;
+		let bufferResized = false;
+		if (canvas.width !== expectedW) {
+			canvas.width = expectedW;
+			bufferResized = true;
+		}
+		if (canvas.height !== expectedH) {
+			canvas.height = expectedH;
+			bufferResized = true;
+		}
+
 		const cellRev = scene.getCellRevision();
 		const viewSig = `${view.scrollX}|${view.scrollY}|${view.zoom}|${view.viewWidth}|${view.viewHeight}|${activeTab}`;
 		if (
+			!bufferResized &&
 			cellRev === lastCellRevisionRef.current &&
 			viewSig === lastViewSigRef.current
 		) {
@@ -169,11 +195,21 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
 		ctx.clearRect(0, 0, cssW, cssH);
 
-		ctx.fillStyle = "rgba(20, 28, 38, 0.95)";
-		ctx.fillRect(0, 0, cssW, cssH);
+		// Sky above ground, dirt below — the color transition is the ground
+		// plane, mirroring the canvas's sky/underground regions exactly.
+		const groundY = (UNDERGROUND_Y * TILE_HEIGHT * cssH) / worldH;
+		ctx.fillStyle = MINIMAP_SKY_FILL;
+		ctx.fillRect(0, 0, cssW, groundY);
+		ctx.fillStyle = MINIMAP_UNDERGROUND_FILL;
+		ctx.fillRect(0, groundY, cssW, cssH - groundY);
 
-		const tileW = Math.max(1, TILE_WIDTH * sx);
-		const tileH = Math.max(1, TILE_HEIGHT * sy);
+		// Sub-pixel cell sizes are intentional: with TILE_WIDTH * sx ≈ 0.35,
+		// clamping to 1px would (a) bloat the silhouette ~30% horizontally and
+		// (b) make the Eval tab show only the iteration-last cell's color in
+		// any overlap region. Canvas anti-aliasing blends adjacent cells
+		// additively, which is the correct semantics for a downscaled map.
+		const tileW = TILE_WIDTH * sx;
+		const tileH = TILE_HEIGHT * sy;
 		for (const cell of scene.iterateOccupiedCells()) {
 			ctx.fillStyle = cellFill(activeTab, cell.evalLevel);
 			ctx.fillRect(
@@ -184,16 +220,9 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			);
 		}
 
-		const groundY = (UNDERGROUND_Y * TILE_HEIGHT * cssH) / worldH;
-		ctx.strokeStyle = "rgba(74, 222, 128, 0.4)";
-		ctx.lineWidth = 1;
-		ctx.beginPath();
-		ctx.moveTo(0, groundY);
-		ctx.lineTo(cssW, groundY);
-		ctx.stroke();
-
 		// Clip jointly so a partially off-world rect shows only the visible
-		// portion instead of being translated.
+		// portion instead of being translated. Snap to integer pixels with a
+		// 0.5 offset so the 1px stroke aligns to the pixel grid (no AA blur).
 		const rx = view.scrollX * sx;
 		const ry = view.scrollY * sy;
 		const rw = view.viewWidth * sx;
@@ -203,9 +232,18 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		const x1 = Math.min(cssW, rx + rw);
 		const y1 = Math.min(cssH, ry + rh);
 		if (x1 > x0 && y1 > y0) {
+			const left = Math.round(x0) + 0.5;
+			const top = Math.round(y0) + 0.5;
+			const right = Math.round(x1) - 0.5;
+			const bottom = Math.round(y1) - 0.5;
 			ctx.strokeStyle = "#facc15";
-			ctx.lineWidth = 1.5;
-			ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+			ctx.lineWidth = 1;
+			ctx.strokeRect(
+				left,
+				top,
+				Math.max(1, right - left),
+				Math.max(1, bottom - top),
+			);
 		}
 	}, [sceneRef, activeTab]);
 
@@ -229,20 +267,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			lastViewSigRef.current = "";
 		}
 	}, [sceneReady]);
-
-	useEffect(() => {
-		// Set canvas backing-buffer size once on mount/expand. Setting `width`
-		// or `height` on a <canvas> wipes its pixels and transform — doing it
-		// on every render (the previous inline ref) caused per-frame flicker.
-		const canvas = canvasRef.current;
-		if (!canvas || collapsed) return;
-		const w = MINIMAP_WIDTH * PIXEL_RATIO;
-		const h = MINIMAP_HEIGHT * PIXEL_RATIO;
-		if (canvas.width !== w) canvas.width = w;
-		if (canvas.height !== h) canvas.height = h;
-		lastViewSigRef.current = "";
-		lastCellRevisionRef.current = -1;
-	}, [collapsed]);
 
 	const jumpToMinimapPoint = useCallback(
 		(clientX: number, clientY: number) => {
@@ -293,7 +317,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	);
 
 	const containerStyle: React.CSSProperties = {
-		...(collapsed ? styles.containerCollapsed : styles.container),
+		...styles.container,
 		...(pos
 			? { left: pos.x, top: pos.y, bottom: "auto", right: "auto" }
 			: null),
@@ -308,29 +332,20 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			onPointerUp={handlePanelPointerUp}
 			onPointerCancel={handlePanelPointerUp}
 		>
-			{collapsed ? (
+			<div style={styles.header} title="Drag to reposition">
+				<span style={styles.titleLabel}>Map</span>
 				<button
 					type="button"
-					style={styles.expandPill}
+					style={styles.closeBtn}
 					onClick={toggleCollapsed}
-					title="Show map"
+					title={collapsed ? "Show map" : "Close map"}
+					aria-label={collapsed ? "Show map" : "Close map"}
 				>
-					▴ Map
+					{collapsed ? "▲" : "✕"}
 				</button>
-			) : (
+			</div>
+			{!collapsed && (
 				<>
-					<div style={styles.header} title="Drag to reposition">
-						<span style={styles.titleLabel}>Map</span>
-						<button
-							type="button"
-							style={styles.closeBtn}
-							onClick={toggleCollapsed}
-							title="Close map"
-							aria-label="Close map"
-						>
-							✕
-						</button>
-					</div>
 					<div style={styles.tabBar}>
 						{TAB_IDS.map((id) => {
 							const active = activeTab === id;
@@ -382,10 +397,6 @@ const styles = {
 		display: "flex",
 		flexDirection: "column",
 	},
-	containerCollapsed: {
-		...containerBase,
-		borderRadius: 6,
-	},
 	header: {
 		display: "flex",
 		alignItems: "center",
@@ -410,17 +421,6 @@ const styles = {
 		lineHeight: 1,
 		cursor: "pointer",
 		padding: "0 4px",
-	},
-	expandPill: {
-		background: "transparent",
-		border: "none",
-		color: "#aab8c2",
-		fontSize: 11,
-		fontWeight: 700,
-		letterSpacing: "0.06em",
-		textTransform: "uppercase",
-		cursor: "pointer",
-		padding: "2px 6px",
 	},
 	tabBar: {
 		display: "flex",
