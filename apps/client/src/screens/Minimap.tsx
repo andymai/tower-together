@@ -19,10 +19,19 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	const [collapsed, setCollapsed] = useState<boolean>(
 		() => getTowerView(towerId).minimapCollapsed === true,
 	);
+	const [pos, setPos] = useState<{ x: number; y: number } | null>(
+		() => getTowerView(towerId).minimapPos ?? null,
+	);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const panelRef = useRef<HTMLDivElement | null>(null);
 	const lastCellRevisionRef = useRef<number>(-1);
 	const lastViewSigRef = useRef<string>("");
 	const draggingRef = useRef<boolean>(false);
+	const panDragRef = useRef<{
+		pointerId: number;
+		offsetX: number;
+		offsetY: number;
+	} | null>(null);
 
 	const toggleCollapsed = useCallback(() => {
 		setCollapsed((prev) => {
@@ -31,6 +40,73 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			return next;
 		});
 	}, [towerId]);
+
+	const clampPos = useCallback((x: number, y: number) => {
+		const panel = panelRef.current;
+		const w = panel?.offsetWidth ?? MINIMAP_WIDTH + 16;
+		const h = panel?.offsetHeight ?? MINIMAP_HEIGHT + 40;
+		const maxX = Math.max(0, window.innerWidth - w);
+		const maxY = Math.max(0, window.innerHeight - h);
+		return {
+			x: Math.max(0, Math.min(maxX, x)),
+			y: Math.max(0, Math.min(maxY, y)),
+		};
+	}, []);
+
+	const handlePanelPointerDown = useCallback(
+		(event: React.PointerEvent<HTMLDivElement>) => {
+			// Ignore drags that originate on a button or the canvas.
+			const target = event.target as HTMLElement;
+			if (target.closest("button") || target.closest("canvas")) return;
+			const panel = panelRef.current;
+			if (!panel) return;
+			const rect = panel.getBoundingClientRect();
+			(event.currentTarget as Element).setPointerCapture(event.pointerId);
+			panDragRef.current = {
+				pointerId: event.pointerId,
+				offsetX: event.clientX - rect.left,
+				offsetY: event.clientY - rect.top,
+			};
+			// Materialize current position so subsequent moves animate from here
+			// even if we were anchored bottom-left by default.
+			setPos(clampPos(rect.left, rect.top));
+		},
+		[clampPos],
+	);
+
+	const handlePanelPointerMove = useCallback(
+		(event: React.PointerEvent<HTMLDivElement>) => {
+			const drag = panDragRef.current;
+			if (!drag) return;
+			setPos(
+				clampPos(event.clientX - drag.offsetX, event.clientY - drag.offsetY),
+			);
+		},
+		[clampPos],
+	);
+
+	const handlePanelPointerUp = useCallback(
+		(event: React.PointerEvent<HTMLDivElement>) => {
+			const drag = panDragRef.current;
+			if (!drag) return;
+			panDragRef.current = null;
+			(event.currentTarget as Element).releasePointerCapture(drag.pointerId);
+			setPos((current) => {
+				if (current) setTowerView(towerId, { minimapPos: current });
+				return current;
+			});
+		},
+		[towerId],
+	);
+
+	// Re-clamp on viewport resize so the panel doesn't get stranded off-screen.
+	useEffect(() => {
+		const onResize = () => {
+			setPos((current) => (current ? clampPos(current.x, current.y) : current));
+		};
+		window.addEventListener("resize", onResize);
+		return () => window.removeEventListener("resize", onResize);
+	}, [clampPos]);
 
 	const renderMinimap = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -174,9 +250,23 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		[sceneRef],
 	);
 
+	const containerStyle: React.CSSProperties = {
+		...(collapsed ? styles.containerCollapsed : styles.container),
+		...(pos
+			? { left: pos.x, top: pos.y, bottom: "auto", right: "auto" }
+			: null),
+	};
+
 	return (
-		<div style={collapsed ? styles.containerCollapsed : styles.container}>
-			<div style={styles.header}>
+		<div
+			ref={panelRef}
+			style={containerStyle}
+			onPointerDown={handlePanelPointerDown}
+			onPointerMove={handlePanelPointerMove}
+			onPointerUp={handlePanelPointerUp}
+			onPointerCancel={handlePanelPointerUp}
+		>
+			<div style={styles.header} title="Drag to reposition">
 				<button
 					type="button"
 					style={styles.collapseBtn}
@@ -264,6 +354,8 @@ const styles = {
 		alignItems: "center",
 		justifyContent: "space-between",
 		gap: 6,
+		cursor: "grab",
+		touchAction: "none",
 	},
 	collapseBtn: {
 		background: "transparent",

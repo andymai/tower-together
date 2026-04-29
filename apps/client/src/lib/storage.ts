@@ -46,6 +46,8 @@ interface TowerView {
 	scrollX?: number;
 	scrollY?: number;
 	minimapCollapsed?: boolean;
+	/** Viewport pixel coords for the top-left of the minimap panel. */
+	minimapPos?: { x: number; y: number };
 }
 
 export function getTowerView(towerId: string): TowerView {
