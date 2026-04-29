@@ -23,6 +23,7 @@ interface Props {
 	onQueuedSimInspect: (sim: SimStateData) => void;
 	selectedTool: string;
 	stressBadgesEnabled: boolean;
+	paused: boolean;
 	soundMuted: boolean;
 	sceneRef: React.MutableRefObject<GameScene | null>;
 }
@@ -34,6 +35,7 @@ export const PhaserGame = memo(function PhaserGame({
 	onQueuedSimInspect,
 	selectedTool,
 	stressBadgesEnabled,
+	paused,
 	soundMuted,
 	sceneRef,
 }: Props) {
@@ -163,6 +165,10 @@ export const PhaserGame = memo(function PhaserGame({
 	useEffect(() => {
 		sceneRef.current?.setStressBadgesEnabled(stressBadgesEnabled);
 	}, [stressBadgesEnabled, sceneRef]);
+
+	useEffect(() => {
+		sceneRef.current?.setPaused(paused);
+	}, [paused, sceneRef]);
 
 	useEffect(() => {
 		sceneRef.current?.setSoundMuted(soundMuted);

@@ -152,6 +152,7 @@ export type ServerMessage =
 			snapshot: SimSnapshot;
 			speedMultiplier: 1 | 3 | 10;
 			freeBuild: boolean;
+			paused: boolean;
 			cash: number;
 			population: number;
 			starCount: number;
@@ -239,6 +240,7 @@ export type ClientMessage =
 	  }
 	| { type: "ping" }
 	| { type: "set_speed"; multiplier: 1 | 3 | 10 }
+	| { type: "set_paused"; paused: boolean }
 	| { type: "set_star_count"; starCount: 1 | 2 | 3 | 4 | 5 | 6 }
 	| { type: "prompt_response"; promptId: string; accepted: boolean }
 	| { type: "query_cell"; x: number; y: number }

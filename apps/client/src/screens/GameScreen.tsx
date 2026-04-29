@@ -78,6 +78,7 @@ export function GameScreen({
 		sims,
 		carriers,
 		speedMultiplier,
+		paused,
 		freeBuild,
 		activePrompt,
 		starUpgrade,
@@ -88,6 +89,7 @@ export function GameScreen({
 		inspectCell,
 		respondToPrompt,
 		setSpeedMultiplier,
+		setPaused,
 		setStarCount,
 		setFreeBuild,
 		setRentLevel,
@@ -249,8 +251,10 @@ export function GameScreen({
 				playerCount={playerCount}
 				connectionStatus={connectionStatus}
 				speedMultiplier={speedMultiplier}
+				paused={paused}
 				soundMuted={soundMuted}
 				onSpeedChange={setSpeedMultiplier}
+				onPausedChange={setPaused}
 				onSoundMutedChange={setSoundMuted}
 				onAliasInputChange={handleAliasInputChange}
 				onRenameStart={handleRenameStart}
@@ -273,6 +277,7 @@ export function GameScreen({
 					onQueuedSimInspect={handleQueuedSimInspect}
 					selectedTool={selectedTool}
 					stressBadgesEnabled={stressBadgesEnabled}
+					paused={paused}
 					soundMuted={soundMuted}
 					sceneRef={sceneRef}
 				/>

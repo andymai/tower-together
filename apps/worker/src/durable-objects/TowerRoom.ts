@@ -34,6 +34,7 @@ export class TowerRoom extends DurableObject<Env> {
 	private freeBuild = false;
 	private isRunning = false;
 	private isPaused = false;
+	private manualPaused = false;
 	private readonly queuedInputs = new Map<number, QueuedInputBatch[]>();
 	private readonly repository: TowerRoomRepository;
 	private readonly sessions = new TowerRoomSessions();
@@ -158,6 +159,7 @@ export class TowerRoom extends DurableObject<Env> {
 				snapshot,
 				speedMultiplier: this.speedMultiplier,
 				freeBuild: this.freeBuild,
+				paused: this.isPaused,
 				cash: this.sim.cash,
 				population: this.sim.currentPopulation,
 				starCount: this.sim.starCount,
@@ -190,6 +192,12 @@ export class TowerRoom extends DurableObject<Env> {
 			this.speedMultiplier = msg.multiplier;
 			if (this.isRunning && !this.isPaused) this.restartTick();
 			this.broadcastSessionSettings();
+			return;
+		}
+
+		if (isSessionMessage(msg) && msg.type === "set_paused") {
+			this.manualPaused = msg.paused;
+			this.updatePauseState();
 			return;
 		}
 
@@ -265,6 +273,7 @@ export class TowerRoom extends DurableObject<Env> {
 		if (this.sessions.size === 0) {
 			this.isRunning = false;
 			this.isPaused = false;
+			this.manualPaused = false;
 			this.stopTick();
 			this.persistSim();
 		} else {
@@ -348,6 +357,7 @@ export class TowerRoom extends DurableObject<Env> {
 		if (this.sessions.size === 0) {
 			this.isRunning = false;
 			this.isPaused = false;
+			this.manualPaused = false;
 			this.stopTick();
 			this.persistSim();
 			return;
@@ -358,29 +368,30 @@ export class TowerRoom extends DurableObject<Env> {
 
 	private handleActiveCountChanged(): void {
 		if (this.sessions.size === 0) return;
-		const activeCount = this.sessions.activeSize;
-		if (activeCount === 0 && !this.isPaused) {
-			this.isPaused = true;
-			this.stopTick();
-			this.broadcastSessionSettings();
-			this.broadcastPresence();
-			return;
-		}
-		if (activeCount > 0 && this.isPaused) {
-			this.isPaused = false;
-			if (this.isRunning) this.startTick();
-			this.broadcastSessionSettings();
-			this.broadcastPresence();
-			return;
-		}
+		this.updatePauseState();
 		this.broadcastPresence();
 	}
 
 	private resumeIfNeeded(): void {
-		if (!this.isPaused) return;
+		if (!this.isPaused || this.manualPaused) return;
 		if (this.sessions.activeSize === 0) return;
 		this.isPaused = false;
 		if (this.isRunning) this.startTick();
+		this.broadcastSessionSettings();
+	}
+
+	private updatePauseState(): void {
+		const shouldPause = this.manualPaused || this.sessions.activeSize === 0;
+		if (shouldPause === this.isPaused) {
+			this.broadcastSessionSettings();
+			return;
+		}
+		this.isPaused = shouldPause;
+		if (this.isPaused) {
+			this.stopTick();
+		} else if (this.isRunning) {
+			this.startTick();
+		}
 		this.broadcastSessionSettings();
 	}
 

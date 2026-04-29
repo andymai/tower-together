@@ -17,7 +17,10 @@ Population construction and cleanup for placed-object-derived sims, sim-key look
 Back-compat facade. The binary's per-sim stress accessors (11e0:*) moved to `sim/stress/*.ts` in Phase 8; this file re-exports them and keeps the family-scoped `resetSimTripCounters` / `resetFacilitySimTripCounters` helpers (no 11e0 counterpart).
 
 ### `scoring.ts`
-Operational scoring, nearby-noise checks, distance feedback, occupied flag refreshes, binary-style current-trip/average-trip stress metrics, and wire-facing sim state projection records.
+Operational scoring, all-object daily eval sweep, nearby-noise checks, distance feedback, occupied flag refreshes, binary-style current-trip/average-trip stress metrics, and wire-facing sim state projection records.
+
+### `scoring.test.ts`
+Focused tests for operational eval timing and unscored occupied-room behavior.
 
 ### `parking.ts`
 Parking coverage propagation from ramps, demand log rebuild, and assignment of parking-service requests to eligible hotel and office sims.

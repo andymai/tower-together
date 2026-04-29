@@ -214,6 +214,11 @@ export function recomputeObjectOperationalStatus(
 		return;
 	}
 
+	if (rawAverageStress < 0) {
+		object.evalLevel = 0xff;
+		return;
+	}
+
 	let score = hasTripData ? rawAverageStress : 0;
 	switch (object.rentLevel) {
 		case 0:
@@ -256,6 +261,22 @@ export function recomputeObjectOperationalStatus(
 		) {
 			object.occupiedFlag = 1;
 		}
+	}
+}
+
+export function recomputeAllObjectOperationalStatus(world: WorldState): void {
+	for (const [key, object] of Object.entries(world.placedObjects)) {
+		if (!EVALUATABLE_FAMILIES.has(object.objectTypeCode)) continue;
+		const [x, y] = key.split(",").map(Number);
+		const floorAnchor = yToFloor(y);
+		const sim = world.sims.find(
+			(candidate) =>
+				candidate.familyCode === object.objectTypeCode &&
+				candidate.floorAnchor === floorAnchor &&
+				candidate.homeColumn === x,
+		);
+		if (!sim) continue;
+		recomputeObjectOperationalStatus(world, sim, object);
 	}
 }
 

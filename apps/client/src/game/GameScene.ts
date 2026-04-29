@@ -149,6 +149,13 @@ type CockroachState = {
 const TOUCH_PAN_THRESHOLD_SQ = 10 * 10;
 
 const HOTEL_TILE_TYPES = new Set(["hotelSingle", "hotelTwin", "hotelSuite"]);
+const EVALUATABLE_OCCUPANCY_TILE_TYPES = new Set([
+	"hotelSingle",
+	"hotelTwin",
+	"hotelSuite",
+	"office",
+	"condo",
+]);
 const HOTEL_TURNOVER_STATUS_MIN = 0x28;
 const HOTEL_INFESTED_STATUS_MIN = 0x38;
 const COCKROACH_PER_ROOM: Partial<Record<string, number>> = {
@@ -162,6 +169,11 @@ const COCKROACH_SVG_SCALE = 32;
 const FLOOR_LABEL_RANGE: [number, number] = [-10, 110];
 const EVAL_LABEL_RANGE: [number, number] = [0, 300];
 const CAR_LABEL_RANGE: [number, number] = [0, 21];
+const EVAL_LEVEL_OVERLAY_COLORS: Record<number, string> = {
+	0: "rgba(221, 51, 51, 0.5)",
+	1: "rgba(221, 204, 0, 0.5)",
+	2: "rgba(68, 136, 255, 0.5)",
+};
 const NUMBER_TEXTURE_RESOLUTION = Math.max(
 	1,
 	Math.round(window.devicePixelRatio * 4),
@@ -342,6 +354,7 @@ export class GameScene extends Scene {
 	private lastFloorLabelWidth = -1;
 	private simsDirty = true;
 	private stressBadgesEnabled = true;
+	private paused = false;
 	private lastSimWorldView = new Geom.Rectangle();
 
 	// Scratch buffers reused every frame to avoid GC pressure in the render
@@ -462,6 +475,14 @@ export class GameScene extends Scene {
 		}
 	}
 
+	setPaused(paused: boolean): void {
+		if (this.paused === paused) return;
+		this.paused = paused;
+		if (this.staticRowChunks.length > 0) {
+			this.redrawStaticRows(Array.from({ length: GRID_HEIGHT }, (_, y) => y));
+		}
+	}
+
 	setSoundMuted(muted: boolean): void {
 		this.soundMuted = muted;
 		this.soundManager?.setMuted(muted);
@@ -520,6 +541,31 @@ export class GameScene extends Scene {
 		return this.evalActiveFlagMap.get(key) === 0;
 	}
 
+	private displayEvalLevel(tileType: string, key: string): number | undefined {
+		const evalLevel = this.evalLevelMap.get(key);
+		if (evalLevel !== undefined && evalLevel >= 0 && evalLevel <= 2) {
+			return evalLevel;
+		}
+		if (!EVALUATABLE_OCCUPANCY_TILE_TYPES.has(tileType)) {
+			return undefined;
+		}
+
+		const unitStatus = this.unitStatusMap.get(key);
+		if (unitStatus === undefined) {
+			return undefined;
+		}
+		if (HOTEL_TILE_TYPES.has(tileType)) {
+			return unitStatus < 0x18 ? 2 : undefined;
+		}
+		if (tileType === "office") {
+			return unitStatus <= 0x0f ? 2 : undefined;
+		}
+		if (tileType === "condo") {
+			return unitStatus <= 0x17 ? 2 : undefined;
+		}
+		return undefined;
+	}
+
 	/** Signature of a cell's visually-rendered state. Changes when (and only
 	 *  when) something in drawStaticRowContent would draw differently. */
 	private computeCellVisualSig(key: string): string {
@@ -559,7 +605,10 @@ export class GameScene extends Scene {
 				badge = `${level}:${score}`;
 			}
 		}
-		return `${tileType}:${isAnchor}:${dirty}:${banner}:${coverage}:${stuck}:${badge}`;
+		const evalOverlay = this.paused
+			? (this.displayEvalLevel(tileType, key) ?? "")
+			: "";
+		return `${tileType}:${isAnchor}:${dirty}:${banner}:${coverage}:${stuck}:${badge}:${evalOverlay}`;
 	}
 
 	/** Check whether the cell at (x, y) has an elevator-family overlay. */
@@ -1881,6 +1930,8 @@ export class GameScene extends Scene {
 					}
 				}
 
+				const evalLevel = this.evalLevelMap.get(key);
+				const displayEvalLevel = this.displayEvalLevel(tileType, key);
 				if (row === y) {
 					const labelText = TILE_LABELS[tileType];
 					if (labelText && !hasRoomTexture) {
@@ -1936,7 +1987,6 @@ export class GameScene extends Scene {
 						}
 					}
 
-					const evalLevel = this.evalLevelMap.get(key);
 					const evalScore = this.evalScoreMap.get(key);
 					if (
 						import.meta.env.DEV &&
@@ -1983,6 +2033,14 @@ export class GameScene extends Scene {
 								evalHeight,
 							);
 						}
+					}
+				}
+
+				if (this.paused && displayEvalLevel !== undefined) {
+					const overlayColor = EVAL_LEVEL_OVERLAY_COLORS[displayEvalLevel];
+					if (overlayColor !== undefined) {
+						ctx.fillStyle = overlayColor;
+						ctx.fillRect(drawX, drawY, drawW, drawH);
 					}
 				}
 			}

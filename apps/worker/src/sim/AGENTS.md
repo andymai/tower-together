@@ -61,6 +61,9 @@ Unit tests for `handlePlaceTile` placement rules (currently: elevator shaft spac
 ### `trace.test.ts`
 Fixture-driven parity suite that builds towers from JSON specs and checks scalar fields, sim populations, sim states, RNG deltas, carriers, and cash against reference JSONL traces.
 
+### `determinism.test.ts`
+Hydration/idempotence and server-vs-client lockstep determinism checks over fixture-built towers, including mixed entertainment fixtures.
+
 ## Subpackages
 
 ### `sims/`

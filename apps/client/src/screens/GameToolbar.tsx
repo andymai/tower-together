@@ -1,4 +1,4 @@
-import { Star, Volume2, VolumeX } from "lucide-react";
+import { Pause, Star, Volume2, VolumeX } from "lucide-react";
 import {
 	forwardRef,
 	memo,
@@ -106,8 +106,10 @@ interface Props {
 	playerCount: number;
 	connectionStatus: ConnectionStatus;
 	speedMultiplier: 1 | 3 | 10;
+	paused: boolean;
 	soundMuted: boolean;
 	onSpeedChange: (multiplier: 1 | 3 | 10) => void;
+	onPausedChange: (paused: boolean) => void;
 	onSoundMutedChange: (muted: boolean) => void;
 	onAliasInputChange: (value: string) => void;
 	onRenameStart: () => void;
@@ -130,8 +132,10 @@ export const GameToolbar = memo(
 			playerCount,
 			connectionStatus,
 			speedMultiplier,
+			paused,
 			soundMuted,
 			onSpeedChange,
+			onPausedChange,
 			onSoundMutedChange,
 			onAliasInputChange,
 			onRenameStart,
@@ -301,6 +305,19 @@ export const GameToolbar = memo(
 				<div style={styles.toolbarRight}>
 					{import.meta.env.DEV && <span style={styles.devBadge}>DEV</span>}
 					<span ref={speedMenuRef} style={styles.speedButtons}>
+						<button
+							type="button"
+							style={{
+								...styles.speedButton,
+								...(paused ? styles.speedButtonActive : {}),
+								...styles.muteButton,
+							}}
+							aria-label="Pause simulation"
+							title="Pause"
+							onClick={() => onPausedChange(!paused)}
+						>
+							<Pause size={14} />
+						</button>
 						{([1, 3, 10] as const).map((multiplier) => {
 							const active = speedMultiplier === multiplier;
 							if (isCompact && !speedMenuOpen && !active) return null;

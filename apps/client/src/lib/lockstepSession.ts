@@ -47,6 +47,7 @@ type RenderState = {
 type SessionSettings = {
 	freeBuild: boolean;
 	speedMultiplier: 1 | 3 | 10;
+	paused: boolean;
 };
 
 type PendingLocalBatch = {
@@ -84,6 +85,7 @@ export class TowerLockstepSession {
 	private settings: SessionSettings = {
 		freeBuild: false,
 		speedMultiplier: 1,
+		paused: false,
 	};
 	private readonly authoritativeFrames = new Map<number, AuthoritativeFrame>();
 	private readonly pendingLocalBatches = new Map<number, PendingLocalBatch>();
@@ -138,7 +140,10 @@ export class TowerLockstepSession {
 		if (this.sim) {
 			this.sim.freeBuild = this.settings.freeBuild;
 		}
-		if (settings.speedMultiplier !== undefined) {
+		if (
+			settings.speedMultiplier !== undefined ||
+			settings.paused !== undefined
+		) {
 			this.restartTimer();
 		}
 	}
@@ -330,6 +335,9 @@ export class TowerLockstepSession {
 			this.timer = null;
 		}
 		if (!this.sim) {
+			return;
+		}
+		if (this.settings.paused) {
 			return;
 		}
 		const interval = Math.max(

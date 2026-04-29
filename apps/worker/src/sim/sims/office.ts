@@ -14,7 +14,6 @@ import {
 	dispatchCommercialVenueVisit,
 	findCommercialVenueAtFloor,
 	findObjectForSim,
-	recomputeObjectOperationalStatus,
 	releaseOfficeVenueSlot,
 	releaseServiceRequest,
 	resetFacilitySimTripCounters,
@@ -679,11 +678,7 @@ export function processOfficeSim(
 	if (!facility) return;
 
 	const handler = OFFICE_REFRESH_HANDLER_TABLE.get(sim.stateCode);
-	if (handler) {
-		handler(world, ledger, time, sim, facility);
-	} else {
-		recomputeObjectOperationalStatus(world, sim, facility);
-	}
+	handler?.(world, ledger, time, sim, facility);
 }
 
 /**

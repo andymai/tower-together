@@ -104,6 +104,7 @@ export {
 	currentTripStressLevel,
 	currentTripStressTicks,
 	maybeApplyDistanceFeedback,
+	recomputeAllObjectOperationalStatus,
 	recomputeObjectOperationalStatus,
 	refreshOccupiedFlagAndTripCounters,
 	type SimStateRecord,

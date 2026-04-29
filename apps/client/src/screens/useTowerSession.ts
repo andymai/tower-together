@@ -31,6 +31,7 @@ interface UseTowerSessionResult {
 	sims: TowerSessionState["sims"];
 	carriers: TowerSessionState["carriers"];
 	speedMultiplier: 1 | 3 | 10;
+	paused: boolean;
 	freeBuild: boolean;
 	activePrompt: ActivePrompt | null;
 	inspectedCell: CellInfoData | null;
@@ -49,6 +50,7 @@ interface UseTowerSessionResult {
 	inspectCell: (x: number, y: number) => void;
 	respondToPrompt: (accepted: boolean) => void;
 	setSpeedMultiplier: (multiplier: 1 | 3 | 10) => void;
+	setPaused: (paused: boolean) => void;
 	setStarCount: (starCount: 1 | 2 | 3 | 4 | 5 | 6) => void;
 	setFreeBuild: (enabled: boolean) => void;
 	setRentLevel: (x: number, y: number, rentLevel: number) => void;
@@ -129,6 +131,7 @@ export function useTowerSession({
 			controllerRef.current?.respondToPrompt(accepted),
 		setSpeedMultiplier: (multiplier) =>
 			controllerRef.current?.setSpeedMultiplier(multiplier),
+		setPaused: (paused) => controllerRef.current?.setPaused(paused),
 		setStarCount: (starCount) => controllerRef.current?.setStarCount(starCount),
 		setFreeBuild: (enabled) => controllerRef.current?.setFreeBuild(enabled),
 		setRentLevel: (x, y, rentLevel) =>

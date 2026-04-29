@@ -44,6 +44,8 @@ const FIXTURE_TILE_MAP: Record<string, string> = {
 	restaurant: "restaurant",
 	"fast-food": "fastFood",
 	retail: "retail",
+	cinema: "cinema",
+	"party-hall": "partyHall",
 	single: "hotelSingle",
 	twin: "hotelTwin",
 	suite: "hotelSuite",

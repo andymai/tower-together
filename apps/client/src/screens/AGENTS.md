@@ -9,7 +9,7 @@ Full-page React screen components.
 - **towerSessionController.ts** — Pure tower-session orchestrator. Bridges socket status/messages to the local lockstep sim, scene updates, toasts, and user-issued command batching; designed to be tested with mocked server messages.
 - **gameScreenStyles.ts** — Shared inline style registry used by the extracted game-screen presentation components.
 - **gameScreenTypes.ts** — Shared local screen types for toasts, prompts, and inspected-cell payloads.
-- **GameToolbar.tsx** — Top header with tower rename, cash plus five-slot star rating, bold date plus sim-clock time display, player/connection status, reconnect, leave, sound mute, and (in dev builds) a DEV badge plus sim-speed button group.
+- **GameToolbar.tsx** — Top header with tower rename, cash plus five-slot star rating, bold date plus sim-clock time display, player/connection status, reconnect, leave, sound mute, pause/resume, and a sim-speed button group.
 - **GameBuildPanel.tsx** — Top-right floating panel with facility buttons (lucide icons) grouped into categories and disabled until the shared binary-aligned star unlock is met (unless free-build is enabled).
 - **GameDebugPanel.tsx** — Extracted top-right HUD for simulation/debug counters, debug star-count button group, and free-build toggle.
 - **GamePromptModal.tsx** — Extracted modal for server-driven prompt decisions such as bomb/fire events.

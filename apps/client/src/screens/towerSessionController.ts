@@ -83,6 +83,7 @@ export interface TowerSessionScene {
 		receivedAtMs: number,
 		tickIntervalMs?: number,
 	) => void;
+	setPaused: (paused: boolean) => void;
 	computeShiftFill: (x: number, y: number) => Array<{ x: number; y: number }>;
 	setLobbyMode: (mode: LobbyMode) => void;
 	setLastPlaced: (x: number, y: number, tileType: string) => void;
@@ -386,6 +387,15 @@ export class TowerSessionController {
 		});
 	}
 
+	setPaused(paused: boolean): void {
+		this.patchState({ paused });
+		this.lockstep.updateSettings({ paused });
+		this.socket.send({
+			type: "set_paused",
+			paused,
+		});
+	}
+
 	setStarCount(starCount: 1 | 2 | 3 | 4 | 5 | 6): void {
 		this.patchState({ starCount });
 		this.lockstep.setStarCount(starCount);
@@ -471,6 +481,7 @@ export class TowerSessionController {
 					starCount: msg.starCount,
 					speedMultiplier: msg.speedMultiplier,
 					freeBuild: msg.freeBuild,
+					paused: msg.paused,
 					lobbyMode,
 				});
 				this.getScene()?.setLobbyMode(lobbyMode);
@@ -483,6 +494,7 @@ export class TowerSessionController {
 				this.lockstep.initialize(msg.snapshot, {
 					freeBuild: msg.freeBuild,
 					speedMultiplier: msg.speedMultiplier,
+					paused: msg.paused,
 				});
 				break;
 			}
@@ -505,6 +517,7 @@ export class TowerSessionController {
 				this.lockstep.applyCheckpoint(msg.snapshot, {
 					freeBuild: msg.freeBuild,
 					speedMultiplier: msg.speedMultiplier,
+					paused: this.state.paused,
 				});
 				break;
 			}
@@ -517,6 +530,7 @@ export class TowerSessionController {
 				this.lockstep.updateSettings({
 					freeBuild: msg.freeBuild,
 					speedMultiplier: msg.speedMultiplier,
+					paused: msg.paused,
 				});
 				break;
 			case "presence_update":

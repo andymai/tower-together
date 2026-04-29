@@ -114,6 +114,7 @@ describe("TowerLockstepSession integration", () => {
 			session.initialize(snapshot, {
 				freeBuild: true,
 				speedMultiplier: 1,
+				paused: false,
 			});
 
 			expect(
@@ -198,6 +199,7 @@ describe("TowerLockstepSession integration", () => {
 			session.initialize(initial, {
 				freeBuild: false,
 				speedMultiplier: 1,
+				paused: false,
 			});
 
 			const serverSim = TowerSim.fromSnapshot(initial);
@@ -208,6 +210,7 @@ describe("TowerLockstepSession integration", () => {
 			session.applyCheckpoint(checkpoint, {
 				freeBuild: false,
 				speedMultiplier: 1,
+				paused: false,
 			});
 			vi.advanceTimersByTime(50);
 
