@@ -60,14 +60,6 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		offsetY: number;
 	} | null>(null);
 
-	const toggleCollapsed = useCallback(() => {
-		setCollapsed((prev) => {
-			const next = !prev;
-			setTowerView(towerId, { minimapCollapsed: next });
-			return next;
-		});
-	}, [towerId]);
-
 	const clampPos = useCallback((x: number, y: number) => {
 		const panel = panelRef.current;
 		const w = panel?.offsetWidth ?? MINIMAP_WIDTH + 16;
@@ -79,6 +71,20 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			y: Math.max(0, Math.min(maxY, y)),
 		};
 	}, []);
+
+	const toggleCollapsed = useCallback(() => {
+		setCollapsed((prev) => {
+			const next = !prev;
+			setTowerView(towerId, { minimapCollapsed: next });
+			return next;
+		});
+		// Panel size changes between collapsed/expanded; re-clamp position
+		// after the next paint so a panel anchored near the right/bottom edge
+		// doesn't overflow the viewport when expanded.
+		requestAnimationFrame(() => {
+			setPos((current) => (current ? clampPos(current.x, current.y) : current));
+		});
+	}, [towerId, clampPos]);
 
 	const handlePanelPointerDown = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {

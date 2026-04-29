@@ -1289,8 +1289,12 @@ export class GameScene extends Scene {
 		if (!this.sceneCreated) return;
 		this.findIndicator?.destroy();
 		this.findIndicator = null;
+		// Floor indices grow upward (ground=10, top=119); world Y grows
+		// downward — every other floor→Y conversion in this codebase inverts
+		// via `GRID_HEIGHT - 1 - floor`. Match it here, otherwise Find lands
+		// in the sky.
 		const worldX = (sim.homeColumn + 0.5) * TILE_WIDTH;
-		const worldY = (sim.floorAnchor + 0.5) * TILE_HEIGHT;
+		const worldY = (GRID_HEIGHT - 1 - sim.floorAnchor + 0.5) * TILE_HEIGHT;
 		this.centerCameraOnWorld(worldX, worldY);
 		this.persistCameraView();
 		// Downward triangle: tip at (worldX, worldY - 1px), base above it.
