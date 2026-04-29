@@ -1664,6 +1664,25 @@ export function handleSetElevatorDwellDelay(
 		return { accepted: false, reason: "No elevator at this column" };
 	}
 	carrier.dwellDelay = new Array(14).fill(value);
+
+	// On `'core'` towers, mirror the dwell change into elevator-core
+	// per-elevator. tower-together's classic engine modeled dwell as
+	// a multiplier × 30-tick base; elevator-core uses a flat
+	// door_open_ticks per elevator. Base of 30 ticks × multiplier
+	// is the simplest mapping that preserves the existing UI
+	// semantics (multiplier=1 → 30 ticks, multiplier=2 → 60, etc.).
+	if (world.elevatorEngine === "core" && elevatorCoreBridgeModule) {
+		const bridge = elevatorCoreBridgeModule.getBridge(world);
+		if (bridge) {
+			const ticks = Math.max(1, value * 30);
+			for (const [key, elevatorRef] of bridge.elevatorByCar) {
+				if (key.startsWith(`${carrier.column}:`)) {
+					bridge.sim.setDoorOpenTicks(elevatorRef, ticks);
+				}
+			}
+		}
+	}
+
 	return { accepted: true, patch: [] };
 }
 
