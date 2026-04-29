@@ -17,11 +17,20 @@ interface Props {
 
 type MinimapTab = "edit" | "eval";
 
+const TAB_LABELS: Record<MinimapTab, string> = { edit: "Edit", eval: "Eval" };
+const TAB_IDS: readonly MinimapTab[] = ["edit", "eval"];
+
+const FALLBACK_FILL = "#9aa8b8";
 const EVAL_TAB_COLORS: Record<number, string> = {
 	0: "#dd3333", // Terrible — red
 	1: "#dd9b00", // Good — yellow/amber
 	2: "#4488ff", // Excellent — blue
 };
+
+function cellFill(tab: MinimapTab, evalLevel: number | undefined): string {
+	if (tab !== "eval" || evalLevel === undefined) return FALLBACK_FILL;
+	return EVAL_TAB_COLORS[evalLevel] ?? FALLBACK_FILL;
+}
 
 export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	const [collapsed, setCollapsed] = useState<boolean>(
@@ -168,15 +177,14 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		// gray for non-evaluable cells (stairs, lobbies, infrastructure).
 		const tileW = Math.max(1, TILE_WIDTH * sx);
 		const tileH = Math.max(1, TILE_HEIGHT * sy);
-		const fallbackFill = "#9aa8b8";
 		for (const cell of scene.iterateOccupiedCells()) {
-			const px = cell.x * TILE_WIDTH * sx;
-			const py = cell.y * TILE_HEIGHT * sy;
-			ctx.fillStyle =
-				activeTab === "eval" && cell.evalLevel !== undefined
-					? (EVAL_TAB_COLORS[cell.evalLevel] ?? fallbackFill)
-					: fallbackFill;
-			ctx.fillRect(px, py, tileW, tileH);
+			ctx.fillStyle = cellFill(activeTab, cell.evalLevel);
+			ctx.fillRect(
+				cell.x * TILE_WIDTH * sx,
+				cell.y * TILE_HEIGHT * sy,
+				tileW,
+				tileH,
+			);
 		}
 
 		// Ground line (top of underground rows)
@@ -315,7 +323,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 						</button>
 					</div>
 					<div style={styles.tabBar}>
-						{(["edit", "eval"] as const).map((id) => {
+						{TAB_IDS.map((id) => {
 							const active = activeTab === id;
 							return (
 								<button
@@ -326,7 +334,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 									}
 									onClick={() => setActiveTabPersisted(id)}
 								>
-									{id === "edit" ? "Edit" : "Eval"}
+									{TAB_LABELS[id]}
 								</button>
 							);
 						})}

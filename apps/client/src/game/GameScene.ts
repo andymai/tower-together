@@ -1286,26 +1286,27 @@ export class GameScene extends Scene {
 	 * the snapshot location even if the sim moves during the flash.
 	 */
 	findSim(sim: SimStateData): void {
-		const cam = this.cameras?.main;
-		if (!cam || !this.sceneCreated) return;
+		if (!this.sceneCreated) return;
 		this.findIndicator?.destroy();
 		this.findIndicator = null;
 		const worldX = (sim.homeColumn + 0.5) * TILE_WIDTH;
 		const worldY = (sim.floorAnchor + 0.5) * TILE_HEIGHT;
 		this.centerCameraOnWorld(worldX, worldY);
 		this.persistCameraView();
-		const arrow = this.add.graphics();
-		arrow.setDepth(HOVER_DEPTH + 1);
-		arrow.fillStyle(0xff2b2b, 1);
 		// Downward triangle: tip at (worldX, worldY - 1px), base above it.
 		const halfBaseW = TILE_WIDTH * 0.6;
 		const heightPx = TILE_HEIGHT * 0.7;
-		arrow.beginPath();
-		arrow.moveTo(worldX, worldY - 1);
-		arrow.lineTo(worldX - halfBaseW, worldY - 1 - heightPx);
-		arrow.lineTo(worldX + halfBaseW, worldY - 1 - heightPx);
-		arrow.closePath();
-		arrow.fillPath();
+		const arrow = this.add.graphics();
+		arrow.setDepth(HOVER_DEPTH + 1);
+		arrow.fillStyle(0xff2b2b, 1);
+		arrow.fillTriangle(
+			worldX,
+			worldY - 1,
+			worldX - halfBaseW,
+			worldY - 1 - heightPx,
+			worldX + halfBaseW,
+			worldY - 1 - heightPx,
+		);
 		this.findIndicator = arrow;
 		this.tweens.add({
 			targets: arrow,
