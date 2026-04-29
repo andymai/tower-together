@@ -133,7 +133,13 @@ export const gameScreenStyles = {
 		fontSize: 12,
 		cursor: "pointer",
 	},
-	canvasWrapper: { flex: 1, overflow: "hidden", position: "relative" },
+	canvasWrapper: {
+		flex: 1,
+		overflow: "hidden",
+		position: "relative",
+		touchAction: "pan-x pan-y",
+		overscrollBehavior: "contain",
+	},
 	rightPanelStack: {
 		position: "absolute",
 		top: 12,

@@ -45,6 +45,7 @@ interface TowerView {
 	zoom?: number;
 	scrollX?: number;
 	scrollY?: number;
+	minimapCollapsed?: boolean;
 }
 
 export function getTowerView(towerId: string): TowerView {

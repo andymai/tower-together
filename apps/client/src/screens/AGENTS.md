@@ -16,3 +16,7 @@ Full-page React screen components.
 - **CellInspectionDialog.tsx** — Inspection dialog for room/elevator metadata, room average stress, per-sim current/average stress, rent, car-count, dwell delay, waiting car response, per-floor stop pattern, per-car home floor, real-time car-position grid, and cinema movie controls.
 - **SimInspectionDialog.tsx** — Separate inspect modal for queued sims clicked directly in the Phaser scene, showing sim state, current-trip stress, average-trip stress, and trip/floor metadata.
 - **GameToasts.tsx** — Extracted toast stack renderer for transient info/error messages.
+- **Minimap.tsx** — Bottom-left collapsible SimTower-style overview: gray silhouette of placed cells, a draggable yellow viewport rectangle, plus Fit / 1× / Lobby preset buttons. Persists collapsed state per-tower.
+- **CanvasScrollbars.tsx** — Thin auto-hide right-edge and bottom-edge scrollbars overlaying the Phaser canvas; thumb position polled from `GameScene.getCameraView()`, drag/click drives `setCameraScroll`.
+- **useBlockBrowserZoom.ts** — Hook that suppresses browser page-zoom (Ctrl/Cmd +/-/0 and Ctrl+wheel) while the GameScreen is mounted; Phaser's in-game ctrl+wheel zoom continues to work.
+- **useViewPresetHotkeys.ts** — Installs F = Fit, 1 = 1×, L = Lobby document-level keydown listener; suppressed when focus is inside an input/textarea/contenteditable.

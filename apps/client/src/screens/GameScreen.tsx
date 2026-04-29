@@ -5,6 +5,7 @@ import { buildTransportMetrics } from "../game/transportSelectors";
 import type { TowerSocket } from "../lib/socket";
 import type { SelectedTool, SimStateData } from "../types";
 import { getTileStarRequirement } from "../types";
+import { CanvasScrollbars } from "./CanvasScrollbars";
 import { CellInspectionDialog } from "./CellInspectionDialog";
 import { GameBuildPanel } from "./GameBuildPanel";
 import { GameDebugPanel } from "./GameDebugPanel";
@@ -14,9 +15,12 @@ import type { GameToolbarClockHandle } from "./GameToolbar";
 import { GameToolbar } from "./GameToolbar";
 import { gameScreenStyles as styles } from "./gameScreenStyles";
 import type { Toast } from "./gameScreenTypes";
+import { Minimap } from "./Minimap";
 import { SimInspectionDialog } from "./SimInspectionDialog";
 import { StarUpgradeDialog } from "./StarUpgradeDialog";
+import { useBlockBrowserZoom } from "./useBlockBrowserZoom";
 import { useTowerSession } from "./useTowerSession";
+import { useViewPresetHotkeys } from "./useViewPresetHotkeys";
 
 interface Props {
 	playerId: string;
@@ -56,6 +60,9 @@ export function GameScreen({
 	const sceneRef = useRef<GameScene | null>(null);
 	const clockRef = useRef<GameToolbarClockHandle | null>(null);
 	const lastCashRef = useRef<number | null>(null);
+
+	useBlockBrowserZoom();
+	useViewPresetHotkeys(sceneRef);
 
 	const addToast = useCallback(
 		(message: string, variant: "error" | "info" = "error") => {
@@ -315,6 +322,12 @@ export function GameScreen({
 						/>
 					)}
 				</div>
+				<CanvasScrollbars sceneRef={sceneRef} sceneReady={sceneReady} />
+				<Minimap
+					towerId={towerId}
+					sceneRef={sceneRef}
+					sceneReady={sceneReady}
+				/>
 			</div>
 
 			{activePrompt && (

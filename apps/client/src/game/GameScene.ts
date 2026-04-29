@@ -21,6 +21,7 @@ import {
 	DAY_TICK_MAX,
 	GRID_HEIGHT,
 	GRID_WIDTH,
+	GROUND_Y,
 	type SimStateData,
 	TILE_WIDTHS,
 	UNDERGROUND_FLOORS,
@@ -371,6 +372,8 @@ export class GameScene extends Scene {
 
 	// Stores every occupied cell: "x,y" -> tileType (including extension cells)
 	private grid: Map<string, string> = new Map();
+	// Bumped whenever the placed-tile silhouette changes (used by the minimap).
+	private cellRevision = 0;
 	// Keys of anchor cells only (used for rendering)
 	private anchorSet: Set<string> = new Set();
 	private anchorKeysByRow: Array<Set<string>> = Array.from(
@@ -759,6 +762,7 @@ export class GameScene extends Scene {
 				this.evalScoreMap.set(key, value);
 			for (const [key, value] of expectedCoverageFlag)
 				this.coverageFlagMap.set(key, value);
+			this.cellRevision += 1;
 			return;
 		}
 
@@ -846,9 +850,11 @@ export class GameScene extends Scene {
 			this.redrawStaticRows(dirtyRows);
 			this.drawStaticOverlays();
 			this.drawDynamicOverlays();
+			this.cellRevision += 1;
 		} else if (overlayChanged) {
 			this.drawStaticOverlays();
 			this.drawDynamicOverlays();
+			this.cellRevision += 1;
 		}
 	}
 
@@ -944,6 +950,7 @@ export class GameScene extends Scene {
 			this.redrawStaticRows(dirtyRows);
 			this.drawStaticOverlays();
 			this.drawDynamicOverlays();
+			this.cellRevision += 1;
 		}
 	}
 
@@ -1114,6 +1121,137 @@ export class GameScene extends Scene {
 	/** Schedule kaching as the next sound effect (call on cash income). */
 	playKaching(): void {
 		this.soundManager?.triggerCash();
+	}
+
+	/** Snapshot of camera state for minimap/scrollbar overlays. */
+	getCameraView(): {
+		scrollX: number;
+		scrollY: number;
+		zoom: number;
+		viewWidth: number;
+		viewHeight: number;
+		worldWidth: number;
+		worldHeight: number;
+		minZoom: number;
+		maxZoom: number;
+		ready: boolean;
+	} {
+		const cam = this.cameras?.main;
+		const worldWidth = GRID_WIDTH * TILE_WIDTH;
+		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
+		if (!cam || !this.sceneCreated) {
+			return {
+				scrollX: 0,
+				scrollY: 0,
+				zoom: MIN_ZOOM,
+				viewWidth: 0,
+				viewHeight: 0,
+				worldWidth,
+				worldHeight,
+				minZoom: MIN_ZOOM,
+				maxZoom: MAX_ZOOM,
+				ready: false,
+			};
+		}
+		return {
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+			zoom: cam.zoom,
+			viewWidth: cam.worldView.width,
+			viewHeight: cam.worldView.height,
+			worldWidth,
+			worldHeight,
+			minZoom: MIN_ZOOM,
+			maxZoom: MAX_ZOOM,
+			ready: true,
+		};
+	}
+
+	/** Set the camera scroll directly (world coordinates). */
+	setCameraScroll(scrollX: number, scrollY: number): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		cam.setScroll(scrollX, scrollY);
+		setTowerView(this.towerId, {
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+		});
+	}
+
+	/** Center the camera on a world-coordinate point (anchor pinned at the center of the viewport). */
+	centerCameraOnWorld(worldX: number, worldY: number): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		cam.centerOn(worldX, worldY);
+		setTowerView(this.towerId, {
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+		});
+	}
+
+	/** Vertical fit: zoom so the full tower height fits the canvas; horizontally center. */
+	applyPresetFit(): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
+		const worldWidth = GRID_WIDTH * TILE_WIDTH;
+		const fitZoom = PhaserMath.Clamp(
+			this.scale.height / worldHeight,
+			MIN_ZOOM,
+			MAX_ZOOM,
+		);
+		cam.setZoom(fitZoom);
+		cam.centerOn(worldWidth / 2, worldHeight / 2);
+		setTowerView(this.towerId, {
+			zoom: fitZoom,
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+		});
+	}
+
+	/** Reset to MIN_ZOOM, keeping the current viewport center. */
+	applyPresetActualSize(): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		const centerX = cam.worldView.x + cam.worldView.width / 2;
+		const centerY = cam.worldView.y + cam.worldView.height / 2;
+		cam.setZoom(MIN_ZOOM);
+		cam.centerOn(centerX, centerY);
+		setTowerView(this.towerId, {
+			zoom: cam.zoom,
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+		});
+	}
+
+	/** Center on the ground-floor lobby row (horizontally centered, current zoom preserved). */
+	applyPresetLobby(): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		const worldWidth = GRID_WIDTH * TILE_WIDTH;
+		const lobbyY = GROUND_Y * TILE_HEIGHT + TILE_HEIGHT / 2;
+		cam.centerOn(worldWidth / 2, lobbyY);
+		setTowerView(this.towerId, {
+			scrollX: cam.scrollX,
+			scrollY: cam.scrollY,
+		});
+	}
+
+	/** Iterate every occupied cell (anchor + overlay) for minimap rendering. */
+	*iterateOccupiedCells(): Generator<{ x: number; y: number }> {
+		for (const key of this.grid.keys()) {
+			const [xs, ys] = key.split(",");
+			yield { x: Number(xs), y: Number(ys) };
+		}
+		for (const key of this.overlayGrid.keys()) {
+			const [xs, ys] = key.split(",");
+			yield { x: Number(xs), y: Number(ys) };
+		}
+	}
+
+	/** Monotonic counter that ticks when the placed-tile silhouette changes. */
+	getCellRevision(): number {
+		return this.cellRevision;
 	}
 
 	update(_time: number, delta: number): void {
