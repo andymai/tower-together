@@ -1083,6 +1083,17 @@ export class GameScene extends Scene {
 			MAX_ZOOM,
 		);
 		this.cameras.main.setZoom(initialZoom);
+		// Constrain the viewport to never extend past the world (no sky above
+		// the top, no void below the underground). `centerOn=true` locks the
+		// camera centered when the viewport is larger than the world on an
+		// axis (typical at fit-zoom horizontally).
+		this.cameras.main.setBounds(
+			0,
+			0,
+			GRID_WIDTH * TILE_WIDTH,
+			GRID_HEIGHT * TILE_HEIGHT,
+			true,
+		);
 		if (savedView.scrollX != null && savedView.scrollY != null) {
 			this.cameras.main.setScroll(savedView.scrollX, savedView.scrollY);
 		} else {
@@ -1169,19 +1180,6 @@ export class GameScene extends Scene {
 		};
 	}
 
-	/**
-	 * Clamp so the camera CENTER stays within the world. This keeps the
-	 * minimap and canvas in agreement: any minimap click maps to a
-	 * `centerCameraOnWorld(worldX, worldY)` whose result is reachable.
-	 * When the viewport is at least as large as the world on an axis, lock
-	 * to centered (further scroll is a no-op anyway).
-	 */
-	private clampScroll(value: number, viewSize: number, worldSize: number) {
-		if (viewSize >= worldSize) return (worldSize - viewSize) / 2;
-		const halfView = viewSize / 2;
-		return PhaserMath.Clamp(value, -halfView, worldSize - halfView);
-	}
-
 	persistCameraView(): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
@@ -1192,16 +1190,11 @@ export class GameScene extends Scene {
 		});
 	}
 
-	/** Clamped to world bounds. Callers persist on settle (drag end). */
+	/** Phaser clamps to camera bounds. Callers persist on settle. */
 	setCameraScroll(scrollX: number, scrollY: number): void {
 		const cam = this.cameras?.main;
 		if (!cam || !this.sceneCreated) return;
-		const worldWidth = GRID_WIDTH * TILE_WIDTH;
-		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
-		cam.setScroll(
-			this.clampScroll(scrollX, cam.worldView.width, worldWidth),
-			this.clampScroll(scrollY, cam.worldView.height, worldHeight),
-		);
+		cam.setScroll(scrollX, scrollY);
 	}
 
 	centerCameraOnWorld(worldX: number, worldY: number): void {
