@@ -1169,22 +1169,17 @@ export class GameScene extends Scene {
 		};
 	}
 
-	/** Allows scrolling slightly past the world edge for sky/dirt context. */
-	private clampScroll(
-		value: number,
-		viewSize: number,
-		worldSize: number,
-		minVisible: number,
-	) {
-		// Viewport already contains the whole world: lock to centered.
+	/**
+	 * Clamp so the camera CENTER stays within the world. This keeps the
+	 * minimap and canvas in agreement: any minimap click maps to a
+	 * `centerCameraOnWorld(worldX, worldY)` whose result is reachable.
+	 * When the viewport is at least as large as the world on an axis, lock
+	 * to centered (further scroll is a no-op anyway).
+	 */
+	private clampScroll(value: number, viewSize: number, worldSize: number) {
 		if (viewSize >= worldSize) return (worldSize - viewSize) / 2;
-		// Otherwise allow at most `minVisible` of overflow past either edge so
-		// the viewport always mostly shows world, never mostly void.
-		return PhaserMath.Clamp(
-			value,
-			-minVisible,
-			worldSize - viewSize + minVisible,
-		);
+		const halfView = viewSize / 2;
+		return PhaserMath.Clamp(value, -halfView, worldSize - halfView);
 	}
 
 	persistCameraView(): void {
@@ -1204,8 +1199,8 @@ export class GameScene extends Scene {
 		const worldWidth = GRID_WIDTH * TILE_WIDTH;
 		const worldHeight = GRID_HEIGHT * TILE_HEIGHT;
 		cam.setScroll(
-			this.clampScroll(scrollX, cam.worldView.width, worldWidth, TILE_WIDTH),
-			this.clampScroll(scrollY, cam.worldView.height, worldHeight, TILE_HEIGHT),
+			this.clampScroll(scrollX, cam.worldView.width, worldWidth),
+			this.clampScroll(scrollY, cam.worldView.height, worldHeight),
 		);
 	}
 
