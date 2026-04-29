@@ -20,7 +20,7 @@ import { SimInspectionDialog } from "./SimInspectionDialog";
 import { StarUpgradeDialog } from "./StarUpgradeDialog";
 import { useBlockBrowserZoom } from "./useBlockBrowserZoom";
 import { useTowerSession } from "./useTowerSession";
-import { useViewPresetHotkeys } from "./useViewPresetHotkeys";
+import { ZoomToggle } from "./ZoomToggle";
 
 interface Props {
 	playerId: string;
@@ -126,15 +126,6 @@ export function GameScreen({
 			lastCashRef.current = cash;
 		},
 	});
-
-	const hotkeysEnabled =
-		!isRenaming &&
-		!activePrompt &&
-		!starUpgrade &&
-		!inspectedCell &&
-		!inspectedSim &&
-		!pendingShaftErase;
-	useViewPresetHotkeys(sceneRef, hotkeysEnabled);
 
 	const handleCellClick = useCallback(
 		(x: number, y: number, shift: boolean) => {
@@ -336,6 +327,7 @@ export function GameScreen({
 					sceneRef={sceneRef}
 					sceneReady={sceneReady}
 				/>
+				<ZoomToggle sceneRef={sceneRef} sceneReady={sceneReady} />
 			</div>
 
 			{activePrompt && (
@@ -398,6 +390,12 @@ export function GameScreen({
 			<SimInspectionDialog
 				sim={inspectedSim}
 				onClose={() => setInspectedSim(null)}
+				onFind={() => {
+					if (inspectedSim) {
+						sceneRef.current?.findSim(inspectedSim);
+						setInspectedSim(null);
+					}
+				}}
 			/>
 
 			<GameToasts toasts={toasts} />

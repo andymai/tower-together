@@ -21,7 +21,6 @@ import {
 	DAY_TICK_MAX,
 	GRID_HEIGHT,
 	GRID_WIDTH,
-	GROUND_Y,
 	type SimStateData,
 	TILE_WIDTHS,
 	UNDERGROUND_FLOORS,
@@ -387,6 +386,9 @@ export class GameScene extends Scene {
 	private grid: Map<string, string> = new Map();
 	// Bumped whenever the placed-tile silhouette changes (used by the minimap).
 	private cellRevision = 0;
+	// Active "Find Person" indicator (red ▼ arrow). Cleared when the tween
+	// completes or when a new findSim call replaces it.
+	private findIndicator: GameObjects.Graphics | null = null;
 	// Keys of anchor cells only (used for rendering)
 	private anchorSet: Set<string> = new Set();
 	private anchorKeysByRow: Array<Set<string>> = Array.from(
@@ -1250,22 +1252,24 @@ export class GameScene extends Scene {
 		this.persistCameraView();
 	}
 
-	/** Center on the ground-floor lobby row (horizontally centered, current zoom preserved). */
-	applyPresetLobby(): void {
-		const cam = this.cameras?.main;
-		if (!cam || !this.sceneCreated) return;
-		const worldWidth = GRID_WIDTH * TILE_WIDTH;
-		const lobbyY = GROUND_Y * TILE_HEIGHT + TILE_HEIGHT / 2;
-		cam.centerOn(worldWidth / 2, lobbyY);
-		this.persistCameraView();
-	}
-
-	/** Iterate every occupied cell (anchor + overlay) for minimap rendering. */
-	*iterateOccupiedCells(): Generator<{ x: number; y: number }> {
+	/**
+	 * Iterate every occupied cell (anchor + overlay) for minimap rendering.
+	 * `evalLevel` is `undefined` for cells with no evaluation score (e.g.
+	 * stairs, lobbies) and 0–2 for evaluable rooms (matches binary semantics).
+	 */
+	*iterateOccupiedCells(): Generator<{
+		x: number;
+		y: number;
+		evalLevel: number | undefined;
+	}> {
 		for (const map of [this.grid, this.overlayGrid]) {
 			for (const key of map.keys()) {
 				const [xs, ys] = key.split(",");
-				yield { x: Number(xs), y: Number(ys) };
+				yield {
+					x: Number(xs),
+					y: Number(ys),
+					evalLevel: this.evalLevelMap.get(key),
+				};
 			}
 		}
 	}
@@ -1273,6 +1277,46 @@ export class GameScene extends Scene {
 	/** Monotonic counter that ticks when the placed-tile silhouette changes. */
 	getCellRevision(): number {
 		return this.cellRevision;
+	}
+
+	/**
+	 * SimTower's "Find Person" feature: scroll to the sim and flash a red
+	 * arrow above them for ~3 seconds. The position uses floorAnchor +
+	 * homeColumn — close enough as a snap target; the indicator stays at
+	 * the snapshot location even if the sim moves during the flash.
+	 */
+	findSim(sim: SimStateData): void {
+		const cam = this.cameras?.main;
+		if (!cam || !this.sceneCreated) return;
+		this.findIndicator?.destroy();
+		this.findIndicator = null;
+		const worldX = (sim.homeColumn + 0.5) * TILE_WIDTH;
+		const worldY = (sim.floorAnchor + 0.5) * TILE_HEIGHT;
+		this.centerCameraOnWorld(worldX, worldY);
+		this.persistCameraView();
+		const arrow = this.add.graphics();
+		arrow.setDepth(HOVER_DEPTH + 1);
+		arrow.fillStyle(0xff2b2b, 1);
+		// Downward triangle: tip at (worldX, worldY - 1px), base above it.
+		const halfBaseW = TILE_WIDTH * 0.6;
+		const heightPx = TILE_HEIGHT * 0.7;
+		arrow.beginPath();
+		arrow.moveTo(worldX, worldY - 1);
+		arrow.lineTo(worldX - halfBaseW, worldY - 1 - heightPx);
+		arrow.lineTo(worldX + halfBaseW, worldY - 1 - heightPx);
+		arrow.closePath();
+		arrow.fillPath();
+		this.findIndicator = arrow;
+		this.tweens.add({
+			targets: arrow,
+			alpha: 0,
+			duration: 3000,
+			ease: "Cubic.easeIn",
+			onComplete: () => {
+				if (this.findIndicator === arrow) this.findIndicator = null;
+				arrow.destroy();
+			},
+		});
 	}
 
 	update(_time: number, delta: number): void {

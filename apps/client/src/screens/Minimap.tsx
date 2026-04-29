@@ -15,12 +15,30 @@ interface Props {
 	sceneReady: boolean;
 }
 
+type MinimapTab = "edit" | "eval";
+
+const EVAL_TAB_COLORS: Record<number, string> = {
+	0: "#dd3333", // Terrible — red
+	1: "#dd9b00", // Good — yellow/amber
+	2: "#4488ff", // Excellent — blue
+};
+
 export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 	const [collapsed, setCollapsed] = useState<boolean>(
 		() => getTowerView(towerId).minimapCollapsed === true,
 	);
 	const [pos, setPos] = useState<{ x: number; y: number } | null>(
 		() => getTowerView(towerId).minimapPos ?? null,
+	);
+	const [activeTab, setActiveTab] = useState<MinimapTab>(
+		() => getTowerView(towerId).minimapTab ?? "edit",
+	);
+	const setActiveTabPersisted = useCallback(
+		(tab: MinimapTab) => {
+			setActiveTab(tab);
+			setTowerView(towerId, { minimapTab: tab });
+		},
+		[towerId],
 	);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const panelRef = useRef<HTMLDivElement | null>(null);
@@ -117,7 +135,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		if (!view.ready) return;
 
 		const cellRev = scene.getCellRevision();
-		const viewSig = `${view.scrollX}|${view.scrollY}|${view.zoom}|${view.viewWidth}|${view.viewHeight}`;
+		const viewSig = `${view.scrollX}|${view.scrollY}|${view.zoom}|${view.viewWidth}|${view.viewHeight}|${activeTab}`;
 		if (
 			cellRev === lastCellRevisionRef.current &&
 			viewSig === lastViewSigRef.current
@@ -140,17 +158,24 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 		ctx.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
 		ctx.clearRect(0, 0, cssW, cssH);
 
-		// Background (matches container so border is the only visible chrome).
-		ctx.fillStyle = "#181818";
+		// Background — semi-transparent so the dark-glass panel shows through
+		// without too much canvas/silhouette contrast loss.
+		ctx.fillStyle = "rgba(20, 28, 38, 0.95)";
 		ctx.fillRect(0, 0, cssW, cssH);
 
-		// Tower silhouette: tile cells as gray rectangles.
-		ctx.fillStyle = "#9aa8b8";
+		// Tower silhouette. Edit tab = uniform gray; Eval tab = colored by
+		// evalLevel where available (red/yellow/blue per SimTower manual),
+		// gray for non-evaluable cells (stairs, lobbies, infrastructure).
 		const tileW = Math.max(1, TILE_WIDTH * sx);
 		const tileH = Math.max(1, TILE_HEIGHT * sy);
+		const fallbackFill = "#9aa8b8";
 		for (const cell of scene.iterateOccupiedCells()) {
 			const px = cell.x * TILE_WIDTH * sx;
 			const py = cell.y * TILE_HEIGHT * sy;
+			ctx.fillStyle =
+				activeTab === "eval" && cell.evalLevel !== undefined
+					? (EVAL_TAB_COLORS[cell.evalLevel] ?? fallbackFill)
+					: fallbackFill;
 			ctx.fillRect(px, py, tileW, tileH);
 		}
 
@@ -178,7 +203,7 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			ctx.lineWidth = 1.5;
 			ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
 		}
-	}, [sceneRef]);
+	}, [sceneRef, activeTab]);
 
 	// Animation loop: poll scene state every frame while uncollapsed.
 	useEffect(() => {
@@ -266,129 +291,157 @@ export function Minimap({ towerId, sceneRef, sceneReady }: Props) {
 			onPointerUp={handlePanelPointerUp}
 			onPointerCancel={handlePanelPointerUp}
 		>
-			<div
-				style={
-					collapsed ? { ...styles.header, borderBottom: "none" } : styles.header
-				}
-				title="Drag to reposition"
-			>
+			{collapsed ? (
 				<button
 					type="button"
-					style={styles.collapseBtn}
+					style={styles.expandPill}
 					onClick={toggleCollapsed}
-					title={collapsed ? "Show minimap" : "Hide minimap"}
+					title="Show map"
 				>
-					{collapsed ? "▴ Map" : "▾ Map"}
+					▴ Map
 				</button>
-				{!collapsed && (
-					<div style={styles.presetButtons}>
+			) : (
+				<>
+					<div style={styles.header} title="Drag to reposition">
+						<span style={styles.titleLabel}>Map</span>
 						<button
 							type="button"
-							style={styles.presetBtn}
-							onClick={() => sceneRef.current?.applyPresetFit()}
-							title="Fit tower (F)"
+							style={styles.closeBtn}
+							onClick={toggleCollapsed}
+							title="Close map"
+							aria-label="Close map"
 						>
-							Fit
-						</button>
-						<button
-							type="button"
-							style={styles.presetBtn}
-							onClick={() => sceneRef.current?.applyPresetActualSize()}
-							title="Actual size (1)"
-						>
-							1×
-						</button>
-						<button
-							type="button"
-							style={styles.presetBtn}
-							onClick={() => sceneRef.current?.applyPresetLobby()}
-							title="Jump to lobby (L)"
-						>
-							Lobby
+							✕
 						</button>
 					</div>
-				)}
-			</div>
-			{!collapsed && (
-				<canvas
-					ref={(el) => {
-						canvasRef.current = el;
-						if (el) {
-							el.width = MINIMAP_WIDTH * PIXEL_RATIO;
-							el.height = MINIMAP_HEIGHT * PIXEL_RATIO;
-						}
-					}}
-					style={styles.canvas}
-					onPointerDown={handlePointerDown}
-					onPointerMove={handlePointerMove}
-					onPointerUp={handlePointerUp}
-					onPointerCancel={handlePointerUp}
-				/>
+					<div style={styles.tabBar}>
+						{(["edit", "eval"] as const).map((id) => {
+							const active = activeTab === id;
+							return (
+								<button
+									key={id}
+									type="button"
+									style={
+										active ? { ...styles.tab, ...styles.tabActive } : styles.tab
+									}
+									onClick={() => setActiveTabPersisted(id)}
+								>
+									{id === "edit" ? "Edit" : "Eval"}
+								</button>
+							);
+						})}
+					</div>
+					<div style={styles.canvasWrapper}>
+						<canvas
+							ref={(el) => {
+								canvasRef.current = el;
+								if (el) {
+									el.width = MINIMAP_WIDTH * PIXEL_RATIO;
+									el.height = MINIMAP_HEIGHT * PIXEL_RATIO;
+								}
+							}}
+							style={styles.canvas}
+							onPointerDown={handlePointerDown}
+							onPointerMove={handlePointerMove}
+							onPointerUp={handlePointerUp}
+							onPointerCancel={handlePointerUp}
+						/>
+					</div>
+				</>
 			)}
 		</div>
 	);
 }
 
-// Minimal styling to match the README's reverse-engineered-tool aesthetic:
-// no blur, no rounded corners, no drop shadow — just a 1px border, a single
-// solid background, and small monospace-feeling controls.
+// Dark-glass styling matching the existing buildPanel/debugPanel HUD chrome.
 const containerBase: React.CSSProperties = {
 	position: "absolute",
 	bottom: PADDING,
 	left: PADDING,
 	zIndex: 70,
-	background: "#181818",
-	border: "1px solid #444",
+	background: "rgba(14, 18, 24, 0.9)",
+	border: "1px solid rgba(123, 148, 170, 0.35)",
+	backdropFilter: "blur(6px)",
 	pointerEvents: "auto",
 };
 
 const styles = {
 	container: {
 		...containerBase,
+		borderRadius: 8,
 		display: "flex",
 		flexDirection: "column",
 	},
 	containerCollapsed: {
 		...containerBase,
+		borderRadius: 6,
 	},
 	header: {
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "space-between",
 		gap: 8,
-		padding: "2px 4px",
-		borderBottom: "1px solid #333",
+		padding: "4px 6px 4px 10px",
 		cursor: "grab",
 		touchAction: "none",
 	},
-	collapseBtn: {
+	titleLabel: {
+		color: "#d9e7f2",
+		fontSize: 11,
+		fontWeight: 700,
+		letterSpacing: "0.08em",
+		textTransform: "uppercase",
+	},
+	closeBtn: {
 		background: "transparent",
 		border: "none",
-		color: "#bbb",
+		color: "#aab8c2",
+		fontSize: 14,
+		lineHeight: 1,
+		cursor: "pointer",
+		padding: "0 4px",
+	},
+	expandPill: {
+		background: "transparent",
+		border: "none",
+		color: "#aab8c2",
+		fontSize: 11,
+		fontWeight: 700,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+		cursor: "pointer",
+		padding: "2px 6px",
+	},
+	tabBar: {
+		display: "flex",
+		gap: 0,
+		padding: "0 6px",
+		borderBottom: "1px solid rgba(123, 148, 170, 0.2)",
+	},
+	tab: {
+		padding: "3px 10px",
+		border: "none",
+		background: "transparent",
+		color: "#7b8a99",
 		fontSize: 10,
 		fontWeight: 600,
 		letterSpacing: "0.04em",
 		textTransform: "uppercase",
 		cursor: "pointer",
-		padding: 0,
+		borderBottom: "2px solid transparent",
 	},
-	presetButtons: {
-		display: "flex",
-		gap: 6,
+	tabActive: {
+		color: "#d9e7f2",
+		borderBottom: "2px solid #3b82f6",
 	},
-	presetBtn: {
-		padding: 0,
-		border: "none",
-		background: "transparent",
-		color: "#888",
-		fontSize: 10,
-		fontWeight: 500,
-		cursor: "pointer",
+	canvasWrapper: {
+		padding: 6,
 	},
 	canvas: {
 		display: "block",
 		width: MINIMAP_WIDTH,
 		height: MINIMAP_HEIGHT,
+		borderRadius: 4,
 		cursor: "crosshair",
 		touchAction: "none",
 	},

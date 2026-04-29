@@ -48,6 +48,8 @@ interface TowerView {
 	minimapCollapsed?: boolean;
 	/** Viewport pixel coords for the top-left of the minimap panel. */
 	minimapPos?: { x: number; y: number };
+	/** Which minimap tab is active: silhouette ("edit") or eval-colored ("eval"). */
+	minimapTab?: "edit" | "eval";
 }
 
 export function getTowerView(towerId: string): TowerView {
